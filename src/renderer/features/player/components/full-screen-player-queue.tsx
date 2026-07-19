@@ -29,12 +29,6 @@ const ButterchurnVisualizer = lazy(() =>
     })),
 );
 
-const BlobVisualizer = lazy(() =>
-    import('../../visualizer/components/blob/visualizer').then((module) => ({
-        default: module.Visualizer,
-    })),
-);
-
 export const FullScreenPlayerQueue = () => {
     const { t } = useTranslation();
     const { activeTab, opacity } = useFullScreenPlayerStore();
@@ -128,9 +122,7 @@ export const FullScreenPlayerQueue = () => {
                 <Lyrics fadeOutNoLyricsMessage={false} />
             ) : activeTab === 'visualizer' && canShowVisualizer ? (
                 <Suspense fallback={<></>}>
-                    {visualizerType === 'blob' ? (
-                        <BlobVisualizer />
-                    ) : visualizerType === 'butterchurn' ? (
+                    {visualizerType === 'butterchurn' ? (
                         <ButterchurnVisualizer />
                     ) : (
                         <AudioMotionAnalyzerVisualizer />

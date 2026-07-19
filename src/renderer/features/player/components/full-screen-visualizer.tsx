@@ -15,12 +15,6 @@ import {
 } from '/@/renderer/store/settings.store';
 import { Platform } from '/@/shared/types/types';
 
-const BlobVisualizer = lazy(() =>
-    import('../../visualizer/components/blob/visualizer').then((module) => ({
-        default: module.Visualizer,
-    })),
-);
-
 const AudioMotionAnalyzerVisualizer = lazy(() =>
     import('../../visualizer/components/audiomotionanalyzer/visualizer').then((module) => ({
         default: module.Visualizer,
@@ -164,9 +158,7 @@ export const FullScreenVisualizer = () => {
             <div className={styles.visualizerContainer}>
                 {canShowVisualizer ? (
                     <Suspense fallback={<></>}>
-                        {visualizerType === 'blob' ? (
-                            <BlobVisualizer />
-                        ) : visualizerType === 'butterchurn' ? (
+                        {visualizerType === 'butterchurn' ? (
                             <ButterchurnVisualizer />
                         ) : (
                             <AudioMotionAnalyzerVisualizer />

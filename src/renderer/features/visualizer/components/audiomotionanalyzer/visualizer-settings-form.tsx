@@ -199,7 +199,6 @@ export const VisualizerSettingsForm = () => {
         () => [
             { label: 'AudioMotion Analyzer', value: 'audiomotionanalyzer' },
             { label: 'Butterchurn', value: 'butterchurn' },
-            { label: 'Blob', value: 'blob' },
         ],
         [],
     );
@@ -207,7 +206,7 @@ export const VisualizerSettingsForm = () => {
     const handleTypeChange = (value: string) => {
         setSettings({
             visualizer: {
-                type: value as 'audiomotionanalyzer' | 'blob' | 'butterchurn',
+                type: value as 'audiomotionanalyzer' | 'butterchurn',
             },
         });
     };

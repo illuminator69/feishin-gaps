@@ -464,7 +464,7 @@ const ButterchurnSettingsSchema = z.object({
 const VisualizerSettingsSchema = z.object({
     audiomotionanalyzer: AudioMotionAnalyzerSettingsSchema,
     butterchurn: ButterchurnSettingsSchema,
-    type: z.enum(['audiomotionanalyzer', 'butterchurn', 'blob']),
+    type: z.enum(['audiomotionanalyzer', 'butterchurn']),
 });
 
 export enum HomeFeatureStyle {
@@ -2113,7 +2113,7 @@ const initialState: SettingsState = {
             randomizeNextPreset: true,
             selectedPresets: [],
         },
-        type: 'blob',
+        type: 'audiomotionanalyzer',
     },
     window: {
         disableAutoUpdate: false,
@@ -2671,10 +2671,18 @@ export const useSettingsStore = createWithEqualityFn<SettingsSlice>()(
                     }
                 }
 
+                if (version < 32) {
+                    // The custom 'blob' visualizer was removed; move anyone on it to a
+                    // still-available visualizer.
+                    if ((state.visualizer.type as string) === 'blob') {
+                        state.visualizer.type = 'audiomotionanalyzer';
+                    }
+                }
+
                 return persistedState;
             },
             name: 'store_settings',
-            version: 31,
+            version: 32,
         },
     ),
 );

@@ -48,12 +48,6 @@ const ButterchurnVisualizer = lazy(() =>
     })),
 );
 
-const BlobVisualizer = lazy(() =>
-    import('../../visualizer/components/blob/visualizer').then((module) => ({
-        default: module.Visualizer,
-    })),
-);
-
 export const SidebarPlayQueue = () => {
     const tableRef = useRef<ItemListHandle | null>(null);
     const [search, setSearch] = useState<string | undefined>(undefined);
@@ -398,9 +392,7 @@ const VisualizerPanel = () => {
         <div className={styles.visualizerSection}>
             <PanelReorderControls panelType="visualizer" />
             <Suspense fallback={<></>}>
-                {visualizerType === 'blob' ? (
-                    <BlobVisualizer />
-                ) : visualizerType === 'butterchurn' ? (
+                {visualizerType === 'butterchurn' ? (
                     <ButterchurnVisualizer />
                 ) : (
                     <AudioMotionAnalyzerVisualizer />
@@ -463,9 +455,7 @@ const CombinedLyricsAndVisualizerPanel = () => {
                     }}
                 >
                     <Suspense fallback={<></>}>
-                        {visualizerType === 'blob' ? (
-                            <BlobVisualizer />
-                        ) : visualizerType === 'butterchurn' ? (
+                        {visualizerType === 'butterchurn' ? (
                             <ButterchurnVisualizer />
                         ) : (
                             <AudioMotionAnalyzerVisualizer />
