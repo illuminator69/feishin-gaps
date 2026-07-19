@@ -31,7 +31,6 @@ export const PlayerbarSlider = () => {
 
     const formattedDuration = formatDuration(songDuration * 1000 || 0);
     const formattedTimeRemaining = formatDuration((currentTime - songDuration) * 1000 || 0);
-    const formattedTime = formatDuration(currentTime * 1000 || 0);
 
     const showTimeRemaining = useAppStore((state) => state.showTimeRemaining);
     const { setShowTimeRemaining } = useAppStoreActions();
@@ -42,7 +41,7 @@ export const PlayerbarSlider = () => {
         <>
             <div className={styles.sliderContainer}>
                 <div className={styles.sliderValueWrapper}>
-                    <ScrobbleStatus formattedTime={formattedTime} />
+                    <ScrobbleStatus />
                 </div>
                 <div className={styles.sliderWrapper}>
                     {isWaveform ? (

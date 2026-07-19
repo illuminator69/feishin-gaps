@@ -222,6 +222,7 @@ export const PlayQueue = forwardRef<ItemListHandle, QueueProps>(
                 <ItemTableList
                     activeRowId={isRemoteActive ? `remote:${remoteIndex}` : currentSongUniqueId}
                     autoFitColumns={table.autoFitColumns}
+                    autoScrollToActiveRow={followCurrentSong}
                     CellComponent={ItemTableListColumn}
                     columns={table.columns}
                     data={filteredData}
