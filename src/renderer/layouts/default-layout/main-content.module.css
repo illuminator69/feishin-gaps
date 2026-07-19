@@ -6,19 +6,20 @@
     grid-template-rows: 1fr;
     gap: 0;
     background: var(--theme-colors-background);
-}
 
-/*
- * Expressive motion: smoothly tween the grid tracks when the left sidebar minimizes or
- * the side-queue opens/collapses. Gated on data-motion so OFF snaps as before; suppressed
- * while dragging a resize handle (data-resizing) so live resize stays 1:1 with the cursor.
- * Modern Chromium interpolates grid-template track lists across count changes (added/removed
- * tracks animate from a used size of 0), which covers the 2↔3 column queue toggle too.
- */
-:global(:root[data-motion='true']) .main-content-container:not([data-resizing='true']) {
-    transition:
-        grid-template-columns var(--motion-duration) var(--motion-ease),
-        grid-template-rows var(--motion-duration) var(--motion-ease);
+    /*
+     * Expressive motion: smoothly tween the grid tracks when the left sidebar minimizes or
+     * the side-queue opens/collapses. Gated on data-motion so OFF snaps as before; suppressed
+     * while dragging a resize handle (data-resizing) so live resize stays 1:1 with the cursor.
+     * Modern Chromium interpolates grid-template track lists across count changes (added /
+     * removed tracks animate from a used size of 0), which covers the 2↔3 column queue toggle.
+     * Mirrors the fork's Haze pattern (`:root[data-*] &`) so it compiles the same way.
+     */
+    :root[data-motion='true'] &:not([data-resizing='true']) {
+        transition:
+            grid-template-columns var(--motion-duration) var(--motion-ease),
+            grid-template-rows var(--motion-duration) var(--motion-ease);
+    }
 }
 
 .main-content-container.shell {
