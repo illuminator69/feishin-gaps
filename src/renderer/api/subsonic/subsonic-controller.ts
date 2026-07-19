@@ -1443,14 +1443,7 @@ export const SubsonicController: InternalControllerEndpoint = {
                 if (sonicRes.status === 200 && sonicRes.body.sonicMatch?.length) {
                     return sonicRes.body.sonicMatch.reduce<Song[]>((acc, match) => {
                         if (match.entry.id !== query.songId) {
-                            acc.push(
-                                ssNormalize.song(
-                                    match.entry,
-                                    apiClientProps.server,
-                                    context?.pathReplace,
-                                    context?.pathReplaceWith,
-                                ),
-                            );
+                            acc.push(ssNormalize.song(match.entry, apiClientProps.server));
                         }
 
                         return acc;
@@ -1485,7 +1478,7 @@ export const SubsonicController: InternalControllerEndpoint = {
         }, []);
     },
     getSonicPath: async (args) => {
-        const { apiClientProps, context, query } = args;
+        const { apiClientProps, query } = args;
 
         const res = await ssApiClient(apiClientProps).findSonicPath({
             query: {
@@ -1504,12 +1497,7 @@ export const SubsonicController: InternalControllerEndpoint = {
         }
 
         return res.body.sonicMatch.map((match) =>
-            ssNormalize.song(
-                match.entry,
-                apiClientProps.server,
-                context?.pathReplace,
-                context?.pathReplaceWith,
-            ),
+            ssNormalize.song(match.entry, apiClientProps.server),
         );
     },
     getSongDetail: async (args) => {

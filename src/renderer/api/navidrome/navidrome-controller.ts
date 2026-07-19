@@ -783,12 +783,7 @@ export const NavidromeController: InternalControllerEndpoint = {
                     return sonicRes.body.sonicMatch
                         .filter((match) => match.entry.id !== query.songId)
                         .map((match) =>
-                            ssNormalize.song(
-                                match.entry,
-                                apiClientProps.server,
-                                args.context?.pathReplace,
-                                args.context?.pathReplaceWith,
-                            ),
+                            ssNormalize.song(match.entry, apiClientProps.server),
                         );
                 }
             } catch (error) {
