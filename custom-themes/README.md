@@ -16,6 +16,13 @@ The glass treatment is the frosted-surface part of the built-in **Glassy Dark** 
 onto the Catppuccin palettes. `catppuccin-glassy.css` is written in terms of `--theme-colors-*`
 so the one file adapts to whichever Catppuccin palette is active (dark Mocha or light Latte).
 
+> **Note:** the Catppuccin palettes are embedded directly in each JSON's `colors` block rather
+> than pulled via `extends`. In this Feishin build, `extends` pointing at a *built-in* theme id
+> is effectively a no-op — `getAppTheme` only merges the shared **default** (dark) palette with
+> the theme's own `colors`, so a theme with no `colors` renders default-dark regardless of
+> `extends`. The `extends` keys are kept for intent/forward-compat; the `colors` blocks are what
+> actually make Latte light and Mocha its Catppuccin tones.
+
 ## Install
 
 Copy all three files into the app's Themes folder (JSON at the root):
