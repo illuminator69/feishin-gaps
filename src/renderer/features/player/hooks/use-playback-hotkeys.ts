@@ -50,8 +50,12 @@ export const usePlaybackHotkeys = () => {
             {
                 binding: bindings.next,
                 handler: () => {
-                    if (!sendRemote('next')) player.mediaNext();
+                    if (!sendRemote('next')) player.mediaNext(false);
                 },
+            },
+            {
+                binding: bindings.nextAlbum,
+                handler: () => player.mediaNext(true),
             },
             {
                 binding: bindings.pause,
@@ -74,8 +78,12 @@ export const usePlaybackHotkeys = () => {
             {
                 binding: bindings.previous,
                 handler: () => {
-                    if (!sendRemote('previous')) player.mediaPrevious();
+                    if (!sendRemote('previous')) player.mediaPrevious(false);
                 },
+            },
+            {
+                binding: bindings.previousAlbum,
+                handler: () => player.mediaPrevious(true),
             },
             {
                 binding: bindings.skipBackward,

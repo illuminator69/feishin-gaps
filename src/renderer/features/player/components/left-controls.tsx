@@ -286,6 +286,7 @@ export const LeftControls = () => {
                                     }}
                                     rootTextProps={{
                                         ...JOINED_ARTISTS_MUTED_PROPS.rootTextProps,
+                                        className: styles.joinedArtists,
                                         size: 'md',
                                     }}
                                 />

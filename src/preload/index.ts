@@ -3,6 +3,7 @@ import { contextBridge, webUtils } from 'electron';
 import { audioMuse } from './audiomuse';
 import { autodiscover } from './autodiscover';
 import { browser } from './browser';
+import { customThemes } from './custom-themes';
 import { discordRpc } from './discord-rpc';
 import { downloads } from './downloads';
 import { hub } from './hub';
@@ -20,6 +21,7 @@ const api = {
     audioMuse,
     autodiscover,
     browser,
+    customThemes,
     discordRpc,
     downloads,
     getPathForFile: webUtils.getPathForFile,

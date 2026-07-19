@@ -66,12 +66,13 @@ export interface PlayerContext {
     clearQueue: () => void;
     clearSelected: (items: QueueSong[]) => void;
     decreaseVolume: (amount: number) => void;
+    getQueue: () => QueueSong[];
     increaseVolume: (amount: number) => void;
-    mediaNext: () => void;
+    mediaNext: (toNextAlbum: boolean) => void;
     mediaPause: () => void;
     mediaPlay: (id?: string) => void;
     mediaPlayByIndex: (index: number) => void;
-    mediaPrevious: () => void;
+    mediaPrevious: (toPreviousAlbum: boolean) => void;
     mediaSeekToTimestamp: (timestamp: number) => void;
     mediaSkipBackward: () => void;
     mediaSkipForward: () => void;
@@ -101,6 +102,7 @@ export const PlayerContext = createContext<PlayerContext>({
     clearQueue: () => {},
     clearSelected: () => {},
     decreaseVolume: () => {},
+    getQueue: () => [],
     increaseVolume: () => {},
     mediaNext: () => {},
     mediaPause: () => {},
@@ -593,6 +595,15 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         [storeActions],
     );
 
+    const getQueue = useCallback(() => {
+        logFn.debug(logMsg[LogCategory.PLAYER].clearQueue, {
+            category: LogCategory.PLAYER,
+        });
+
+        const queue = storeActions.getQueue();
+        return queue.items;
+    }, [storeActions]);
+
     const increaseVolume = useCallback(
         (amount: number) => {
             if (isRemoteSessionActive()) {
@@ -610,17 +621,20 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         [storeActions],
     );
 
-    const mediaNext = useCallback(() => {
-        // When playback is on another navi-connect device, the playerbar's
-        // controls drive the session instead of the (paused) local player.
-        if (remoteAct('next')) return;
+    const mediaNext = useCallback(
+        (toNextAlbum: boolean) => {
+            // When playback is on another navi-connect device, the playerbar's
+            // controls drive the session instead of the (paused) local player.
+            if (remoteAct('next')) return;
 
-        logFn.debug(logMsg[LogCategory.PLAYER].mediaNext, {
-            category: LogCategory.PLAYER,
-        });
+            logFn.debug(logMsg[LogCategory.PLAYER].mediaNext, {
+                category: LogCategory.PLAYER,
+            });
 
-        storeActions.mediaNext();
-    }, [storeActions]);
+            storeActions.mediaNext(toNextAlbum);
+        },
+        [storeActions],
+    );
 
     const mediaPause = useCallback(() => {
         if (remoteAct('pause')) return;
@@ -670,15 +684,18 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         [storeActions],
     );
 
-    const mediaPrevious = useCallback(() => {
-        if (remoteAct('previous')) return;
+    const mediaPrevious = useCallback(
+        (toPreviousAlbum: boolean) => {
+            if (remoteAct('previous')) return;
 
-        logFn.debug(logMsg[LogCategory.PLAYER].mediaPrevious, {
-            category: LogCategory.PLAYER,
-        });
+            logFn.debug(logMsg[LogCategory.PLAYER].mediaPrevious, {
+                category: LogCategory.PLAYER,
+            });
 
-        storeActions.mediaPrevious();
-    }, [storeActions]);
+            storeActions.mediaPrevious(toPreviousAlbum);
+        },
+        [storeActions],
+    );
 
     const mediaStop = useCallback(
         (options?: { reset?: boolean }) => {
@@ -940,6 +957,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             clearQueue,
             clearSelected,
             decreaseVolume,
+            getQueue,
             increaseVolume,
             mediaNext,
             mediaPause,
@@ -974,6 +992,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             clearQueue,
             clearSelected,
             decreaseVolume,
+            getQueue,
             increaseVolume,
             mediaNext,
             mediaPause,
