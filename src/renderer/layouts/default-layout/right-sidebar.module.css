@@ -4,6 +4,10 @@
     flex-direction: column;
     grid-area: right-sidebar;
     height: 100%;
+    /* min-width:0 lets the grid column shrink to the animated 0px track when the queue
+       opens/closes under Expressive motion (see main-content.module.css); overflow:hidden
+       clips the panel so it reveals cleanly instead of overflowing. No effect otherwise. */
+    min-width: 0;
     min-height: 0;
     overflow: hidden;
     background: var(--theme-colors-background-alternate);

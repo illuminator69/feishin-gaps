@@ -20,6 +20,22 @@
             grid-template-columns var(--motion-duration) var(--motion-ease),
             grid-template-rows var(--motion-duration) var(--motion-ease);
     }
+
+    /*
+     * Smoothly animate OPENING/closing the side-queue. Adding the queue is a 2→3 column
+     * change, which the browser can't interpolate (it snaps). So under motion we keep a real
+     * third (right-sidebar) track that is 0px while the queue is closed; opening then only
+     * grows that track 0 → --right-sidebar-width, which DOES interpolate — the panel reveals
+     * and the main content slides instead of jumping. Only applies to the horizontal side
+     * queue; the base template already declares the 3 grid areas so the empty track is valid.
+     */
+    :root[data-motion='true'] &.sidebar-expanded:not(.right-expanded):not(.vertical-layout) {
+        grid-template-columns: var(--sidebar-width) 1fr 0px;
+    }
+
+    :root[data-motion='true'] &.sidebar-collapsed:not(.right-expanded):not(.vertical-layout) {
+        grid-template-columns: 80px 1fr 0px;
+    }
 }
 
 .main-content-container.shell {
