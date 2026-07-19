@@ -200,6 +200,7 @@ export const MainContent = ({ shell }: { shell?: boolean }) => {
                     sideQueueType === 'sideQueue' &&
                     sideQueueLayout === 'vertical',
             })}
+            data-resizing={isResizing || isResizingRight ? 'true' : undefined}
             id="main-content"
             ref={mainContentRef}
         >

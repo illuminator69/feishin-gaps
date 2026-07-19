@@ -360,3 +360,17 @@ button {
         color-mix(in srgb, var(--theme-colors-background) 80%, transparent)
     );
 }
+
+/*
+ * Expressive motion tokens for CSS-driven transitions (left-sidebar minimize, side-queue
+ * open/collapse, global-search category expand). Enabled by the Appearance "Expressive
+ * motion" toggle, which sets data-motion on the root (see use-app-theme.ts). When the
+ * toggle is off these vars are undefined and each call site keeps its instant fallback, so
+ * OFF is behaviourally identical to before. Duration + emphasized easing mirror the M3
+ * tokens in shared/components/animations/motion-tokens.ts so CSS and motion/react match.
+ */
+:root[data-motion='true'] {
+    --motion-duration: 300ms;
+    --motion-duration-long: 450ms;
+    --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+}

@@ -1,7 +1,10 @@
+import { AnimatePresence, motion } from 'motion/react';
 import { ReactNode, useCallback, useState } from 'react';
 
 import styles from './collapsible-command-group.module.css';
 
+import { DURATION, EASING } from '/@/shared/components/animations/motion-tokens';
+import { useExpressiveMotion } from '/@/shared/components/animations/use-expressive-motion';
 import { Group } from '/@/shared/components/group/group';
 import { Icon } from '/@/shared/components/icon/icon';
 import { Paper } from '/@/shared/components/paper/paper';
@@ -24,6 +27,7 @@ export function CollapsibleCommandGroup({
     subtitle,
 }: CollapsibleCommandGroupProps) {
     const [internalExpanded, setInternalExpanded] = useState(defaultExpanded);
+    const motionEnabled = useExpressiveMotion();
 
     const isControlled = controlledExpanded !== undefined && onToggle !== undefined;
     const expanded = isControlled ? controlledExpanded : internalExpanded;
@@ -63,7 +67,27 @@ export function CollapsibleCommandGroup({
                     </Group>
                 </div>
             </Paper>
-            {expanded && <div className={styles.items}>{children}</div>}
+            {motionEnabled ? (
+                <AnimatePresence initial={false}>
+                    {expanded && (
+                        <motion.div
+                            animate={{ height: 'auto', opacity: 1 }}
+                            className={styles.items}
+                            exit={{ height: 0, opacity: 0 }}
+                            initial={{ height: 0, opacity: 0 }}
+                            style={{ overflow: 'hidden' }}
+                            transition={{
+                                duration: DURATION.medium2 / 1000,
+                                ease: EASING.emphasized,
+                            }}
+                        >
+                            {children}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            ) : (
+                expanded && <div className={styles.items}>{children}</div>
+            )}
         </div>
     );
 }
