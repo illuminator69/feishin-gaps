@@ -17,7 +17,12 @@ import {
     useSynchronizedLyricsBase,
 } from '/@/renderer/features/lyrics/hooks/use-synchronized-lyrics-base';
 import { LyricLine } from '/@/renderer/features/lyrics/lyric-line';
-import { subscribePlayerStatus, usePlayerStoreBase } from '/@/renderer/store';
+import {
+    subscribePlayerStatus,
+    useHubIsRemoteActive,
+    useHubStore,
+    usePlayerStoreBase,
+} from '/@/renderer/store';
 import { subscribePlayerProgress, useTimestampStoreBase } from '/@/renderer/store/timestamp.store';
 import {
     FullLyricsMetadata,
@@ -70,8 +75,36 @@ export const SynchronizedLyrics = ({
 
     const normalizedLyrics = useMemo(() => normalizeLyrics(lyrics), [lyrics]);
     const rafRef = useRef<null | number>(null);
-    const statusRef = useRef(usePlayerStoreBase.getState().player.status);
     const lastSyncedTimeRef = useRef(0);
+
+    // navi-connect: when playback is live on another device, the lyrics view
+    // follows the REMOTE session's position/status (and click-to-seek, wired in
+    // use-synchronized-lyrics-base, drives it) instead of the frozen local player.
+    const isRemoteActive = useHubIsRemoteActive();
+    const isRemoteActiveRef = useRef(isRemoteActive);
+    useEffect(() => {
+        isRemoteActiveRef.current = isRemoteActive;
+    }, [isRemoteActive]);
+
+    const getTimestampSec = useCallback(() => {
+        if (isRemoteActiveRef.current) {
+            const s = useHubStore.getState();
+            const elapsed = s.remoteIsPlaying ? Date.now() - s.remotePositionAt : 0;
+            return Math.max(0, (s.remotePositionMs + elapsed) / 1000);
+        }
+        return useTimestampStoreBase.getState().timestamp;
+    }, []);
+
+    const getStatus = useCallback((): PlayerStatus => {
+        if (isRemoteActiveRef.current) {
+            return useHubStore.getState().remoteIsPlaying
+                ? PlayerStatus.PLAYING
+                : PlayerStatus.PAUSED;
+        }
+        return usePlayerStoreBase.getState().player.status;
+    }, []);
+
+    const statusRef = useRef(getStatus());
 
     const {
         rebuildLyricsData,
@@ -122,8 +155,7 @@ export const SynchronizedLyrics = ({
                 return;
             }
 
-            const timestamp = useTimestampStoreBase.getState().timestamp;
-            const timeInMs = timestamp * 1000 + delayMsRef.current;
+            const timeInMs = getTimestampSec() * 1000 + delayMsRef.current;
 
             if (Math.abs(timeInMs - lastSyncedTimeRef.current) > SEEK_DETECT_THRESHOLD_MS) {
                 resumeAutoscroll();
@@ -137,13 +169,12 @@ export const SynchronizedLyrics = ({
         };
 
         rafRef.current = requestAnimationFrame(runTick);
-    }, [delayMsRef, resumeAutoscroll, resumeEngineAutoscroll, stopRaf, syncAtTime]);
+    }, [delayMsRef, getTimestampSec, resumeAutoscroll, resumeEngineAutoscroll, stopRaf, syncAtTime]);
 
     const syncFromCurrentTimestamp = useCallback(() => {
-        const timestamp = useTimestampStoreBase.getState().timestamp;
-        const isPlaying = statusRef.current === PlayerStatus.PLAYING;
-        syncAtTime(timestamp * 1000 + delayMsRef.current, isPlaying, true);
-    }, [delayMsRef, syncAtTime]);
+        const isPlaying = getStatus() === PlayerStatus.PLAYING;
+        syncAtTime(getTimestampSec() * 1000 + delayMsRef.current, isPlaying, true);
+    }, [delayMsRef, getStatus, getTimestampSec, syncAtTime]);
 
     useEffect(() => {
         lyricRef.current = normalizedLyrics;
@@ -179,9 +210,7 @@ export const SynchronizedLyrics = ({
     }, [offsetMs, syncFromCurrentTimestamp]);
 
     useEffect(() => {
-        statusRef.current = usePlayerStoreBase.getState().player.status;
-
-        const unsubscribe = subscribePlayerStatus(({ status }) => {
+        const applyStatus = (status: PlayerStatus) => {
             statusRef.current = status;
 
             if (status !== PlayerStatus.PLAYING) {
@@ -191,13 +220,45 @@ export const SynchronizedLyrics = ({
             }
 
             startRaf();
+        };
+
+        applyStatus(getStatus());
+
+        const unsubLocalStatus = subscribePlayerStatus(({ status }) => {
+            // In a remote session the remote device drives play/pause.
+            if (isRemoteActiveRef.current) return;
+            applyStatus(status);
         });
 
-        return unsubscribe;
-    }, [startRaf, stopRaf, syncFromCurrentTimestamp]);
+        // Mirror the remote session's play/pause and ~1 Hz progress frames.
+        let lastRemotePlaying = useHubStore.getState().remoteIsPlaying;
+        let lastRemotePositionAt = useHubStore.getState().remotePositionAt;
+        const unsubHub = useHubStore.subscribe((s) => {
+            if (!isRemoteActiveRef.current) return;
+
+            if (s.remoteIsPlaying !== lastRemotePlaying) {
+                lastRemotePlaying = s.remoteIsPlaying;
+                applyStatus(s.remoteIsPlaying ? PlayerStatus.PLAYING : PlayerStatus.PAUSED);
+            }
+
+            // A fresh progress frame while paused (seek / track change) → resync.
+            if (s.remotePositionAt !== lastRemotePositionAt) {
+                lastRemotePositionAt = s.remotePositionAt;
+                if (!s.remoteIsPlaying) syncFromCurrentTimestamp();
+            }
+        });
+
+        return () => {
+            unsubLocalStatus();
+            unsubHub();
+        };
+    }, [getStatus, isRemoteActive, startRaf, stopRaf, syncFromCurrentTimestamp]);
 
     useEffect(() => {
         const unsubscribe = subscribePlayerProgress(({ timestamp }) => {
+            // Remote progress is handled via the hub-store subscription above.
+            if (isRemoteActiveRef.current) return;
+
             const timeInMs = timestamp * 1000 + delayMsRef.current;
             const isPlaying = statusRef.current === PlayerStatus.PLAYING;
 

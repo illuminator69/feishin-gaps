@@ -1,6 +1,7 @@
 import isElectron from 'is-electron';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
+import { useRemoteSeek } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import {
     animateLyricsScrollTo,
     createAnimEngineState,
@@ -30,6 +31,7 @@ export const useSynchronizedLyricsBase = (settingsKey = 'default', offsetMs?: nu
     const lyricsSettings = useLyricsSettings();
     const displaySettings = useLyricsDisplaySettings(settingsKey);
     const { mediaSeekToTimestamp } = usePlayerActions();
+    const remoteSeek = useRemoteSeek();
 
     const settings = useMemo(
         () => ({
@@ -65,6 +67,10 @@ export const useSynchronizedLyricsBase = (settingsKey = 'default', offsetMs?: nu
 
     const handleSeek = useCallback(
         (time: number) => {
+            // In a navi-connect remote session, click-to-seek drives the remote
+            // device instead of the (paused) local player.
+            if (remoteSeek(time)) return;
+
             if (playbackType === PlayerType.LOCAL && mpvPlayer) {
                 mpvPlayer.seekTo(time);
             } else {
@@ -72,7 +78,7 @@ export const useSynchronizedLyricsBase = (settingsKey = 'default', offsetMs?: nu
                 mediaSeekToTimestamp(time);
             }
         },
-        [mediaSeekToTimestamp, playbackType],
+        [mediaSeekToTimestamp, playbackType, remoteSeek],
     );
 
     const handleLineClick = useCallback(
