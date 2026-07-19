@@ -10,6 +10,7 @@ import { WebPlayer } from '/@/renderer/features/player/audio-player/web-player';
 import { SleepTimerHook } from '/@/renderer/features/player/components/sleep-timer-button';
 import { AutoDJHook } from '/@/renderer/features/player/hooks/use-auto-dj';
 import { AutosaveHook } from '/@/renderer/features/player/hooks/use-autosave';
+import { MoodFlowSignalsHook } from '/@/renderer/features/player/hooks/use-mood-flow-signals';
 import { MediaSessionHook } from '/@/renderer/features/player/hooks/use-media-session';
 import { MPRISHook } from '/@/renderer/features/player/hooks/use-mpris';
 import { PlaybackHotkeysHook } from '/@/renderer/features/player/hooks/use-playback-hotkeys';
@@ -27,6 +28,7 @@ import {
     RadioMetadataHook,
     useIsRadioActive,
 } from '/@/renderer/features/radio/hooks/use-radio-player';
+import { HubHook } from '/@/renderer/features/hub/hooks/use-hub';
 import { RemoteHook } from '/@/renderer/features/remote/hooks/use-remote';
 import { VisualizerSystemAudioBridgeHook } from '/@/renderer/features/visualizer/components/visualizer-system-audio-bridge';
 import {
@@ -135,7 +137,9 @@ export const AudioPlayers = () => {
             <MediaSessionHook />
             <PlaybackHotkeysHook />
             <RemoteHook />
+            <HubHook />
             <AutoDJHook />
+            <MoodFlowSignalsHook />
             <QueueRestoreTimestampHook />
             <InitialTimestampRestoreHook />
             <UpdateCurrentSongHook />

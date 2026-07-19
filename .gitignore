@@ -5,3 +5,8 @@ out
 .eslintcache
 *.log*
 release
+
+# Local tooling / scratch (fork-only, not upstream)
+.claude/
+.codex-*/
+package-lock.json

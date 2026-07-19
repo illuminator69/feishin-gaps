@@ -1,3 +1,4 @@
+import { useEffectiveTranscode } from '/@/renderer/features/player/audio-player/hooks/use-effective-transcode';
 import type { RefObject } from 'react';
 
 import isElectron from 'is-electron';
@@ -57,7 +58,8 @@ export const MpvPlayerEngine = (props: MpvPlayerEngineProps) => {
     const hasPopulatedQueueRef = useRef<boolean>(false);
     const isMountedRef = useRef<boolean>(true);
 
-    const { mpvAudioDeviceId, transcode } = usePlaybackSettings();
+    const { mpvAudioDeviceId } = usePlaybackSettings();
+    const transcode = useEffectiveTranscode();
     const mpvExtraParameters = useSettingsStore((store) => store.playback.mpvExtraParameters);
     const mpvProperties = useSettingsStore((store) => store.playback.mpvProperties);
     const [reloadTrigger, setReloadTrigger] = useState(0);

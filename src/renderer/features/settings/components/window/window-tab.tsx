@@ -3,6 +3,7 @@ import { memo } from 'react';
 import { Fragment } from 'react/jsx-runtime';
 
 import { DiscordSettings } from '/@/renderer/features/settings/components/window/discord-settings';
+import { HubSettings } from '/@/renderer/features/settings/components/window/hub-settings';
 import { PasswordSettings } from '/@/renderer/features/settings/components/window/password-settings';
 import { RemoteSettings } from '/@/renderer/features/settings/components/window/remote-settings';
 import { WindowSettings } from '/@/renderer/features/settings/components/window/window-settings';
@@ -15,6 +16,7 @@ const sections = [
     { component: WindowSettings, key: 'window' },
     { component: DiscordSettings, key: 'discord' },
     { component: RemoteSettings, key: 'remote' },
+    { component: HubSettings, key: 'hub' },
     { component: PasswordSettings, hidden: !utils?.isLinux(), key: 'password' },
 ];
 

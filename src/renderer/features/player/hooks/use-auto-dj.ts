@@ -1,7 +1,14 @@
 import { useQueryClient } from '@tanstack/react-query';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 
+import { api } from '/@/renderer/api';
 import { eventEmitter } from '/@/renderer/events/event-emitter';
+import { isRemoteSessionActive } from '/@/renderer/features/hub/utils/remote-queue';
+import {
+    fetchAlchemyIds,
+    fetchFingerprintIds,
+} from '/@/renderer/features/player/auto-dj/audio-muse-source';
+import { getMoodFlowSignals } from '/@/renderer/features/player/auto-dj/mood-flow-signals';
 import { runAutoDjAlbumIds } from '/@/renderer/features/player/auto-dj/auto-dj-albums';
 import { runAutoDjSongs } from '/@/renderer/features/player/auto-dj/auto-dj-songs';
 import { useIsPlayerFetching, usePlayer } from '/@/renderer/features/player/context/player-context';
@@ -9,9 +16,11 @@ import {
     AUTO_DJ_STRATEGY,
     isShuffleEnabled,
     mapShuffledToQueueIndex,
+    useAudioMuseSettings,
     useAutoDJSettings,
     useCurrentServer,
     useCurrentServerId,
+    useHubStore,
     usePlayerStore,
     usePlayerStoreBase,
     useSettingsStore,
@@ -19,7 +28,7 @@ import {
 import { LogCategory, logFn } from '/@/renderer/utils/logger';
 import { logMsg } from '/@/renderer/utils/logger-message';
 import { hasFeature } from '/@/shared/api/utils';
-import { LibraryItem } from '/@/shared/types/domain-types';
+import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { ServerFeature } from '/@/shared/types/features-types';
 import { Play } from '/@/shared/types/types';
 
@@ -29,13 +38,69 @@ export const useAutoDJ = () => {
     const server = useCurrentServer();
     const player = usePlayer();
     const settings = useAutoDJSettings();
+    const audioMuse = useAudioMuseSettings();
     const isFetching = useIsPlayerFetching();
+    const remoteRunningRef = useRef(false);
 
     const hasSimilarSongsMusicFolder = hasFeature(server, ServerFeature.SIMILAR_SONGS_MUSIC_FOLDER);
 
     useEffect(() => {
         const albumStrategy = settings.albumStrategy ?? AUTO_DJ_STRATEGY.SIMILAR;
         const songStrategy = settings.songStrategy ?? AUTO_DJ_STRATEGY.SIMILAR;
+        const source = settings.autoplaySource ?? 'autoDj';
+
+        // Tier-2 top-up via the AudioMuse core API (Sonic Fingerprint / Mood Flow).
+        // Both resolve to song ids fetched + appended; fail-soft (empty = no-op).
+        const resolveSongsByIds = async (ids: string[]): Promise<Song[]> => {
+            if (!serverId || ids.length === 0) return [];
+
+            const songs = await Promise.all(
+                ids.map((id) =>
+                    api.controller
+                        .getSongDetail({ apiClientProps: { serverId }, query: { id } })
+                        .catch(() => null),
+                ),
+            );
+
+            return songs.filter((song): song is Song => Boolean(song));
+        };
+
+        const appendAudioMuse = async (
+            seedId: string,
+            existingIds: Set<string>,
+        ): Promise<boolean> => {
+            if (!serverId) return false;
+            let ids: string[];
+            if (source === 'fingerprint') {
+                ids = await fetchFingerprintIds(audioMuse, server, settings.itemCount);
+            } else {
+                // Mood Flow: drift toward play-throughs (ADD) and away from skips
+                // (SUBTRACT) captured from local playback by useMoodFlowSignals.
+                // Cold start (no signals yet) falls back to seeding with the
+                // current song — also the case for remote playback, which produces
+                // no local progress to classify.
+                const { addIds, subtractIds } = getMoodFlowSignals();
+                const seededAddIds = addIds.length > 0 ? addIds : [seedId];
+                ids = await fetchAlchemyIds(
+                    audioMuse,
+                    seededAddIds,
+                    subtractIds,
+                    settings.itemCount,
+                );
+            }
+
+            const newIds = ids.filter((id) => !existingIds.has(id));
+            if (newIds.length > 0) {
+                const songs = await resolveSongsByIds(newIds);
+                if (songs.length > 0) {
+                    player.addToQueueByData(songs, Play.LAST);
+                    eventEmitter.emit('AUTODJ_QUEUE_ADDED', { songCount: songs.length });
+                    return true;
+                }
+            }
+
+            return false;
+        };
 
         const unsubscribe = usePlayerStoreBase.subscribe(
             (state) => {
@@ -53,6 +118,13 @@ export const useAutoDJ = () => {
                 return { index, remaining, song: queue.items[index] };
             },
             async (properties) => {
+                // While another navi-connect device is the active receiver, the
+                // local player store is frozen — Auto DJ is driven off the hub
+                // session by the separate subscription below instead.
+                if (isRemoteSessionActive()) {
+                    return;
+                }
+
                 if (!settings.enabled) {
                     return;
                 }
@@ -72,6 +144,16 @@ export const useAutoDJ = () => {
 
                 try {
                     const queue = usePlayerStore.getState().getQueue();
+
+                    if (source !== 'autoDj') {
+                        const appended = await appendAudioMuse(
+                            properties.song.id,
+                            new Set(queue.items.map((item) => item.id)),
+                        );
+                        if (appended) {
+                            return;
+                        }
+                    }
 
                     const hasMusicFolder = server?.musicFolderId && server.musicFolderId.length > 0;
                     const musicFolderId =
@@ -156,14 +238,142 @@ export const useAutoDJ = () => {
             },
         );
 
-        return () => unsubscribe();
+        // navi-connect: drive Auto DJ off the HUB session when another device is
+        // the active receiver (the local player store doesn't advance then). The
+        // adds route to the remote session via the intercepted player context.
+        const runRemoteAutoDj = async (nowId: string) => {
+            if (remoteRunningRef.current || !serverId) {
+                return;
+            }
+            remoteRunningRef.current = true;
+
+            try {
+                // The hub track only carries an id — resolve the full song so the
+                // runner has genres/albumArtists/albumId for its fallbacks.
+                const seed = await api.controller
+                    .getSongDetail({ apiClientProps: { serverId }, query: { id: nowId } })
+                    .catch(() => null);
+                if (!seed) {
+                    return;
+                }
+
+                const remoteQueue = useHubStore.getState().remoteQueue;
+
+                if (source !== 'autoDj') {
+                    const appended = await appendAudioMuse(
+                        nowId,
+                        new Set(remoteQueue.map((track) => track.id)),
+                    );
+                    if (appended) {
+                        return;
+                    }
+                }
+
+                const hasMusicFolder = server?.musicFolderId && server.musicFolderId.length > 0;
+                const musicFolderId =
+                    hasMusicFolder && server?.musicFolderId ? server.musicFolderId : undefined;
+                const trySimilarSongs =
+                    !hasMusicFolder || (hasMusicFolder && hasSimilarSongsMusicFolder);
+
+                const runnerDepsBase = {
+                    itemCount: settings.itemCount,
+                    musicFolderId,
+                    queryClient,
+                    server,
+                    serverId,
+                    trySimilarSongs,
+                };
+
+                if (settings.mode === 'albums') {
+                    const albumsToAdd = await runAutoDjAlbumIds({
+                        ...runnerDepsBase,
+                        albumStrategy,
+                        currentSong: seed as unknown as QueueSong,
+                        // The hub queue carries album NAMES, not ids — best-effort
+                        // (album dedupe relies on ids), so pass an empty set.
+                        queueAlbumIdSet: new Set<string>(),
+                    });
+
+                    if (albumsToAdd.length > 0) {
+                        await player.addToQueueByFetch(
+                            serverId,
+                            albumsToAdd,
+                            LibraryItem.ALBUM,
+                            Play.LAST,
+                        );
+                        eventEmitter.emit('AUTODJ_QUEUE_ADDED', { songCount: albumsToAdd.length });
+                    }
+                    return;
+                }
+
+                const queueSongIdSet = new Set(remoteQueue.map((track) => track.id));
+                const songsToAdd = await runAutoDjSongs({
+                    ...runnerDepsBase,
+                    currentSong: seed as unknown as QueueSong,
+                    queueSongIdSet,
+                    songStrategy,
+                });
+
+                if (songsToAdd.length > 0) {
+                    player.addToQueueByData(songsToAdd, Play.LAST);
+                    eventEmitter.emit('AUTODJ_QUEUE_ADDED', { songCount: songsToAdd.length });
+                }
+            } catch (error) {
+                logFn.error(logMsg[LogCategory.PLAYER].autoPlayFailed, {
+                    category: LogCategory.PLAYER,
+                    meta: { error: (error as Error).message, songId: nowId },
+                });
+            } finally {
+                remoteRunningRef.current = false;
+            }
+        };
+
+        // useHubStore has no subscribeWithSelector middleware, so dedupe by hand:
+        // only act when the remote now-playing track or remaining count changes.
+        let lastRemoteSig = '';
+        const unsubscribeRemote = useHubStore.subscribe((state) => {
+            const isRemote =
+                state.connected &&
+                state.activeDeviceId !== null &&
+                state.myDeviceId !== null &&
+                state.activeDeviceId !== state.myDeviceId;
+            if (!isRemote) {
+                lastRemoteSig = '';
+                return;
+            }
+
+            const remaining = state.remoteQueue.length - state.remoteQueueIndex - 1;
+            const nowId = state.remoteQueue[state.remoteQueueIndex]?.id;
+            if (!nowId) {
+                return;
+            }
+
+            const sig = `${nowId}:${remaining}`;
+            if (sig === lastRemoteSig) {
+                return;
+            }
+            lastRemoteSig = sig;
+
+            if (!settings.enabled || remaining >= settings.timing) {
+                return;
+            }
+
+            void runRemoteAutoDj(nowId);
+        });
+
+        return () => {
+            unsubscribe();
+            unsubscribeRemote();
+        };
     }, [
+        audioMuse,
         hasSimilarSongsMusicFolder,
         isFetching,
         player,
         queryClient,
         server,
         serverId,
+        settings.autoplaySource,
         settings.enabled,
         settings.albumStrategy,
         settings.itemCount,

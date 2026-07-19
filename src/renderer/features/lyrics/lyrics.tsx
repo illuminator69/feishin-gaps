@@ -28,7 +28,8 @@ import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/
 import { useIsRadioActive } from '/@/renderer/features/radio/hooks/use-radio-player';
 import { ComponentErrorBoundary } from '/@/renderer/features/shared/components/component-error-boundary';
 import { queryClient } from '/@/renderer/lib/react-query';
-import { useLyricsSettings, usePlayerSong } from '/@/renderer/store';
+import { useRemoteAwarePlayerSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
+import { useLyricsSettings } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Center } from '/@/shared/components/center/center';
 import { Group } from '/@/shared/components/group/group';
@@ -42,7 +43,7 @@ type LyricsProps = {
 };
 
 export const Lyrics = ({ fadeOutNoLyricsMessage = true, settingsKey = 'default' }: LyricsProps) => {
-    const currentSong = usePlayerSong();
+    const currentSong = useRemoteAwarePlayerSong();
     const isRadioActive = useIsRadioActive();
 
     const isLyricsDisabled = isRadioActive;

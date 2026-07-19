@@ -17,7 +17,13 @@ import {
 } from '/@/renderer/features/player/utils';
 import { playlistsQueries } from '/@/renderer/features/playlists/api/playlists-api';
 import { songsQueries } from '/@/renderer/features/songs/api/songs-api';
-import { AddToQueueType, usePlayerActions, useSettingsStore } from '/@/renderer/store';
+import {
+    addToQueueTypeToRemoteMode,
+    enqueueToRemote,
+    isRemoteSessionActive,
+    remoteAct,
+} from '/@/renderer/features/hub/utils/remote-queue';
+import { AddToQueueType, useHubStore, usePlayerActions, useSettingsStore } from '/@/renderer/store';
 import { LogCategory, logFn } from '/@/renderer/utils/logger';
 import { logMsg } from '/@/renderer/utils/logger-message';
 import { shuffle as shuffleArray } from '/@/renderer/utils/shuffle';
@@ -118,6 +124,12 @@ export const PlayerContext = createContext<PlayerContext>({
     toggleShuffle: () => {},
 });
 
+/** Current volume (0-100) of the active remote device, for relative changes. */
+const remoteActiveVolume = (): number => {
+    const s = useHubStore.getState();
+    return s.devices.find((d) => d.id === s.activeDeviceId)?.volume ?? 100;
+};
+
 const getRootQueryKey = (itemType: LibraryItem, serverId: string) => {
     switch (itemType) {
         case LibraryItem.ALBUM:
@@ -190,6 +202,13 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         (data: Song[], type: AddToQueueType, playSongId?: string) => {
             const filters = useSettingsStore.getState().playback.filters;
             const filteredData = filterSongsByPlayerFilters(data, filters);
+
+            // When playback is on another navi-connect device, route to it
+            // instead of the (paused) local player.
+            if (isRemoteSessionActive()) {
+                void enqueueToRemote(filteredData, addToQueueTypeToRemoteMode(type));
+                return;
+            }
 
             if (typeof type === 'object' && 'edge' in type && type.edge !== null) {
                 const edge = type.edge === 'top' ? 'top' : 'bottom';
@@ -281,7 +300,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 const filters = useSettingsStore.getState().playback.filters;
                 const filteredSongs = filterSongsByPlayerFilters(sortedSongs, filters);
 
-                if (typeof type === 'object' && 'edge' in type && type.edge !== null) {
+                if (isRemoteSessionActive()) {
+                    await enqueueToRemote(filteredSongs, addToQueueTypeToRemoteMode(type));
+                } else if (typeof type === 'object' && 'edge' in type && type.edge !== null) {
                     const edge = type.edge === 'top' ? 'top' : 'bottom';
                     storeActions.addToQueueByUniqueId(filteredSongs, type.uniqueId, edge);
                 } else {
@@ -510,6 +531,11 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const decreaseVolume = useCallback(
         (amount: number) => {
+            if (isRemoteSessionActive()) {
+                remoteAct('volume', { level: Math.max(0, remoteActiveVolume() - amount) });
+                return;
+            }
+
             logFn.debug(logMsg[LogCategory.PLAYER].decreaseVolume, {
                 category: LogCategory.PLAYER,
                 meta: { amount },
@@ -522,6 +548,11 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const increaseVolume = useCallback(
         (amount: number) => {
+            if (isRemoteSessionActive()) {
+                remoteAct('volume', { level: Math.min(100, remoteActiveVolume() + amount) });
+                return;
+            }
+
             logFn.debug(logMsg[LogCategory.PLAYER].increaseVolume, {
                 category: LogCategory.PLAYER,
                 meta: { amount },
@@ -533,6 +564,10 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     );
 
     const mediaNext = useCallback(() => {
+        // When playback is on another navi-connect device, the playerbar's
+        // controls drive the session instead of the (paused) local player.
+        if (remoteAct('next')) return;
+
         logFn.debug(logMsg[LogCategory.PLAYER].mediaNext, {
             category: LogCategory.PLAYER,
         });
@@ -541,6 +576,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     }, [storeActions]);
 
     const mediaPause = useCallback(() => {
+        if (remoteAct('pause')) return;
+
         logFn.debug(logMsg[LogCategory.PLAYER].mediaPause, {
             category: LogCategory.PLAYER,
         });
@@ -550,6 +587,18 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const mediaPlay = useCallback(
         (id?: string) => {
+            // In a remote session the queue rows carry a `remote:<index>`
+            // sentinel uniqueId — a double-click on one means "jump there".
+            // A plain mediaPlay() (e.g. resume) just resumes the session.
+            if (isRemoteSessionActive()) {
+                if (id?.startsWith('remote:')) {
+                    remoteAct('jump', { index: Number(id.slice('remote:'.length)) });
+                } else {
+                    remoteAct('play');
+                }
+                return;
+            }
+
             logFn.debug(logMsg[LogCategory.PLAYER].mediaPlay, {
                 category: LogCategory.PLAYER,
                 meta: { id },
@@ -562,6 +611,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const mediaPlayByIndex = useCallback(
         (index: number) => {
+            if (remoteAct('jump', { index })) return;
+
             logFn.debug(logMsg[LogCategory.PLAYER].mediaPlayByIndex, {
                 category: LogCategory.PLAYER,
                 meta: { index },
@@ -573,6 +624,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     );
 
     const mediaPrevious = useCallback(() => {
+        if (remoteAct('previous')) return;
+
         logFn.debug(logMsg[LogCategory.PLAYER].mediaPrevious, {
             category: LogCategory.PLAYER,
         });
@@ -594,6 +647,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const mediaSeekToTimestamp = useCallback(
         (timestamp: number) => {
+            if (remoteAct('seek', { positionMs: Math.round(timestamp * 1000) })) return;
+
             logFn.debug(logMsg[LogCategory.PLAYER].mediaSeekToTimestamp, {
                 category: LogCategory.PLAYER,
                 meta: { timestamp },
@@ -657,6 +712,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     }, [storeActions]);
 
     const mediaTogglePlayPause = useCallback(() => {
+        if (remoteAct('playpause')) return;
+
         logFn.debug(logMsg[LogCategory.PLAYER].mediaTogglePlayPause, {
             category: LogCategory.PLAYER,
         });
@@ -670,6 +727,23 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 category: LogCategory.PLAYER,
                 meta: { edge, items, uniqueId },
             });
+
+            // Remote session: reorder via the hub (rows carry `remote:<i>` ids).
+            // Single-item moves only — the hub `move` act is a single from→to.
+            if (isRemoteSessionActive()) {
+                if (items.length === 1) {
+                    const from = Number(items[0]._uniqueId.slice('remote:'.length));
+                    const target = Number(uniqueId.slice('remote:'.length));
+                    if (!Number.isNaN(from) && !Number.isNaN(target)) {
+                        const desired = edge === 'bottom' ? target + 1 : target;
+                        // The hub pops `from` then inserts at `to`, so adjust for the
+                        // shift when moving an item downward.
+                        const to = from < desired ? desired - 1 : desired;
+                        if (to !== from) remoteAct('move', { from, to });
+                    }
+                }
+                return;
+            }
 
             storeActions.moveSelectedTo(items, uniqueId, edge);
         },
@@ -714,6 +788,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const setVolume = useCallback(
         (volume: number) => {
+            if (remoteAct('volume', { level: Math.round(volume) })) return;
+
             logFn.debug(logMsg[LogCategory.PLAYER].setVolume, {
                 category: LogCategory.PLAYER,
                 meta: { volume },
@@ -726,6 +802,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const setRepeat = useCallback(
         (repeat: PlayerRepeat) => {
+            // PlayerRepeat values ('none'/'all'/'one') match the hub's modes.
+            if (remoteAct('repeat', { mode: repeat })) return;
+
             logFn.debug(logMsg[LogCategory.PLAYER].setRepeat, {
                 category: LogCategory.PLAYER,
                 meta: { repeat },
@@ -738,6 +817,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const setShuffle = useCallback(
         (shuffle: PlayerShuffle) => {
+            if (remoteAct('shuffle', { on: shuffle === PlayerShuffle.TRACK })) return;
+
             logFn.debug(logMsg[LogCategory.PLAYER].setShuffle, {
                 category: LogCategory.PLAYER,
                 meta: { shuffle },
@@ -777,6 +858,13 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     );
 
     const toggleRepeat = useCallback(() => {
+        if (isRemoteSessionActive()) {
+            const cur = useHubStore.getState().remoteRepeat;
+            const next = cur === 'none' ? 'all' : cur === 'all' ? 'one' : 'none';
+            remoteAct('repeat', { mode: next });
+            return;
+        }
+
         logFn.debug(logMsg[LogCategory.PLAYER].toggleRepeat, {
             category: LogCategory.PLAYER,
         });
@@ -785,6 +873,11 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     }, [storeActions]);
 
     const toggleShuffle = useCallback(() => {
+        if (isRemoteSessionActive()) {
+            remoteAct('shuffle', { on: !useHubStore.getState().remoteShuffle });
+            return;
+        }
+
         logFn.debug(logMsg[LogCategory.PLAYER].toggleShuffle, {
             category: LogCategory.PLAYER,
         });

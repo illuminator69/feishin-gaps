@@ -10,9 +10,12 @@ import {
     useLyricsSettings,
     usePlaybackType,
     usePlayerActions,
-    usePlayerStatus,
 } from '/@/renderer/store';
-import { usePlayerTimestamp } from '/@/renderer/store/timestamp.store';
+import {
+    useRemoteAwareStatus,
+    useRemoteAwareTimestamp,
+    useRemoteSeek,
+} from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { FullLyricsMetadata, SynchronizedLyricsArray } from '/@/shared/types/domain-types';
 import { PlayerStatus, PlayerType } from '/@/shared/types/types';
 
@@ -56,13 +59,15 @@ export const SynchronizedLyrics = ({
                 : 0.95,
     };
     const { mediaSeekToTimestamp } = usePlayerActions();
-    const status = usePlayerStatus();
-    const timestamp = usePlayerTimestamp();
+    const status = useRemoteAwareStatus();
+    const timestamp = useRemoteAwareTimestamp();
+    const remoteSeek = useRemoteSeek();
 
     const effectiveOffsetMs = offsetMs ?? 0;
 
     const handleSeek = useCallback(
         (time: number) => {
+            if (remoteSeek(time)) return;
             if (playbackType === PlayerType.LOCAL && mpvPlayer) {
                 mpvPlayer.seekTo(time);
             } else {
@@ -70,7 +75,7 @@ export const SynchronizedLyrics = ({
                 mediaSeekToTimestamp(time);
             }
         },
-        [mediaSeekToTimestamp, playbackType],
+        [mediaSeekToTimestamp, playbackType, remoteSeek],
     );
 
     // const seeked = useSeeked();

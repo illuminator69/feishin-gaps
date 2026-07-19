@@ -217,6 +217,22 @@ export const contract = c.router({
             200: ssType._response.getSong,
         },
     },
+    getSonicSimilarTracks: {
+        method: 'GET',
+        path: 'getSonicSimilarTracks',
+        query: ssType._parameters.sonicSimilarTracks,
+        responses: {
+            200: ssType._response.sonicMatches,
+        },
+    },
+    findSonicPath: {
+        method: 'GET',
+        path: 'findSonicPath',
+        query: ssType._parameters.sonicPath,
+        responses: {
+            200: ssType._response.sonicMatches,
+        },
+    },
     getSongsByGenre: {
         method: 'GET',
         path: 'getSongsByGenre.view',

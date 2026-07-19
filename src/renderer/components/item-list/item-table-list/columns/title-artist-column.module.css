@@ -9,9 +9,17 @@
 
 .text-container {
     display: grid;
-    grid-template-rows: 1fr 1fr;
+    /* minmax(0, 1fr) + min-height:0 so the two lines never grow past the row
+       height (grid tracks default to min-height:auto, letting line-heights
+       overflow into adjacent rows — worst in compact rows / narrow columns
+       under display scaling). */
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
     gap: var(--theme-spacing-xs);
     min-width: 0;
+    height: 100%;
+    align-self: stretch;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .text-container.align-left {

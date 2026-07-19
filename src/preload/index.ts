@@ -1,8 +1,11 @@
 import { contextBridge, webUtils } from 'electron';
 
+import { audioMuse } from './audiomuse';
 import { autodiscover } from './autodiscover';
 import { browser } from './browser';
 import { discordRpc } from './discord-rpc';
+import { downloads } from './downloads';
+import { hub } from './hub';
 import { ipc } from './ipc';
 import { localSettings } from './local-settings';
 import { lyrics } from './lyrics';
@@ -14,10 +17,13 @@ import { visualizer } from './visualizer';
 
 // Custom APIs for renderer
 const api = {
+    audioMuse,
     autodiscover,
     browser,
     discordRpc,
+    downloads,
     getPathForFile: webUtils.getPathForFile,
+    hub,
     ipc,
     localSettings,
     lyrics,

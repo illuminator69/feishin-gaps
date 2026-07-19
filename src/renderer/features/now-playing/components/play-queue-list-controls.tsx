@@ -10,6 +10,7 @@ import { SONG_TABLE_COLUMNS } from '/@/renderer/components/item-list/item-table-
 import { ItemListHandle } from '/@/renderer/components/item-list/types';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { useRestoreQueue, useSaveQueue } from '/@/renderer/features/player/hooks/use-queue-restore';
+import { AudioMuseGeneratorChip } from '/@/renderer/features/sonic/components/audio-muse-generator-chip';
 import {
     ListConfigMenu,
     SONG_DISPLAY_TYPES,
@@ -54,6 +55,7 @@ export const PlayQueueListControls = ({
                 <QueueRestoreActions />
                 <QueuePlaybackIcons tableRef={tableRef} />
             </Group>
+            <AudioMuseGeneratorChip />
             <Divider h="60%" orientation="vertical" style={{ alignSelf: 'center' }} />
             <Box style={{ display: 'flex', flex: 1, minWidth: 0 }}>
                 <SearchInput

@@ -259,6 +259,9 @@ const TranscodingConfigSchema = z.object({
     bitrate: z.number().optional(),
     enabled: z.boolean(),
     format: z.string().optional(),
+    // When true, the transcode profile only applies while the connection is
+    // metered/constrained (cellular, data-saver, slow effective type).
+    meteredOnly: z.boolean().optional(),
 });
 
 const MpvSettingsSchema = z.object({
@@ -430,7 +433,7 @@ const ButterchurnSettingsSchema = z.object({
 const VisualizerSettingsSchema = z.object({
     audiomotionanalyzer: AudioMotionAnalyzerSettingsSchema,
     butterchurn: ButterchurnSettingsSchema,
-    type: z.enum(['audiomotionanalyzer', 'butterchurn']),
+    type: z.enum(['audiomotionanalyzer', 'butterchurn', 'blob']),
 });
 
 export enum HomeFeatureStyle {
@@ -466,6 +469,8 @@ export const GeneralSettingsSchema = z.object({
     combinedLyricsAndVisualizer: z.boolean(),
     disabledContextMenu: z.record(z.string(), z.boolean()),
     enableGridMultiSelect: z.boolean(),
+    expressiveBlur: z.boolean(),
+    expressiveMotion: z.boolean(),
     externalLinks: z.boolean(),
     followCurrentSong: z.boolean(),
     followSystemTheme: z.boolean(),
@@ -644,6 +649,41 @@ const RemoteSettingsSchema = z.object({
     username: z.string(),
 });
 
+// navi-connect hub (Spotify-Connect-style remote control). `.default()` keeps
+// older persisted settings (which predate this slice) parseable.
+// navi-connect Tier 2: AudioMuse-AI core API (Sonic Fingerprint / Mood Flow).
+const AudioMuseSettingsSchema = z
+    .object({
+        token: z.string().default(''),
+        url: z.string().default(''),
+    })
+    .default({
+        token: '',
+        url: '',
+    });
+
+const HubSettingsSchema = z
+    .object({
+        enabled: z.boolean().default(false),
+        // Device ids the user has manually hidden from the device picker (persisted).
+        hiddenDeviceIds: z.array(z.string()).default([]),
+        name: z.string().default('Feishin'),
+        // When set, published stream/cover URLs get their origin rewritten to
+        // this base — so cast devices get URLs they can reach even when this
+        // machine talks to the server over a VPN (e.g. Tailscale).
+        publicServerUrl: z.string().default(''),
+        token: z.string().default(''),
+        url: z.string().default('ws://localhost:4790'),
+    })
+    .default({
+        enabled: false,
+        hiddenDeviceIds: [],
+        name: 'Feishin',
+        publicServerUrl: '',
+        token: '',
+        url: 'ws://localhost:4790',
+    });
+
 const WindowSettingsSchema = z.object({
     disableAutoUpdate: z.boolean(),
     exitToTray: z.boolean(),
@@ -693,6 +733,9 @@ const autoDjStrategyEnum = z.enum(['similar', 'library_random']);
 
 const AutoDJSettingsSchema = z.object({
     albumStrategy: autoDjStrategyEnum,
+    // navi-connect: which engine tops up the queue when enabled. autoDj = the
+    // built-in similar/random; fingerprint/moodFlow = AudioMuse core (Tier 2).
+    autoplaySource: z.enum(['autoDj', 'fingerprint', 'moodFlow']).default('autoDj'),
     enabled: z.boolean(),
     itemCount: z.number(),
     mode: z.enum(['songs', 'albums']),
@@ -704,12 +747,14 @@ const AutoDJSettingsSchema = z.object({
  * This schema is used for validation of the imported settings json
  */
 export const ValidationSettingsStateSchema = z.object({
+    audioMuse: AudioMuseSettingsSchema,
     autoDJ: AutoDJSettingsSchema,
     css: CssSettingsSchema,
     discord: DiscordSettingsSchema,
     font: FontSettingsSchema,
     general: GeneralSettingsSchema,
     hotkeys: HotkeysSettingsSchema,
+    hub: HubSettingsSchema,
     lists: z.record(z.nativeEnum(ItemListKey), ItemListConfigSchema),
     lyrics: LyricsSettingsSchema,
     lyricsDisplay: z.record(z.string(), LyricsDisplaySettingsSchema),
@@ -1109,8 +1154,13 @@ const getPlatformDefaultWindowBarStyle = (): Platform => {
 const platformDefaultWindowBarStyle: Platform = getPlatformDefaultWindowBarStyle();
 
 const initialState: SettingsState = {
+    audioMuse: {
+        token: '',
+        url: '',
+    },
     autoDJ: {
         albumStrategy: AUTO_DJ_STRATEGY.SIMILAR,
+        autoplaySource: 'autoDj',
         enabled: false,
         itemCount: 5,
         mode: 'songs',
@@ -1156,6 +1206,8 @@ const initialState: SettingsState = {
         combinedLyricsAndVisualizer: false,
         disabledContextMenu: {},
         enableGridMultiSelect: false,
+        expressiveBlur: false,
+        expressiveMotion: false,
         externalLinks: true,
         followCurrentSong: true,
         followSystemTheme: false,
@@ -1273,6 +1325,14 @@ const initialState: SettingsState = {
             zoomOut: { allowGlobal: true, hotkey: '', isGlobal: false },
         },
         globalMediaHotkeys: true,
+    },
+    hub: {
+        enabled: false,
+        hiddenDeviceIds: [],
+        name: 'Feishin',
+        publicServerUrl: '',
+        token: '',
+        url: 'ws://localhost:4790',
     },
     lists: {
         ['albumDetail']: {
@@ -1949,7 +2009,7 @@ const initialState: SettingsState = {
             randomizeNextPreset: true,
             selectedPresets: [],
         },
-        type: 'audiomotionanalyzer',
+        type: 'blob',
     },
     window: {
         disableAutoUpdate: false,
@@ -2497,6 +2557,12 @@ export const useTableSettings = (type: ItemListKey) =>
 
 export const useGeneralSettings = () => useSettingsStore((state) => state.general, shallow);
 
+export const useExpressiveBlur = () =>
+    useSettingsStore((state) => state.general.expressiveBlur, shallow);
+
+export const useExpressiveMotion = () =>
+    useSettingsStore((state) => state.general.expressiveMotion, shallow);
+
 export const usePlaybackType = () => useSettingsStore((state) => state.playback.type, shallow);
 
 export const usePlayButtonBehavior = () =>
@@ -2533,6 +2599,10 @@ export const useLyricsDisplaySettings = (key: string = 'default') =>
     useSettingsStore((state) => state.lyricsDisplay[key] || state.lyricsDisplay.default, shallow);
 
 export const useRemoteSettings = () => useSettingsStore((state) => state.remote, shallow);
+
+export const useHubSettings = () => useSettingsStore((state) => state.hub, shallow);
+
+export const useAudioMuseSettings = () => useSettingsStore((state) => state.audioMuse, shallow);
 
 export const useFontSettings = () => useSettingsStore((state) => state.font, shallow);
 

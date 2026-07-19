@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
     useAccent,
+    useExpressiveBlur,
+    useExpressiveMotion,
     useFontSettings,
     useNativeAspectRatio,
     useThemeSettings,
@@ -47,11 +49,14 @@ export const THEME_DATA = [
     { label: 'Rosé Pine', type: 'dark', value: AppTheme.ROSE_PINE },
     { label: 'Rosé Pine Moon', type: 'dark', value: AppTheme.ROSE_PINE_MOON },
     { label: 'Rosé Pine Dawn', type: 'light', value: AppTheme.ROSE_PINE_DAWN },
+    { label: 'Zenburn', type: 'dark', value: AppTheme.ZENBURN },
 ];
 
 export const useAppTheme = (overrideTheme?: AppTheme) => {
     const accent = useAccent();
     const nativeImageAspect = useNativeAspectRatio();
+    const expressiveBlur = useExpressiveBlur();
+    const expressiveMotion = useExpressiveMotion();
     const { builtIn, custom, system, type } = useFontSettings();
     const textStyleRef = useRef<HTMLStyleElement | null>(null);
     const themeInlineStylesRef = useRef<HTMLStyleElement | null>(null);
@@ -214,6 +219,17 @@ export const useAppTheme = (overrideTheme?: AppTheme) => {
         const root = document.documentElement;
         root.style.setProperty('--theme-image-fit', nativeImageAspect ? 'contain' : 'cover');
     }, [nativeImageAspect]);
+
+    // Gate the "expressive" chrome features (frosted-glass Haze + Material-motion) via
+    // root data attributes, so every CSS module can opt in with `:root[data-haze='true']`
+    // and JS transitions can read the flag. Both default off (safe kill switches).
+    useEffect(() => {
+        document.documentElement.setAttribute('data-haze', expressiveBlur ? 'true' : 'false');
+    }, [expressiveBlur]);
+
+    useEffect(() => {
+        document.documentElement.setAttribute('data-motion', expressiveMotion ? 'true' : 'false');
+    }, [expressiveMotion]);
 
     useEffect(() => {
         applyInlineStylesheets(appTheme?.stylesheets ?? []);

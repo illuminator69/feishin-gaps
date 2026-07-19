@@ -465,6 +465,8 @@ export const tagListSortMap: TagListSortMap = {
     },
 };
 
+export const SortKeyRandom = 'random';
+
 export enum AlbumListSort {
     ALBUM_ARTIST = 'albumArtist',
     ARTIST = 'artist',
@@ -476,7 +478,7 @@ export enum AlbumListSort {
     ID = 'id',
     NAME = 'name',
     PLAY_COUNT = 'playCount',
-    RANDOM = 'random',
+    RANDOM = SortKeyRandom,
     RATING = 'rating',
     RECENTLY_ADDED = 'recentlyAdded',
     RECENTLY_PLAYED = 'recentlyPlayed',
@@ -598,7 +600,7 @@ export enum SongListSort {
     ID = 'id',
     NAME = 'name',
     PLAY_COUNT = 'playCount',
-    RANDOM = 'random',
+    RANDOM = SortKeyRandom,
     RATING = 'rating',
     RECENTLY_ADDED = 'recentlyAdded',
     RECENTLY_PLAYED = 'recentlyPlayed',
@@ -725,7 +727,7 @@ export enum AlbumArtistListSort {
     FAVORITED = 'favorited',
     NAME = 'name',
     PLAY_COUNT = 'playCount',
-    RANDOM = 'random',
+    RANDOM = SortKeyRandom,
     RATING = 'rating',
     RECENTLY_ADDED = 'recentlyAdded',
     RELEASE_DATE = 'releaseDate',
@@ -814,7 +816,7 @@ export enum ArtistListSort {
     FAVORITED = 'favorited',
     NAME = 'name',
     PLAY_COUNT = 'playCount',
-    RANDOM = 'random',
+    RANDOM = SortKeyRandom,
     RATING = 'rating',
     RECENTLY_ADDED = 'recentlyAdded',
     RELEASE_DATE = 'releaseDate',
@@ -1363,7 +1365,7 @@ export type ScrobbleArgs = BaseEndpointArgs & {
 
 export type ScrobbleQuery = {
     albumId?: string;
-    event?: 'pause' | 'start' | 'unpause';
+    event?: 'pause' | 'start' | 'stop' | 'unpause';
     id: string;
     mediaType: 'podcast' | 'song';
     playbackRate: number;
@@ -1511,6 +1513,7 @@ export type ControllerEndpoint = {
     getRoles: (args: BaseEndpointArgs) => Promise<Array<string | { label: string; value: string }>>;
     getServerInfo: (args: ServerInfoArgs) => Promise<ServerInfo>;
     getSimilarSongs: (args: SimilarSongsArgs) => Promise<Song[]>;
+    getSonicPath?: (args: SonicPathArgs) => Promise<Song[]>;
     getSongDetail: (args: SongDetailArgs) => Promise<SongDetailResponse>;
     getSongList: (args: SongListArgs) => Promise<SongListResponse>;
     getSongListCount: (args: SongListCountArgs) => Promise<number>;
@@ -1671,6 +1674,7 @@ export type InternalControllerEndpoint = {
     ) => Promise<Array<string | { label: string; value: string }>>;
     getServerInfo: (args: ReplaceApiClientProps<ServerInfoArgs>) => Promise<ServerInfo>;
     getSimilarSongs: (args: ReplaceApiClientProps<SimilarSongsArgs>) => Promise<Song[]>;
+    getSonicPath?: (args: ReplaceApiClientProps<SonicPathArgs>) => Promise<Song[]>;
     getSongDetail: (args: ReplaceApiClientProps<SongDetailArgs>) => Promise<SongDetailResponse>;
     getSongList: (args: ReplaceApiClientProps<SongListArgs>) => Promise<SongListResponse>;
     getSongListCount: (args: ReplaceApiClientProps<SongListCountArgs>) => Promise<number>;
@@ -1777,6 +1781,16 @@ export type SimilarSongsQuery = {
     count?: number;
     musicFolderId?: string | string[];
     songId: string;
+};
+
+export type SonicPathArgs = BaseEndpointArgs & {
+    query: SonicPathQuery;
+};
+
+export type SonicPathQuery = {
+    count?: number;
+    endSongId: string;
+    startSongId: string;
 };
 
 export type StreamArgs = BaseEndpointArgs & {

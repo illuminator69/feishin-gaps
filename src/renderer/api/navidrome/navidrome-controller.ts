@@ -811,6 +811,38 @@ export const NavidromeController: InternalControllerEndpoint = {
     getSimilarSongs: async (args) => {
         const { apiClientProps, query } = args;
 
+        // Prefer the AudioMuse sonic-similarity endpoint when the plugin is
+        // present — it always routes through AudioMuse (guaranteed sonic
+        // results), unlike getSimilarSongs which Navidrome serves via last.fm.
+        if (hasFeature(apiClientProps.server, ServerFeature.SONIC_SIMILARITY)) {
+            try {
+                const sonicRes = await ssApiClient({
+                    ...apiClientProps,
+                    silent: true,
+                }).getSonicSimilarTracks({
+                    query: {
+                        count: query.count,
+                        id: query.songId,
+                    },
+                });
+
+                if (sonicRes.status === 200 && sonicRes.body.sonicMatch?.length) {
+                    return sonicRes.body.sonicMatch
+                        .filter((match) => match.entry.id !== query.songId)
+                        .map((match) =>
+                            ssNormalize.song(
+                                match.entry,
+                                apiClientProps.server,
+                                args.context?.pathReplace,
+                                args.context?.pathReplaceWith,
+                            ),
+                        );
+                }
+            } catch (error) {
+                console.error('Sonic similar tracks failed, falling back:', error);
+            }
+        }
+
         // Prefer getSimilarSongs (which queries last.fm) where available
         // otherwise find other tracks by the same album artist
         const res = await ssApiClient({
@@ -939,6 +971,7 @@ export const NavidromeController: InternalControllerEndpoint = {
             apiClientProps,
             query: { ...query, limit: 1, startIndex: 0 },
         }).then((result) => result!.totalRecordCount!),
+    getSonicPath: SubsonicController.getSonicPath,
     getStreamUrl: SubsonicController.getStreamUrl,
     getStructuredLyrics: SubsonicController.getStructuredLyrics,
     getTagList: async (args) => {

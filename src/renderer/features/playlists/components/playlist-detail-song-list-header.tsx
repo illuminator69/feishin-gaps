@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { useCallback } from 'react';
+import isElectron from 'is-electron';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useParams } from 'react-router';
 
@@ -8,6 +9,7 @@ import { PageHeader } from '/@/renderer/components/page-header/page-header';
 import { useListContext } from '/@/renderer/context/list-context';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { playlistsQueries } from '/@/renderer/features/playlists/api/playlists-api';
+import { DownloadPlaylistModal } from '/@/renderer/features/playlists/components/download-playlist-modal';
 import { PlaylistDetailSongListHeaderFilters } from '/@/renderer/features/playlists/components/playlist-detail-song-list-header-filters';
 import { useDeletePlaylistImage } from '/@/renderer/features/playlists/mutations/delete-playlist-image-mutation';
 import { useUploadPlaylistImage } from '/@/renderer/features/playlists/mutations/upload-playlist-image-mutation';
@@ -120,6 +122,12 @@ export const PlaylistDetailSongListHeader = ({
 
     const player = usePlayer();
     const uploadPlaylistImageMutation = useUploadPlaylistImage({});
+    const [downloadModalOpened, setDownloadModalOpened] = useState(false);
+    const downloadModalHandlers = {
+        close: () => setDownloadModalOpened(false),
+        open: () => setDownloadModalOpened(true),
+        toggle: () => setDownloadModalOpened((value) => !value),
+    };
 
     const handlePlay = (type?: Play) => {
         player.addToQueueByData(listData as Song[], type || Play.NOW);
@@ -221,9 +229,26 @@ export const PlaylistDetailSongListHeader = ({
                                 </Text>
                             </Spoiler>
                         ) : null}
-                        <LibraryHeaderMenu
-                            onPlay={(type) => handlePlay(type)}
-                            onShuffle={() => handlePlay(Play.SHUFFLE)}
+                        <Group gap="xs">
+                            <LibraryHeaderMenu
+                                onPlay={(type) => handlePlay(type)}
+                                onShuffle={() => handlePlay(Play.SHUFFLE)}
+                            />
+                            {isElectron() && (
+                                <ActionIcon
+                                    icon="download"
+                                    iconProps={{ size: 'lg' }}
+                                    onClick={() => downloadModalHandlers.open()}
+                                    tooltip={{ label: 'Download playlist', openDelay: 0 }}
+                                    variant="default"
+                                />
+                            )}
+                        </Group>
+                        <DownloadPlaylistModal
+                            handlers={downloadModalHandlers}
+                            opened={downloadModalOpened}
+                            playlistId={playlistId}
+                            playlistName={detailQuery?.data?.name || ''}
                         />
                     </Stack>
                 </LibraryHeader>

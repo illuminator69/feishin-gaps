@@ -2,8 +2,13 @@ import { t } from 'i18next';
 import { useRef, useState } from 'react';
 
 import { ItemListHandle } from '/@/renderer/components/item-list/types';
+import { DockedSimilarSongs } from '/@/renderer/features/now-playing/components/docked-similar-songs';
 import { PlayQueue } from '/@/renderer/features/now-playing/components/play-queue';
 import { PlayQueueListControls } from '/@/renderer/features/now-playing/components/play-queue-list-controls';
+import {
+    QueueSheetTab,
+    QueueSheetTabs,
+} from '/@/renderer/features/now-playing/components/queue-sheet-tabs';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Popover } from '/@/shared/components/popover/popover';
 import { Stack } from '/@/shared/components/stack/stack';
@@ -23,6 +28,7 @@ export const PopoverPlayQueue = ({
 }: PopoverPlayQueueProps = {}) => {
     const queueRef = useRef<ItemListHandle | null>(null);
     const [search, setSearch] = useState<string | undefined>(undefined);
+    const [activeTab, setActiveTab] = useState<QueueSheetTab>('queue');
 
     const [internalOpened, internalHandlers] = useDisclosure(false);
 
@@ -59,17 +65,24 @@ export const PopoverPlayQueue = ({
             </Popover.Target>
             <Popover.Dropdown h="600px" mah="80dvh" opacity={0.95} p="xs" w="560px">
                 <Stack gap={0} h="100%" w="100%">
-                    <PlayQueueListControls
-                        handleSearch={setSearch}
-                        searchTerm={search}
-                        tableRef={queueRef}
-                        type={ItemListKey.SIDE_QUEUE}
-                    />
-                    <PlayQueue
-                        listKey={ItemListKey.SIDE_QUEUE}
-                        ref={queueRef}
-                        searchTerm={search}
-                    />
+                    <QueueSheetTabs activeTab={activeTab} onChange={setActiveTab} />
+                    {activeTab === 'queue' ? (
+                        <>
+                            <PlayQueueListControls
+                                handleSearch={setSearch}
+                                searchTerm={search}
+                                tableRef={queueRef}
+                                type={ItemListKey.SIDE_QUEUE}
+                            />
+                            <PlayQueue
+                                listKey={ItemListKey.SIDE_QUEUE}
+                                ref={queueRef}
+                                searchTerm={search}
+                            />
+                        </>
+                    ) : (
+                        <DockedSimilarSongs />
+                    )}
                 </Stack>
             </Popover.Dropdown>
         </Popover>

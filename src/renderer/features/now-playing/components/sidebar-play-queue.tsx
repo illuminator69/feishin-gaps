@@ -10,8 +10,13 @@ import styles from './sidebar-play-queue.module.css';
 import { ItemListHandle } from '/@/renderer/components/item-list/types';
 import { lyricsQueries } from '/@/renderer/features/lyrics/api/lyrics-api';
 import { Lyrics } from '/@/renderer/features/lyrics/lyrics';
+import { DockedSimilarSongs } from '/@/renderer/features/now-playing/components/docked-similar-songs';
 import { PlayQueue } from '/@/renderer/features/now-playing/components/play-queue';
 import { PlayQueueListControls } from '/@/renderer/features/now-playing/components/play-queue-list-controls';
+import {
+    QueueSheetTab,
+    QueueSheetTabs,
+} from '/@/renderer/features/now-playing/components/queue-sheet-tabs';
 import {
     useCombinedLyricsAndVisualizer,
     useFullScreenPlayerStore,
@@ -43,9 +48,16 @@ const ButterchurnVisualizer = lazy(() =>
     })),
 );
 
+const BlobVisualizer = lazy(() =>
+    import('../../visualizer/components/blob/visualizer').then((module) => ({
+        default: module.Visualizer,
+    })),
+);
+
 export const SidebarPlayQueue = () => {
     const tableRef = useRef<ItemListHandle | null>(null);
     const [search, setSearch] = useState<string | undefined>(undefined);
+    const [activeTab, setActiveTab] = useState<QueueSheetTab>('queue');
     const {
         expanded: isFullScreenPlayerExpanded,
         visualizerExpanded: isFullScreenVisualizerExpanded,
@@ -111,19 +123,28 @@ export const SidebarPlayQueue = () => {
         if (panelType === 'queue') {
             return (
                 <Stack gap={0} h="100%" w="100%">
-                    <PlayQueueListControls
-                        handleSearch={setSearch}
-                        searchTerm={search}
-                        tableRef={tableRef}
-                        type={ItemListKey.SIDE_QUEUE}
-                    />
-                    <div className={styles.playQueueSection}>
-                        <PlayQueue
-                            listKey={ItemListKey.SIDE_QUEUE}
-                            ref={tableRef}
-                            searchTerm={search}
-                        />
-                    </div>
+                    <QueueSheetTabs activeTab={activeTab} onChange={setActiveTab} />
+                    {activeTab === 'queue' ? (
+                        <>
+                            <PlayQueueListControls
+                                handleSearch={setSearch}
+                                searchTerm={search}
+                                tableRef={tableRef}
+                                type={ItemListKey.SIDE_QUEUE}
+                            />
+                            <div className={styles.playQueueSection}>
+                                <PlayQueue
+                                    listKey={ItemListKey.SIDE_QUEUE}
+                                    ref={tableRef}
+                                    searchTerm={search}
+                                />
+                            </div>
+                        </>
+                    ) : (
+                        <div className={styles.playQueueSection}>
+                            <DockedSimilarSongs />
+                        </div>
+                    )}
                 </Stack>
             );
         }
@@ -222,21 +243,32 @@ export const SidebarPlayQueue = () => {
                     }}
                     w="100%"
                 >
-                    <PlayQueueListControls
-                        handleSearch={setSearch}
-                        searchTerm={search}
-                        tableRef={tableRef}
-                        type={ItemListKey.SIDE_QUEUE}
-                    />
-                    <Flex direction="column" style={{ flex: 1, minHeight: 0 }}>
-                        <div className={styles.playQueueSection}>
-                            <PlayQueue
-                                listKey={ItemListKey.SIDE_QUEUE}
-                                ref={tableRef}
+                    <QueueSheetTabs activeTab={activeTab} onChange={setActiveTab} />
+                    {activeTab === 'queue' ? (
+                        <>
+                            <PlayQueueListControls
+                                handleSearch={setSearch}
                                 searchTerm={search}
+                                tableRef={tableRef}
+                                type={ItemListKey.SIDE_QUEUE}
                             />
-                        </div>
-                    </Flex>
+                            <Flex direction="column" style={{ flex: 1, minHeight: 0 }}>
+                                <div className={styles.playQueueSection}>
+                                    <PlayQueue
+                                        listKey={ItemListKey.SIDE_QUEUE}
+                                        ref={tableRef}
+                                        searchTerm={search}
+                                    />
+                                </div>
+                            </Flex>
+                        </>
+                    ) : (
+                        <Flex direction="column" style={{ flex: 1, minHeight: 0 }}>
+                            <div className={styles.playQueueSection}>
+                                <DockedSimilarSongs />
+                            </div>
+                        </Flex>
+                    )}
                 </Stack>
             )}
         </Stack>
@@ -366,7 +398,9 @@ const VisualizerPanel = () => {
         <div className={styles.visualizerSection}>
             <PanelReorderControls panelType="visualizer" />
             <Suspense fallback={<></>}>
-                {visualizerType === 'butterchurn' ? (
+                {visualizerType === 'blob' ? (
+                    <BlobVisualizer />
+                ) : visualizerType === 'butterchurn' ? (
                     <ButterchurnVisualizer />
                 ) : (
                     <AudioMotionAnalyzerVisualizer />
@@ -429,7 +463,9 @@ const CombinedLyricsAndVisualizerPanel = () => {
                     }}
                 >
                     <Suspense fallback={<></>}>
-                        {visualizerType === 'butterchurn' ? (
+                        {visualizerType === 'blob' ? (
+                            <BlobVisualizer />
+                        ) : visualizerType === 'butterchurn' ? (
                             <ButterchurnVisualizer />
                         ) : (
                             <AudioMotionAnalyzerVisualizer />

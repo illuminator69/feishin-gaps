@@ -4,13 +4,12 @@ import { lazy, Suspense } from 'react';
 import { PlayerbarSeekSlider } from './playerbar-seek-slider';
 import styles from './playerbar-slider.module.css';
 
-import { ScrobbleStatus } from '/@/renderer/features/player/components/scrobble-status';
 import {
-    useAppStore,
-    useAppStoreActions,
-    usePlayerSong,
-    usePlayerTimestamp,
-} from '/@/renderer/store';
+    useRemoteAwarePlayerSong,
+    useRemoteAwareTimestamp,
+} from '/@/renderer/features/hub/hooks/use-remote-aware';
+import { ScrobbleStatus } from '/@/renderer/features/player/components/scrobble-status';
+import { useAppStore, useAppStoreActions } from '/@/renderer/store';
 import { PlayerbarSliderType, usePlayerbarSlider } from '/@/renderer/store/settings.store';
 import { Slider, SliderProps } from '/@/shared/components/slider/slider';
 import { Spinner } from '/@/shared/components/spinner/spinner';
@@ -24,11 +23,11 @@ const PlayerbarWaveform = lazy(() =>
 );
 
 export const PlayerbarSlider = () => {
-    const currentSong = usePlayerSong();
+    const currentSong = useRemoteAwarePlayerSong();
     const playerbarSlider = usePlayerbarSlider();
 
     const songDuration = currentSong?.duration ? currentSong.duration / 1000 : 0;
-    const currentTime = usePlayerTimestamp();
+    const currentTime = useRemoteAwareTimestamp();
 
     const formattedDuration = formatDuration(songDuration * 1000 || 0);
     const formattedTimeRemaining = formatDuration((currentTime - songDuration) * 1000 || 0);

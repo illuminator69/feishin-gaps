@@ -7,6 +7,9 @@ import { Popover as MantinePopover } from '@mantine/core';
 
 import styles from './popover.module.css';
 
+import { overlayTransitionProps } from '/@/shared/components/animations/motion-tokens';
+import { useExpressiveMotion } from '/@/shared/components/animations/use-expressive-motion';
+
 export interface PopoverDropdownProps extends MantinePopoverDropdownProps {}
 export interface PopoverProps extends MantinePopoverProps {}
 
@@ -31,6 +34,8 @@ const getTransition = (position?: string) => {
 };
 
 export const Popover = ({ children, ...props }: PopoverProps) => {
+    const expressiveMotion = useExpressiveMotion();
+
     return (
         <MantinePopover
             classNames={{
@@ -39,7 +44,10 @@ export const Popover = ({ children, ...props }: PopoverProps) => {
             closeOnClickOutside={true}
             closeOnEscape={true}
             offset={10}
-            transitionProps={{ transition: getTransition(props.position) }}
+            transitionProps={overlayTransitionProps(
+                expressiveMotion,
+                getTransition(props.position),
+            )}
             withArrow={false}
             withinPortal
             {...props}

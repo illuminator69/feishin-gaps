@@ -1,3 +1,4 @@
+import { useEffectiveTranscode } from '/@/renderer/features/player/audio-player/hooks/use-effective-transcode';
 import type { Dispatch } from 'react';
 import type WaveSurfer from 'wavesurfer.js';
 
@@ -11,7 +12,6 @@ import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/
 import { useSongUrl } from '/@/renderer/features/player/audio-player/hooks/use-stream-url';
 import { PlayerOnProgressProps } from '/@/renderer/features/player/audio-player/types';
 import {
-    usePlaybackSettings,
     usePlayerActions,
     usePlayerData,
     usePlayerMuted,
@@ -30,7 +30,7 @@ export function WaveSurferPlayer() {
     const { crossfadeDuration, speed, transitionType } = usePlayerProperties();
     const isMuted = usePlayerMuted();
     const volume = usePlayerVolume();
-    const { transcode } = usePlaybackSettings();
+    const transcode = useEffectiveTranscode();
 
     const [localPlayerStatus, setLocalPlayerStatus] = useState<PlayerStatus>(status);
     const [isTransitioning, setIsTransitioning] = useState<boolean | string>(false);

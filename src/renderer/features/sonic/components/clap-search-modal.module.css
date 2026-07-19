@@ -1,0 +1,8 @@
+.results {
+    max-height: 50vh;
+    min-height: 4rem;
+}
+
+.title {
+    flex: 1;
+}

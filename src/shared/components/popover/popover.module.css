@@ -6,4 +6,11 @@
     border-radius: var(--theme-radius-md);
     box-shadow: 2px 2px 10px 2px rgb(0 0 0 / 40%);
     filter: drop-shadow(0 0 5px rgb(0 0 0 / 50%));
+
+    @supports (backdrop-filter: blur(1px)) {
+        :root[data-haze='true'] & {
+            background: var(--haze-surface-strong);
+            backdrop-filter: blur(var(--haze-blur)) saturate(1.1);
+        }
+    }
 }

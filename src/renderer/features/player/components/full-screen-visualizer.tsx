@@ -15,6 +15,12 @@ import {
 } from '/@/renderer/store/settings.store';
 import { Platform } from '/@/shared/types/types';
 
+const BlobVisualizer = lazy(() =>
+    import('../../visualizer/components/blob/visualizer').then((module) => ({
+        default: module.Visualizer,
+    })),
+);
+
 const AudioMotionAnalyzerVisualizer = lazy(() =>
     import('../../visualizer/components/audiomotionanalyzer/visualizer').then((module) => ({
         default: module.Visualizer,
@@ -133,6 +139,7 @@ export const FullScreenVisualizer = () => {
     const { windowBarStyle } = useWindowSettings();
     const { webAudio } = usePlaybackSettings();
     const visualizerType = useSettingsStore((store) => store.visualizer.type);
+    const canShowVisualizer = webAudio;
     const isMobile = useIsMobile();
 
     const location = useLocation();
@@ -155,9 +162,11 @@ export const FullScreenVisualizer = () => {
     return (
         <VisualizerContainer isMobile={isMobile} windowBarStyle={windowBarStyle}>
             <div className={styles.visualizerContainer}>
-                {webAudio ? (
+                {canShowVisualizer ? (
                     <Suspense fallback={<></>}>
-                        {visualizerType === 'butterchurn' ? (
+                        {visualizerType === 'blob' ? (
+                            <BlobVisualizer />
+                        ) : visualizerType === 'butterchurn' ? (
                             <ButterchurnVisualizer />
                         ) : (
                             <AudioMotionAnalyzerVisualizer />

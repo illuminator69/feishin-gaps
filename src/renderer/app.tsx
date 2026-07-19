@@ -1,6 +1,7 @@
 /* eslint-disable perfectionist/sort-imports */
 import { MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
+import { MotionConfig } from 'motion/react';
 import 'overlayscrollbars/overlayscrollbars.css';
 import '/styles/overlayscrollbars.css';
 import '@mantine/core/styles.css';
@@ -47,7 +48,9 @@ const ThemedApp = () => {
 
     return (
         <MantineProvider forceColorScheme={mode} theme={theme}>
-            <AppShell />
+            <MotionConfig reducedMotion="user">
+                <AppShell />
+            </MotionConfig>
         </MantineProvider>
     );
 };

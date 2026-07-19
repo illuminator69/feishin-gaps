@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
+import { shallow } from 'zustand/shallow';
 
 import styles from './play-queue.module.css';
 
@@ -21,7 +22,10 @@ import {
     mapShuffledToQueueIndex,
     subscribeCurrentTrack,
     subscribePlayerQueue,
+    useCurrentServerId,
     useFollowCurrentSong,
+    useHubIsRemoteActive,
+    useHubStore,
     useListSettings,
     usePlayerActions,
     usePlayerSong,
@@ -56,6 +60,43 @@ export const PlayQueue = forwardRef<ItemListHandle, QueueProps>(
 
         const [data, setData] = useState<QueueSong[]>([]);
         const [groups, setGroups] = useState<TableGroupHeader[]>([]);
+
+        const isRemoteActive = useHubIsRemoteActive();
+        const serverId = useCurrentServerId();
+        const remoteQueue = useHubStore((s) => s.remoteQueue, shallow);
+        const remoteIndex = useHubStore((s) => s.remoteQueueIndex);
+
+        // While playback is on another navi-connect device, the side queue shows
+        // the REMOTE session queue (synthesized as QueueSongs). The `remote:<i>`
+        // uniqueId is the sentinel that routes a row double-click to a hub jump
+        // (see mediaPlay in player-context).
+        const remoteData: QueueSong[] = useMemo(
+            () =>
+                remoteQueue.map(
+                    (track, i) =>
+                        ({
+                            _itemType: LibraryItem.SONG,
+                            _serverId: serverId ?? '',
+                            _uniqueId: `remote:${i}`,
+                            album: track.album ?? '',
+                            artistName: track.artist ?? '',
+                            artists: track.artist ? [{ id: '', name: track.artist }] : [],
+                            duration: track.durationMs ?? 0,
+                            id: track.id,
+                            // Build the cover from the Navidrome id with OUR server
+                            // creds (the song id doubles as the cover-art id), rather
+                            // than the publishing device's possibly-unreachable
+                            // imageUrl. imageUrl key kept (undefined) so the table's
+                            // song-row branch still matches and ItemImage falls to id.
+                            imageId: track.id,
+                            imageUrl: undefined,
+                            name: track.title ?? '',
+                            userFavorite: track.favorite ?? false,
+                            userRating: track.rating ?? null,
+                        }) as unknown as QueueSong,
+                ),
+            [remoteQueue, serverId],
+        );
 
         useEffect(() => {
             const setQueue = () => {
@@ -129,14 +170,16 @@ export const PlayQueue = forwardRef<ItemListHandle, QueueProps>(
             };
         }, [getQueue, tableRef, followCurrentSong]);
 
+        const baseData = isRemoteActive ? remoteData : data;
+
         const filteredData: QueueSong[] = useMemo(() => {
             if (debouncedSearchTerm) {
-                const searched = searchLibraryItems(data, debouncedSearchTerm, LibraryItem.SONG);
+                const searched = searchLibraryItems(baseData, debouncedSearchTerm, LibraryItem.SONG);
                 return searched;
             }
 
-            return data;
-        }, [data, debouncedSearchTerm]);
+            return baseData;
+        }, [baseData, debouncedSearchTerm]);
 
         const isEmpty = filteredData.length === 0;
 
@@ -177,12 +220,14 @@ export const PlayQueue = forwardRef<ItemListHandle, QueueProps>(
             <div className={styles.container} ref={containerFocusRef}>
                 <LoadingOverlay pos="absolute" visible={isFetching} />
                 <ItemTableList
-                    activeRowId={currentSongUniqueId}
+                    activeRowId={isRemoteActive ? `remote:${remoteIndex}` : currentSongUniqueId}
                     autoFitColumns={table.autoFitColumns}
                     CellComponent={ItemTableListColumn}
                     columns={table.columns}
                     data={filteredData}
                     enableAlternateRowColors={table.enableAlternateRowColors}
+                    // Remote rows are draggable too: the reorder is routed to the hub
+                    // session in player-context.moveSelectedTo (single-item moves).
                     enableDrag
                     enableExpansion={false}
                     enableHeader={table.enableHeader}

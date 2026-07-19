@@ -11,6 +11,14 @@
     }
 
     transition: background 0.5s;
+
+    /* Frosted-glass surface when Haze is enabled (accent-tinted translucent bar). */
+    @supports (backdrop-filter: blur(1px)) {
+        :root[data-haze='true'] & {
+            background: var(--haze-surface);
+            backdrop-filter: blur(var(--haze-blur)) saturate(1.1);
+        }
+    }
 }
 
 .open-drawer {

@@ -2,6 +2,12 @@ import { useTranslation } from 'react-i18next';
 
 import styles from './center-controls.module.css';
 
+import {
+    useRemoteAwarePlayerSong,
+    useRemoteAwareRepeat,
+    useRemoteAwareShuffle,
+    useRemoteAwareStatus,
+} from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { MainPlayButton, PlayerButton } from '/@/renderer/features/player/components/player-button';
 import { PlayerbarSlider } from '/@/renderer/features/player/components/playerbar-slider';
 import { openShuffleAllModal } from '/@/renderer/features/player/components/shuffle-all-modal';
@@ -12,14 +18,7 @@ import {
     useRadioControls,
     useRadioPlayer,
 } from '/@/renderer/features/radio/hooks/use-radio-player';
-import {
-    useButtonSize,
-    usePlayerRepeat,
-    usePlayerShuffle,
-    usePlayerSongProperties,
-    usePlayerStatus,
-    useSkipButtons,
-} from '/@/renderer/store';
+import { useButtonSize, useSkipButtons } from '/@/renderer/store';
 import { Icon } from '/@/shared/components/icon/icon';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
 
@@ -125,7 +124,7 @@ const StopButton = ({ disabled }: { disabled?: boolean }) => {
 const ShuffleButton = ({ disabled }: { disabled?: boolean }) => {
     const { t } = useTranslation();
     const buttonSize = useButtonSize();
-    const shuffle = usePlayerShuffle();
+    const shuffle = useRemoteAwareShuffle();
     const { toggleShuffle } = usePlayer();
 
     return (
@@ -195,9 +194,9 @@ const SkipBackwardButton = ({ disabled }: { disabled?: boolean }) => {
 };
 
 const CenterPlayButton = ({ disabled }: { disabled?: boolean }) => {
-    const { id: currentSongId } = usePlayerSongProperties(['id']) ?? {};
+    const currentSongId = useRemoteAwarePlayerSong()?.id;
 
-    const status = usePlayerStatus();
+    const status = useRemoteAwareStatus();
     const { mediaTogglePlayPause } = usePlayer();
 
     return (
@@ -252,7 +251,7 @@ const NextButton = ({ disabled }: { disabled?: boolean }) => {
 const RepeatButton = ({ disabled }: { disabled?: boolean }) => {
     const { t } = useTranslation();
     const buttonSize = useButtonSize();
-    const repeat = usePlayerRepeat();
+    const repeat = useRemoteAwareRepeat();
     const { toggleRepeat } = usePlayer();
 
     return (

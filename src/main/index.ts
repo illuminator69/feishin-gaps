@@ -793,12 +793,26 @@ async function createWindow(first = true): Promise<void> {
         return { action: 'deny' };
     });
 
+    // Log renderer load failures (otherwise a blank window leaves nothing in the
+    // logs to diagnose).
+    mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) =>
+        log.error('[renderer] did-fail-load', code, desc, url),
+    );
+    mainWindow.webContents.on('render-process-gone', (_e, details) =>
+        log.error('[renderer] render-process-gone', JSON.stringify(details)),
+    );
+    mainWindow.webContents.on('preload-error', (_e, p, err) =>
+        log.error('[renderer] preload-error', p, err?.message),
+    );
+
     // HMR for renderer base on electron-vite cli.
     // Load the remote URL for development or the local html file for production.
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
         mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
     } else {
-        mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
+        mainWindow
+            .loadFile(join(__dirname, '../renderer/index.html'))
+            .catch((err) => log.error('[renderer] loadFile failed', err?.message));
     }
 }
 

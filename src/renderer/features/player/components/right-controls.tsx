@@ -1,7 +1,14 @@
 import { t } from 'i18next';
+import isElectron from 'is-electron';
 import { useCallback, useEffect, useMemo, useState, WheelEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { audioMuseConfigured } from '/@/renderer/features/player/auto-dj/audio-muse-source';
+import { HubDevicePicker } from '/@/renderer/features/hub/components/hub-device-picker';
+import {
+    useRemoteAwarePlayerSong,
+    useRemoteAwareVolume,
+} from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { PopoverPlayQueue } from '/@/renderer/features/now-playing/components/popover-play-queue';
 import { PlayerConfig } from '/@/renderer/features/player/components/player-config';
 import { CustomPlayerbarSlider } from '/@/renderer/features/player/components/playerbar-slider';
@@ -16,6 +23,7 @@ import {
     AUTO_DJ_STRATEGY,
     type AutoDJStrategy,
     useAppStoreActions,
+    useAudioMuseSettings,
     useAutoDJSettings,
     useCurrentServer,
     useFullScreenPlayerStore,
@@ -23,8 +31,6 @@ import {
     useHotkeySettings,
     usePlayerData,
     usePlayerMuted,
-    usePlayerSong,
-    usePlayerVolume,
     useSetFullScreenPlayerStore,
     useSettingsStoreActions,
     useSidebarRightExpanded,
@@ -38,14 +44,13 @@ import { Button } from '/@/shared/components/button/button';
 import { Flex } from '/@/shared/components/flex/flex';
 import { Group } from '/@/shared/components/group/group';
 import { NumberInput } from '/@/shared/components/number-input/number-input';
-import { Paper } from '/@/shared/components/paper/paper';
 import { Popover } from '/@/shared/components/popover/popover';
 import { Rating } from '/@/shared/components/rating/rating';
 import { SegmentedControl } from '/@/shared/components/segmented-control/segmented-control';
 import { Select } from '/@/shared/components/select/select';
 import { Stack } from '/@/shared/components/stack/stack';
-import { Switch } from '/@/shared/components/switch/switch';
 import { Text } from '/@/shared/components/text/text';
+import { TextInput } from '/@/shared/components/text-input/text-input';
 import { useMediaQuery } from '/@/shared/hooks/use-media-query';
 import { useThrottledCallback } from '/@/shared/hooks/use-throttled-callback';
 import { useThrottledValue } from '/@/shared/hooks/use-throttled-value';
@@ -84,6 +89,7 @@ export const RightControls = () => {
                 <AutoDJButton />
             </Group>
             <Group align="center" gap="xs" wrap="nowrap">
+                <HubDevicePicker />
                 <SleepTimerButton />
                 <PlayerConfig />
                 <LyricsButton />
@@ -99,7 +105,24 @@ export const RightControls = () => {
 const AutoDJButton = () => {
     const { t } = useTranslation();
     const settings = useAutoDJSettings();
+    const audioMuse = useAudioMuseSettings();
     const { setSettings } = useSettingsStoreActions();
+
+    const tier2Available = audioMuseConfigured(audioMuse);
+    const autoplaySource = settings.autoplaySource ?? 'autoDj';
+    const sourceValue = settings.enabled ? autoplaySource : 'off';
+    const showAutoDjControls = settings.enabled && autoplaySource === 'autoDj';
+
+    const sourceData = [
+        { label: 'Off', value: 'off' },
+        { label: t('setting.autoDJ'), value: 'autoDj' },
+        ...(tier2Available
+            ? [
+                  { label: 'Sonic Fingerprint', value: 'fingerprint' },
+                  { label: 'Mood Flow', value: 'moodFlow' },
+              ]
+            : []),
+    ];
 
     const itemLabels = useMemo(() => {
         return {
@@ -155,21 +178,32 @@ const AutoDJButton = () => {
             </Popover.Target>
             <Popover.Dropdown maw={320} miw={260} onClick={(e) => e.stopPropagation()} p="sm">
                 <Stack gap="sm">
-                    <Paper p="md" radius="md">
-                        <Group align="center" gap="xs" justify="space-between" wrap="nowrap">
-                            <Text fw={600} isNoSelect size="sm">
-                                {t('setting.autoDJ_enabled')}
-                            </Text>
-                            <Switch
-                                checked={settings.enabled}
-                                onChange={(e) =>
-                                    setSettings({
-                                        autoDJ: { enabled: e.currentTarget.checked },
-                                    })
-                                }
-                            />
-                        </Group>
-                    </Paper>
+                    <Select
+                        comboboxProps={{ withinPortal: false }}
+                        data={sourceData}
+                        label={t('setting.autoDJ')}
+                        onChange={(value) => {
+                            if (!value) return;
+                            if (value === 'off') {
+                                setSettings({ autoDJ: { enabled: false } });
+                            } else {
+                                setSettings({
+                                    autoDJ: {
+                                        autoplaySource: value as
+                                            | 'autoDj'
+                                            | 'fingerprint'
+                                            | 'moodFlow',
+                                        enabled: true,
+                                    },
+                                });
+                            }
+                        }}
+                        size="md"
+                        value={sourceValue}
+                        w="100%"
+                    />
+                    {showAutoDjControls && (
+                        <>
                     <SegmentedControl
                         data={[
                             { label: t('setting.autoDJ_mode_songs'), value: AUTO_DJ_MODE.SONGS },
@@ -206,6 +240,8 @@ const AutoDJButton = () => {
                         value={strategyValue}
                         w="100%"
                     />
+                        </>
+                    )}
                     <NumberInput
                         aria-label={itemLabels.title}
                         description={itemLabels.description}
@@ -240,6 +276,28 @@ const AutoDJButton = () => {
                         size="md"
                         value={Number(settings.timing)}
                     />
+                    {isElectron() && (
+                        <Stack gap="xs">
+                            <Text fw={600} isNoSelect size="sm">
+                                AudioMuse-AI (Tier 2)
+                            </Text>
+                            <TextInput
+                                label="AudioMuse URL"
+                                onChange={(e) =>
+                                    setSettings({ audioMuse: { url: e.currentTarget.value } })
+                                }
+                                placeholder="http://localhost:8000"
+                                value={audioMuse.url}
+                            />
+                            <TextInput
+                                label="API token"
+                                onChange={(e) =>
+                                    setSettings({ audioMuse: { token: e.currentTarget.value } })
+                                }
+                                value={audioMuse.token}
+                            />
+                        </Stack>
+                    )}
                 </Stack>
             </Popover.Dropdown>
         </Popover>
@@ -345,7 +403,7 @@ const LyricsButton = () => {
 };
 
 const FavoriteButton = () => {
-    const currentSong = usePlayerSong();
+    const currentSong = useRemoteAwarePlayerSong();
     const { bindings } = useHotkeySettings();
 
     const addToFavoritesMutation = useCreateFavorite({});
@@ -459,7 +517,7 @@ const useFavoritePreviousSongHotkeys = ({
 
 const RatingButton = () => {
     const server = useCurrentServer();
-    const currentSong = usePlayerSong();
+    const currentSong = useRemoteAwarePlayerSong();
     const setRating = useSetRating();
 
     const isSongDefined = Boolean(currentSong?.id);
@@ -499,7 +557,7 @@ const RatingButton = () => {
 
 const VolumeButton = () => {
     const { bindings } = useHotkeySettings();
-    const volume = usePlayerVolume();
+    const volume = useRemoteAwareVolume();
     const muted = usePlayerMuted();
     const volumeWheelStep = useVolumeWheelStep();
     const volumeWidth = useVolumeWidth();

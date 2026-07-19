@@ -336,3 +336,27 @@ button {
         --theme-colors-border: rgb(255 255 255 / 10%);
     }
 }
+
+/*
+ * Expressive "Haze" frosted-glass chrome. Enabled by the Appearance "Frosted glass"
+ * toggle, which sets data-haze on the root (see use-app-theme.ts). The frosted surface
+ * is a translucent app-background wash tinted by the LIVE accent color
+ * (--theme-colors-primary updates when the accent picker changes), so blue accent ->
+ * frosted blue, green -> frosted green. Surfaces reference --haze-surface; when the
+ * toggle is off these vars are undefined and each surface keeps its solid fallback.
+ * --haze-surface-strong is a more opaque variant for small-text overlays (menus/popovers).
+ */
+:root[data-haze='true'] {
+    --haze-blur: 24px;
+    --haze-accent-strength: 14%;
+    --haze-surface: color-mix(
+        in srgb,
+        var(--theme-colors-primary) var(--haze-accent-strength),
+        color-mix(in srgb, var(--theme-colors-background) 62%, transparent)
+    );
+    --haze-surface-strong: color-mix(
+        in srgb,
+        var(--theme-colors-primary) var(--haze-accent-strength),
+        color-mix(in srgb, var(--theme-colors-background) 80%, transparent)
+    );
+}

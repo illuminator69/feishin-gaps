@@ -1470,10 +1470,47 @@ export const SubsonicController: InternalControllerEndpoint = {
             features.reportPlayback = [1];
         }
 
+        if (subsonicFeatures[SubsonicExtensions.SONIC_SIMILARITY]) {
+            features.sonicSimilarity = [1];
+        }
+
         return { features, id: apiClientProps.server?.id, version: ping.body.serverVersion };
     },
     getSimilarSongs: async (args) => {
         const { apiClientProps, context, query } = args;
+
+        // Prefer the AudioMuse sonic-similarity endpoint when the plugin is
+        // present — it always routes through AudioMuse (guaranteed sonic
+        // results), unlike getSimilarSongs which may be served heuristically.
+        if (hasFeature(apiClientProps.server, ServerFeature.SONIC_SIMILARITY)) {
+            try {
+                const sonicRes = await ssApiClient(apiClientProps).getSonicSimilarTracks({
+                    query: {
+                        count: query.count,
+                        id: query.songId,
+                    },
+                });
+
+                if (sonicRes.status === 200 && sonicRes.body.sonicMatch?.length) {
+                    return sonicRes.body.sonicMatch.reduce<Song[]>((acc, match) => {
+                        if (match.entry.id !== query.songId) {
+                            acc.push(
+                                ssNormalize.song(
+                                    match.entry,
+                                    apiClientProps.server,
+                                    context?.pathReplace,
+                                    context?.pathReplaceWith,
+                                ),
+                            );
+                        }
+
+                        return acc;
+                    }, []);
+                }
+            } catch (error) {
+                console.error('Sonic similar tracks failed, falling back:', error);
+            }
+        }
 
         const res = await ssApiClient(apiClientProps).getSimilarSongs({
             query: {
@@ -1504,6 +1541,34 @@ export const SubsonicController: InternalControllerEndpoint = {
 
             return acc;
         }, []);
+    },
+    getSonicPath: async (args) => {
+        const { apiClientProps, context, query } = args;
+
+        const res = await ssApiClient(apiClientProps).findSonicPath({
+            query: {
+                count: query.count,
+                endSongId: query.endSongId,
+                startSongId: query.startSongId,
+            },
+        });
+
+        if (res.status !== 200) {
+            throw new Error('Failed to find sonic path');
+        }
+
+        if (!res.body.sonicMatch) {
+            return [];
+        }
+
+        return res.body.sonicMatch.map((match) =>
+            ssNormalize.song(
+                match.entry,
+                apiClientProps.server,
+                context?.pathReplace,
+                context?.pathReplaceWith,
+            ),
+        );
     },
     getSongDetail: async (args) => {
         const { apiClientProps, context, query } = args;
@@ -2309,7 +2374,7 @@ export const SubsonicController: InternalControllerEndpoint = {
         const { apiClientProps, query } = args;
 
         if (hasFeature(apiClientProps.server, ServerFeature.REPORT_PLAYBACK)) {
-            if (query.submission) {
+            if (query.submission || query.event === 'start') {
                 const res = await ssApiClient(apiClientProps).scrobble({
                     query: {
                         id: query.id,
@@ -2321,38 +2386,54 @@ export const SubsonicController: InternalControllerEndpoint = {
                     throw new Error('Failed to scrobble');
                 }
 
-                return null;
+                if (query.submission) {
+                    return null;
+                }
             }
 
-            let state: 'paused' | 'playing' | 'starting' | 'stopped' = 'playing';
+            const defaultParams = {
+                ignoreScrobble: true,
+                mediaId: query.id,
+                mediaType: query.mediaType,
+                playbackRate: query.playbackRate,
+                positionMs: query.position ?? 0,
+            };
+
+            const reportPlayback = (state: 'paused' | 'playing' | 'starting' | 'stopped') => {
+                return ssApiClient(apiClientProps).reportPlayback({
+                    query: {
+                        ...defaultParams,
+                        state,
+                    },
+                });
+            };
+
+            const promises: Promise<any>[] = [];
 
             switch (query.event) {
                 case 'pause':
-                    state = 'paused';
+                    promises.push(reportPlayback('paused'));
                     break;
                 case 'start':
-                    state = 'starting';
+                    promises.push(reportPlayback('starting'));
+                    promises.push(reportPlayback('playing'));
+                    break;
+                case 'stop':
+                    promises.push(reportPlayback('stopped'));
                     break;
                 case 'unpause':
-                    state = 'playing';
+                    promises.push(reportPlayback('playing'));
                     break;
                 default:
-                    state = 'playing';
+                    break;
             }
 
-            const res = await ssApiClient(apiClientProps).reportPlayback({
-                query: {
-                    ignoreScrobble: true,
-                    mediaId: query.id,
-                    mediaType: query.mediaType,
-                    playbackRate: query.playbackRate,
-                    positionMs: query.position ?? 0,
-                    state,
-                },
-            });
+            for (const promise of promises) {
+                const res = await promise;
 
-            if (res.status !== 200) {
-                throw new Error('Failed to report playback');
+                if (res.status !== 200) {
+                    throw new Error('Failed to report playback');
+                }
             }
 
             return null;

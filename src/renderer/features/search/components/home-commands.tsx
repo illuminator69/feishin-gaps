@@ -1,12 +1,14 @@
 import { nanoid } from 'nanoid/non-secure';
-import { Dispatch, useCallback } from 'react';
+import { Dispatch, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createSearchParams, generatePath, useNavigate } from 'react-router';
 
+import { fetchClapAvailable } from '/@/renderer/features/player/auto-dj/audio-muse-source';
 import { openCreatePlaylistModal } from '/@/renderer/features/playlists/components/create-playlist-form';
 import { Command, CommandPalettePages } from '/@/renderer/features/search/components/command';
+import { openClapSearchModal } from '/@/renderer/features/sonic/components/clap-search-modal';
 import { AppRoute } from '/@/renderer/router/routes';
-import { useCurrentServer } from '/@/renderer/store';
+import { useAudioMuseSettings, useCurrentServer } from '/@/renderer/store';
 import { LibraryItem } from '/@/shared/types/domain-types';
 
 interface HomeCommandsProps {
@@ -27,11 +29,30 @@ export const HomeCommands = ({
     const { t } = useTranslation();
     const navigate = useNavigate();
     const server = useCurrentServer();
+    const audioMuse = useAudioMuseSettings();
+
+    // CLAP text→mood search (AudioMuse Tier 2). Probe once so the command only
+    // shows when it's actually usable (enabled + library analyzed); fail-soft.
+    const [clapAvailable, setClapAvailable] = useState(false);
+    useEffect(() => {
+        let cancelled = false;
+        void fetchClapAvailable(audioMuse).then((ok) => {
+            if (!cancelled) setClapAvailable(ok);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [audioMuse]);
 
     const handleCreatePlaylistModal = useCallback(() => {
         handleClose();
         openCreatePlaylistModal(server);
     }, [handleClose, server]);
+
+    const handleClapSearch = useCallback(() => {
+        handleClose();
+        openClapSearchModal();
+    }, [handleClose]);
 
     const handleSearch = () => {
         navigate(
@@ -62,6 +83,14 @@ export const HomeCommands = ({
                 <Command.Item onSelect={handleCreatePlaylistModal}>
                     {t('action.createPlaylist')}...
                 </Command.Item>
+                {clapAvailable && (
+                    <Command.Item
+                        onSelect={handleClapSearch}
+                        value={t('sonic.moodSearch', { defaultValue: 'Mood search' })}
+                    >
+                        {t('sonic.moodSearch', { defaultValue: 'Mood search' })}...
+                    </Command.Item>
+                )}
                 <Command.Item onSelect={() => setPages([...pages, CommandPalettePages.GO_TO])}>
                     {t('page.globalSearch.commands.goToPage')}...
                 </Command.Item>

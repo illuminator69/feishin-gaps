@@ -5,6 +5,7 @@ import { DownloadAction } from '/@/renderer/features/context-menu/actions/downlo
 import { GetInfoAction } from '/@/renderer/features/context-menu/actions/get-info-action';
 import { GoToAction } from '/@/renderer/features/context-menu/actions/go-to-action';
 import { PlayAction } from '/@/renderer/features/context-menu/actions/play-action';
+import { PlayTrackJourneyAction } from '/@/renderer/features/context-menu/actions/play-track-journey-action';
 import { PlayTrackRadioAction } from '/@/renderer/features/context-menu/actions/play-track-radio-action';
 import { SetFavoriteAction } from '/@/renderer/features/context-menu/actions/set-favorite-action';
 import { SetRatingAction } from '/@/renderer/features/context-menu/actions/set-rating-action';
@@ -31,6 +32,7 @@ export const SongContextMenu = ({ items, type }: SongContextMenuProps) => {
         >
             <PlayAction ids={ids} itemType={LibraryItem.SONG} songs={items} />
             <PlayTrackRadioAction disabled={items.length > 1} song={items[0]} />
+            <PlayTrackJourneyAction disabled={items.length > 1} song={items[0]} />
             <ContextMenu.Divider />
             <AddToPlaylistAction items={ids} itemType={LibraryItem.SONG} />
             <ContextMenu.Divider />

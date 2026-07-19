@@ -17,6 +17,11 @@ import {
 import styles from './context-menu.module.css';
 
 import { animationVariants } from '/@/shared/components/animations/animation-variants';
+import {
+    emphasizedMenuTransition,
+    emphasizedMenuVariants,
+} from '/@/shared/components/animations/motion-tokens';
+import { useExpressiveMotion } from '/@/shared/components/animations/use-expressive-motion';
 import { AppIcon, Icon } from '/@/shared/components/icon/icon';
 import { ScrollArea } from '/@/shared/components/scroll-area/scroll-area';
 
@@ -86,6 +91,7 @@ export function ContextMenu(props: ContextMenuProps) {
 function Content(props: ContentProps) {
     const { bottomStickyContent, children, stickyContent } = props;
     const { open } = useContext(ContextMenuContext) as ContextMenuContext;
+    const expressiveMotion = useExpressiveMotion();
 
     return (
         <AnimatePresence>
@@ -97,6 +103,10 @@ function Content(props: ContentProps) {
                             className={styles.content}
                             exit="hidden"
                             initial="hidden"
+                            transition={expressiveMotion ? emphasizedMenuTransition : undefined}
+                            variants={
+                                expressiveMotion ? emphasizedMenuVariants : animationVariants.fadeIn
+                            }
                         >
                             {stickyContent}
                             <ScrollArea className={styles.maxHeight}>{children}</ScrollArea>

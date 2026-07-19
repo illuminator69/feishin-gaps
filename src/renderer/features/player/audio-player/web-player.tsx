@@ -1,3 +1,4 @@
+import { useEffectiveTranscode } from '/@/renderer/features/player/audio-player/hooks/use-effective-transcode';
 import type { Dispatch } from 'react';
 import type ReactPlayer from 'react-player';
 
@@ -45,7 +46,8 @@ export function WebPlayer() {
     const { crossfadeDuration, crossfadeStyle, speed, transitionType } = usePlayerProperties();
     const isMuted = usePlayerMuted();
     const volume = usePlayerVolume();
-    const { audioFadeOnStatusChange, preservePitch, transcode } = usePlaybackSettings();
+    const { audioFadeOnStatusChange, preservePitch } = usePlaybackSettings();
+    const transcode = useEffectiveTranscode();
 
     const [localPlayerStatus, setLocalPlayerStatus] = useState<PlayerStatus>(status);
     const [isTransitioning, setIsTransitioning] = useState<boolean | string>(false);

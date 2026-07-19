@@ -630,6 +630,18 @@ export const controller: GeneralController = {
             }),
         );
     },
+    getSonicPath(args) {
+        const server = getServerById(args.apiClientProps.serverId);
+
+        if (!server) {
+            throw new Error(`${i18n.t('error.apiRouteError')}: getSonicPath`);
+        }
+
+        return apiController(
+            'getSonicPath',
+            server.type,
+        )?.(addContext({ ...args, apiClientProps: { ...args.apiClientProps, server } }));
+    },
     getSongDetail(args) {
         const server = getServerById(args.apiClientProps.serverId);
 

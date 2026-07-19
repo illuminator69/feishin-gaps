@@ -17,6 +17,7 @@ export enum ServerFeature {
     SERVER_PLAY_QUEUE = 'serverPlayQueue',
     SHARING_ALBUM_SONG = 'sharingAlbumSong',
     SIMILAR_SONGS_MUSIC_FOLDER = 'similarSongsMusicFolder',
+    SONIC_SIMILARITY = 'sonicSimilarity',
     TAGS = 'tags',
     TRACK_ALBUM_ARTIST_SEARCH = 'trackAlbumArtistSearch',
     TRACK_YES_NO_RATING_FILTER = 'trackYesNoRatingFilter',

@@ -1,4 +1,8 @@
+import './audiomuse';
 import './autodiscover';
+import './cast';
+import './downloads';
+import './hub';
 import './lyrics';
 import './player';
 import './remote';

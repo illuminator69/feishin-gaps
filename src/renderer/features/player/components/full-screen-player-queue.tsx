@@ -29,12 +29,19 @@ const ButterchurnVisualizer = lazy(() =>
     })),
 );
 
+const BlobVisualizer = lazy(() =>
+    import('../../visualizer/components/blob/visualizer').then((module) => ({
+        default: module.Visualizer,
+    })),
+);
+
 export const FullScreenPlayerQueue = () => {
     const { t } = useTranslation();
     const { activeTab, opacity } = useFullScreenPlayerStore();
     const { setStore } = useFullScreenPlayerStoreActions();
     const { webAudio } = usePlaybackSettings();
     const visualizerType = useSettingsStore((store) => store.visualizer.type);
+    const canShowVisualizer = webAudio;
 
     const headerItems = useMemo(() => {
         const items = [
@@ -55,7 +62,7 @@ export const FullScreenPlayerQueue = () => {
             },
         ];
 
-        if (webAudio) {
+        if (canShowVisualizer) {
             items.push({
                 active: activeTab === 'visualizer',
                 label: t('page.fullscreenPlayer.visualizer'),
@@ -64,7 +71,7 @@ export const FullScreenPlayerQueue = () => {
         }
 
         return items;
-    }, [activeTab, setStore, t, webAudio]);
+    }, [activeTab, canShowVisualizer, setStore, t]);
 
     return (
         <div
@@ -119,9 +126,11 @@ export const FullScreenPlayerQueue = () => {
                 </div>
             ) : activeTab === 'lyrics' ? (
                 <Lyrics fadeOutNoLyricsMessage={false} />
-            ) : activeTab === 'visualizer' && webAudio ? (
+            ) : activeTab === 'visualizer' && canShowVisualizer ? (
                 <Suspense fallback={<></>}>
-                    {visualizerType === 'butterchurn' ? (
+                    {visualizerType === 'blob' ? (
+                        <BlobVisualizer />
+                    ) : visualizerType === 'butterchurn' ? (
                         <ButterchurnVisualizer />
                     ) : (
                         <AudioMotionAnalyzerVisualizer />

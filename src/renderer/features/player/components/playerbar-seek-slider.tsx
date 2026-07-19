@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 
 import { CustomPlayerbarSlider } from './playerbar-slider';
 
+import { useRemoteAwareTimestamp } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
-import { usePlayerTimestamp } from '/@/renderer/store';
 
 interface PlayerbarSeekSliderProps {
     max: number;
@@ -14,7 +14,7 @@ interface PlayerbarSeekSliderProps {
 export const PlayerbarSeekSlider = ({ max, min }: PlayerbarSeekSliderProps) => {
     const [isSeeking, setIsSeeking] = useState(false);
     const [seekValue, setSeekValue] = useState(0);
-    const currentTime = usePlayerTimestamp();
+    const currentTime = useRemoteAwareTimestamp();
     const seekTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const lastSeekValueRef = useRef<null | number>(null);
 

@@ -38,6 +38,25 @@ export const TranscodeSettings = memo(() => {
         },
         {
             control: (
+                <Switch
+                    aria-label="Transcode only on metered connections"
+                    defaultChecked={transcode.meteredOnly ?? false}
+                    onChange={(e) => {
+                        setTranscodingConfig({
+                            ...transcode,
+                            meteredOnly: e.currentTarget.checked,
+                        });
+                    }}
+                />
+            ),
+            description:
+                'Apply the transcode profile only while on a metered or constrained connection (cellular, data saver). Full quality otherwise.',
+            isHidden: !transcode.enabled,
+            note,
+            title: 'Only when metered',
+        },
+        {
+            control: (
                 <NumberInput
                     aria-label="Transcode bitrate"
                     defaultValue={transcode.bitrate}

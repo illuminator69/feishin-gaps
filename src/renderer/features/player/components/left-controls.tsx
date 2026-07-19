@@ -13,6 +13,7 @@ import {
     JoinedArtists,
 } from '/@/renderer/features/albums/components/joined-artists';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
+import { useRemoteAwarePlayerSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { RadioMetadataDisplay } from '/@/renderer/features/player/components/radio-metadata-display';
 import {
     useIsRadioActive,
@@ -25,7 +26,8 @@ import {
     useAppStoreActions,
     useFullScreenPlayerStore,
     useHotkeySettings,
-    usePlayerSong,
+    useHubActiveDeviceName,
+    useHubIsRemoteActive,
     useSetFullScreenPlayerStore,
 } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
@@ -54,7 +56,9 @@ export const LeftControls = () => {
         shallow,
     );
 
-    const currentSong = usePlayerSong();
+    const currentSong = useRemoteAwarePlayerSong();
+    const isRemote = useHubIsRemoteActive();
+    const remoteDeviceName = useHubActiveDeviceName();
     const isRadioActive = useIsRadioActive();
     const { currentStationArt } = useRadioPlayer();
     const { bindings } = useHotkeySettings();
@@ -168,6 +172,7 @@ export const LeftControls = () => {
                                             id={currentSong?.imageId}
                                             itemType={LibraryItem.SONG}
                                             serverId={currentSong?._serverId}
+                                            src={currentSong?.imageUrl ?? undefined}
                                             type="table"
                                         />
                                     )}
@@ -204,6 +209,19 @@ export const LeftControls = () => {
                         />
                     ) : (
                         <>
+                            {isRemote && (
+                                <div className={styles.lineItem} onClick={stopPropagation}>
+                                    <Group align="center" gap="xs" wrap="nowrap">
+                                        <Icon color="success" icon="radio" size="sm" />
+                                        <Text isMuted overflow="hidden" size="xs">
+                                            {t('player.playingOnDevice', {
+                                                defaultValue: 'Playing on {{device}}',
+                                                device: remoteDeviceName,
+                                            })}
+                                        </Text>
+                                    </Group>
+                                </div>
+                            )}
                             <div className={styles.lineItem} onClick={stopPropagation}>
                                 <Group align="center" gap="xs" wrap="nowrap">
                                     <Text

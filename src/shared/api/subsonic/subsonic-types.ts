@@ -451,11 +451,36 @@ const similarSongs2 = z.object({
         .optional(),
 });
 
+const sonicSimilarTracksParameters = z.object({
+    count: z.number().optional(),
+    id: z.string(),
+});
+
+const sonicPathParameters = z.object({
+    count: z.number().optional(),
+    endSongId: z.string(),
+    startSongId: z.string(),
+});
+
+// getSonicSimilarTracks / findSonicPath (AudioMuse plugin, OpenSubsonic
+// sonicSimilarity extension). Both return a `sonicMatch` array of scored songs.
+const sonicMatches = z.object({
+    sonicMatch: z
+        .array(
+            z.object({
+                entry: song,
+                similarity: z.number().optional(),
+            }),
+        )
+        .optional(),
+});
+
 export enum SubsonicExtensions {
     FORM_POST = 'formPost',
     INDEX_BASED_QUEUE = 'indexBasedQueue',
     PLAYBACK_REPORT = 'playbackReport',
     SONG_LYRICS = 'songLyrics',
+    SONIC_SIMILARITY = 'sonicSimilarity',
     TRANSCODE_OFFSET = 'transcodeOffset',
     TRANSCODING = 'transcoding',
 }
@@ -844,6 +869,8 @@ export const ssType = {
         setRating: setRatingParameters,
         similarSongs: similarSongsParameters,
         similarSongs2: similarSongs2Parameters,
+        sonicPath: sonicPathParameters,
+        sonicSimilarTracks: sonicSimilarTracksParameters,
         structuredLyrics: structuredLyricsParameters,
         topSongsList: topSongsListParameters,
         updateInternetRadioStation: updateInternetRadioStationParameters,
@@ -899,6 +926,7 @@ export const ssType = {
         similarSongs,
         similarSongs2,
         song,
+        sonicMatches,
         structuredLyrics,
         topSongsList,
         updateInternetRadioStation,

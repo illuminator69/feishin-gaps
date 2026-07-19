@@ -1,3 +1,4 @@
+import { useEffectiveTranscode } from '/@/renderer/features/player/audio-player/hooks/use-effective-transcode';
 import { useWavesurfer } from '@wavesurfer/react';
 import formatDuration from 'format-duration';
 import { AnimatePresence, motion } from 'motion/react';
@@ -11,7 +12,6 @@ import { PlayerbarSeekSlider } from '/@/renderer/features/player/components/play
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
     BarAlign,
-    usePlaybackSettings,
     usePlayerbarSlider,
     usePlayerSong,
     usePlayerTimestamp,
@@ -36,7 +36,7 @@ export const PlayerbarWaveform = () => {
 
     const songDuration = currentSong?.duration ? currentSong.duration / 1000 : 0;
 
-    const { transcode } = usePlaybackSettings();
+    const transcode = useEffectiveTranscode();
     const streamUrl = useSongUrl(currentSong, true, {
         bitrate: 64,
         enabled: transcode.enabled,
