@@ -1,0 +1,149 @@
+/*
+ * Glassy overrides for the Catppuccin themes — the frosted/translucent treatment ported
+ * from Feishin's built-in "Glassy Dark", but expressed in terms of the active theme's
+ * palette (--theme-colors-*) so the same file works for both Catppuccin Mocha (dark) and
+ * Catppuccin Latte (light). Referenced by catppuccin-mocha-glassy.json /
+ * catppuccin-latte-glassy.json via "stylesheets".
+ *
+ * stylelint-disable selector-class-pattern
+ */
+:root {
+    --glass-blur: 22px;
+    --glass-radius: 14px;
+    --glass-radius-lg: 18px;
+    --glass-surface: color-mix(in srgb, var(--theme-colors-surface) 60%, transparent);
+    --glass-surface-strong: color-mix(in srgb, var(--theme-colors-surface) 82%, transparent);
+    --glass-accent: color-mix(in srgb, var(--theme-colors-primary) 22%, transparent);
+}
+
+/* Player bar: frosted translucent surface. */
+.fs-player-bar-module-container {
+    background: color-mix(in srgb, var(--theme-colors-background) 45%, transparent) !important;
+    backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+}
+
+/* Elevated surfaces: modals, dropdowns, popovers, dialogs, menus. */
+.fs-modal-module-content,
+.fs-select-module-dropdown,
+.fs-popover-module-dropdown,
+.fs-dialog-module-root,
+.fs-context-menu-module-content,
+.fs-dropdown-menu-module-menu-dropdown,
+.fs-accordion-module-panel {
+    background: var(--glass-surface) !important;
+    border: 0;
+    backdrop-filter: blur(var(--glass-blur));
+
+    button,
+    input,
+    .fs-multi-select-module-input,
+    a {
+        border-radius: 12px;
+    }
+}
+
+.fs-context-menu-module-content,
+.fs-dropdown-menu-module-menu-dropdown,
+.fs-select-module-dropdown,
+.fs-popover-module-dropdown {
+    border-radius: var(--glass-radius-lg);
+}
+
+.fs-accordion-module-panel {
+    border-radius: var(--glass-radius-lg);
+    backdrop-filter: none !important;
+}
+
+.fs-accordion-module-control {
+    background-color: transparent;
+}
+
+.fs-modal-module-header {
+    background: var(--glass-surface-strong) !important;
+    border-radius: var(--glass-radius-lg);
+}
+
+.mantine-Modal-content {
+    border: 0;
+    border-radius: var(--glass-radius-lg);
+}
+
+.mantine-Modal-overlay {
+    backdrop-filter: blur(3px);
+}
+
+/* Inputs / command palette selection. */
+.fs-text-input-module-input,
+[cmdk-item][data-selected] {
+    background: var(--glass-surface) !important;
+    border: 0;
+    border-radius: var(--glass-radius-lg);
+}
+
+.fs-modal-module-content [cmdk-separator] {
+    display: none;
+}
+
+/* Badges pick up a soft translucent accent wash. */
+.mantine-Badge-root {
+    background: var(--glass-accent);
+}
+
+/* Tables read cleaner without their solid header/borders over glass. */
+.ag-header {
+    background-color: transparent !important;
+    border-radius: 8px 8px 0 0;
+}
+
+.mantine-Table-th {
+    background-color: transparent !important;
+}
+
+table {
+    border: 0 !important;
+}
+
+.fs-page-header-module-container {
+    background-color: transparent;
+}
+
+/* Rounding to match the frosted look. */
+.fs-left-controls-module-image,
+.fs-left-controls-module-playerbar-image {
+    border-radius: 12px !important;
+}
+
+.fs-poster-card-module-image-container {
+    border-radius: 8px !important;
+}
+
+.fs-sidebar-module-accordion-content a {
+    border-radius: 8px;
+}
+
+.fs-button-module-root[data-variant='filled'] {
+    border-radius: 12px;
+}
+
+.fs-button-module-root[data-variant='outline'] {
+    border-radius: 1rem;
+}
+
+.fs-segmented-control-module-root {
+    border-radius: var(--glass-radius-lg);
+}
+
+.fs-segmented-control-module-label[data-active='true'],
+.mantine-SegmentedControl-control {
+    border-radius: 8px;
+}
+
+.mantine-Tabs-root {
+    input {
+        border-radius: var(--glass-radius-lg);
+    }
+
+    button:not(.mantine-focus-never) {
+        border-radius: 8px;
+    }
+}

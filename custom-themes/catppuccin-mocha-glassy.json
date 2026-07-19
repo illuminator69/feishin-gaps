@@ -1,0 +1,11 @@
+{
+    "mode": "dark",
+    "extends": "catppuccinMocha",
+    "app": {
+        "overlay-header": "linear-gradient(transparent 0%, rgb(24 24 37 / 80%) 100%), var(--theme-background-noise)",
+        "overlay-subheader": "linear-gradient(180deg, rgb(24 24 37 / 5%) 0%, var(--theme-colors-background) 100%), var(--theme-background-noise)",
+        "scrollbar-handle-background": "rgba(137, 180, 250, 20%)",
+        "scrollbar-handle-hover-background": "rgba(137, 180, 250, 40%)"
+    },
+    "stylesheets": ["catppuccin-glassy.css"]
+}
