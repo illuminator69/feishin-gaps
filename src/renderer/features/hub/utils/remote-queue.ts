@@ -110,6 +110,7 @@ export const isRemoteSessionActive = (): boolean => {
 export const enqueueToRemote = async (
     songs: Song[],
     mode: 'end' | 'next' | 'now',
+    startIndex = 0,
 ): Promise<boolean> => {
     if (!hub || !isRemoteSessionActive() || songs.length === 0) return false;
     const serverId = songs[0]._serverId;
@@ -117,7 +118,9 @@ export const enqueueToRemote = async (
     const tracks = await buildHubTracksForSongs(songs, serverId, publicServerUrl);
 
     if (mode === 'now') {
-        hub.send({ action: 'setQueue', index: 0, play: true, t: 'act', tracks });
+        // Start on the clicked track, not always track 1.
+        const index = Math.max(0, Math.min(startIndex, songs.length - 1));
+        hub.send({ action: 'setQueue', index, play: true, t: 'act', tracks });
     } else {
         hub.send({ action: 'enqueue', at: mode === 'next' ? 'next' : 'end', t: 'act', tracks });
     }

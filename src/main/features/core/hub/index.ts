@@ -25,12 +25,21 @@ interface HubConfig {
     url: string;
 }
 
-const RECONNECT_MS = 3000;
+// Reconnect uses capped exponential backoff with jitter (protocol §3) — a fixed
+// retry made every client hammer a down hub in lockstep.
+const INITIAL_BACKOFF_MS = 1000;
+const MAX_BACKOFF_MS = 30000;
+// WS-level heartbeat so a half-open socket (Wi-Fi drop, NAT timeout) is detected
+// and force-closed instead of sitting dead with readyState === OPEN.
+const HEARTBEAT_MS = 10000;
 
 const config: HubConfig = { enabled: false, name: 'Feishin', token: '', url: '' };
 
 let ws: undefined | WebSocket;
 let reconnectTimer: NodeJS.Timeout | undefined;
+let heartbeatTimer: NodeJS.Timeout | undefined;
+let backoffMs = INITIAL_BACKOFF_MS;
+let isAlive = false;
 let shouldRun = false;
 
 function deviceId(): string {
@@ -48,13 +57,34 @@ function send(obj: unknown): void {
     }
 }
 
+/**
+ * Tell the renderer the transport state changed. The renderer only ever heard
+ * hub frames, so a dropped socket left it stuck `connected: true` — routing
+ * `act`s into a dead socket and freezing the player bar on stale remote state.
+ * Synthetic frames ride the same `hub-message` channel so use-hub can react.
+ */
+function emitStatus(status: 'disconnected'): void {
+    getMainWindow()?.webContents.send('hub-message', JSON.stringify({ t: status }));
+}
+
+function stopHeartbeat(): void {
+    if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = undefined;
+    }
+}
+
 function scheduleReconnect(): void {
     ws = undefined;
+    stopHeartbeat();
     if (!shouldRun || reconnectTimer) return;
+    const jitter = Math.random() * 0.3 * backoffMs;
+    const delay = backoffMs + jitter;
+    backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
     reconnectTimer = setTimeout(() => {
         reconnectTimer = undefined;
         connect();
-    }, RECONNECT_MS);
+    }, delay);
 }
 
 function connect(): void {
@@ -67,6 +97,28 @@ function connect(): void {
     }
 
     ws.on('open', () => {
+        // The link is up — reset the backoff so the NEXT drop starts fast again.
+        backoffMs = INITIAL_BACKOFF_MS;
+        isAlive = true;
+        stopHeartbeat();
+        heartbeatTimer = setInterval(() => {
+            // No pong since the last tick → the socket is half-open; kill it so
+            // the close handler can reconnect instead of blocking forever.
+            if (!isAlive) {
+                try {
+                    ws?.terminate();
+                } catch {
+                    /* ignore */
+                }
+                return;
+            }
+            isAlive = false;
+            try {
+                ws?.ping();
+            } catch {
+                /* ignore */
+            }
+        }, HEARTBEAT_MS);
         send({
             device: {
                 caps: ['receiver', 'controller'],
@@ -78,10 +130,16 @@ function connect(): void {
             token: config.token,
         });
     });
+    ws.on('pong', () => {
+        isAlive = true;
+    });
     ws.on('message', (data) => {
         getMainWindow()?.webContents.send('hub-message', data.toString());
     });
-    ws.on('close', () => scheduleReconnect());
+    ws.on('close', () => {
+        emitStatus('disconnected');
+        scheduleReconnect();
+    });
     ws.on('error', () => {
         // 'close' fires after 'error'; reconnect is handled there.
     });
@@ -89,6 +147,7 @@ function connect(): void {
 
 function start(): void {
     shouldRun = true;
+    backoffMs = INITIAL_BACKOFF_MS;
     if (!ws) connect();
 }
 
@@ -98,6 +157,7 @@ function stop(): void {
         clearTimeout(reconnectTimer);
         reconnectTimer = undefined;
     }
+    stopHeartbeat();
     try {
         ws?.close();
     } catch {

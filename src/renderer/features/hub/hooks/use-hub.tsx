@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
+import { toast } from '/@/shared/components/toast/toast';
 import {
     useCurrentServerId,
     useHubSettings,
@@ -47,6 +48,12 @@ export const useHub = () => {
     const index = useRef(usePlayerStore.getState().player.index);
     const playing = useRef(false);
     const lastQueueSig = useRef('');
+    // Throttle the progress-path report to the ~1 Hz contract — the audio engine
+    // fires progress several times a second, which multiplied hub traffic.
+    const lastProgressReportAt = useRef(0);
+    // Memoize resolved stream URLs by track id so a queue-membership change
+    // doesn't re-resolve getStreamUrl for every track that didn't change.
+    const streamUrlCache = useRef<Map<string, string | undefined>>(new Map());
     // Seek armed during a do:load that changes track: applied once the player
     // reports the new song, because seeking during the source reload is lost.
     // `pause` re-asserts the paused state after the seek — mediaPlayByIndex
@@ -116,13 +123,19 @@ export const useHub = () => {
             items.map(async (item) => {
                 let streamUrl: string | undefined;
                 if (sid) {
-                    try {
-                        streamUrl = (await api.controller.getStreamUrl({
-                            apiClientProps: { serverId: sid },
-                            query: { id: item.id, skipAutoTranscode: true, transcode: false },
-                        })) as string;
-                    } catch {
-                        streamUrl = undefined;
+                    const cache = streamUrlCache.current;
+                    if (cache.has(item.id)) {
+                        streamUrl = cache.get(item.id);
+                    } else {
+                        try {
+                            streamUrl = (await api.controller.getStreamUrl({
+                                apiClientProps: { serverId: sid },
+                                query: { id: item.id, skipAutoTranscode: true, transcode: false },
+                            })) as string;
+                        } catch {
+                            streamUrl = undefined;
+                        }
+                        cache.set(item.id, streamUrl);
                     }
                 }
                 return {
@@ -157,6 +170,10 @@ export const useHub = () => {
     // from another active device — only publish when we're active or nothing is.
     const publishQueue = useCallback(() => {
         if (!hub) return;
+        // A do:load fires onCurrentSongChange → publishQueue while we're now the
+        // active device; without this gate we'd echo an act:setQueue back to the
+        // hub carrying the PREVIOUS track's position, overwriting the resume point.
+        if (Date.now() < hubDrivenUntil.current) return;
         if (!(activeId.current === null || activeId.current === myId.current)) return;
         const items = usePlayerStore.getState().getQueue().items;
         const sig = items.map((item) => item.id).join(',');
@@ -258,6 +275,10 @@ export const useHub = () => {
                 case 'load': {
                     const targetSec = (msg.positionMs ?? 0) / 1000;
                     const incomingIds: string[] = (msg.tracks ?? []).map((t: any) => t.id);
+                    // We become the active device once this queue loads, so pre-set the
+                    // publish signature to the loaded queue — otherwise onCurrentSongChange
+                    // republishes it back to the hub with a stale position.
+                    if (incomingIds.length) lastQueueSig.current = incomingIds.join(',');
                     const state = usePlayerStore.getState();
                     const currentIds = state.getQueue().items.map((item) => item.id);
                     const sameQueue =
@@ -410,7 +431,7 @@ export const useHub = () => {
     useEffect(() => {
         if (!hub) return undefined;
         const { setStore } = useHubStore.getState().actions;
-        hub.onMessage((msg: any) => {
+        const dispose = hub.onMessage((msg: any) => {
             if (msg.t === 'welcome') {
                 myId.current = msg.deviceId ?? null;
                 activeId.current = msg.session?.activeDeviceId ?? null;
@@ -457,9 +478,28 @@ export const useHub = () => {
                 setStore({ devices: msg.devices ?? [] });
             } else if (msg.t === 'do') {
                 void handleDo(msg);
+            } else if (msg.t === 'disconnected') {
+                // The main process lost the socket. Clear active/connected so
+                // isRemoteSessionActive() releases the player bar and the local
+                // watchdog stops force-pausing local audio; reset the guards so a
+                // reconnect republishes cleanly.
+                activeId.current = null;
+                hubDrivenUntil.current = 0;
+                lastQueueSig.current = '';
+                setStore({ activeDeviceId: null, connected: false });
+            } else if (msg.t === 'error') {
+                // Surface hub-side failures (bad token, target offline, …) — they
+                // were silent, so a wrong token just looked like "never connects".
+                const message =
+                    msg.code === 'target_offline'
+                        ? 'That device is offline.'
+                        : msg.code === 'auth'
+                          ? 'The hub rejected the token — check your navi-connect settings.'
+                          : (msg.message ?? 'Hub error');
+                toast.warn({ message });
             }
         });
-        return () => hub.removeListeners();
+        return () => dispose();
     }, [adoptIfNoLiveReceiver, handleDo, publishQueue, reconcileRemoteActive]);
 
     // Feed the refs from player events; publish queue changes + report when active.
@@ -498,6 +538,10 @@ export const useHub = () => {
                     mediaPause();
                     return;
                 }
+                // ~1 Hz per protocol §5 — the engine fires this several times a second.
+                const now = Date.now();
+                if (now - lastProgressReportAt.current < 1000) return;
+                lastProgressReportAt.current = now;
                 report();
             },
             onPlayerStatus: (properties) => {

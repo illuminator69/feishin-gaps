@@ -43,7 +43,13 @@ interface HubTrack {
 
 const noop = () => {};
 
-const RECONNECT_MS = 5000;
+// Hub reconnect: capped exponential backoff with jitter (protocol §3) so every
+// bridge doesn't hammer a down hub in lockstep.
+const INITIAL_BACKOFF_MS = 1000;
+const MAX_BACKOFF_MS = 30000;
+// WS heartbeat so a half-open hub socket is detected + force-closed instead of
+// leaving the bridge dead-but-registered with readyState === OPEN.
+const HEARTBEAT_MS = 10000;
 
 // appId of the Default Media Receiver — used to spot an already-running cast
 // session to re-join (vs. launching a fresh one) after a bridge restart.
@@ -74,6 +80,12 @@ class CastDeviceBridge {
 
     private reconnectTimer: NodeJS.Timeout | null = null;
 
+    private heartbeatTimer: NodeJS.Timeout | null = null;
+
+    private hubAlive = false;
+
+    private backoffMs = INITIAL_BACKOFF_MS;
+
     private ticker: NodeJS.Timeout | null = null;
 
     private tracks: HubTrack[] = [];
@@ -98,6 +110,7 @@ class CastDeviceBridge {
     destroy(): void {
         this.destroyed = true;
         if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        this.stopHeartbeat();
         this.stopTicker();
         this.teardownCast();
         try {
@@ -121,6 +134,9 @@ class CastDeviceBridge {
 
         this.ws.on('open', () => {
             log.info(`[cast-bridge] ${this.friendlyName}: registered with hub`);
+            this.backoffMs = INITIAL_BACKOFF_MS;
+            this.hubAlive = true;
+            this.startHeartbeat();
             this.send({
                 device: {
                     caps: ['receiver'],
@@ -131,6 +147,9 @@ class CastDeviceBridge {
                 t: 'hello',
                 token: this.token,
             });
+        });
+        this.ws.on('pong', () => {
+            this.hubAlive = true;
         });
         this.ws.on('message', (data) => {
             try {
@@ -249,13 +268,46 @@ class CastDeviceBridge {
         });
     }
 
+    private startHeartbeat(): void {
+        this.stopHeartbeat();
+        this.heartbeatTimer = setInterval(() => {
+            // No pong since the last tick → half-open socket; kill it so the close
+            // handler reconnects instead of the bridge sitting dead-but-registered.
+            if (!this.hubAlive) {
+                try {
+                    this.ws?.terminate();
+                } catch {
+                    /* ignore */
+                }
+                return;
+            }
+            this.hubAlive = false;
+            try {
+                this.ws?.ping();
+            } catch {
+                /* ignore */
+            }
+        }, HEARTBEAT_MS);
+    }
+
+    private stopHeartbeat(): void {
+        if (this.heartbeatTimer) {
+            clearInterval(this.heartbeatTimer);
+            this.heartbeatTimer = null;
+        }
+    }
+
     private scheduleReconnect(): void {
         this.ws = null;
+        this.stopHeartbeat();
         if (this.destroyed || this.reconnectTimer) return;
+        const jitter = Math.random() * 0.3 * this.backoffMs;
+        const delay = this.backoffMs + jitter;
+        this.backoffMs = Math.min(this.backoffMs * 2, MAX_BACKOFF_MS);
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
             this.connectHub();
-        }, RECONNECT_MS);
+        }, delay);
     }
 
     private send(obj: unknown): void {

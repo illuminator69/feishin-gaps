@@ -5,14 +5,18 @@ import { ipcRenderer } from 'electron';
  * passes raw protocol frames both ways; the renderer (use-hub.tsx) does all the
  * protocol work.
  */
-const onMessage = (cb: (msg: any) => void) => {
-    ipcRenderer.on('hub-message', (_event, data: string) => {
+const onMessage = (cb: (msg: any) => void): (() => void) => {
+    const handler = (_event: unknown, data: string) => {
         try {
             cb(JSON.parse(data));
         } catch {
             /* ignore malformed frame */
         }
-    });
+    };
+    ipcRenderer.on('hub-message', handler);
+    // Return a disposer that removes THIS handler only — removeAllListeners
+    // would clobber any other subscriber and re-subscribing stacked duplicates.
+    return () => ipcRenderer.removeListener('hub-message', handler);
 };
 
 const send = (obj: unknown) => {

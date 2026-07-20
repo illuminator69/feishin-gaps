@@ -241,7 +241,19 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             // When playback is on another navi-connect device, route to it
             // instead of the (paused) local player.
             if (isRemoteSessionActive()) {
-                void enqueueToRemote(filteredData, addToQueueTypeToRemoteMode(type));
+                // Thread the clicked song → start index so Play.NOW on a specific
+                // track starts there remotely instead of at track 1.
+                const startIndex = playSongId
+                    ? Math.max(
+                          0,
+                          filteredData.findIndex((song) => song.id === playSongId),
+                      )
+                    : 0;
+                void enqueueToRemote(
+                    filteredData,
+                    addToQueueTypeToRemoteMode(type),
+                    startIndex,
+                );
                 return;
             }
 
@@ -793,7 +805,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             });
 
             // Remote session: reorder via the hub (rows carry `remote:<i>` ids).
-            // Single-item moves only — the hub `move` act is a single from→to.
+            // The hub `move` act is a single from→to; a multi-item drag can't be
+            // expressed atomically and applying them one-by-one races incoming
+            // session frames, so surface it instead of silently doing nothing.
             if (isRemoteSessionActive()) {
                 if (items.length === 1) {
                     const from = Number(items[0]._uniqueId.slice('remote:'.length));
@@ -805,6 +819,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                         const to = from < desired ? desired - 1 : desired;
                         if (to !== from) remoteAct('move', { from, to });
                     }
+                } else if (items.length > 1) {
+                    toast.warn({ message: 'Reordering multiple tracks at once isn’t supported on a remote device.' });
                 }
                 return;
             }

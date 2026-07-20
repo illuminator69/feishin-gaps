@@ -187,7 +187,14 @@ export const useRemoteSeek = (): ((sec: number) => boolean) => {
     const isRemote = useHubIsRemoteActive();
     return (sec: number) => {
         if (!isRemote || !hub) return false;
-        hub.send({ action: 'seek', positionMs: Math.round(sec * 1000), t: 'act' });
+        const positionMs = Math.round(sec * 1000);
+        hub.send({ action: 'seek', positionMs, t: 'act' });
+        // Optimistically advance the mirror so the scrubber thumb stays where the
+        // user dropped it instead of snapping back until the next ~1 Hz frame.
+        useHubStore.getState().actions.setStore({
+            remotePositionAt: Date.now(),
+            remotePositionMs: positionMs,
+        });
         return true;
     };
 };
