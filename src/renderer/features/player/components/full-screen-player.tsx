@@ -15,6 +15,10 @@ import styles from './full-screen-player.module.css';
 
 import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { SONG_TABLE_COLUMNS } from '/@/renderer/components/item-list/item-table-list/default-columns';
+import {
+    useRemoteAwareNextSong,
+    useRemoteAwarePlayerSong,
+} from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { FullScreenPlayerImage } from '/@/renderer/features/player/components/full-screen-player-image';
 import { FullScreenPlayerQueue } from '/@/renderer/features/player/components/full-screen-player-queue';
 import {
@@ -32,8 +36,6 @@ import {
     useFullScreenPlayerStoreActions,
     useLyricsDisplaySettings,
     useLyricsSettings,
-    usePlayerData,
-    usePlayerSong,
     useSettingsStore,
     useSettingsStoreActions,
     useWindowSettings,
@@ -81,8 +83,9 @@ interface BackgroundImageProps {
 }
 
 const BackgroundImage = memo(({ dynamicBackground, dynamicIsImage }: BackgroundImageProps) => {
-    const currentSong = usePlayerSong();
-    const { nextSong } = usePlayerData();
+    // Session-aware, like the artwork it sits behind — see full-screen-player-image.
+    const currentSong = useRemoteAwarePlayerSong();
+    const nextSong = useRemoteAwareNextSong();
 
     const currentImageUrl = useItemImageUrl({
         id: currentSong?.imageId || undefined,
@@ -624,7 +627,7 @@ interface PlayerContainerProps {
 
 const PlayerContainer = memo(
     ({ children, dynamicBackground, dynamicIsImage, windowBarStyle }: PlayerContainerProps) => {
-        const currentSong = usePlayerSong();
+        const currentSong = useRemoteAwarePlayerSong();
         const imageUrl = useItemImageUrl({
             id: currentSong?.imageId || undefined,
             imageUrl: currentSong?.imageUrl,

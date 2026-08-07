@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { queryKeys } from '/@/renderer/api/query-keys';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import { markNextQueueSource } from '/@/renderer/features/player/utils/saved-queue-source';
 import { songsQueries } from '/@/renderer/features/songs/api/songs-api';
 import { useArtistRadioCount, useCurrentServerId, usePlayButtonBehavior } from '/@/renderer/store';
 import { ContextMenu } from '/@/shared/components/context-menu/context-menu';
@@ -50,6 +51,7 @@ export const PlayTrackRadioAction = ({
                     const shouldSkipFirstSong =
                         skipFirstSong && (playType === Play.NEXT || playType === Play.LAST);
                     const queueSongs = shouldSkipFirstSong ? similarSongs : [song, ...similarSongs];
+                    if (playType === Play.NOW) markNextQueueSource('radio', song.name);
                     player.addToQueueByData(queueSongs, playType);
                 }
             } catch (error) {

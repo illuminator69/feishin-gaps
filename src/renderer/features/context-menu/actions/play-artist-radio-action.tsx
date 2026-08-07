@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { queryKeys } from '/@/renderer/api/query-keys';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import { markNextQueueSource } from '/@/renderer/features/player/utils/saved-queue-source';
 import { songsQueries } from '/@/renderer/features/songs/api/songs-api';
 import { useArtistRadioCount, useCurrentServerId, usePlayButtonBehavior } from '/@/renderer/store';
 import { ContextMenu } from '/@/shared/components/context-menu/context-menu';
@@ -39,6 +40,7 @@ export const PlayArtistRadioAction = ({ artist, disabled }: PlayArtistRadioActio
                     queryKey: queryKeys.player.fetch({ artistId: artist.id }),
                 });
                 if (artistRadioSongs && artistRadioSongs.length > 0) {
+                    if (playType === Play.NOW) markNextQueueSource('radio', artist.name);
                     player.addToQueueByData(artistRadioSongs, playType);
                 }
             } catch (error) {

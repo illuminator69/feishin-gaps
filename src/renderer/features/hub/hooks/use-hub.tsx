@@ -3,17 +3,90 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
+import { placeholderSong, resolveHubTracks } from '/@/renderer/features/hub/utils/resolve-songs';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
-import { toast } from '/@/shared/components/toast/toast';
 import {
+    consumeQueueSession,
+    findMatchingSavedQueueId,
+    isNewQueueSessionPending,
+    onQueueSessionReset,
+    resolveQueueSource,
+} from '/@/renderer/features/player/utils/saved-queue-source';
+import {
+    SavedQueue,
+    SavedQueueKind,
     useCurrentServerId,
     useHubSettings,
     useHubStore,
     usePlayerActions,
     usePlayerStore,
+    usePlayerStoreBase,
+    useSavedQueuesStore,
 } from '/@/renderer/store';
+import { toast } from '/@/shared/components/toast/toast';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
+
+/** Coerce a hub saved-queue record (wire shape) into the local SavedQueue store shape. Songs are
+ *  minimal (id + display metadata); a cross-client restore re-resolves them by id. */
+const mapHubSavedQueue = (rec: any, serverId: null | string): SavedQueue => ({
+    // A record minted by the other client may carry no cover URL; the queue's FIRST
+    // track image stands in. Deliberately not the current track's art — the card's
+    // artwork is frozen at the queue's origin so it doesn't change as playback moves.
+    coverImageUrl: rec.coverImageUrl ?? rec.songs?.[0]?.imageUrl ?? null,
+    createdAt: rec.createdAt ?? Date.now(),
+    currentIndex: rec.currentIndex ?? 0,
+    currentSongId: rec.songs?.[rec.currentIndex ?? 0]?.id,
+    currentSongName: rec.currentSongName ?? rec.songs?.[rec.currentIndex ?? 0]?.title,
+    id: rec.id,
+    name: rec.name ?? undefined,
+    positionSeconds: Math.round((rec.positionMs ?? 0) / 1000),
+    repeat: (rec.repeat as PlayerRepeat) ?? PlayerRepeat.NONE,
+    serverId: rec.serverId ?? serverId ?? '',
+    // The session only knows shuffle as a bool, so ALBUM shuffle would degrade to TRACK
+    // on every round trip — `shuffleMode` carries the real mode when the record has one.
+    shuffle:
+        (rec.shuffleMode as PlayerShuffle) ??
+        (rec.shuffle ? PlayerShuffle.TRACK : PlayerShuffle.NONE),
+    songCount: rec.songCount ?? rec.songs?.length ?? 0,
+    // Full placeholder Songs, NOT bare metadata: `_serverId` is what gates the
+    // stream-URL query (use-stream-url), so a stub without it restores into a player
+    // that sits in PLAYING with no source — the "loads forever" bug.
+    songs: (rec.songs ?? []).map(
+        (t: any): QueueSong =>
+            placeholderSong(t, rec.serverId ?? serverId ?? '') as unknown as QueueSong,
+    ),
+    sourceKind: (rec.sourceKind as SavedQueueKind) ?? 'manual',
+    sourceName: rec.sourceName ?? undefined,
+    updatedAt: rec.updatedAt ?? Date.now(),
+});
+
+/** Convert a local SavedQueue into the hub wire record shape (wire track fields, so the other
+ *  client can render titles/artists) for syncSavedQueues. */
+const savedQueueToHubRecord = (q: SavedQueue): Record<string, unknown> => ({
+    coverImageUrl: q.coverImageUrl ?? undefined,
+    createdAt: q.createdAt,
+    currentIndex: q.currentIndex,
+    id: q.id,
+    name: q.name ?? undefined,
+    positionMs: Math.round((q.positionSeconds ?? 0) * 1000),
+    repeat: q.repeat,
+    serverId: q.serverId,
+    shuffle: q.shuffle !== PlayerShuffle.NONE,
+    shuffleMode: q.shuffle,
+    songCount: q.songCount,
+    songs: q.songs.map((s) => ({
+        album: s.album ?? undefined,
+        artist: s.artistName,
+        durationMs: s.duration ?? undefined,
+        id: s.id,
+        imageUrl: s.imageUrl ?? undefined,
+        title: s.name,
+    })),
+    sourceKind: q.sourceKind,
+    sourceName: q.sourceName ?? undefined,
+    updatedAt: q.updatedAt,
+});
 
 const hub = isElectron() ? window.api.hub : null;
 
@@ -30,10 +103,12 @@ export const useHub = () => {
     const settings = useHubSettings();
     const serverId = useCurrentServerId();
     const {
+        clearQueue,
         mediaPause,
         mediaPlay,
         mediaPlayByIndex,
         mediaSeekToTimestamp,
+        mediaStop,
         setQueue,
         setRepeat,
         setShuffle,
@@ -48,9 +123,23 @@ export const useHub = () => {
     const index = useRef(usePlayerStore.getState().player.index);
     const playing = useRef(false);
     const lastQueueSig = useRef('');
+    // Stable saved-queue history identity for what we publish — see resolveSavedQueueId.
+    // It survives every edit to the queue we're listening to; only a new play (or an
+    // adopt/transfer-in, which reuses the hub's own record id) changes it.
+    const savedQueueId = useRef<null | string>(null);
+    const savedQueuePrevIds = useRef<string[]>([]);
+    // The queue's origin track, captured at mint — its art is the card's (frozen) cover.
+    const savedQueueCoverSong = useRef<null | QueueSong>(null);
+    const savedQueueKind = useRef<SavedQueueKind>('manual');
+    const savedQueueName = useRef<string | undefined>(undefined);
     // Throttle the progress-path report to the ~1 Hz contract — the audio engine
     // fires progress several times a second, which multiplied hub traffic.
     const lastProgressReportAt = useRef(0);
+    // Throttles the unclaimed-session escape in publishQueue (see there).
+    const lastUnclaimedPublishAt = useRef(0);
+    // Have we ever published a non-empty queue? Gates the "queue cleared" publish so the
+    // momentarily-empty queue at startup can't wipe the hub session.
+    const sawNonEmptyQueue = useRef(false);
     // Memoize resolved stream URLs by track id so a queue-membership change
     // doesn't re-resolve getStreamUrl for every track that didn't change.
     const streamUrlCache = useRef<Map<string, string | undefined>>(new Map());
@@ -58,11 +147,19 @@ export const useHub = () => {
     // reports the new song, because seeking during the source reload is lost.
     // `pause` re-asserts the paused state after the seek — mediaPlayByIndex
     // starts async playback that an immediate mediaPause() loses the race to.
-    const pendingSeek = useRef<null | { index: number; pause: boolean; sec: number }>(null);
+    const pendingSeek = useRef<null | {
+        armedAt: number;
+        index: number;
+        pause: boolean;
+        sec: number;
+    }>(null);
     // Wall-clock until which local player events are treated as hub-driven
     // (not user-initiated) — prevents do:load side effects from being
     // misinterpreted as "user started new local playback".
     const hubDrivenUntil = useRef(0);
+    // Wall-clock until which local playback is force-paused after adopting an orphaned
+    // (no active device) session — see the onPlayerProgress watchdog.
+    const adoptPauseGuardUntil = useRef(0);
 
     const publicUrlRef = useRef('');
     publicUrlRef.current = settings.publicServerUrl?.trim().replace(/\/$/, '') ?? '';
@@ -70,6 +167,10 @@ export const useHub = () => {
     serverIdRef.current = serverId;
 
     const isActive = () => myId.current !== null && activeId.current === myId.current;
+
+    const noteActive = (id: null | string) => {
+        activeId.current = id;
+    };
 
     const isRemoteActiveNow = () =>
         myId.current !== null && activeId.current !== null && activeId.current !== myId.current;
@@ -117,50 +218,130 @@ export const useHub = () => {
         }
     }, []);
 
-    const buildHubTracks = useCallback(async (items: QueueSong[]) => {
-        const sid = serverIdRef.current;
-        return Promise.all(
-            items.map(async (item) => {
-                let streamUrl: string | undefined;
-                if (sid) {
-                    const cache = streamUrlCache.current;
-                    if (cache.has(item.id)) {
-                        streamUrl = cache.get(item.id);
-                    } else {
-                        try {
-                            streamUrl = (await api.controller.getStreamUrl({
-                                apiClientProps: { serverId: sid },
-                                query: { id: item.id, skipAutoTranscode: true, transcode: false },
-                            })) as string;
-                        } catch {
-                            streamUrl = undefined;
+    const buildHubTracks = useCallback(
+        async (items: QueueSong[]) => {
+            const sid = serverIdRef.current;
+            return Promise.all(
+                items.map(async (item) => {
+                    let streamUrl: string | undefined;
+                    if (sid) {
+                        const cache = streamUrlCache.current;
+                        if (cache.has(item.id)) {
+                            streamUrl = cache.get(item.id);
+                        } else {
+                            try {
+                                streamUrl = (await api.controller.getStreamUrl({
+                                    apiClientProps: { serverId: sid },
+                                    query: {
+                                        id: item.id,
+                                        skipAutoTranscode: true,
+                                        transcode: false,
+                                    },
+                                })) as string;
+                            } catch {
+                                streamUrl = undefined;
+                            }
+                            cache.set(item.id, streamUrl);
                         }
-                        cache.set(item.id, streamUrl);
                     }
-                }
-                return {
-                    album: item.album ?? undefined,
-                    artist: item.artistName,
-                    durationMs: item.duration ?? undefined,
-                    favorite: item.userFavorite,
-                    id: item.id,
-                    imageUrl:
-                        rewriteToPublic(
-                            getItemImageUrl({
-                                id: item.id,
-                                imageUrl: item.imageUrl,
-                                itemType: LibraryItem.SONG,
-                                serverId: item._serverId,
-                                type: 'itemCard',
-                                useRemoteUrl: true,
-                            }),
-                        ) || undefined,
-                    mime: item.container ? `audio/${item.container === 'mp3' ? 'mpeg' : item.container}` : undefined,
-                    rating: item.userRating,
-                    streamUrl: rewriteToPublic(streamUrl),
-                    title: item.name,
-                };
-            }),
+                    return {
+                        album: item.album ?? undefined,
+                        artist: item.artistName,
+                        durationMs: item.duration ?? undefined,
+                        favorite: item.userFavorite,
+                        id: item.id,
+                        imageUrl:
+                            rewriteToPublic(
+                                getItemImageUrl({
+                                    id: item.id,
+                                    imageUrl: item.imageUrl,
+                                    itemType: LibraryItem.SONG,
+                                    serverId: item._serverId,
+                                    type: 'itemCard',
+                                    useRemoteUrl: true,
+                                }),
+                            ) || undefined,
+                        mime: item.container
+                            ? `audio/${item.container === 'mp3' ? 'mpeg' : item.container}`
+                            : undefined,
+                        rating: item.userRating,
+                        streamUrl: rewriteToPublic(streamUrl),
+                        title: item.name,
+                    };
+                }),
+            );
+        },
+        [rewriteToPublic],
+    );
+
+    // Decide the saved-queue history id to publish for the current queue.
+    //
+    // Identity is a SESSION, not a track list: once we're listening to something, every
+    // edit to it (reorder, remove, play-next, Auto DJ top-up, shuffle) keeps the same id,
+    // so the hub refreshes that one record. A new id is minted only when a play call site
+    // announced a new session (beginQueueSession) or we don't have one yet. The previous
+    // rule — "same id while the old ids are an ordered prefix of the new ones" — failed on
+    // every reorder and insert, forking a near-duplicate history card each time.
+    const resolveSavedQueueId = useCallback((ids: string[]): string => {
+        const startNew = isNewQueueSessionPending();
+        if (savedQueueId.current && !startNew) {
+            savedQueuePrevIds.current = ids;
+            return savedQueueId.current;
+        }
+        if (!startNew) {
+            // No session of our own: adopt the hub's current record when our queue is
+            // substantially the same one (transfer/adopt-in), rather than duplicating it.
+            const hub = useHubStore.getState();
+            const hubIds = new Set(hub.remoteQueue.map((t) => t.id));
+            const overlap = hubIds.size
+                ? ids.filter((id) => hubIds.has(id)).length / hubIds.size
+                : 0;
+            if (hub.savedQueueId !== null && overlap >= 0.5) {
+                savedQueueId.current = hub.savedQueueId;
+                savedQueuePrevIds.current = ids;
+                // Inherit the record's identity too — republishing with our own defaults
+                // ('manual', no name) would blank a "Mood Flow"/album queue we adopted.
+                const rec = useSavedQueuesStore
+                    .getState()
+                    .queues.find((q) => q.id === hub.savedQueueId);
+                // No `else`: keeping the PREVIOUS queue's kind/name here republished it
+                // onto the adopted record and renamed someone else's queue.
+                savedQueueKind.current = rec?.sourceKind ?? 'manual';
+                savedQueueName.current = rec ? (rec.name ?? rec.sourceName) : undefined;
+                return savedQueueId.current!;
+            }
+        }
+        // Genuinely new session: mint an id (or reuse the one a resume announced) and
+        // stamp its source kind/name — once, at birth.
+        const items = usePlayerStore.getState().getQueue().items;
+        const src = resolveQueueSource(items);
+        consumeQueueSession();
+        // ...unless the history already HAS this queue. Our session id lives in a ref, so it
+        // dies with the renderer: without this, every relaunch republished the restored queue
+        // under a new id and stacked another identical card.
+        savedQueueId.current = src.id ?? findMatchingSavedQueueId(ids) ?? crypto.randomUUID();
+        savedQueueKind.current = src.kind;
+        savedQueueName.current = src.name;
+        savedQueueCoverSong.current = items[0] ?? null;
+        savedQueuePrevIds.current = ids;
+        return savedQueueId.current;
+    }, []);
+
+    /** Public URL of the frozen origin cover, for the saved-queue record. */
+    const savedQueueCoverUrl = useCallback((): string | undefined => {
+        const song = savedQueueCoverSong.current;
+        if (!song) return undefined;
+        return (
+            rewriteToPublic(
+                getItemImageUrl({
+                    id: song.id,
+                    imageUrl: song.imageUrl,
+                    itemType: LibraryItem.SONG,
+                    serverId: song._serverId,
+                    type: 'itemCard',
+                    useRemoteUrl: true,
+                }),
+            ) || undefined
         );
     }, [rewriteToPublic]);
 
@@ -177,18 +358,52 @@ export const useHub = () => {
         if (!(activeId.current === null || activeId.current === myId.current)) return;
         const items = usePlayerStore.getState().getQueue().items;
         const sig = items.map((item) => item.id).join(',');
-        if (sig === lastQueueSig.current) return;
+        // Unclaimed-session escape (mirrors Navic's publishQueueIfOurs): nobody is the
+        // active receiver and WE are playing, so this client IS the live receiver — but
+        // the signature dedupe would suppress the publish forever (adopting the hub's
+        // queue pins the signature to it). Without a publish the hub never promotes us,
+        // so we never report, so its cursor stays frozen at the adopt point and every
+        // later `session` frame drags playback back there. The publish IS the claim.
+        const unclaimed =
+            activeId.current === null &&
+            playing.current &&
+            Date.now() - lastUnclaimedPublishAt.current > 2000;
+        if (sig === lastQueueSig.current && !unclaimed) return;
+        if (unclaimed) lastUnclaimedPublishAt.current = Date.now();
         lastQueueSig.current = sig;
-        if (!items.length) return;
-        void (async () => hub.send({
-            action: 'setQueue',
-            index: index.current,
-            play: playing.current,
-            positionMs: positionMs.current,
-            t: 'act',
-            tracks: await buildHubTracks(items),
-        }))();
-    }, [buildHubTracks]);
+        if (!items.length) {
+            // Clearing the queue has to reach the hub, or the session keeps serving the
+            // queue we just threw away — open Navic afterwards and the whole list is back.
+            // Only once we've actually published something, though: the queue is empty for
+            // a moment at startup before the persisted one hydrates, and publishing THAT
+            // would wipe a session another device is happily playing.
+            if (!sawNonEmptyQueue.current) return;
+            sawNonEmptyQueue.current = false;
+            savedQueueId.current = null;
+            savedQueueCoverSong.current = null;
+            savedQueuePrevIds.current = [];
+            // `clear`, not an empty setQueue: the hub flushes our position into the history
+            // record before detaching the session, so the cleared queue stays resumable.
+            hub.send({ action: 'clear', t: 'act' });
+            return;
+        }
+        sawNonEmptyQueue.current = true;
+        const sqId = resolveSavedQueueId(items.map((item) => item.id));
+        void (async () =>
+            hub.send({
+                action: 'setQueue',
+                coverImageUrl: savedQueueCoverUrl(),
+                index: index.current,
+                play: playing.current,
+                positionMs: positionMs.current,
+                savedQueueId: sqId,
+                serverId: serverIdRef.current ?? undefined,
+                sourceKind: savedQueueKind.current,
+                sourceName: savedQueueName.current,
+                t: 'act',
+                tracks: await buildHubTracks(items),
+            }))();
+    }, [buildHubTracks, resolveSavedQueueId, savedQueueCoverUrl]);
 
     // Spotify semantics: if the user starts playback locally while another
     // device is active, the music belongs to the session — send the local
@@ -200,68 +415,72 @@ export const useHub = () => {
         if (Date.now() < hubDrivenUntil.current) return;
         if (Date.now() - lastRoutedAt.current < 1000) return;
         const remoteActive =
-            myId.current !== null &&
-            activeId.current !== null &&
-            activeId.current !== myId.current;
+            myId.current !== null && activeId.current !== null && activeId.current !== myId.current;
         if (!remoteActive) return;
 
         const state = usePlayerStore.getState();
         const items = state.getQueue().items;
         if (!items.length) return;
+        // The session ALREADY holds this queue: a stray local play event is not new
+        // intent, it's noise (a watchdog pause losing a race with the audio engine, an
+        // auto-resume, a media-key round trip). Re-sending setQueue here restarts the
+        // remote device at positionMs 0 — with a Chromecast that reads as the current
+        // track reloading every second or two, forever. Just silence the local player.
+        const hubSig = useHubStore
+            .getState()
+            .remoteQueue.map((track) => track.id)
+            .join(',');
+        const localSig = items.map((item) => item.id).join(',');
+        if (hubSig && hubSig === localSig) {
+            mediaPause();
+            return;
+        }
         lastRoutedAt.current = Date.now();
-        void (async () => hub.send({
-            action: 'setQueue',
-            index: state.player.index,
-            play: true,
-            positionMs: 0,
-            t: 'act',
-            tracks: await buildHubTracks(items),
-        }))();
+        const sqId = resolveSavedQueueId(items.map((item) => item.id));
+        void (async () =>
+            hub.send({
+                action: 'setQueue',
+                coverImageUrl: savedQueueCoverUrl(),
+                index: state.player.index,
+                play: true,
+                positionMs: 0,
+                savedQueueId: sqId,
+                serverId: serverIdRef.current ?? undefined,
+                sourceKind: savedQueueKind.current,
+                sourceName: savedQueueName.current,
+                t: 'act',
+                tracks: await buildHubTracks(items),
+            }))();
         // Keep the sig in sync so publishQueue doesn't re-send this queue later.
         lastQueueSig.current = items.map((item) => item.id).join(',');
         // The session plays it remotely — silence the local player.
         mediaPause();
-    }, [buildHubTracks, mediaPause]);
+    }, [buildHubTracks, mediaPause, resolveSavedQueueId, savedQueueCoverUrl]);
 
-    const resolveSongs = useCallback(async (tracks: Array<any>): Promise<Song[]> => {
-        const sid = serverIdRef.current;
-        if (!sid || !tracks?.length) return [];
-        const results = await Promise.all(
-            tracks.map((track) =>
-                api.controller
-                    .getSongDetail({ apiClientProps: { serverId: sid }, query: { id: track.id } })
-                    .catch(() => null),
-            ),
-        );
-        // Keep the resolved queue STRICTLY 1:1 with the hub's. Filtering out songs
-        // missing from this server's library (or a transient getSongDetail failure)
-        // shortened the queue and shifted the index → the hub's `index` then pointed
-        // at the wrong track, which read as the queue "resetting" after a transfer.
-        // Mirror Navic's resolveQueue: synthesize a placeholder Song from the hub
-        // track meta for any id we couldn't resolve (the id is a valid Navidrome id
-        // on this single-server setup, so playback by id still works).
-        return results.map((song, i) => {
-            if (song) return song;
-            const t = tracks[i];
-            return {
-                _serverId: sid,
-                album: t.album ?? '',
-                albumArtists: [],
-                albumId: undefined,
-                artistName: t.artist ?? '',
-                artists: t.artist ? [{ id: '', name: t.artist }] : [],
-                duration: t.durationMs ?? 0,
-                id: t.id,
-                // The song id doubles as the cover-art id across this system; build
-                // the cover with our own server creds (imageUrl left unset).
-                imageId: t.id,
-                imageUrl: undefined,
-                name: t.title ?? '',
-                userFavorite: t.favorite ?? false,
-                userRating: t.rating ?? null,
-            } as unknown as Song;
-        });
-    }, []);
+    // A pending seek that never fires (the armed index never becomes current — a
+    // superseded load, a queue that changed under us) would otherwise ambush the next
+    // unrelated track change, seeking it to a stale offset. Expire them.
+    const PENDING_SEEK_TTL = 10_000;
+
+    // Arm a seek for when the player reports the target track. If that track is ALREADY
+    // current, seeking now is both correct and necessary — nothing will re-arm it,
+    // because onCurrentSongChange only fires on an actual change.
+    const armSeek = useCallback(
+        (targetIndex: number, sec: number, pause: boolean) => {
+            if (targetIndex === usePlayerStore.getState().player.index) {
+                mediaSeekToTimestamp(sec);
+                if (pause) setTimeout(() => mediaPause(), 100);
+                return;
+            }
+            pendingSeek.current = { armedAt: Date.now(), index: targetIndex, pause, sec };
+        },
+        [mediaPause, mediaSeekToTimestamp],
+    );
+
+    const resolveSongs = useCallback(
+        (tracks: Array<any>): Promise<Song[]> => resolveHubTracks(tracks, serverIdRef.current),
+        [],
+    );
 
     const handleDo = useCallback(
         async (msg: any) => {
@@ -269,6 +488,12 @@ export const useHub = () => {
             // user actions (window covers async engine events).
             hubDrivenUntil.current = Date.now() + 2000;
             switch (msg.cmd) {
+                case 'clear':
+                    // The other client emptied the session queue. Stop and drop ours too,
+                    // otherwise this device keeps playing a queue the session no longer has.
+                    mediaStop({ reset: true });
+                    clearQueue();
+                    break;
                 case 'jump':
                     mediaPlayByIndex(msg.index);
                     break;
@@ -296,6 +521,7 @@ export const useHub = () => {
                             // Changing track reloads the source; an immediate
                             // seek would be lost. Arm it for onCurrentSongChange.
                             pendingSeek.current = {
+                                armedAt: Date.now(),
                                 index: msg.index ?? 0,
                                 pause: wantPause,
                                 sec: targetSec,
@@ -307,7 +533,12 @@ export const useHub = () => {
                     } else {
                         const songs = await resolveSongs(msg.tracks);
                         if (!songs.length) return;
+                        // Re-arm the hub-driven window: resolveSongs fans out one
+                        // getSongDetail per track and can outlast the original 2 s, after
+                        // which setQueue's own events read as a fresh user action.
+                        hubDrivenUntil.current = Date.now() + 2000;
                         pendingSeek.current = {
+                            armedAt: Date.now(),
                             index: msg.index ?? 0,
                             pause: wantPause,
                             sec: targetSec,
@@ -325,13 +556,31 @@ export const useHub = () => {
                     mediaPlay();
                     break;
                 case 'queueChanged': {
+                    // PROTOCOL §5.2: a queue edit must not disturb playback. setQueue
+                    // hard-codes PLAYING and restores from position 0, so carry the
+                    // current status/position across when the playing track is unchanged
+                    // (an enqueue/move/remove elsewhere in the queue).
+                    const before = usePlayerStore.getState();
+                    const wasPlaying = before.player.status === PlayerStatus.PLAYING;
+                    const playingId = before.getQueue().items[before.player.index]?.id;
                     const songs = await resolveSongs(msg.tracks);
-                    if (songs.length) setQueue(songs, msg.index ?? 0);
+                    if (!songs.length) break;
+                    hubDrivenUntil.current = Date.now() + 2000;
+                    const nextIndex = msg.index ?? 0;
+                    const sameSong = !!playingId && songs[nextIndex]?.id === playingId;
+                    const keepSec = sameSong ? positionMs.current / 1000 : 0;
+                    setQueue(songs, nextIndex, keepSec);
+                    if (sameSong) {
+                        armSeek(nextIndex, keepSec, !wasPlaying);
+                        if (!wasPlaying) mediaPause();
+                    }
                     break;
                 }
                 case 'release': {
                     // Final position report, THEN released — order matters so the
-                    // hub captures our exact spot before handing off.
+                    // hub captures our exact spot before handing off. positionMs is fed
+                    // by every onPlayerProgress tick (only the 1 Hz *report* is
+                    // throttled), so it's already the engine's live position.
                     mediaPause();
                     report({ isPlaying: false });
                     hub?.send({
@@ -358,10 +607,12 @@ export const useHub = () => {
             }
         },
         [
+            clearQueue,
             mediaPause,
             mediaPlay,
             mediaPlayByIndex,
             mediaSeekToTimestamp,
+            mediaStop,
             report,
             resolveSongs,
             setQueue,
@@ -388,37 +639,77 @@ export const useHub = () => {
                 .items.map((item) => item.id)
                 .join(',');
 
-            // We're the live player of this exact queue (our socket blipped and
-            // reconnected while we kept playing locally): the hub cleared active on our
-            // drop, so RE-CLAIM it by republishing (play=true) — don't reload or pause.
-            if (hubSig && hubSig === localSig && playing.current) {
-                lastQueueSig.current = '';
-                publishQueue();
-                return;
-            }
             // Empty hub session: keep our local queue as the offline fallback; allow the
             // first real user play to publish it.
             if (!hubSig) {
                 lastQueueSig.current = '';
                 return;
             }
-            // Already adopted this exact queue — nothing to do (repeated session frames).
-            if (hubSig === lastQueueSig.current && hubSig === localSig) return;
+
+            const targetSec = (session.positionMs ?? 0) / 1000;
+            const targetIndex = session.index ?? 0;
+
+            if (hubSig === localSig) {
+                // We already hold this exact queue and audio is running here. With no
+                // active device claimed, a playing local engine IS the live receiver —
+                // re-claim at OUR live position. (This used to require having been the
+                // active device a moment ago; anything else fell through to the rewind
+                // branch below and yanked local playback back to the hub's frozen
+                // cursor — which is what stopped auto-advance.)
+                if (playing.current) {
+                    lastQueueSig.current = '';
+                    publishQueue();
+                    return;
+                }
+                // Otherwise another device owned this session and went away (a
+                // force-stop). The hub kept ITS final position, and that — not our stale
+                // local cursor — is where playback should resume. Aligning here is what
+                // makes "force-stop the phone, press play on the desktop" continue from
+                // the phone's spot instead of wherever this client was last parked.
+                const state2 = usePlayerStore.getState();
+                const drift = Math.abs(positionMs.current - (session.positionMs ?? 0));
+                if (targetIndex === state2.player.index && drift < 2000) {
+                    // NOT pinned to hubSig: doing so made publishQueue's dedupe suppress
+                    // every later publish, so a local play could never claim the session.
+                    lastQueueSig.current = '';
+                    return; // genuinely in sync
+                }
+                hubDrivenUntil.current = Date.now() + 2000;
+                lastQueueSig.current = '';
+                if (targetIndex !== state2.player.index) mediaPlayByIndex(targetIndex);
+                armSeek(targetIndex, targetSec, true);
+                adoptPauseGuardUntil.current = Date.now() + 3000;
+                mediaPause();
+                return;
+            }
 
             const songs = await resolveSongs(hubTracks);
             if (!songs.length) return;
-            const targetSec = (session.positionMs ?? 0) / 1000;
-            const targetIndex = session.index ?? 0;
             hubDrivenUntil.current = Date.now() + 2000;
             // Seek is armed for onCurrentSongChange (a source reload loses an immediate
             // seek); `pause: true` re-asserts the paused state after the async load.
-            pendingSeek.current = { index: targetIndex, pause: true, sec: targetSec };
-            lastQueueSig.current = hubSig;
+            pendingSeek.current = {
+                armedAt: Date.now(),
+                index: targetIndex,
+                pause: true,
+                sec: targetSec,
+            };
+            // Left empty (not pinned to hubSig) so the first local play republishes and
+            // claims the session — the adopted queue is ours to own now.
+            lastQueueSig.current = '';
+            adoptPauseGuardUntil.current = Date.now() + 3000;
             setQueue(songs, targetIndex, targetSec);
             mediaPause();
         },
-        [mediaPause, publishQueue, resolveSongs, setQueue],
+        [armSeek, mediaPause, mediaPlayByIndex, publishQueue, resolveSongs, setQueue],
     );
+
+    // Stream URLs embed the server origin and per-server credentials, so a server (or
+    // credential) switch invalidates every memoized entry — otherwise the cast bridge
+    // keeps being handed URLs signed for the previous server.
+    useEffect(() => {
+        streamUrlCache.current.clear();
+    }, [serverId]);
 
     // Push config to the main-process transport on mount + whenever it changes.
     useEffect(() => {
@@ -434,7 +725,7 @@ export const useHub = () => {
         const dispose = hub.onMessage((msg: any) => {
             if (msg.t === 'welcome') {
                 myId.current = msg.deviceId ?? null;
-                activeId.current = msg.session?.activeDeviceId ?? null;
+                noteActive(msg.session?.activeDeviceId ?? null);
                 setStore({
                     activeDeviceId: activeId.current,
                     connected: true,
@@ -447,12 +738,32 @@ export const useHub = () => {
                     remoteQueueIndex: msg.session?.index ?? 0,
                     remoteRepeat: msg.session?.repeat ?? 'none',
                     remoteShuffle: msg.session?.shuffle ?? false,
+                    savedQueueId: msg.session?.savedQueueId ?? null,
                 });
                 reconcileRemoteActive();
+                // Reconcile saved-queue history. Capture our LOCAL (possibly offline-
+                // accumulated) rows FIRST, then adopt the hub's authoritative list (a
+                // replace), then push the local rows up — the hub union-merges them and
+                // rebroadcasts the complete list, so nothing offline is lost.
+                {
+                    const sqActions = useSavedQueuesStore.getState().actions;
+                    const sid = serverIdRef.current;
+                    const local = useSavedQueuesStore.getState().queues;
+                    sqActions.mergeFromHub(
+                        (msg.savedQueues ?? []).map((r: any) => mapHubSavedQueue(r, sid)),
+                    );
+                    if (local.length) {
+                        hub.send({
+                            action: 'syncSavedQueues',
+                            queues: local.map(savedQueueToHubRecord),
+                            t: 'act',
+                        });
+                    }
+                }
                 // Hub is authoritative: adopt its session rather than pushing ours.
                 void adoptIfNoLiveReceiver(msg.session);
             } else if (msg.t === 'session') {
-                activeId.current = msg.activeDeviceId ?? null;
+                noteActive(msg.activeDeviceId ?? null);
                 setStore({
                     activeDeviceId: activeId.current,
                     remoteIsPlaying: msg.isPlaying ?? false,
@@ -462,6 +773,7 @@ export const useHub = () => {
                     remoteQueueIndex: msg.index ?? 0,
                     remoteRepeat: msg.repeat ?? 'none',
                     remoteShuffle: msg.shuffle ?? false,
+                    savedQueueId: msg.savedQueueId ?? null,
                 });
                 reconcileRemoteActive();
                 // Active device may have just dropped (activeId → null): adopt the
@@ -476,6 +788,15 @@ export const useHub = () => {
                 });
             } else if (msg.t === 'devices') {
                 setStore({ devices: msg.devices ?? [] });
+            } else if (msg.t === 'savedQueues') {
+                // The hub's authoritative saved-queue history changed — reconcile it in.
+                useSavedQueuesStore
+                    .getState()
+                    .actions.mergeFromHub(
+                        (msg.queues ?? []).map((r: any) =>
+                            mapHubSavedQueue(r, serverIdRef.current),
+                        ),
+                    );
             } else if (msg.t === 'do') {
                 void handleDo(msg);
             } else if (msg.t === 'disconnected') {
@@ -486,7 +807,10 @@ export const useHub = () => {
                 activeId.current = null;
                 hubDrivenUntil.current = 0;
                 lastQueueSig.current = '';
-                setStore({ activeDeviceId: null, connected: false });
+                // savedQueueId is deliberately KEPT: we're still listening to the same
+                // thing, so a reconnect must refresh that record rather than fork a
+                // near-duplicate of the queue we never stopped playing.
+                setStore({ activeDeviceId: null, connected: false, savedQueueId: null });
             } else if (msg.t === 'error') {
                 // Surface hub-side failures (bad token, target offline, …) — they
                 // were silent, so a wrong token just looked like "never connects".
@@ -502,13 +826,48 @@ export const useHub = () => {
         return () => dispose();
     }, [adoptIfNoLiveReceiver, handleDo, publishQueue, reconcileRemoteActive]);
 
+    // Deleting the history record we're publishing into restarts the session, so the queue
+    // still playing gets a fresh card instead of disappearing from Continue Listening.
+    useEffect(() => {
+        return onQueueSessionReset(() => {
+            savedQueueId.current = null;
+            savedQueueCoverSong.current = null;
+            savedQueuePrevIds.current = [];
+            lastQueueSig.current = '';
+            publishQueue();
+        });
+    }, [publishQueue]);
+
+    // Publish on queue-MEMBERSHIP changes too, not just song/status changes.
+    // Auto DJ (and any enqueue) appends to the tail without moving the current
+    // song or flipping play-state — the two events below drive publishQueue. So
+    // without this, a top-up never reaches the hub until the track advances, and
+    // a transfer taken mid-track hands the next device a stale (pre-top-up)
+    // queue. publishQueue itself is idempotent (dedupes by signature) and gated
+    // (hubDrivenUntil / active-or-none), so this can't echo hub-driven loads.
+    useEffect(() => {
+        if (!hub) return undefined;
+        return usePlayerStoreBase.subscribe(
+            (state) =>
+                state
+                    .getQueue()
+                    .items.map((item) => item.id)
+                    .join(','),
+            () => publishQueue(),
+        );
+    }, [publishQueue]);
+
     // Feed the refs from player events; publish queue changes + report when active.
     usePlayerEvents(
         {
             onCurrentSongChange: (properties) => {
                 index.current = properties.index;
                 const pending = pendingSeek.current;
-                if (pending && properties.index === pending.index) {
+                if (pending && Date.now() - pending.armedAt > PENDING_SEEK_TTL) {
+                    // Its target track never became current (superseded load, queue
+                    // changed under us) — drop it before it ambushes an unrelated song.
+                    pendingSeek.current = null;
+                } else if (pending && properties.index === pending.index) {
                     pendingSeek.current = null;
                     hubDrivenUntil.current = Date.now() + 2000;
                     // Small delay so the engine finishes loading the new source
@@ -525,7 +884,18 @@ export const useHub = () => {
                 }
                 routeLocalPlayToRemote();
                 publishQueue();
-                report({ index: properties.index });
+                // A track change starts the new song at 0, but positionMs.current still
+                // holds the OUTGOING track's offset (onPlayerProgress hasn't ticked for
+                // the new one yet). Reporting that pair parks the hub's cursor minutes
+                // into a song that just started, which then reads as drift everywhere
+                // that compares against it.
+                // ...but NOT when a hub-driven load is positioning us (a pending seek, or
+                // inside the hub-driven window) — there the hub's own offset is the truth
+                // and reporting 0 would rewind the session it just handed us.
+                if (!pendingSeek.current && Date.now() >= hubDrivenUntil.current) {
+                    positionMs.current = 0;
+                }
+                report({ index: properties.index, positionMs: positionMs.current });
             },
             onPlayerProgress: (properties) => {
                 positionMs.current = Math.round(properties.timestamp * 1000);
@@ -534,7 +904,24 @@ export const useHub = () => {
                 // (and keep) playing past the one-shot reconcile, so re-pause any
                 // local playback that's still progressing. Fires only while local
                 // audio actually advances, so it self-stops once truly paused.
-                if (isRemoteActiveNow() && playing.current && Date.now() >= hubDrivenUntil.current) {
+                if (
+                    isRemoteActiveNow() &&
+                    playing.current &&
+                    Date.now() >= hubDrivenUntil.current
+                ) {
+                    mediaPause();
+                    return;
+                }
+                // Just adopted an orphaned session (no active device) as PAUSED: an
+                // in-flight auto-resume can start the engine right after and leave audio
+                // running under a bar that reads "paused". Short window only — outside it
+                // a local play with no active device is the user legitimately claiming
+                // the session, and pausing that would fight them.
+                if (
+                    activeId.current === null &&
+                    playing.current &&
+                    Date.now() < adoptPauseGuardUntil.current
+                ) {
                     mediaPause();
                     return;
                 }

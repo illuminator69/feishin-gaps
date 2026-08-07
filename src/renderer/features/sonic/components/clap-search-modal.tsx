@@ -9,6 +9,7 @@ import {
     fetchClapSearch,
 } from '/@/renderer/features/player/auto-dj/audio-muse-source';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import { markNextQueueSource } from '/@/renderer/features/player/utils/saved-queue-source';
 import { useAudioMuseSettings, useCurrentServerId } from '/@/renderer/store';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
@@ -74,6 +75,7 @@ const ClapSearchModal = () => {
                 toast.warn({ message: t('common.noResultsFound', { postProcess: 'sentenceCase' }) });
                 return;
             }
+            if (type === Play.NOW) markNextQueueSource('moodFlow', query.trim() || undefined);
             player.addToQueueByData(songs, type);
             closeAllModals();
         } finally {

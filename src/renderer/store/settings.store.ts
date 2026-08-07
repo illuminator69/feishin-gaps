@@ -507,7 +507,6 @@ export const GeneralSettingsSchema = z.object({
     combinedLyricsAndVisualizer: z.boolean(),
     disabledContextMenu: z.record(z.string(), z.boolean()),
     enableGridMultiSelect: z.boolean(),
-    expressiveBlur: z.boolean(),
     expressiveMotion: z.boolean(),
     externalLinks: z.boolean(),
     followCurrentSong: z.boolean(),
@@ -792,6 +791,9 @@ const AutoDJSettingsSchema = z.object({
     enabled: z.boolean(),
     itemCount: z.number(),
     mode: z.enum(['songs', 'albums']),
+    // navi-connect Tier 2: adaptive Mood Flow tuning preset (AudioMuse Song Alchemy
+    // temperature / subtract-distance). Only affects autoplaySource === 'moodFlow'.
+    moodCharacter: z.enum(['echo', 'steady', 'transition']).default('steady'),
     songStrategy: autoDjStrategyEnum,
     timing: z.number(),
 });
@@ -1272,6 +1274,7 @@ const initialState: SettingsState = {
         enabled: false,
         itemCount: 5,
         mode: 'songs',
+        moodCharacter: 'steady',
         songStrategy: AUTO_DJ_STRATEGY.SIMILAR,
         timing: 1,
     },
@@ -1318,7 +1321,6 @@ const initialState: SettingsState = {
         combinedLyricsAndVisualizer: false,
         disabledContextMenu: {},
         enableGridMultiSelect: false,
-        expressiveBlur: false,
         expressiveMotion: false,
         externalLinks: true,
         followCurrentSong: true,
@@ -2789,9 +2791,6 @@ export const useTableSettings = (type: ItemListKey) =>
     useSettingsStore((state) => state.lists[type as keyof typeof state.lists]);
 
 export const useGeneralSettings = () => useSettingsStore((state) => state.general, shallow);
-
-export const useExpressiveBlur = () =>
-    useSettingsStore((state) => state.general.expressiveBlur, shallow);
 
 export const useExpressiveMotion = () =>
     useSettingsStore((state) => state.general.expressiveMotion, shallow);

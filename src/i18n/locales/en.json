@@ -802,8 +802,6 @@
         "useThemeAccentColor_description": "Use the primary color defined in the selected theme instead of the custom accent color",
         "useThemePrimaryShade": "Use theme primary shade",
         "useThemePrimaryShade_description": "Use the primary shade defined in the selected theme for primary color variants",
-        "expressiveBlur": "Frosted glass (Haze)",
-        "expressiveBlur_description": "Give the player bar, modals, popovers, and menus a translucent frosted-glass surface tinted by the accent color. Falls back to solid surfaces when off.",
         "expressiveMotion": "Expressive motion",
         "expressiveMotion_description": "Use smoother, emphasized transitions for modals, menus, and page changes. Turn off for instant transitions.",
         "primaryShade": "Primary shade",

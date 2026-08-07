@@ -7,6 +7,7 @@ import styles from './sidebar.module.css';
 
 import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
+import { useRemoteAwarePlayerSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import {
     useIsRadioActive,
     useRadioPlayer,
@@ -26,7 +27,6 @@ import {
     useAppStoreActions,
     useFullScreenPlayerStore,
     useGeneralSettings,
-    usePlayerSong,
     useSetFullScreenPlayerStore,
 } from '/@/renderer/store';
 import {
@@ -166,7 +166,10 @@ export const Sidebar = () => {
 const SidebarImage = () => {
     const { t } = useTranslation();
     const { setSideBar } = useAppStoreActions();
-    const currentSong = usePlayerSong();
+    // navi-connect: the expanded-sidebar cover follows the SESSION — reading the local
+    // (paused, pre-transfer) player left it frozen on the last locally-played track while
+    // a remote device played on. Same reasoning as the playerbar and the full-screen view.
+    const currentSong = useRemoteAwarePlayerSong();
     const isRadioActive = useIsRadioActive();
     const { currentStationArt, isPlaying: isRadioPlaying } = useRadioPlayer();
     const { blurExplicitImages } = useGeneralSettings();

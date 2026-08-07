@@ -1,6 +1,7 @@
 import type { UpdateCheckResult } from 'electron-updater';
 
 import { is } from '@electron-toolkit/utils';
+import { createHash } from 'crypto';
 import {
     app,
     BrowserWindow,
@@ -23,7 +24,7 @@ import {
 import electronLocalShortcut from 'electron-localshortcut';
 import log from 'electron-log/main';
 import { AppImageUpdater, autoUpdater, MacUpdater, NsisUpdater } from 'electron-updater';
-import { access, constants } from 'fs';
+import { access, constants, readdirSync } from 'fs';
 import path, { join } from 'path';
 import semver from 'semver';
 
@@ -381,6 +382,39 @@ const RESOURCES_PATH = app.isPackaged
 
 const getAssetPath = (...paths: string[]): string => {
     return path.join(RESOURCES_PATH, ...paths);
+};
+
+const BASE_APP_USER_MODEL_ID = 'org.jeffvli.feishin';
+
+// Windows resolves a taskbar button's icon, grouping and pin identity through the
+// AppUserModelID, NOT through the window icon. Claiming the installer's id from a copy that
+// has no matching Start Menu shortcut -- a portable/unpacked build, or a dev run -- points
+// the button at whatever that id is registered to. If the installed copy was moved or
+// removed, the shortcut dangles and the button loses its icon entirely, even though the
+// window's own icon is set correctly.
+//
+// Only the installed copy may claim the shared id; electron-builder's NSIS installer leaves
+// its uninstaller beside the exe, which is what distinguishes it. Every other location gets a
+// stable id of its own, derived from its directory. Dropping the id altogether would be
+// simpler but costs Windows toast attribution for the scrobble notification in use-scrobble.
+const resolveAppUserModelId = (): string => {
+    if (!app.isPackaged) {
+        return `${BASE_APP_USER_MODEL_ID}.dev`;
+    }
+
+    const exeDir = path.dirname(app.getPath('exe'));
+
+    try {
+        const isInstalled = readdirSync(exeDir).some((entry) => /^Uninstall .+\.exe$/i.test(entry));
+        if (isInstalled) {
+            return BASE_APP_USER_MODEL_ID;
+        }
+    } catch {
+        // Unreadable directory -- fall through to the per-location id, which is the safe default.
+    }
+
+    const suffix = createHash('sha1').update(exeDir.toLowerCase()).digest('hex').slice(0, 8);
+    return `${BASE_APP_USER_MODEL_ID}.portable.${suffix}`;
 };
 
 export const getMainWindow = () => {
@@ -779,7 +813,7 @@ async function createWindow(first = true): Promise<void> {
     });
 
     if (isWindows()) {
-        app.setAppUserModelId('org.jeffvli.feishin');
+        app.setAppUserModelId(resolveAppUserModelId());
     }
 
     if (isMacOS()) {

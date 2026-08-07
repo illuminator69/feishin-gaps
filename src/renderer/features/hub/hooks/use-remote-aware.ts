@@ -13,10 +13,12 @@ import {
     useHubRemoteRepeat,
     useHubRemoteShuffle,
     useHubStore,
+    usePlayerData,
     usePlayerRepeat,
     usePlayerShuffle,
     usePlayerSong,
     usePlayerStatus,
+    usePlayerStore,
     usePlayerVolume,
 } from '/@/renderer/store';
 import { usePlayerTimestamp } from '/@/renderer/store/timestamp.store';
@@ -113,6 +115,71 @@ export const useRemoteAwarePlayerSong = (): QueueSong | undefined => {
         userFavorite: remote.favorite ?? false,
         userRating: remote.rating ?? null,
     } as unknown as QueueSong;
+};
+
+/** The next song — remote session's when remote-active, else local. */
+export const useRemoteAwareNextSong = (): QueueSong | undefined => {
+    const isRemote = useHubIsRemoteActive();
+    const { nextSong } = usePlayerData();
+    const next = useHubStore((state) => state.remoteQueue[state.remoteQueueIndex + 1]);
+    const serverId = useCurrentServerId();
+
+    if (!isRemote) return nextSong;
+    if (!next) return undefined;
+    return {
+        _serverId: serverId ?? '',
+        album: next.album ?? '',
+        artistName: next.artist ?? '',
+        duration: next.durationMs ?? 0,
+        id: next.id,
+        // Same reasoning as above: build the cover from the id with our own creds.
+        imageId: next.id,
+        imageUrl: undefined,
+        name: next.title ?? '',
+    } as unknown as QueueSong;
+};
+
+/**
+ * Non-hook snapshot of "what is actually playing", for the OS-facing integrations (media
+ * session, window bar title, native menu) that live outside React's render path.
+ *
+ * These MUST follow the remote session. Reporting the frozen local player to the OS meant
+ * Windows believed playback was paused while a remote device played, so the media hotkey
+ * sent `play` instead of `pause` — pressing pause with the app unfocused unpaused the
+ * remote session. The now-playing thumbnail was stale for the same reason.
+ */
+export const getRemoteAwareSnapshot = (): {
+    isRemote: boolean;
+    song: QueueSong | undefined;
+    status: PlayerStatus;
+} => {
+    const hubState = useHubStore.getState();
+    const isRemote =
+        hubState.connected &&
+        hubState.activeDeviceId !== null &&
+        hubState.myDeviceId !== null &&
+        hubState.activeDeviceId !== hubState.myDeviceId;
+    const player = usePlayerStore.getState();
+    if (!isRemote) {
+        return { isRemote, song: player.getCurrentSong(), status: player.player.status };
+    }
+    const remote = hubState.remoteQueue[hubState.remoteQueueIndex];
+    const resolved = remote ? remoteDetailCache.get(remote.id) : undefined;
+    return {
+        isRemote,
+        song: remote
+            ? ({
+                  album: remote.album ?? resolved?.album ?? '',
+                  artistName: remote.artist ?? '',
+                  duration: remote.durationMs ?? 0,
+                  id: remote.id,
+                  imageId: resolved?.imageId ?? remote.id,
+                  imageUrl: undefined,
+                  name: remote.title ?? '',
+              } as unknown as QueueSong)
+            : undefined,
+        status: hubState.remoteIsPlaying ? PlayerStatus.PLAYING : PlayerStatus.PAUSED,
+    };
 };
 
 /** Shuffle state — remote session's when remote-active, else local. */

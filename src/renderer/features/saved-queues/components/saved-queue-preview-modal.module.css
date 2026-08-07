@@ -1,0 +1,45 @@
+.summary {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+
+.list {
+    max-height: min(55vh, 30rem);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    padding-right: 0.25rem;
+}
+
+.track {
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.375rem 0.5rem;
+    border-radius: var(--theme-radius-sm, 4px);
+}
+
+.track:nth-child(odd) {
+    background: var(--theme-colors-surface-hover, rgb(255 255 255 / 3%));
+}
+
+.current {
+    background: var(--theme-colors-primary-container, rgb(255 255 255 / 8%));
+}
+
+.index {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.title {
+    min-width: 0;
+}
+
+.duration {
+    font-variant-numeric: tabular-nums;
+}

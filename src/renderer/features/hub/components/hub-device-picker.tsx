@@ -6,6 +6,7 @@ import {
     useHubActiveDeviceId,
     useHubDevices,
     useHubMyDeviceId,
+    useHubRemoteIsPlaying,
     useHubSettings,
     useSettingsStoreActions,
 } from '/@/renderer/store';
@@ -40,6 +41,7 @@ export const HubDevicePicker = () => {
     const devices = useHubDevices();
     const activeId = useHubActiveDeviceId();
     const myId = useHubMyDeviceId();
+    const remoteIsPlaying = useHubRemoteIsPlaying();
     const { setSettings } = useSettingsStoreActions();
     const [showExtra, setShowExtra] = useState(false);
 
@@ -66,42 +68,54 @@ export const HubDevicePicker = () => {
     const hasActive = devices.some((d) => d.id === activeId);
 
     const renderRow = (device: HubDevice) => {
+        const isSelf = device.id === myId;
+        // The active device is only "playing" when the session actually is — it stays
+        // the active receiver while paused, and claiming otherwise made a paused
+        // session look live in every picker.
         const statusText =
             device.id === activeId
-                ? 'playing'
-                : device.id === myId
+                ? remoteIsPlaying
+                    ? 'playing'
+                    : 'paused'
+                : isSelf
                   ? 'this device'
                   : device.online
                     ? 'online'
                     : 'offline';
         const isHidden = hidden.has(device.id);
         return (
-            <DropdownMenu.Item
-                closeMenuOnClick={false}
-                disabled={!device.online || device.id === activeId}
+            // The hide/unhide control is a SIBLING of the menu item, not its child: a
+            // disabled item disables everything inside it, which left offline and
+            // already-hidden devices permanently un-unhideable.
+            <div
                 key={device.id}
-                onClick={() => transfer(device.id)}
-                rightSection={
-                    <div style={{ alignItems: 'center', display: 'flex', gap: 8 }}>
+                style={{ alignItems: 'center', display: 'flex', gap: 4, width: '100%' }}
+            >
+                <DropdownMenu.Item
+                    closeMenuOnClick={false}
+                    disabled={!device.online || device.id === activeId}
+                    onClick={() => transfer(device.id)}
+                    rightSection={
                         <Text isMuted size="xs">
                             {platformLabel(device.platform)} · {statusText}
                         </Text>
-                        <ActionIcon
-                            icon={isHidden ? 'visibility' : 'visibilityOff'}
-                            iconProps={{ size: 'sm' }}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setDeviceHidden(device.id, !isHidden);
-                            }}
-                            size="xs"
-                            tooltip={{ label: isHidden ? 'Unhide' : 'Hide', openDelay: 0 }}
-                            variant="subtle"
-                        />
-                    </div>
-                }
-            >
-                {device.name}
-            </DropdownMenu.Item>
+                    }
+                    style={{ flex: 1, minWidth: 0 }}
+                >
+                    {device.name}
+                </DropdownMenu.Item>
+                <ActionIcon
+                    icon={isHidden ? 'visibility' : 'visibilityOff'}
+                    iconProps={{ size: 'sm' }}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setDeviceHidden(device.id, !isHidden);
+                    }}
+                    size="xs"
+                    tooltip={{ label: isHidden ? 'Unhide' : 'Hide', openDelay: 0 }}
+                    variant="subtle"
+                />
+            </div>
         );
     };
 

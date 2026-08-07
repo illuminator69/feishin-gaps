@@ -8,16 +8,15 @@ import styles from './full-screen-player-image.module.css';
 
 import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import {
+    useRemoteAwareNextSong,
+    useRemoteAwarePlayerSong,
+} from '/@/renderer/features/hub/hooks/use-remote-aware';
+import {
     useIsRadioActive,
     useRadioPlayer,
 } from '/@/renderer/features/radio/hooks/use-radio-player';
 import { AppRoute } from '/@/renderer/router/routes';
-import {
-    useGeneralSettings,
-    useNativeAspectRatio,
-    usePlayerData,
-    usePlayerSong,
-} from '/@/renderer/store';
+import { useGeneralSettings, useNativeAspectRatio } from '/@/renderer/store';
 import { Badge } from '/@/shared/components/badge/badge';
 import { Center } from '/@/shared/components/center/center';
 import { Flex } from '/@/shared/components/flex/flex';
@@ -100,8 +99,11 @@ export const FullScreenPlayerImage = () => {
     const isRadioActive = useIsRadioActive();
     const { isPlaying: isRadioPlaying, metadata: radioMetadata, stationName } = useRadioPlayer();
 
-    const currentSong = usePlayerSong();
-    const { nextSong } = usePlayerData();
+    // navi-connect: the expanded player follows the SESSION, like the playerbar does —
+    // reading the local (paused, pre-transfer) player left its art frozen while a remote
+    // device played on.
+    const currentSong = useRemoteAwarePlayerSong();
+    const nextSong = useRemoteAwareNextSong();
     const { blurExplicitImages, playerItems } = useGeneralSettings();
 
     const isPlayingRadio = isRadioActive && isRadioPlaying;

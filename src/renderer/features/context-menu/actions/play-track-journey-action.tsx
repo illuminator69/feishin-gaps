@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '/@/renderer/api';
 import { queryKeys } from '/@/renderer/api/query-keys';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import { markNextQueueSource } from '/@/renderer/features/player/utils/saved-queue-source';
 import {
     useArtistRadioCount,
     useCurrentServer,
@@ -52,6 +53,7 @@ export const PlayTrackJourneyAction = ({ disabled, song }: PlayTrackJourneyActio
             });
 
             if (pathSongs && pathSongs.length > 0) {
+                markNextQueueSource('journey', song.name);
                 player.addToQueueByData(pathSongs, Play.NOW);
             }
         } catch (error) {

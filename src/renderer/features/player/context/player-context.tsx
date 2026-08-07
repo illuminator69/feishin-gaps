@@ -23,6 +23,10 @@ import {
     isRemoteSessionActive,
     remoteAct,
 } from '/@/renderer/features/hub/utils/remote-queue';
+import {
+    beginQueueSession,
+    isNewQueueSessionPending,
+} from '/@/renderer/features/player/utils/saved-queue-source';
 import { AddToQueueType, useHubStore, usePlayerActions, useSettingsStore } from '/@/renderer/store';
 import { LogCategory, logFn } from '/@/renderer/utils/logger';
 import { logMsg } from '/@/renderer/utils/logger-message';
@@ -161,6 +165,17 @@ const isReplaceQueueType = (type: AddToQueueType): boolean => {
     return type === Play.NOW || type === Play.SHUFFLE;
 };
 
+// navi-connect: replacing the queue is the ONE thing that starts a new listening session, and
+// therefore a new saved-queue history record. Every other queue mutation (next/last/insert,
+// reorder, remove, Auto DJ top-up) keeps the current record. Call sites that know what they're
+// playing (an album/playlist header, a radio generator) announce a name first — beginQueueSession
+// keeps whichever announcement came last, and a bare replace falls back to inference.
+const announceNewQueueSession = (type: AddToQueueType): void => {
+    if (!isReplaceQueueType(type)) return;
+    if (isNewQueueSessionPending()) return; // a call site already named it
+    beginQueueSession('manual');
+};
+
 // HashRouter puts the route in location.hash, not pathname.
 const inferPlaylistContextFromUrl = (): null | string => {
     const route = window.location.hash.replace(/^#/, '');
@@ -229,6 +244,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             playSongId?: string,
             contextPlaylistId?: null | string,
         ) => {
+            announceNewQueueSession(type);
             const filters = useSettingsStore.getState().playback.filters;
             let filteredData = filterSongsByPlayerFilters(data, filters);
             const resolvedContextId =
@@ -344,6 +360,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                     sortedSongs = sortSongsByFetchedOrder(songs, id, itemType);
                 }
 
+                announceNewQueueSession(type);
                 const filters = useSettingsStore.getState().playback.filters;
                 let filteredSongs = filterSongsByPlayerFilters(sortedSongs, filters);
 

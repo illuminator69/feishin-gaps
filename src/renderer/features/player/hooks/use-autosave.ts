@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import { useSaveQueue } from '/@/renderer/features/player/hooks/use-queue-restore';
-import { useCurrentServer, usePlayerSong, useSettingsStore } from '/@/renderer/store';
+import { useCurrentServer, useHubStore, usePlayerSong, useSettingsStore } from '/@/renderer/store';
 import { ServerType } from '/@/shared/types/domain-types';
 
 export const useAutosave = () => {
@@ -13,6 +13,10 @@ export const useAutosave = () => {
     const { mutate: savePlayQueue } = useSaveQueue();
 
     useEffect(() => {
+        // While the hub is connected IT owns the Navidrome savePlayQueue mirror (it
+        // writes the whole session, including remote playback this client can't see).
+        // Two writers race and the loser persists a stale queue/position.
+        if (useHubStore.getState().connected) return;
         if (enabled && server?.type && server.type !== ServerType.JELLYFIN) {
             if (currentSong?._uniqueId !== priorSongId.current) {
                 if (songCount.current === count) {

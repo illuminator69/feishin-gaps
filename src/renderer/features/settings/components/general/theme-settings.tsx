@@ -392,25 +392,6 @@ export const ThemeSettings = memo(() => {
         {
             control: (
                 <Switch
-                    checked={settings.expressiveBlur}
-                    onChange={(e) => {
-                        setSettings({
-                            general: {
-                                expressiveBlur: e.currentTarget.checked,
-                            },
-                        });
-                    }}
-                />
-            ),
-            description: t('setting.expressiveBlur', {
-                context: 'description',
-            }),
-            isHidden: false,
-            title: t('setting.expressiveBlur'),
-        },
-        {
-            control: (
-                <Switch
                     checked={settings.expressiveMotion}
                     onChange={(e) => {
                         setSettings({

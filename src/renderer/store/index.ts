@@ -3,6 +3,7 @@ export * from './auth.store';
 export * from './full-screen-player.store';
 export * from './hub.store';
 export * from './player.store';
+export * from './saved-queues.store';
 export * from './scrobble-debug.store';
 export * from './scroll.store';
 export * from './settings.store';

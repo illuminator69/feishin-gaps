@@ -1,14 +1,66 @@
 import { ipcMain } from 'electron';
 
+import { getHubConfig, hubEvents } from '../hub';
+
 /**
  * navi-connect Tier-2 AudioMuse-AI core API client (main process).
  *
  * The AudioMuse core API sets no CORS headers, so the renderer can't call it
- * directly under web security — these handlers proxy the calls from the main
+ * directly under web security — these handlers make the calls from the main
  * process (no CORS) and return only resolved Navidrome song ids. The renderer
- * passes all config per-call (base url, bearer token, Navidrome creds, params),
- * so nothing is persisted here. Fail-soft: every handler returns [] on any error.
+ * passes all config per-call, so nothing is persisted here. Fail-soft: every
+ * handler returns empty on any error.
+ *
+ * TWO ROUTES, hub preferred (see DESIGN-hub-audiomuse-proxy.md):
+ *  1. **Through the hub** — `<hub>/sonic/*` with `Authorization: Bearer <HUB_TOKEN>`
+ *     (plain HTTP on the hub's WebSocket port, PROTOCOL §14). The hub holds the
+ *     AudioMuse address, the AudioMuse token and the Navidrome password
+ *     server-side, so this machine carries none of them.
+ *  2. **Direct** — the legacy `<baseUrl>/api/*` with the per-device AudioMuse
+ *     token the renderer passes in. Kept as a fallback for a setup with no hub.
  */
+
+interface Endpoint {
+    base: string;
+    token: string;
+    viaHub: boolean;
+}
+
+// How long a "hub proxy not configured" answer keeps us on the direct route —
+// the hub may gain an AUDIOMUSE_URL without this app restarting.
+const HUB_DEMOTE_TTL_MS = 10 * 60 * 1000;
+let hubDemotedAt = 0;
+
+// A hub URL/token change invalidates what we learned about the old hub.
+hubEvents.on('settings', () => {
+    hubDemotedAt = 0;
+});
+
+/** `ws://host:4790` → `http://host:4790`; null when the hub isn't configured. */
+const hubProxyBase = (): null | string => {
+    const { enabled, token, url } = getHubConfig();
+    if (!enabled || !url || !token) return null;
+    if (hubDemotedAt && Date.now() - hubDemotedAt <= HUB_DEMOTE_TTL_MS) return null;
+    return trimBase(url.replace(/^ws/, 'http')).replace(/\/connect$/, '');
+};
+
+/** The route the next call should take, or null when Tier 2 isn't configured at all. */
+const endpoint = (args: { baseUrl?: string; token?: string }): Endpoint | null => {
+    const hub = hubProxyBase();
+    if (hub) return { base: hub, token: getHubConfig().token, viaHub: true };
+    if (args.baseUrl && args.token) {
+        return { base: trimBase(args.baseUrl), token: args.token, viaHub: false };
+    }
+    return null;
+};
+
+/** Hub path when routed through the proxy, upstream path when going direct. */
+const routeUrl = (ep: Endpoint, hubPath: string, directPath: string): string =>
+    `${ep.base}${ep.viaHub ? hubPath : directPath}`;
+
+const authHeaders = (ep: Endpoint): Record<string, string> => ({
+    Authorization: `Bearer ${ep.token}`,
+});
 
 interface AlchemyArgs {
     addIds: string[];
@@ -63,16 +115,22 @@ const itemIds = (data: unknown): string[] => {
 ipcMain.handle(
     'audiomuse-fingerprint',
     async (_event, args: FingerprintArgs): Promise<string[]> => {
-        if (!args.baseUrl || !args.token) return [];
+        const ep = endpoint(args);
+        if (!ep) return [];
         try {
-            const url = new URL(`${trimBase(args.baseUrl)}/api/sonic_fingerprint/generate`);
+            const url = new URL(
+                routeUrl(ep, '/sonic/fingerprint', '/api/sonic_fingerprint/generate'),
+            );
             url.searchParams.set('n', String(args.count));
-            if (args.ndUser) url.searchParams.set('navidrome_user', args.ndUser);
-            if (args.ndPassword) url.searchParams.set('navidrome_password', args.ndPassword);
+            // The core needs Navidrome creds to read play history. Through the hub
+            // they're injected server-side from HUB_ND_USER/HUB_ND_PASS (and a
+            // client-sent one would be dropped), so only the direct route sends them.
+            if (!ep.viaHub) {
+                if (args.ndUser) url.searchParams.set('navidrome_user', args.ndUser);
+                if (args.ndPassword) url.searchParams.set('navidrome_password', args.ndPassword);
+            }
 
-            const res = await fetch(url.toString(), {
-                headers: { Authorization: `Bearer ${args.token}` },
-            });
+            const res = await fetch(url.toString(), { headers: authHeaders(ep) });
             if (!res.ok) return [];
             return itemIds(await res.json());
         } catch {
@@ -94,7 +152,8 @@ const parseCentroid = (data: unknown): null | number[] => {
 };
 
 ipcMain.handle('audiomuse-alchemy', async (_event, args: AlchemyArgs): Promise<AlchemyResult> => {
-    if (!args.baseUrl || !args.token || args.addIds.length === 0) {
+    const ep = endpoint(args);
+    if (!ep || args.addIds.length === 0) {
         return { centroid2d: null, ids: [] };
     }
     try {
@@ -106,12 +165,9 @@ ipcMain.handle('audiomuse-alchemy', async (_event, args: AlchemyArgs): Promise<A
         if (args.temperature != null) body.temperature = args.temperature;
         if (args.subtractDistance != null) body.subtract_distance = args.subtractDistance;
 
-        const res = await fetch(`${trimBase(args.baseUrl)}/api/alchemy`, {
+        const res = await fetch(routeUrl(ep, '/sonic/alchemy', '/api/alchemy'), {
             body: JSON.stringify(body),
-            headers: {
-                Authorization: `Bearer ${args.token}`,
-                'Content-Type': 'application/json',
-            },
+            headers: { ...authHeaders(ep), 'Content-Type': 'application/json' },
             method: 'POST',
         });
         if (!res.ok) return { centroid2d: null, ids: [] };
@@ -186,49 +242,75 @@ const toClapResults = (data: unknown): ClapResult[] => {
 // CLAP text→audio search: free-text query → tracks whose audio embedding best
 // matches. POST /api/clap/search {query, limit}. Fail-soft: [] on disabled
 // (400), cache-not-loaded (503), or any error — the UI greys out / shows empty.
-ipcMain.handle('audiomuse-clap-search', async (_event, args: ClapSearchArgs): Promise<
-    ClapResult[]
-> => {
-    if (!args.baseUrl || !args.token || !args.query) return [];
-    try {
-        const res = await fetch(`${trimBase(args.baseUrl)}/api/clap/search`, {
-            body: JSON.stringify({ limit: args.limit, query: args.query }),
-            headers: {
-                Authorization: `Bearer ${args.token}`,
-                'Content-Type': 'application/json',
-            },
-            method: 'POST',
-        });
-        if (!res.ok) return [];
-        return toClapResults(await res.json());
-    } catch {
-        return [];
-    }
-});
+ipcMain.handle(
+    'audiomuse-clap-search',
+    async (_event, args: ClapSearchArgs): Promise<ClapResult[]> => {
+        const ep = endpoint(args);
+        if (!ep || !args.query) return [];
+        try {
+            const res = await fetch(routeUrl(ep, '/sonic/clap/search', '/api/clap/search'), {
+                body: JSON.stringify({ limit: args.limit, query: args.query }),
+                headers: { ...authHeaders(ep), 'Content-Type': 'application/json' },
+                method: 'POST',
+            });
+            if (!res.ok) return [];
+            return toClapResults(await res.json());
+        } catch {
+            return [];
+        }
+    },
+);
 
-// Capability probe for greying out the CLAP entry point. GET /api/clap/stats →
-// {clap_enabled, num_embeddings}. Available only when enabled AND embeddings
-// are loaded. Fail-soft: false on any error.
+// /api/clap/stats merges get_cache_stats() ({loaded, song_count, ...}) with
+// clap_enabled. Available = feature on AND the embedding index is loaded
+// (song_count>0, or the explicit loaded flag).
+const statsAvailable = (stats: Record<string, unknown>): boolean =>
+    stats.clap_enabled === true &&
+    (stats.loaded === true || (toFiniteNumber(stats.song_count) ?? 0) > 0);
+
+const fetchClapStats = async (ep: Endpoint): Promise<null | Record<string, unknown>> => {
+    try {
+        const res = await fetch(routeUrl(ep, '/sonic/clap/stats', '/api/clap/stats'), {
+            headers: authHeaders(ep),
+        });
+        if (!res.ok) return null;
+        return (await res.json()) as Record<string, unknown>;
+    } catch {
+        return null;
+    }
+};
+
+// Capability probe for greying out the CLAP entry point — and, over the hub, the
+// Tier-2 route probe: the hub answers with its own {configured, upstreamReachable}
+// alongside the upstream stats (PROTOCOL §14), so a hub with no AUDIOMUSE_URL
+// demotes us to the direct route instead of leaving Tier 2 silently dead.
+// Fail-soft: false on any error.
 ipcMain.handle(
     'audiomuse-clap-stats',
     async (_event, args: { baseUrl: string; token: string }): Promise<{ available: boolean }> => {
-        if (!args.baseUrl || !args.token) return { available: false };
-        try {
-            const res = await fetch(`${trimBase(args.baseUrl)}/api/clap/stats`, {
-                headers: { Authorization: `Bearer ${args.token}` },
+        const ep = endpoint(args);
+        if (!ep) return { available: false };
+        const stats = await fetchClapStats(ep);
+        // Two ways the hub route can be useless: it reports no AudioMuse configured, or
+        // it doesn't answer with anything parseable at all — unreachable, or too old to
+        // route /sonic/* (in which case the WebSocket handshake answers a 426
+        // text/plain, which is not JSON). Both mean "try the direct route". Only
+        // handling the first left an install with a perfectly good direct config with
+        // Tier 2 silently dead, because endpoint() always prefers the hub.
+        if (ep.viaHub && (!stats || stats.configured === false)) {
+            hubDemotedAt = Date.now();
+            if (!args.baseUrl || !args.token) return { available: false };
+            const direct = await fetchClapStats({
+                base: trimBase(args.baseUrl),
+                token: args.token,
+                viaHub: false,
             });
-            if (!res.ok) return { available: false };
-            const stats = (await res.json()) as Record<string, unknown>;
-            // /api/clap/stats merges get_cache_stats() ({loaded, song_count, ...})
-            // with clap_enabled. Available = feature on AND the embedding index is
-            // loaded (song_count>0, or the explicit loaded flag).
-            const enabled = stats.clap_enabled === true;
-            const loaded = stats.loaded === true;
-            const count = toFiniteNumber(stats.song_count) ?? 0;
-            return { available: enabled && (loaded || count > 0) };
-        } catch {
-            return { available: false };
+            return { available: direct ? statsAvailable(direct) : false };
         }
+        if (!stats) return { available: false };
+        if (ep.viaHub && stats.upstreamReachable === false) return { available: false };
+        if (ep.viaHub && stats.configured === true) hubDemotedAt = 0;
+        return { available: statsAvailable(stats) };
     },
 );
 
@@ -236,14 +318,13 @@ ipcMain.handle(
 // top_genre). Normalized to a small mood object for the visualizer; null when not
 // configured, the track isn't analyzed (404), or on any error.
 ipcMain.handle('audiomuse-track-mood', async (_event, args: TrackMoodArgs) => {
-    if (!args.baseUrl || !args.token || !args.itemId) return null;
+    const ep = endpoint(args);
+    if (!ep || !args.itemId) return null;
     try {
-        const url = new URL(`${trimBase(args.baseUrl)}/get_score`);
+        const url = new URL(routeUrl(ep, '/sonic/score', '/get_score'));
         url.searchParams.set('id', args.itemId);
 
-        const res = await fetch(url.toString(), {
-            headers: { Authorization: `Bearer ${args.token}` },
-        });
+        const res = await fetch(url.toString(), { headers: authHeaders(ep) });
         if (!res.ok) return null;
 
         const row = (await res.json()) as Record<string, unknown>;

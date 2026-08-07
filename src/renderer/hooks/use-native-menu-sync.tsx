@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import packageJson from '../../../package.json';
 
+import { useRemoteAwareStatus } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { openCreatePlaylistModal } from '/@/renderer/features/playlists/components/create-playlist-form';
 import { ServerList } from '/@/renderer/features/servers/components/server-list';
 import { openSettingsModal } from '/@/renderer/features/settings/utils/open-settings-modal';
@@ -17,7 +18,6 @@ import {
     usePlayerHydrated,
     usePlayerRepeat,
     usePlayerShuffle,
-    usePlayerStatus,
 } from '/@/renderer/store';
 import { PlayerShuffle } from '/@/shared/types/types';
 
@@ -33,7 +33,9 @@ export const useNativeMenuSync = () => {
     const playerHydrated = usePlayerHydrated();
     const playerRepeat = usePlayerRepeat();
     const playerShuffle = usePlayerShuffle();
-    const playerStatus = usePlayerStatus();
+    // navi-connect: the native menu's play/pause item follows the session, not the local
+    // (paused-by-design) engine, so it doesn't offer "Play" while a remote device plays.
+    const playerStatus = useRemoteAwareStatus();
 
     useEffect(() => {
         if (!isElectron()) {

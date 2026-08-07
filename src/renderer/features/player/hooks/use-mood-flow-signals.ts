@@ -6,7 +6,7 @@ import {
     recordMoodSignal,
     resetMoodFlowSignals,
 } from '/@/renderer/features/player/auto-dj/mood-flow-signals';
-import { useAudioMuseSettings, useSettingsStore } from '/@/renderer/store';
+import { useAudioMuseSettings, useHubSettings, useSettingsStore } from '/@/renderer/store';
 import { QueueSong } from '/@/shared/types/domain-types';
 
 // Positions before this time (seconds) count as the start of the track — used to
@@ -77,8 +77,9 @@ export const MoodFlowSignalsHook = () => {
     const isEnabled = useSettingsStore((state) => state.autoDJ.enabled);
     const autoplaySource = useSettingsStore((state) => state.autoDJ.autoplaySource);
     const audioMuse = useAudioMuseSettings();
+    const hub = useHubSettings();
 
-    if (!isEnabled || autoplaySource !== 'moodFlow' || !audioMuseConfigured(audioMuse)) {
+    if (!isEnabled || autoplaySource !== 'moodFlow' || !audioMuseConfigured(audioMuse, hub)) {
         return null;
     }
 

@@ -92,6 +92,17 @@ export const remoteAct = (action: string, extra?: Record<string, unknown>): bool
     return true;
 };
 
+/**
+ * Fire an `act` at the hub whenever we're CONNECTED (independent of who's the active
+ * receiver) — for shared-state management like saved-queue rename/delete. Returns true
+ * when sent, so callers can fall back to a local-only action when offline.
+ */
+export const sendHubAct = (action: string, extra?: Record<string, unknown>): boolean => {
+    if (!hub || !useHubStore.getState().connected) return false;
+    hub.send({ action, t: 'act', ...extra });
+    return true;
+};
+
 /** True if playback is currently on another navi-connect device. */
 export const isRemoteSessionActive = (): boolean => {
     const s = useHubStore.getState();
@@ -111,6 +122,15 @@ export const enqueueToRemote = async (
     songs: Song[],
     mode: 'end' | 'next' | 'now',
     startIndex = 0,
+    // Resuming (rather than starting) a queue: carry the stored offset and the
+    // saved-queue identity, so the hub refreshes THAT history record instead of
+    // minting a duplicate for the same listening session.
+    resume?: {
+        positionMs?: number;
+        savedQueueId?: string;
+        sourceKind?: string;
+        sourceName?: string;
+    },
 ): Promise<boolean> => {
     if (!hub || !isRemoteSessionActive() || songs.length === 0) return false;
     const serverId = songs[0]._serverId;
@@ -120,7 +140,18 @@ export const enqueueToRemote = async (
     if (mode === 'now') {
         // Start on the clicked track, not always track 1.
         const index = Math.max(0, Math.min(startIndex, songs.length - 1));
-        hub.send({ action: 'setQueue', index, play: true, t: 'act', tracks });
+        hub.send({
+            action: 'setQueue',
+            index,
+            play: true,
+            positionMs: Math.max(0, Math.round(resume?.positionMs ?? 0)),
+            savedQueueId: resume?.savedQueueId,
+            serverId,
+            sourceKind: resume?.sourceKind,
+            sourceName: resume?.sourceName,
+            t: 'act',
+            tracks,
+        });
     } else {
         hub.send({ action: 'enqueue', at: mode === 'next' ? 'next' : 'end', t: 'act', tracks });
     }

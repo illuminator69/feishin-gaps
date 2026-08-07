@@ -322,7 +322,10 @@ export const MpvPlayerEngine = (props: MpvPlayerEngineProps) => {
             },
             onQueueCleared: () => {},
             onQueueRestored: () => {
-                replaceMpvQueue(transcode);
+                // Only this path: setQueue always flips the store to PLAYING, so a restore
+                // that is meant to land paused has to be told to respect the state it ends
+                // up in. Play/next/prev genuinely intend to start audio.
+                replaceMpvQueue(transcode, true);
             },
         },
         [transcode],
@@ -385,11 +388,20 @@ async function handleMpvAutoNext(transcode: {
     mpvPlayer?.autoNext(nextSongUrl);
 }
 
-async function replaceMpvQueue(transcode: {
-    bitrate?: number | undefined;
-    enabled: boolean;
-    format?: string | undefined;
-}) {
+async function replaceMpvQueue(
+    transcode: {
+        bitrate?: number | undefined;
+        enabled: boolean;
+        format?: string | undefined;
+    },
+    // navi-connect: when true, hand the queue to mpv without starting it if the store says
+    // we're paused. Resolving the stream URLs below is async, so a caller that sets the
+    // queue and immediately pauses (adopting the hub's session at launch, which loads
+    // PAUSED by design) would have its pause overtaken by this and audio would start on
+    // its own. Checking the status AFTER the awaits — right before handing over — is what
+    // makes that deterministic.
+    honourPausedState = false,
+) {
     // Don't override queue if radio is active
     const radioState = useRadioStore.getState();
 
@@ -404,5 +416,7 @@ async function replaceMpvQueue(transcode: {
     const nextSongUrl = playerData.nextSong
         ? await getSongUrl(playerData.nextSong, transcode, true)
         : undefined;
-    mpvPlayer?.setQueue(currentSongUrl, nextSongUrl, false);
+    const pause =
+        honourPausedState && usePlayerStore.getState().player.status !== PlayerStatus.PLAYING;
+    mpvPlayer?.setQueue(currentSongUrl, nextSongUrl, pause);
 }

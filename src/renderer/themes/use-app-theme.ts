@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useCustomThemes } from '/@/renderer/store/custom-themes.store';
 import {
     useAccent,
-    useExpressiveBlur,
     useExpressiveMotion,
     useFontSettings,
     useNativeAspectRatio,
@@ -56,7 +55,6 @@ export const THEME_DATA = [
 export const useAppTheme = (overrideTheme?: AppTheme) => {
     const accent = useAccent();
     const nativeImageAspect = useNativeAspectRatio();
-    const expressiveBlur = useExpressiveBlur();
     const expressiveMotion = useExpressiveMotion();
     const { builtIn, custom, system, type } = useFontSettings();
     // Not read directly, but its identity changes whenever the custom
@@ -238,13 +236,9 @@ export const useAppTheme = (overrideTheme?: AppTheme) => {
         root.style.setProperty('--theme-image-fit', nativeImageAspect ? 'contain' : 'cover');
     }, [nativeImageAspect]);
 
-    // Gate the "expressive" chrome features (frosted-glass Haze + Material-motion) via
-    // root data attributes, so every CSS module can opt in with `:root[data-haze='true']`
-    // and JS transitions can read the flag. Both default off (safe kill switches).
-    useEffect(() => {
-        document.documentElement.setAttribute('data-haze', expressiveBlur ? 'true' : 'false');
-    }, [expressiveBlur]);
-
+    // Gate the "expressive" Material-motion chrome via a root data attribute, so CSS modules
+    // can opt in with `:root[data-motion='true']` and JS transitions can read the flag.
+    // Defaults off (safe kill switch).
     useEffect(() => {
         document.documentElement.setAttribute('data-motion', expressiveMotion ? 'true' : 'false');
     }, [expressiveMotion]);

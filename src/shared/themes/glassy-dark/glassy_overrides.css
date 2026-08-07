@@ -221,8 +221,18 @@ table {
     border-radius: 18px;
 }
 
-.fs-sidebar-play-queue-module-lyrics-section {
-    bottom: 90px;
+/*
+ * Keep the side-queue panels (queue / lyrics / visualizer) above the translucent player bar.
+ * This theme stretches the side queue to full viewport height (it lives inside .main-content-body,
+ * forced to 100vh above), so its bottom panel would otherwise run behind the bar. Reserving the
+ * 90px bar height on the panel container shrinks the split-pane group so every pane reflows to fit
+ * above the bar — no visualizer bleed, and no gap. Replaces the old per-section `bottom: 90px`
+ * relative-shift hack, which lifted only the lyrics panel (leaving a 90px hole below it) and missed
+ * the visualizer panel entirely (so it bled under the bar).
+ */
+#sidebar-play-queue-container {
+    box-sizing: border-box;
+    padding-bottom: 90px;
 }
 
 .fs-page-header-module-container {

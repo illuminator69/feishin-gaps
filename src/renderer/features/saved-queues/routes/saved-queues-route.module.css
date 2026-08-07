@@ -1,0 +1,40 @@
+.row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem;
+    border: 1px solid alpha(var(--theme-colors-border), 0.4);
+    border-radius: var(--theme-border-radius-md, 8px);
+}
+
+.row:hover {
+    background: alpha(var(--theme-colors-foreground), 0.05);
+}
+
+.row-main {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    padding: 0;
+    text-align: left;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+}
+
+.cover {
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    overflow: hidden;
+    border-radius: var(--theme-border-radius-sm, 4px);
+}
+
+.meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}

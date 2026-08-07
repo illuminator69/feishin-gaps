@@ -30,6 +30,7 @@ import {
     useFullScreenPlayerStore,
     useGeneralSettings,
     useHotkeySettings,
+    useHubSettings,
     usePlaybackSettings,
     usePlaybackType,
     usePlayerData,
@@ -112,12 +113,21 @@ const AutoDJButton = () => {
     const { t } = useTranslation();
     const settings = useAutoDJSettings();
     const audioMuse = useAudioMuseSettings();
+    const hub = useHubSettings();
     const { setSettings } = useSettingsStoreActions();
 
-    const tier2Available = audioMuseConfigured(audioMuse);
+    const tier2Available = audioMuseConfigured(audioMuse, hub);
     const autoplaySource = settings.autoplaySource ?? 'autoDj';
     const sourceValue = settings.enabled ? autoplaySource : 'off';
     const showAutoDjControls = settings.enabled && autoplaySource === 'autoDj';
+    const showMoodCharacter = settings.enabled && autoplaySource === 'moodFlow';
+
+    // Adaptive Mood Flow tuning presets (AudioMuse Song Alchemy temperature / subtract-distance).
+    const moodCharacterData = [
+        { label: 'Echo Match', value: 'echo' },
+        { label: 'Steady Vibes', value: 'steady' },
+        { label: 'Transition Maestro', value: 'transition' },
+    ];
 
     const sourceData = [
         { label: 'Off', value: 'off' },
@@ -208,44 +218,66 @@ const AutoDJButton = () => {
                         value={sourceValue}
                         w="100%"
                     />
+                    {showMoodCharacter && (
+                        <Select
+                            comboboxProps={{ withinPortal: false }}
+                            data={moodCharacterData}
+                            description="How far Mood Flow drifts from what you're playing"
+                            label="Character"
+                            onChange={(value) => {
+                                if (!value) return;
+                                setSettings({
+                                    autoDJ: {
+                                        moodCharacter: value as 'echo' | 'steady' | 'transition',
+                                    },
+                                });
+                            }}
+                            size="md"
+                            value={settings.moodCharacter ?? 'steady'}
+                            w="100%"
+                        />
+                    )}
                     {showAutoDjControls && (
                         <>
-                    <SegmentedControl
-                        data={[
-                            { label: t('setting.autoDJ_mode_songs'), value: AUTO_DJ_MODE.SONGS },
-                            {
-                                label: t('setting.autoDJ_mode_albums'),
-                                value: AUTO_DJ_MODE.ALBUMS,
-                            },
-                        ]}
-                        onChange={(value) =>
-                            setSettings({
-                                autoDJ: {
-                                    mode: value as 'albums' | 'songs',
-                                },
-                            })
-                        }
-                        value={settings.mode}
-                        w="100%"
-                    />
-                    <Select
-                        comboboxProps={{ withinPortal: false }}
-                        data={strategySelectData}
-                        description={strategyLabels.description}
-                        label={strategyLabels.title}
-                        onChange={(value) => {
-                            if (!value) return;
-                            setSettings({
-                                autoDJ:
-                                    settings.mode === AUTO_DJ_MODE.ALBUMS
-                                        ? { albumStrategy: value as AutoDJStrategy }
-                                        : { songStrategy: value as AutoDJStrategy },
-                            });
-                        }}
-                        size="md"
-                        value={strategyValue}
-                        w="100%"
-                    />
+                            <SegmentedControl
+                                data={[
+                                    {
+                                        label: t('setting.autoDJ_mode_songs'),
+                                        value: AUTO_DJ_MODE.SONGS,
+                                    },
+                                    {
+                                        label: t('setting.autoDJ_mode_albums'),
+                                        value: AUTO_DJ_MODE.ALBUMS,
+                                    },
+                                ]}
+                                onChange={(value) =>
+                                    setSettings({
+                                        autoDJ: {
+                                            mode: value as 'albums' | 'songs',
+                                        },
+                                    })
+                                }
+                                value={settings.mode}
+                                w="100%"
+                            />
+                            <Select
+                                comboboxProps={{ withinPortal: false }}
+                                data={strategySelectData}
+                                description={strategyLabels.description}
+                                label={strategyLabels.title}
+                                onChange={(value) => {
+                                    if (!value) return;
+                                    setSettings({
+                                        autoDJ:
+                                            settings.mode === AUTO_DJ_MODE.ALBUMS
+                                                ? { albumStrategy: value as AutoDJStrategy }
+                                                : { songStrategy: value as AutoDJStrategy },
+                                    });
+                                }}
+                                size="md"
+                                value={strategyValue}
+                                w="100%"
+                            />
                         </>
                     )}
                     <NumberInput
@@ -287,8 +319,13 @@ const AutoDJButton = () => {
                             <Text fw={600} isNoSelect size="sm">
                                 AudioMuse-AI (Tier 2)
                             </Text>
+                            <Text isMuted isNoSelect size="xs">
+                                Normally routed through the hub, which holds the AudioMuse address
+                                and token server-side — leave these blank. Fill them in only to
+                                reach the core API directly, with no hub.
+                            </Text>
                             <TextInput
-                                label="AudioMuse URL"
+                                label="AudioMuse URL (direct, optional)"
                                 onChange={(e) =>
                                     setSettings({ audioMuse: { url: e.currentTarget.value } })
                                 }
@@ -296,7 +333,7 @@ const AutoDJButton = () => {
                                 value={audioMuse.url}
                             />
                             <TextInput
-                                label="API token"
+                                label="AudioMuse API token (direct, optional)"
                                 onChange={(e) =>
                                     setSettings({ audioMuse: { token: e.currentTarget.value } })
                                 }

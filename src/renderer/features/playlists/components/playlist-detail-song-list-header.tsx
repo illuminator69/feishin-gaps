@@ -8,6 +8,7 @@ import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { PageHeader } from '/@/renderer/components/page-header/page-header';
 import { useListContext } from '/@/renderer/context/list-context';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import { beginQueueSession } from '/@/renderer/features/player/utils/saved-queue-source';
 import { playlistsQueries } from '/@/renderer/features/playlists/api/playlists-api';
 import { DownloadPlaylistModal } from '/@/renderer/features/playlists/components/download-playlist-modal';
 import { PlaylistDetailSongListHeaderFilters } from '/@/renderer/features/playlists/components/playlist-detail-song-list-header-filters';
@@ -143,6 +144,9 @@ export const PlaylistDetailSongListHeader = ({
     };
 
     const handlePlay = (type?: Play) => {
+        // navi-connect: name the saved-queue history entry after the playlist. Without
+        // this the queue can only be inferred (and a playlist isn't a single album).
+        beginQueueSession('playlist', detailQuery?.data?.name);
         player.addToQueueByData(listData as Song[], type || Play.NOW);
     };
 

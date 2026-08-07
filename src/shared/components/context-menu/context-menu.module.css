@@ -9,13 +9,6 @@
     border: 1px solid var(--theme-colors-border);
     border-radius: var(--theme-radius-md);
     filter: drop-shadow(0 0 5px rgb(0 0 0 / 50%));
-
-    @supports (backdrop-filter: blur(1px)) {
-        :root[data-haze='true'] & {
-            background: var(--haze-surface-strong);
-            backdrop-filter: blur(var(--haze-blur)) saturate(1.1);
-        }
-    }
 }
 
 .inner-content {

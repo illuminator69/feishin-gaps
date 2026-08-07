@@ -13,11 +13,16 @@ import macMinHover from './assets/min-mac-hover.png';
 import macMin from './assets/min-mac.png';
 import styles from './window-bar.module.css';
 
+import {
+    useRemoteAwarePlayerSong,
+    useRemoteAwareStatus,
+} from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { useRadioPlayer } from '/@/renderer/features/radio/hooks/use-radio-player';
 import {
     useAppStore,
+    useHubIsRemoteActive,
+    useHubStore,
     usePlayerData,
-    usePlayerStatus,
     useWindowBarTrackinfo,
     useWindowSettings,
 } from '/@/renderer/store';
@@ -138,11 +143,21 @@ export const WindowBar = () => {
     const { windowBarStyle } = useWindowSettings();
     const windowBarTrackinfo = useWindowBarTrackinfo();
 
-    const playerStatus = usePlayerStatus();
     const privateMode = useAppStore((state) => state.privateMode);
     const handleMinimize = () => minimize();
 
-    const { currentSong, index, queueLength } = usePlayerData();
+    // navi-connect: the title bar names the SESSION, not this client's engine. Reading the
+    // local player showed the pre-transfer track, permanently marked "paused", whatever was
+    // actually playing on the remote device.
+    const isRemote = useHubIsRemoteActive();
+    const remoteSong = useRemoteAwarePlayerSong();
+    const playerStatus = useRemoteAwareStatus();
+    const remoteIndex = useHubStore((state) => state.remoteQueueIndex);
+    const remoteQueueLength = useHubStore((state) => state.remoteQueue.length);
+    const local = usePlayerData();
+    const currentSong = isRemote ? remoteSong : local.currentSong;
+    const index = isRemote ? remoteIndex : local.index;
+    const queueLength = isRemote ? remoteQueueLength : local.queueLength;
     const { isPlaying: isRadioPlaying, metadata, stationName } = useRadioPlayer();
     const isRadioActive = Boolean(stationName || metadata);
     const [max, setMax] = useState(localSettings?.env.START_MAXIMIZED || false);

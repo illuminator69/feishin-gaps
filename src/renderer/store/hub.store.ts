@@ -43,6 +43,8 @@ interface HubState {
     remoteQueue: HubTrack[];
     remoteRepeat: 'all' | 'none' | 'one';
     remoteShuffle: boolean;
+    /** Saved-queue history id of the CURRENT session — the "Now Playing" record. */
+    savedQueueId: null | string;
 }
 
 interface HubSlice extends HubState {
@@ -64,6 +66,7 @@ const initialState: HubState = {
     remoteQueueIndex: 0,
     remoteRepeat: 'none',
     remoteShuffle: false,
+    savedQueueId: null,
 };
 
 export const useHubStore = createWithEqualityFn<HubSlice>()((set) => ({
@@ -103,3 +106,6 @@ export const useHubActiveDeviceVolume = () =>
 
 export const useHubRemoteRepeat = () => useHubStore((s) => s.remoteRepeat);
 export const useHubRemoteShuffle = () => useHubStore((s) => s.remoteShuffle);
+
+/** The saved-queue history id of the current session (the "Now Playing" record), or null. */
+export const useHubSavedQueueId = () => useHubStore((s) => s.savedQueueId);

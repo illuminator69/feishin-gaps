@@ -2,6 +2,7 @@ import { t } from 'i18next';
 import isElectron from 'is-electron';
 import { useCallback, useEffect } from 'react';
 
+import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { useIsRadioActive } from '/@/renderer/features/radio/hooks/use-radio-player';
 import { usePlayerActions, useVolumeWheelStep } from '/@/renderer/store';
 import { toast } from '/@/shared/components/toast/toast';
@@ -13,10 +14,15 @@ const ipc = isElectron() ? window.api.ipc : null;
 export const useMainPlayerListener = () => {
     const isRadioActive = useIsRadioActive();
     const volumeWheelStep = useVolumeWheelStep();
+    // navi-connect: these are the OS-level transports — media keys, the tray menu, the
+    // Windows thumbar, the macOS dock. They must drive the SESSION, exactly like the
+    // in-app playerbar does, so they go through the player CONTEXT (which routes to the
+    // active remote device) rather than the raw store. Talking to the store meant a media
+    // key toggled the local engine, which is paused by design during remote playback — so
+    // "pause" started local audio instead of pausing what you could actually hear.
     const {
         decreaseVolume,
         increaseVolume,
-        mediaAutoNext,
         mediaNext,
         mediaPause,
         mediaPlay,
@@ -28,7 +34,10 @@ export const useMainPlayerListener = () => {
         mediaTogglePlayPause,
         toggleRepeat,
         toggleShuffle,
-    } = usePlayerActions();
+    } = usePlayer();
+    // The mpv failure path is about THIS machine's engine — pause it locally, never the
+    // remote device.
+    const { mediaPause: mediaPauseLocal } = usePlayerActions();
 
     const handleMpvError = useCallback(
         (message: string) => {
@@ -37,10 +46,10 @@ export const useMainPlayerListener = () => {
                 message,
                 title: t('error.playbackError') as string,
             });
-            mediaPause();
+            mediaPauseLocal();
             mpvPlayer!.pause();
         },
-        [mediaPause],
+        [mediaPauseLocal],
     );
 
     useEffect(() => {
@@ -149,7 +158,6 @@ export const useMainPlayerListener = () => {
         handleMpvError,
         increaseVolume,
         isRadioActive,
-        mediaAutoNext,
         mediaNext,
         mediaPause,
         mediaPlay,

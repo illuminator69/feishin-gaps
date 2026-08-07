@@ -7,6 +7,7 @@ import { isRemoteSessionActive } from '/@/renderer/features/hub/utils/remote-que
 import {
     fetchAlchemyIds,
     fetchFingerprintIds,
+    moodCharacterParams,
 } from '/@/renderer/features/player/auto-dj/audio-muse-source';
 import { getMoodFlowSignals } from '/@/renderer/features/player/auto-dj/mood-flow-signals';
 import { runAutoDjAlbumIds } from '/@/renderer/features/player/auto-dj/auto-dj-albums';
@@ -31,6 +32,11 @@ import { hasFeature } from '/@/shared/api/utils';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { ServerFeature } from '/@/shared/types/features-types';
 import { Play } from '/@/shared/types/types';
+
+// Adaptive Mood Flow re-splice bounds: how many alchemy passes a single top-up may make, and how
+// much each successive pass widens exploration (temperature multiplier grows by this per pass).
+const MOOD_FLOW_MAX_PASSES = 3;
+const MOOD_FLOW_DRIFT_STEP = 0.5;
 
 export const useAutoDJ = () => {
     const queryClient = useQueryClient();
@@ -65,6 +71,41 @@ export const useAutoDJ = () => {
             return songs.filter((song): song is Song => Boolean(song));
         };
 
+        // Adaptive Mood Flow: pull the queue toward play-throughs (ADD) and away from skips
+        // (SUBTRACT). One alchemy pass off a tight centroid can return mostly tracks already
+        // queued, which would starve the top-up and silently fall back to Tier 1. So re-splice:
+        // widen exploration (escalating temperature) over a few bounded passes until enough FRESH
+        // ids are harvested. Fail-soft (any pass returning [] just contributes nothing).
+        const fetchMoodFlowIds = async (
+            seedId: string,
+            existingIds: Set<string>,
+        ): Promise<string[]> => {
+            const { addIds, subtractIds } = getMoodFlowSignals();
+            // Cold start (no signals yet) seeds with the current song — also the case for remote
+            // playback, which produces no local progress to classify.
+            const seededAddIds = addIds.length > 0 ? addIds : [seedId];
+            const base = moodCharacterParams(settings.moodCharacter ?? 'steady');
+
+            const harvested = new Set<string>();
+            for (let pass = 0; pass < MOOD_FLOW_MAX_PASSES; pass += 1) {
+                const temperature =
+                    (base.temperature ?? 1.0) * (1 + pass * MOOD_FLOW_DRIFT_STEP);
+                const ids = await fetchAlchemyIds(
+                    audioMuse,
+                    seededAddIds,
+                    subtractIds,
+                    settings.itemCount,
+                    { ...base, temperature },
+                );
+                for (const id of ids) {
+                    if (!existingIds.has(id)) harvested.add(id);
+                }
+                // Stop the moment we have a full top-up; a first tight pass usually suffices.
+                if (harvested.size >= settings.itemCount) break;
+            }
+            return [...harvested];
+        };
+
         const appendAudioMuse = async (
             seedId: string,
             existingIds: Set<string>,
@@ -74,19 +115,7 @@ export const useAutoDJ = () => {
             if (source === 'fingerprint') {
                 ids = await fetchFingerprintIds(audioMuse, server, settings.itemCount);
             } else {
-                // Mood Flow: drift toward play-throughs (ADD) and away from skips
-                // (SUBTRACT) captured from local playback by useMoodFlowSignals.
-                // Cold start (no signals yet) falls back to seeding with the
-                // current song — also the case for remote playback, which produces
-                // no local progress to classify.
-                const { addIds, subtractIds } = getMoodFlowSignals();
-                const seededAddIds = addIds.length > 0 ? addIds : [seedId];
-                ids = await fetchAlchemyIds(
-                    audioMuse,
-                    seededAddIds,
-                    subtractIds,
-                    settings.itemCount,
-                );
+                ids = await fetchMoodFlowIds(seedId, existingIds);
             }
 
             const newIds = ids.filter((id) => !existingIds.has(id));
@@ -378,6 +407,7 @@ export const useAutoDJ = () => {
         settings.albumStrategy,
         settings.itemCount,
         settings.mode,
+        settings.moodCharacter,
         settings.songStrategy,
         settings.timing,
     ]);

@@ -1,0 +1,74 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.manage-link {
+    text-decoration: none;
+}
+
+.manage-link:hover {
+    text-decoration: underline;
+}
+
+.row {
+    display: flex;
+    gap: 1rem;
+    padding-bottom: 0.5rem;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    width: 190px;
+    padding: 0.5rem;
+    text-align: left;
+    background: var(--theme-colors-background-alternate);
+    border: 1px solid alpha(var(--theme-colors-border), 0.4);
+    border-radius: var(--theme-border-radius-md, 8px);
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.card:hover {
+    background: alpha(var(--theme-colors-foreground), 0.08);
+}
+
+.cover {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    margin-bottom: 0.5rem;
+    object-fit: cover;
+    background: alpha(var(--theme-colors-foreground), 0.06);
+    border-radius: var(--theme-border-radius-sm, 4px);
+}
+
+.menu {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    z-index: 2;
+}
+
+.meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.kind {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}

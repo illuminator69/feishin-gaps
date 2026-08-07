@@ -3,6 +3,7 @@ import { debounce } from 'lodash';
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
+import { getRemoteAwareSnapshot } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
@@ -12,6 +13,7 @@ import {
 import {
     subscribeCurrentTrack,
     subscribePlayerStatus,
+    useHubStore,
     usePlaybackSettings,
     usePlayerStore,
     useSettingsStore,
@@ -172,10 +174,12 @@ export const useMediaSession = () => {
 
     const updateMediaSessionMetadata = useCallback(
         (song: QueueSong | undefined) => {
-            // Read from ref so this callback is never stale regardless of when it was created
-            if (!isMediaSessionEnabledRef.current) {
-                return;
-            }
+            // No isMediaSessionEnabled gate here: that setting governs whether we register
+            // ACTION HANDLERS (which is what conflicts with Electron's global media keys —
+            // hence the two being mutually exclusive in settings). Metadata and playbackState
+            // are display-only and steal nothing, and they're the only way the OS now-playing
+            // overlay can show the track a remote device is playing. Callers that must respect
+            // the setting check it themselves.
 
             // Handle radio metadata when radio is active and playing
             if (isRadioActiveRef.current && isRadioPlayingRef.current) {
@@ -247,29 +251,40 @@ export const useMediaSession = () => {
     // subscribeCurrentTrack and subscribePlayerStatus are stable Zustand subscriptions with
     // proper equality checks — registered once on mount and never torn down mid-session.
     useEffect(() => {
-        const unsubscribeCurrentSong = subscribeCurrentTrack(({ song }) => {
-            if (!isMediaSessionEnabledRef.current) {
-                return;
-            }
+        // navi-connect: the OS must be told about the SESSION, not this client's local
+        // engine. While playback is on another device the local player sits paused on the
+        // pre-transfer track — reporting that made Windows show a stale thumbnail and,
+        // worse, believe we were paused, so the media hotkey sent `play` and unpaused the
+        // remote session instead of pausing it.
+        // The hub store also carries the ~1 Hz progress mirror, so publish only on an
+        // actual change — reassigning MediaMetadata every second can tear the browser's
+        // media session and permanently drop the action handlers.
+        let lastSongId: string | undefined;
+        let lastState: MediaSessionPlaybackState | undefined;
 
-            if (isRadioActiveRef.current && isRadioPlayingRef.current) {
-                return;
+        const publish = () => {
+            const { song, status } = getRemoteAwareSnapshot();
+            const state = status === PlayerStatus.PLAYING ? 'playing' : 'paused';
+            if (state !== lastState) {
+                lastState = state;
+                mediaSession.playbackState = state;
             }
-
+            if (isRadioActiveRef.current && isRadioPlayingRef.current) return;
+            if (song?.id === lastSongId) return;
+            lastSongId = song?.id;
             debouncedUpdateMetadata(song);
-        });
+        };
 
-        const unsubscribeStatus = subscribePlayerStatus(({ status }) => {
-            if (!isMediaSessionEnabledRef.current) {
-                return;
-            }
-
-            mediaSession.playbackState = status === PlayerStatus.PLAYING ? 'playing' : 'paused';
-        });
+        const unsubscribeCurrentSong = subscribeCurrentTrack(() => publish());
+        const unsubscribeStatus = subscribePlayerStatus(() => publish());
+        // The remote session changes without any local player event at all.
+        const unsubscribeHub = useHubStore.subscribe(publish);
+        publish();
 
         return () => {
             unsubscribeCurrentSong();
             unsubscribeStatus();
+            unsubscribeHub();
         };
     }, [debouncedUpdateMetadata]);
 
