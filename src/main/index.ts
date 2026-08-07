@@ -678,54 +678,6 @@ async function createWindow(first = true): Promise<void> {
         return mainWindow?.webContents.session.clearCache();
     });
 
-    ipcMain.handle(
-        'app-check-for-updates',
-        async (): Promise<{ updateAvailable: boolean; version?: string }> => {
-            if (disableAutoUpdates()) {
-                console.log('Auto updates are disabled');
-                return { updateAvailable: false };
-            }
-
-            try {
-                console.log('Checking for updates');
-                const effectiveChannel = store.get('release_channel') as string;
-                let result: null | UpdateCheckResult;
-                let updater: UpdaterInstance;
-
-                if (effectiveChannel === 'alpha') {
-                    const best = await checkAllChannelsAndGetBest();
-                    result = best.result;
-                    updater = best.updater;
-                } else {
-                    updater = configureAndGetUpdater();
-                    result = await updater.checkForUpdates();
-                }
-
-                const updateAvailable = result?.isUpdateAvailable ?? false;
-                console.log('Update available:', updateAvailable);
-                if (updateAvailable && store.get('disable_auto_updates') !== true) {
-                    if (isMacOS()) {
-                        getMainWindow()?.webContents.send(
-                            'update-available',
-                            result?.updateInfo?.version,
-                        );
-                    } else {
-                        console.log('Downloading update');
-                        updater.downloadUpdate();
-                    }
-                }
-
-                return {
-                    updateAvailable,
-                    version: result?.updateInfo?.version,
-                };
-            } catch {
-                console.log('Error checking for updates');
-                return { updateAvailable: false };
-            }
-        },
-    );
-
     ipcMain.on('app-restart', () => {
         // Fix for .AppImage
         if (process.env.APPIMAGE) {
