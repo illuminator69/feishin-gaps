@@ -1,0 +1,53 @@
+/* Fixed-height column: one scrolling body, actions always on screen. A long
+   tracklist plus ten ranked sources otherwise pushed Download below the fold. */
+.root {
+    display: flex;
+    flex-direction: column;
+    max-height: min(72vh, 44rem);
+}
+
+.body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: var(--theme-spacing-xs);
+}
+
+.footer {
+    padding-top: var(--theme-spacing-sm);
+    border-top: 1px solid var(--theme-colors-border);
+}
+
+.header {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    gap: var(--theme-spacing-md);
+    align-items: start;
+}
+
+.cover {
+    width: 96px;
+    height: 96px;
+    border-radius: var(--theme-radius-md);
+    object-fit: cover;
+}
+
+.track {
+    display: grid;
+    grid-template-columns: 2rem 1fr;
+    gap: var(--theme-spacing-sm);
+    align-items: baseline;
+}
+
+/* The variant/edition bars scroll rather than overflow: a release-group with a
+   dozen pressings is wider than the modal, and an edition past the edge was one
+   you could see existed and could not choose. */
+.editionBar {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+.editionBar > * {
+    width: max-content;
+    min-width: 100%;
+}

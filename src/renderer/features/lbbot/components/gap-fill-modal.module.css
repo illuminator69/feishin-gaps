@@ -1,0 +1,42 @@
+/* The modal is a fixed-height column: one scrolling body, and actions that are
+   always on screen. They used to sit at the bottom of a growing document, so a
+   long tracklist plus ten ranked sources pushed "Fill 3 tracks from this source"
+   below the fold — the button that is the entire point of the screen was found
+   only by scrolling past everything it applies to. */
+.root {
+    display: flex;
+    flex-direction: column;
+    max-height: min(72vh, 44rem);
+}
+
+.body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    /* Room for the scrollbar so it never overlaps a source row's badges. */
+    padding-right: var(--theme-spacing-xs);
+}
+
+.footer {
+    padding-top: var(--theme-spacing-sm);
+    border-top: 1px solid var(--theme-colors-border);
+}
+
+.track {
+    display: grid;
+    grid-template-columns: 2rem 1fr auto;
+    gap: var(--theme-spacing-sm);
+    align-items: baseline;
+}
+
+.title {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* A track the library already has is context, not work — it must not compete
+   with the ones being filled. */
+.present {
+    opacity: 0.5;
+}

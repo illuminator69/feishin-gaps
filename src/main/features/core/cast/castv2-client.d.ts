@@ -16,10 +16,10 @@ declare module 'castv2-client' {
             app: unknown,
             callback: (err: Error | null, player: CastPlayer) => void,
         ): void;
-        launch(
-            app: unknown,
-            callback: (err: Error | null, player: CastPlayer) => void,
-        ): void;
+        launch(app: unknown, callback: (err: Error | null, player: CastPlayer) => void): void;
+        // 'close' fires when the device drops the connection — an idle timeout, another
+        // sender taking the receiver over, or the speaker leaving the network.
+        on(event: 'close', listener: () => void): void;
         on(event: 'error', listener: (err: Error) => void): void;
         setVolume(
             volume: { level?: number; muted?: boolean },

@@ -9,9 +9,9 @@ import {
     fetchFingerprintIds,
     moodCharacterParams,
 } from '/@/renderer/features/player/auto-dj/audio-muse-source';
-import { getMoodFlowSignals } from '/@/renderer/features/player/auto-dj/mood-flow-signals';
 import { runAutoDjAlbumIds } from '/@/renderer/features/player/auto-dj/auto-dj-albums';
 import { runAutoDjSongs } from '/@/renderer/features/player/auto-dj/auto-dj-songs';
+import { getMoodFlowSignals } from '/@/renderer/features/player/auto-dj/mood-flow-signals';
 import { useIsPlayerFetching, usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
     AUTO_DJ_STRATEGY,
@@ -88,8 +88,7 @@ export const useAutoDJ = () => {
 
             const harvested = new Set<string>();
             for (let pass = 0; pass < MOOD_FLOW_MAX_PASSES; pass += 1) {
-                const temperature =
-                    (base.temperature ?? 1.0) * (1 + pass * MOOD_FLOW_DRIFT_STEP);
+                const temperature = (base.temperature ?? 1.0) * (1 + pass * MOOD_FLOW_DRIFT_STEP);
                 const ids = await fetchAlchemyIds(
                     audioMuse,
                     seededAddIds,

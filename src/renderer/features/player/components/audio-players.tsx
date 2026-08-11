@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { eventEmitter } from '/@/renderer/events/event-emitter';
 import { UserFavoriteEventPayload, UserRatingEventPayload } from '/@/renderer/events/events';
 import { DiscordRpcHook } from '/@/renderer/features/discord-rpc/use-discord-rpc';
+import { HubHook } from '/@/renderer/features/hub/hooks/use-hub';
 import { MainPlayerListenerHook } from '/@/renderer/features/player/audio-player/hooks/use-main-player-listener';
 import { JukeboxPlayer } from '/@/renderer/features/player/audio-player/jukebox-player';
 import { MpvPlayer } from '/@/renderer/features/player/audio-player/mpv-player';
@@ -11,9 +12,9 @@ import { WebPlayer } from '/@/renderer/features/player/audio-player/web-player';
 import { SleepTimerHook } from '/@/renderer/features/player/components/sleep-timer-button';
 import { AutoDJHook } from '/@/renderer/features/player/hooks/use-auto-dj';
 import { AutosaveHook } from '/@/renderer/features/player/hooks/use-autosave';
-import { SavedQueuesCaptureHook } from '/@/renderer/features/player/hooks/use-saved-queues';
-import { MoodFlowSignalsHook } from '/@/renderer/features/player/hooks/use-mood-flow-signals';
+import { CastScrobbleHook } from '/@/renderer/features/player/hooks/use-cast-scrobble';
 import { MediaSessionHook } from '/@/renderer/features/player/hooks/use-media-session';
+import { MoodFlowSignalsHook } from '/@/renderer/features/player/hooks/use-mood-flow-signals';
 import { MPRISHook } from '/@/renderer/features/player/hooks/use-mpris';
 import { PlaybackHotkeysHook } from '/@/renderer/features/player/hooks/use-playback-hotkeys';
 import { PowerSaveBlockerHook } from '/@/renderer/features/player/hooks/use-power-save-blocker';
@@ -21,6 +22,7 @@ import {
     InitialTimestampRestoreHook,
     QueueRestoreTimestampHook,
 } from '/@/renderer/features/player/hooks/use-queue-restore';
+import { SavedQueuesCaptureHook } from '/@/renderer/features/player/hooks/use-saved-queues';
 import { ScrobbleHook } from '/@/renderer/features/player/hooks/use-scrobble';
 import { UpdateCurrentSongHook } from '/@/renderer/features/player/hooks/use-update-current-song';
 import { useWebAudio } from '/@/renderer/features/player/hooks/use-webaudio';
@@ -30,7 +32,6 @@ import {
     RadioMetadataHook,
     useIsRadioActive,
 } from '/@/renderer/features/radio/hooks/use-radio-player';
-import { HubHook } from '/@/renderer/features/hub/hooks/use-hub';
 import { RemoteHook } from '/@/renderer/features/remote/hooks/use-remote';
 import { VisualizerSystemAudioBridgeHook } from '/@/renderer/features/visualizer/components/visualizer-system-audio-bridge';
 import { useSettingsStore } from '/@/renderer/store';
@@ -132,6 +133,7 @@ export const AudioPlayers = () => {
         <>
             <SleepTimerHook />
             <ScrobbleHook />
+            <CastScrobbleHook />
             <PowerSaveBlockerHook />
             <DiscordRpcHook />
             <MPRISHook />

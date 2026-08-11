@@ -1,0 +1,63 @@
+.tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--theme-spacing-xs);
+    width: 100%;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+/* The dashed frame is the whole visual argument: a slot in the discography that
+   isn't filled, sitting in the same grid as the ones that are. */
+.frame {
+    position: relative;
+    aspect-ratio: 1;
+    width: 100%;
+    overflow: hidden;
+    border: 1px dashed var(--theme-colors-border);
+    border-radius: var(--theme-radius-md);
+}
+
+.cover {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.45;
+    filter: grayscale(0.5);
+    transition:
+        opacity 0.15s ease,
+        filter 0.15s ease;
+}
+
+.tile:hover .cover {
+    opacity: 0.75;
+    filter: grayscale(0);
+}
+
+.badge {
+    position: absolute;
+    right: var(--theme-spacing-xs);
+    bottom: var(--theme-spacing-xs);
+    left: var(--theme-spacing-xs);
+    justify-content: center;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    opacity: 0.9;
+}
+
+.progress {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+}
+
+.name {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}

@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { AddToPlaylistAction } from '/@/renderer/features/context-menu/actions/add-to-playlist-action';
 import { DownloadAction } from '/@/renderer/features/context-menu/actions/download-action';
 import { EditMetadataAction } from '/@/renderer/features/context-menu/actions/edit-metadata-action';
+import { FindMissingTracksAction } from '/@/renderer/features/context-menu/actions/find-missing-tracks-action';
 import { GetInfoAction } from '/@/renderer/features/context-menu/actions/get-info-action';
 import { GoToAction } from '/@/renderer/features/context-menu/actions/go-to-action';
 import { PlayAction } from '/@/renderer/features/context-menu/actions/play-action';
@@ -38,6 +39,9 @@ export const AlbumContextMenu = ({ items, type }: AlbumContextMenuProps) => {
             <SetRatingAction ids={ids} itemType={LibraryItem.ALBUM} />
             <ContextMenu.Divider />
             <DownloadAction ids={ids} />
+            {/* Renders nothing unless lb-bot knows this exact album is
+                incomplete — so on a single selection, and only then. */}
+            <FindMissingTracksAction album={items.length === 1 ? items[0] : undefined} />
             <ShareAction ids={ids} itemType={LibraryItem.ALBUM} />
             <ContextMenu.Divider />
             <GoToAction items={items} />

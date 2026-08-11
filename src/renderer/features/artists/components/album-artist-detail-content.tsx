@@ -24,6 +24,15 @@ import { ItemTableListColumn } from '/@/renderer/components/item-list/item-table
 import { ItemControls } from '/@/renderer/components/item-list/types';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
 import { AlbumArtistGridCarousel } from '/@/renderer/features/artists/components/album-artist-grid-carousel';
+import { IncompleteAlbumBadge } from '/@/renderer/features/lbbot/components/incomplete-album-badge';
+import { LbBotIndexButton } from '/@/renderer/features/lbbot/components/lbbot-index-button';
+import { MissingAlbumTile } from '/@/renderer/features/lbbot/components/missing-album-tile';
+import {
+    gapsByAlbumId,
+    unownedReleases,
+    useLbBotDiscography,
+    withoutOwned,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { useIsPlayerFetching, usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
     ListConfigMenu,
@@ -48,6 +57,8 @@ import { useHotkeys } from '/@/renderer/hooks/use-hotkeys';
 import { AppRoute } from '/@/renderer/router/routes';
 import {
     ArtistItem,
+    ArtistReleaseTypeItem,
+    SortableItem,
     useAppStore,
     useCurrentServer,
     useCurrentServerId,
@@ -56,8 +67,10 @@ import {
 import {
     useArtistItems,
     useArtistRadioCount,
+    useArtistReleaseTypeItems,
     useExternalLinks,
     useSettingsStore,
+    useSettingsStoreActions,
 } from '/@/renderer/store/settings.store';
 import { sanitize } from '/@/renderer/utils/sanitize';
 import { sortAlbumList, sortSongList } from '/@/shared/api/utils';
@@ -91,6 +104,7 @@ import {
     SongListSort,
     SortOrder,
 } from '/@/shared/types/domain-types';
+import { LbBotRelease } from '/@/shared/types/lbbot-types';
 import { ItemListKey, ListDisplayType, Play } from '/@/shared/types/types';
 
 interface AlbumArtistActionButtonsProps {
@@ -1220,7 +1234,12 @@ export const AlbumArtistDetailContent = ({
                             routeId={routeId}
                         />
                     )}
-                    <ArtistAlbums albumsQuery={albumsQuery} order={itemOrder.recentAlbums} />
+                    <ArtistAlbums
+                        albumsQuery={albumsQuery}
+                        artistMbid={mbzId}
+                        artistName={detailQuery.data?.name || ''}
+                        order={itemOrder.recentAlbums}
+                    />
                     {enabledItem.similarArtists && (
                         <AlbumArtistMetadataSimilarArtists
                             order={itemOrder.similarArtists}
@@ -1248,9 +1267,19 @@ export const AlbumArtistDetailContent = ({
 
 interface AlbumSectionProps {
     albums: Album[];
+    artistName: string;
     controls: ItemControls;
+    /** Follows the album sort direction so both halves of a section read the same way. */
+    descending: boolean;
     enableExpansion?: boolean;
+    /** lb-bot's incomplete rows, keyed by the Navidrome album id they belong to.
+     *  An incomplete album is an owned album, so it is already in `albums` — all
+     *  it needs from lb-bot is its `9/12` badge. */
+    gaps: Map<string, LbBotRelease>;
     itemsPerRow: number;
+    /** Releases of this type lb-bot knows about that the library doesn't hold. */
+    missing: LbBotRelease[];
+    ndArtistId: string;
     releaseType: string;
     rows: DataRow[] | undefined;
     title: React.ReactNode | string;
@@ -1272,9 +1301,14 @@ const getItemsPerRow = (cq: ReturnType<typeof useContainerQuery>) => {
 
 const AlbumSection = memo(function AlbumSection({
     albums,
+    artistName,
     controls,
+    descending,
     enableExpansion,
+    gaps,
     itemsPerRow,
+    missing,
+    ndArtistId,
     releaseType,
     rows,
     title,
@@ -1325,25 +1359,57 @@ const AlbumSection = memo(function AlbumSection({
     });
 
     const DisplayedAlbumsMemo = useMemo(() => {
-        return displayedAlbums.map((album) => (
-            <motion.div
-                className={styles.albumGridItem}
-                key={album.id}
-                layoutId={`${releaseType}-${album.id}`}
-            >
-                <MemoizedItemCard
-                    controls={controls}
-                    data={album}
-                    enableDrag
-                    enableExpansion={enableExpansion ?? true}
-                    itemType={LibraryItem.ALBUM}
-                    rows={rows}
-                    type="poster"
-                    withControls
-                />
-            </motion.div>
-        ));
-    }, [controls, displayedAlbums, enableExpansion, releaseType, rows]);
+        return displayedAlbums.map((album) => {
+            const gap = gaps.get(album.id);
+            return (
+                <motion.div
+                    className={styles.albumGridItem}
+                    key={album.id}
+                    layoutId={`${releaseType}-${album.id}`}
+                >
+                    {/* Overlaid rather than built into the card: an incomplete
+                        album is an album you own and must keep looking like one.
+                        Tapping it opens the album — the gap action is in its
+                        context menu. */}
+                    {gap && <IncompleteAlbumBadge ndArtistId={ndArtistId} release={gap} />}
+                    <MemoizedItemCard
+                        controls={controls}
+                        data={album}
+                        enableDrag
+                        enableExpansion={enableExpansion ?? true}
+                        itemType={LibraryItem.ALBUM}
+                        rows={rows}
+                        type="poster"
+                        withControls
+                    />
+                </motion.div>
+            );
+        });
+    }, [controls, displayedAlbums, enableExpansion, gaps, ndArtistId, releaseType, rows]);
+
+    // Sorted on their own terms: a release the library doesn't have has no date
+    // added, no play count and no rating, so most of the sort options above mean
+    // nothing for it. Year then title is the one ordering that always applies —
+    // but the *direction* has to follow the albums it sits beside, or a section
+    // reads newest-first down to the owned albums and then oldest-first again.
+    const MissingTilesMemo = useMemo(() => {
+        const direction = descending ? -1 : 1;
+        return [...missing]
+            .sort(
+                (a, b) =>
+                    direction *
+                    ((a.year || '').localeCompare(b.year || '') || a.title.localeCompare(b.title)),
+            )
+            .map((release) => (
+                <div className={styles.albumGridItem} key={`missing-${release.rgid}`}>
+                    <MissingAlbumTile
+                        artistName={artistName}
+                        ndArtistId={ndArtistId}
+                        release={release}
+                    />
+                </div>
+            ));
+    }, [artistName, descending, missing, ndArtistId]);
 
     return (
         <Stack gap="md">
@@ -1353,6 +1419,9 @@ const AlbumSection = memo(function AlbumSection({
                         {title}
                     </TextTitle>
                     <Badge variant="default">{albumCount}</Badge>
+                    {missing.length > 0 && (
+                        <Badge variant="outline">{`+${missing.length} missing`}</Badge>
+                    )}
                 </Group>
                 <div className={styles.albumSectionDividerContainer}>
                     <div className={styles.albumSectionDivider} />
@@ -1407,6 +1476,7 @@ const AlbumSection = memo(function AlbumSection({
                 }
             >
                 {DisplayedAlbumsMemo}
+                {MissingTilesMemo}
             </div>
             {hasMoreAlbums && !showAll && (
                 <Group justify="center" w="100%">
@@ -1419,14 +1489,19 @@ const AlbumSection = memo(function AlbumSection({
     );
 });
 
-import { useArtistAlbumsGrouped } from '/@/renderer/features/artists/hooks/use-artist-albums-grouped';
+import {
+    releaseTypeToEnumMap,
+    useArtistAlbumsGrouped,
+} from '/@/renderer/features/artists/hooks/use-artist-albums-grouped';
 
 interface ArtistAlbumsProps {
     albumsQuery: UseSuspenseQueryResult<AlbumListResponse, Error>;
+    artistMbid?: null | string;
+    artistName: string;
     order?: number;
 }
 
-const ArtistAlbums = ({ albumsQuery, order }: ArtistAlbumsProps) => {
+const ArtistAlbums = ({ albumsQuery, artistMbid, artistName, order }: ArtistAlbumsProps) => {
     const { t } = useTranslation();
     const [searchTerm, setSearchTerm] = useState('');
     const [debouncedSearchTerm] = useDebouncedValue(searchTerm, 300);
@@ -1451,7 +1526,28 @@ const ArtistAlbums = ({ albumsQuery, order }: ArtistAlbumsProps) => {
 
     const controls = useDefaultItemListControls();
 
-    const { releaseTypeEntries } = useArtistAlbumsGrouped(filteredAndSortedAlbums, routeId);
+    // Fail-soft to invisibility: no hub, no LBBOT_URL, lb-bot down or an
+    // unindexed artist all leave this empty, and the page is then exactly the
+    // page it was before lb-bot existed.
+    const discographyQuery = useLbBotDiscography(routeId, artistMbid);
+    const missing = useMemo(() => {
+        // Reconciled against the *unfiltered* album list, not the searched one:
+        // a search term must never make an album the library owns start showing
+        // up as missing just because it fell out of the owned side's results.
+        const owned = (albumsQuery.data?.items || []).map((album) => album.name);
+        const rows = withoutOwned(unownedReleases(discographyQuery.data), owned);
+        if (!debouncedSearchTerm) return rows;
+        const needle = debouncedSearchTerm.toLowerCase();
+        return rows.filter((release) => release.title.toLowerCase().includes(needle));
+    }, [discographyQuery.data, albumsQuery.data?.items, debouncedSearchTerm]);
+
+    // Incomplete rows aren't tiles of their own — they are owned albums that
+    // need a count badge, so they travel by album id rather than through the
+    // release-type grouping.
+    const gaps = useMemo(() => gapsByAlbumId(discographyQuery.data), [discographyQuery.data]);
+
+    const { presentReleaseTypes, releaseTypeDisplayName, releaseTypeEntries } =
+        useArtistAlbumsGrouped(filteredAndSortedAlbums, routeId, missing);
 
     const cq = useContainerQuery({
         '2xl': 1280,
@@ -1478,19 +1574,24 @@ const ArtistAlbums = ({ albumsQuery, order }: ArtistAlbumsProps) => {
     const itemsPerRow = getItemsPerRow(cq);
 
     const ReleaseTypeEntriesMemo = useMemo(() => {
-        return releaseTypeEntries.map(({ albums, displayName, releaseType }) => (
+        return releaseTypeEntries.map(({ albums, displayName, missing, releaseType }) => (
             <AlbumSection
                 albums={albums}
+                artistName={artistName}
                 controls={controls}
+                descending={sortOrder === SortOrder.DESC}
                 enableExpansion
+                gaps={gaps}
                 itemsPerRow={itemsPerRow}
                 key={releaseType}
+                missing={missing}
+                ndArtistId={routeId}
                 releaseType={releaseType}
                 rows={rows}
                 title={displayName}
             />
         ));
-    }, [releaseTypeEntries, itemsPerRow, controls, rows]);
+    }, [releaseTypeEntries, gaps, itemsPerRow, controls, rows, artistName, routeId, sortOrder]);
 
     return (
         <Grid.Col order={order} span={12}>
@@ -1535,7 +1636,16 @@ const ArtistAlbums = ({ albumsQuery, order }: ArtistAlbumsProps) => {
                         }
                         sortOrder={sortOrder}
                     />
-                    <GroupingTypeSelector />
+                    <LbBotIndexButton
+                        artistMbid={artistMbid}
+                        artistName={artistName}
+                        discography={discographyQuery.data}
+                        ndId={routeId}
+                    />
+                    <GroupingTypeSelector
+                        displayNameFor={releaseTypeDisplayName}
+                        releaseTypes={presentReleaseTypes}
+                    />
                 </Group>
                 {releaseTypeEntries.length > 0 && (
                     <div className={styles.albumSectionContainer} ref={cq.ref}>
@@ -1547,12 +1657,47 @@ const ArtistAlbums = ({ albumsQuery, order }: ArtistAlbumsProps) => {
     );
 };
 
-function GroupingTypeSelector() {
+interface GroupingTypeSelectorProps {
+    displayNameFor: (releaseType: string) => string;
+    /** Only the types this artist actually has releases in. */
+    releaseTypes: string[];
+}
+
+/**
+ * Grouping, plus which release types this page shows at all.
+ *
+ * The type toggles are here rather than buried in Settings because that is where
+ * the problem is: an artist like the Rolling Stones has ~320 releases of which
+ * most are compilations, and the section that makes their page unusable is one
+ * click from the section itself. They write to the same global
+ * `artistReleaseTypeItems` setting the settings page edits — deliberately, so
+ * "hide compilations" means it everywhere rather than being a per-artist state
+ * the user has to re-establish on every page.
+ *
+ * Only types this artist has anything in are listed. A menu of eighteen mostly
+ * empty checkboxes would hide the two that matter.
+ */
+function GroupingTypeSelector({ displayNameFor, releaseTypes }: GroupingTypeSelectorProps) {
     const { t } = useTranslation();
     const groupingType = useAppStore((state) => state.albumArtistDetailSort.groupingType);
     const setAlbumArtistDetailGroupingType = useAppStore(
         (state) => state.actions.setAlbumArtistDetailGroupingType,
     );
+    const releaseTypeItems = useArtistReleaseTypeItems();
+    const { setArtistReleaseTypeItems } = useSettingsStoreActions();
+
+    const toggleReleaseType = (releaseType: string) => {
+        const id = releaseTypeToEnumMap[releaseType];
+        if (!id) return;
+        setArtistReleaseTypeItems(
+            releaseTypeItems.map((item) =>
+                item.id === id ? { ...item, disabled: !item.disabled } : item,
+            ) as SortableItem<ArtistReleaseTypeItem>[],
+        );
+    };
+
+    const isEnabled = (releaseType: string) =>
+        !releaseTypeItems.find((item) => item.id === releaseTypeToEnumMap[releaseType])?.disabled;
 
     return (
         <DropdownMenu>
@@ -1572,6 +1717,25 @@ function GroupingTypeSelector() {
                 >
                     {t('page.albumArtistDetail.groupingTypePrimary')}
                 </DropdownMenu.Item>
+                {releaseTypes.length > 0 && (
+                    <>
+                        <DropdownMenu.Divider />
+                        <DropdownMenu.Label>{t('common.releaseType')}</DropdownMenu.Label>
+                        {releaseTypes.map((releaseType) => (
+                            <DropdownMenu.Item
+                                // The menu stays open: hiding several types is one
+                                // decision, not one trip through the menu each.
+                                closeMenuOnClick={false}
+                                isSelected={isEnabled(releaseType)}
+                                key={releaseType}
+                                leftSection={<Icon icon={isEnabled(releaseType) ? 'check' : 'x'} />}
+                                onClick={() => toggleReleaseType(releaseType)}
+                            >
+                                {displayNameFor(releaseType)}
+                            </DropdownMenu.Item>
+                        ))}
+                    </>
+                )}
             </DropdownMenu.Dropdown>
         </DropdownMenu>
     );

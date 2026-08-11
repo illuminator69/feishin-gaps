@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { placeholderSong, resolveHubTracks } from '/@/renderer/features/hub/utils/resolve-songs';
+import { useLbBotLibraryRefresh } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
 import {
     consumeQueueSession,
@@ -22,6 +23,7 @@ import {
     usePlayerStore,
     usePlayerStoreBase,
     useSavedQueuesStore,
+    useTimestampStoreBase,
 } from '/@/renderer/store';
 import { toast } from '/@/shared/components/toast/toast';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
@@ -160,6 +162,11 @@ export const useHub = () => {
     // Wall-clock until which local playback is force-paused after adopting an orphaned
     // (no active device) session — see the onPlayerProgress watchdog.
     const adoptPauseGuardUntil = useRef(0);
+    // When the engine's own clock started advancing without a break. Lets the watchdogs
+    // ask "is audio ACTUALLY rolling?" instead of trusting the store — see hardPause.
+    const advancingSince = useRef(0);
+    // Throttles hardPause so a pause that never takes can't turn into a play/pause loop.
+    const lastHardPauseAt = useRef(0);
 
     const publicUrlRef = useRef('');
     publicUrlRef.current = settings.publicServerUrl?.trim().replace(/\/$/, '') ?? '';
@@ -180,6 +187,37 @@ export const useHub = () => {
     // started playing on launch before the `welcome` arrived — silence the
     // local audio. Otherwise it runs away invisibly: the bar shows the remote
     // session and there's no local pause control reachable.
+    // A pause that actually reaches the audio engine, even when the store already reads
+    // PAUSED. The engines act on status *changes* (`subscribePlayerStatus` fires only when
+    // the value differs), so `mediaPause()` against an already-PAUSED store is inert —
+    // nothing is sent anywhere. That is precisely the state a runaway lands in: `setQueue`
+    // forces status PLAYING, the pause right after puts it back to PAUSED, and the engine's
+    // async play() lands *after* both. Audio then runs under a bar that reads "paused", and
+    // every later pause — ours or the user's click — is swallowed, so the only way out is
+    // killing the app. When the store is wrong, correct it first (the audio really IS
+    // playing) and then pause for real. The transient PLAYING is marked hub-driven so our
+    // own status handler can't mistake it for the user starting local playback.
+    // Is audio ACTUALLY rolling? `playing.current` only mirrors the store's status, and a
+    // runaway contradicts the store by definition, so a watchdog that trusts it alone goes
+    // blind exactly when it's needed. The engine's own clock is the ground truth: a run of
+    // small forward steps means it's really playing (a single jump is a seek, a backwards
+    // step a track change). 1 s of unbroken advance — long enough that a pause fade-out's
+    // trailing ticks can't trip it.
+    const audioIsRolling = () =>
+        playing.current ||
+        (advancingSince.current ? Date.now() - advancingSince.current >= 1000 : false);
+
+    const hardPause = useCallback(() => {
+        const now = Date.now();
+        if (now - lastHardPauseAt.current < 2000) return;
+        lastHardPauseAt.current = now;
+        if (usePlayerStore.getState().player.status !== PlayerStatus.PLAYING) {
+            hubDrivenUntil.current = Math.max(hubDrivenUntil.current, now + 1000);
+            mediaPlay();
+        }
+        mediaPause();
+    }, [mediaPause, mediaPlay]);
+
     const reconcileRemoteActive = useCallback(() => {
         if (isRemoteActiveNow() && playing.current && Date.now() >= hubDrivenUntil.current) {
             mediaPause();
@@ -188,10 +226,10 @@ export const useHub = () => {
             // shortly after; the onPlayerProgress watchdog below is the ongoing
             // safety net if even this is beaten.
             setTimeout(() => {
-                if (isRemoteActiveNow() && Date.now() >= hubDrivenUntil.current) mediaPause();
+                if (isRemoteActiveNow() && Date.now() >= hubDrivenUntil.current) hardPause();
             }, 150);
         }
-    }, [mediaPause]);
+    }, [hardPause, mediaPause]);
 
     const report = useCallback((overrides?: Record<string, unknown>) => {
         if (!hub || !isActive()) return;
@@ -355,8 +393,16 @@ export const useHub = () => {
         // active device; without this gate we'd echo an act:setQueue back to the
         // hub carrying the PREVIOUS track's position, overwriting the resume point.
         if (Date.now() < hubDrivenUntil.current) return;
+        // Not until the hub has told us what the session IS (`welcome` sets myId). The
+        // persisted queue rehydrates a moment after launch and fires this — publishing it
+        // then overwrote the live session with our stale copy at index 0 / position 0 AND
+        // promoted us to active receiver (the hub promotes any setQueue sender while the
+        // slot is empty, which it is right after a client restart). That is what lost a
+        // running cast session and restarted the queue from its first track.
+        if (myId.current === null) return;
         if (!(activeId.current === null || activeId.current === myId.current)) return;
-        const items = usePlayerStore.getState().getQueue().items;
+        const state = usePlayerStore.getState();
+        const items = state.getQueue().items;
         const sig = items.map((item) => item.id).join(',');
         // Unclaimed-session escape (mirrors Navic's publishQueueIfOurs): nobody is the
         // active receiver and WE are playing, so this client IS the live receiver — but
@@ -388,6 +434,17 @@ export const useHub = () => {
             return;
         }
         sawNonEmptyQueue.current = true;
+        // Both refs are fed by player EVENTS, which never fired for a queue restored at
+        // launch — index would still be its mount-time 0 and position 0, publishing "first
+        // track, from the top" for a queue we're parked in the middle of. Take the live
+        // values instead; the timestamp store is where a restored position lives until the
+        // engine's first progress tick.
+        index.current = state.player.index;
+        if (!positionMs.current) {
+            positionMs.current = Math.round(
+                (useTimestampStoreBase.getState().timestamp || 0) * 1000,
+            );
+        }
         const sqId = resolveSavedQueueId(items.map((item) => item.id));
         void (async () =>
             hub.send({
@@ -543,7 +600,8 @@ export const useHub = () => {
                             pause: wantPause,
                             sec: targetSec,
                         };
-                        setQueue(songs, msg.index ?? 0, targetSec);
+                        // Load straight into the requested state — see setQueue's `play`.
+                        setQueue(songs, msg.index ?? 0, targetSec, !wantPause);
                     }
                     if (wantPause) mediaPause();
                     else mediaPlay();
@@ -569,10 +627,10 @@ export const useHub = () => {
                     const nextIndex = msg.index ?? 0;
                     const sameSong = !!playingId && songs[nextIndex]?.id === playingId;
                     const keepSec = sameSong ? positionMs.current / 1000 : 0;
-                    setQueue(songs, nextIndex, keepSec);
+                    // PROTOCOL §5.2 again: a queue edit must not START playback either.
+                    setQueue(songs, nextIndex, keepSec, wasPlaying);
                     if (sameSong) {
                         armSeek(nextIndex, keepSec, !wasPlaying);
-                        if (!wasPlaying) mediaPause();
                     }
                     break;
                 }
@@ -698,11 +756,28 @@ export const useHub = () => {
             // claims the session — the adopted queue is ours to own now.
             lastQueueSig.current = '';
             adoptPauseGuardUntil.current = Date.now() + 3000;
-            setQueue(songs, targetIndex, targetSec);
-            mediaPause();
+            // Loaded PAUSED outright. Loading it playing and pausing straight after was the
+            // runaway: setQueue's PLAYING starts the engine asynchronously and the pause
+            // could land first, so the audio arrived to a store that already read PAUSED —
+            // and since the engines only act on status *changes*, every later pause (ours
+            // and the user's click) was a no-op against it.
+            setQueue(songs, targetIndex, targetSec, false);
+            // Net for anything that still manages to start (an in-flight auto-resume, the
+            // armed pendingSeek's own load). Only when audio is genuinely rolling — against
+            // a truly silent player hardPause's play/pause correction would be the thing
+            // making noise.
+            setTimeout(() => {
+                if (activeId.current === null && audioIsRolling()) hardPause();
+            }, 400);
         },
-        [armSeek, mediaPause, mediaPlayByIndex, publishQueue, resolveSongs, setQueue],
+        [armSeek, hardPause, mediaPause, mediaPlayByIndex, publishQueue, resolveSongs, setQueue],
     );
+
+    // Held in a ref so the long-lived message handler below can call it without
+    // the socket effect having to re-subscribe when the query client changes.
+    const refreshLibrary = useLbBotLibraryRefresh();
+    const libraryRefresh = useRef(refreshLibrary);
+    libraryRefresh.current = refreshLibrary;
 
     // Stream URLs embed the server origin and per-server credentials, so a server (or
     // credential) switch invalidates every memoized entry — otherwise the cast bridge
@@ -797,6 +872,11 @@ export const useHub = () => {
                             mapHubSavedQueue(r, serverIdRef.current),
                         ),
                     );
+            } else if (msg.t === 'library') {
+                // lb-bot placed an album somewhere on the network. Whichever
+                // device did the asking, every device's idea of what the library
+                // holds — and of what lb-bot still calls missing — is now stale.
+                libraryRefresh.current();
             } else if (msg.t === 'do') {
                 void handleDo(msg);
             } else if (msg.t === 'disconnected') {
@@ -878,7 +958,10 @@ export const useHub = () => {
                             // mediaPlayByIndex/setQueue start playback async; the
                             // earlier mediaPause loses that race. Re-assert it
                             // after the seek so a paused transfer STAYS paused.
-                            setTimeout(() => mediaPause(), 100);
+                            // hardPause, not mediaPause: by now the store is back at
+                            // PAUSED, which makes a plain pause a no-op against the
+                            // playback that won the race.
+                            setTimeout(() => hardPause(), 100);
                         }
                     }, 150);
                 }
@@ -897,19 +980,23 @@ export const useHub = () => {
                 }
                 report({ index: properties.index, positionMs: positionMs.current });
             },
-            onPlayerProgress: (properties) => {
+            onPlayerProgress: (properties, prev) => {
                 positionMs.current = Math.round(properties.timestamp * 1000);
+                // Feed the engine-clock ground truth the watchdogs read — see audioIsRolling.
+                const delta = properties.timestamp - prev.timestamp;
+                if (delta > 0 && delta < 2) {
+                    if (!advancingSince.current) advancingSince.current = Date.now();
+                } else {
+                    advancingSince.current = 0;
+                }
+                const rolling = audioIsRolling();
                 // Watchdog: while another device is the active receiver, the
                 // local engine must stay silent. Startup auto-resume can begin
                 // (and keep) playing past the one-shot reconcile, so re-pause any
                 // local playback that's still progressing. Fires only while local
                 // audio actually advances, so it self-stops once truly paused.
-                if (
-                    isRemoteActiveNow() &&
-                    playing.current &&
-                    Date.now() >= hubDrivenUntil.current
-                ) {
-                    mediaPause();
+                if (isRemoteActiveNow() && rolling && Date.now() >= hubDrivenUntil.current) {
+                    hardPause();
                     return;
                 }
                 // Just adopted an orphaned session (no active device) as PAUSED: an
@@ -919,10 +1006,19 @@ export const useHub = () => {
                 // the session, and pausing that would fight them.
                 if (
                     activeId.current === null &&
-                    playing.current &&
+                    rolling &&
                     Date.now() < adoptPauseGuardUntil.current
                 ) {
-                    mediaPause();
+                    hardPause();
+                    return;
+                }
+                // Last net, and the only one that doesn't care what the hub is doing:
+                // audio is advancing while the store insists it isn't. That is never
+                // something the user asked for — they'd be looking at a paused bar — so
+                // there's no intent here to fight. Silence it whether or not a hub session
+                // is in play; this is what makes the state recoverable without a restart.
+                if (!playing.current && rolling) {
+                    hardPause();
                     return;
                 }
                 // ~1 Hz per protocol §5 — the engine fires this several times a second.
@@ -938,7 +1034,7 @@ export const useHub = () => {
                 report({ isPlaying: playing.current });
             },
         },
-        [mediaPause, mediaSeekToTimestamp, publishQueue, report, routeLocalPlayToRemote],
+        [hardPause, mediaPause, mediaSeekToTimestamp, publishQueue, report, routeLocalPlayToRemote],
     );
 };
 

@@ -45,7 +45,7 @@ export const HubSettings = memo(() => {
                     }}
                 />
             ),
-            description: 'WebSocket URL of the hub, e.g. ws://192.168.129.153:4790',
+            description: 'WebSocket URL of the hub, e.g. ws://192.168.1.10:4790',
             isHidden,
             title: 'Hub URL',
         },

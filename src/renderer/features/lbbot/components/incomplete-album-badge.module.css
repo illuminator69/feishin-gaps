@@ -1,0 +1,19 @@
+/* Sits over the top-left of the album's artwork. The tile itself is untouched:
+   an incomplete album is an album you own, and it must still look like one. */
+.badge {
+    position: absolute;
+    top: var(--theme-spacing-xs);
+    left: var(--theme-spacing-xs);
+    z-index: 2;
+    pointer-events: none;
+    opacity: 0.92;
+}
+
+.progress {
+    position: absolute;
+    top: calc(var(--theme-spacing-xs) + 1.4rem);
+    right: var(--theme-spacing-xs);
+    left: var(--theme-spacing-xs);
+    z-index: 2;
+    pointer-events: none;
+}

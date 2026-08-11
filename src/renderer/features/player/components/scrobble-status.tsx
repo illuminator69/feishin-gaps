@@ -1,16 +1,12 @@
 import formatDuration from 'format-duration';
 import { useTranslation } from 'react-i18next';
 
+import { useRemoteAwareTimestamp } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import {
     invokeScrobbleForceSubmit,
     invokeScrobbleResetListenedState,
 } from '/@/renderer/features/player/hooks/use-scrobble';
-import {
-    useAppStore,
-    usePlayerTimestamp,
-    useScrobbleDebugSnapshot,
-    useSettingsStore,
-} from '/@/renderer/store';
+import { useAppStore, useScrobbleDebugSnapshot, useSettingsStore } from '/@/renderer/store';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
 import { HoverCard } from '/@/shared/components/hover-card/hover-card';
@@ -43,7 +39,11 @@ export const ScrobbleStatus = () => {
     const scrobbleEnabled = useSettingsStore((state) => state.playback.scrobble.enabled);
     const privateMode = useAppStore((state) => state.privateMode);
     const snapshot = useScrobbleDebugSnapshot();
-    const formattedTime = formatDuration(usePlayerTimestamp() * 1000 || 0);
+    // Remote-aware, like the slider beside it. This read the *local* player's
+    // clock, which is frozen while another device — a Chromecast, say — is
+    // playing: the bar advanced and the elapsed time sat on whatever second
+    // local playback last stopped at, the same figure for every song.
+    const formattedTime = formatDuration(useRemoteAwareTimestamp() * 1000 || 0);
 
     const hookInactive = !scrobbleEnabled || privateMode;
 

@@ -6,6 +6,7 @@ import { useArtistReleaseTypeItems } from '/@/renderer/store/settings.store';
 import { titleCase } from '/@/renderer/utils';
 import { SEPARATOR_STRING } from '/@/shared/api/utils';
 import { Album } from '/@/shared/types/domain-types';
+import { LbBotRelease } from '/@/shared/types/lbbot-types';
 
 const collator = new Intl.Collator();
 
@@ -22,115 +23,87 @@ const getNormalizedReleaseTypes = (album: Album): string[] => {
     return [...new Set(normalizedReleaseTypes)];
 };
 
+/**
+ * The bucket one set of release types belongs in.
+ *
+ * Pulled out of the album grouping below so lb-bot's missing releases can be
+ * filed by the same rule as the albums the library holds — the whole point of
+ * showing them together is that an unowned album lands in "Album", next to the
+ * owned ones, rather than in a separate pile of everything that's absent.
+ */
+const releaseTypeKeyFor = (
+    normalizedTypes: string[],
+    isCompilation: boolean,
+    groupingType: GroupingType,
+): string => {
+    if (groupingType === 'all') {
+        if (isCompilation) return 'compilation';
+        if (normalizedTypes.length === 0) return 'album';
+        // Primaries first, then secondaries, each alphabetical — so the same set
+        // of types always produces the same key.
+        const primaryTypes = normalizedTypes
+            .filter((type) => PRIMARY_RELEASE_TYPES.includes(type))
+            .sort();
+        const secondaryTypes = normalizedTypes
+            .filter((type) => !PRIMARY_RELEASE_TYPES.includes(type))
+            .sort();
+        return [...primaryTypes, ...secondaryTypes].join('/');
+    }
+
+    for (const type of ['album', 'single', 'ep', 'broadcast', 'other']) {
+        if (normalizedTypes.includes(type)) return type;
+    }
+    return normalizedTypes[0] ?? 'album';
+};
+
+/** lb-bot release rows, bucketed by the same key the owned albums use. */
+export const groupMissingByReleaseType = (
+    releases: LbBotRelease[],
+    groupingType: GroupingType,
+): Record<string, LbBotRelease[]> => {
+    return releases.reduce(
+        (acc, release) => {
+            const normalized = [
+                ...new Set(
+                    [release.primaryType, ...(release.secondaryTypes || [])]
+                        .map((type) => (type || '').trim().toLowerCase())
+                        .filter(Boolean),
+                ),
+            ];
+            const key = releaseTypeKeyFor(
+                normalized,
+                (release.secondaryTypes || []).includes('compilation'),
+                groupingType,
+            );
+            (acc[key] ||= []).push(release);
+            return acc;
+        },
+        {} as Record<string, LbBotRelease[]>,
+    );
+};
+
 export const groupAlbumsByReleaseType = (
     albums: Album[],
     routeId: string,
     groupingType: GroupingType = 'primary',
 ): Record<string, Album[]> => {
-    if (groupingType === 'all') {
-        // Group by all individual release types
-        const grouped = albums.reduce(
-            (acc, album) => {
-                // Priority 1: Appears on - artist is not an album artist
-                const isAlbumArtist = album.albumArtists?.some((artist) => artist.id === routeId);
-                if (!isAlbumArtist) {
-                    const appearsOnKey = 'appears-on';
-                    if (!acc[appearsOnKey]) {
-                        acc[appearsOnKey] = [];
-                    }
-                    acc[appearsOnKey].push(album);
-                    return acc;
-                }
-
-                // Priority 2: Compilations
-                if (album.isCompilation) {
-                    const compilationKey = 'compilation';
-                    if (!acc[compilationKey]) {
-                        acc[compilationKey] = [];
-                    }
-                    acc[compilationKey].push(album);
-                    return acc;
-                }
-
-                // Group by all release types
-                const normalizedTypes = getNormalizedReleaseTypes(album);
-                if (normalizedTypes.length > 0) {
-                    // Sort release types: primaries first (alphabetically), then secondaries (alphabetically)
-                    const primaryTypes = normalizedTypes
-                        .filter((type) => PRIMARY_RELEASE_TYPES.includes(type))
-                        .sort();
-                    const secondaryTypes = normalizedTypes
-                        .filter((type) => !PRIMARY_RELEASE_TYPES.includes(type))
-                        .sort();
-                    const sortedTypes = [...primaryTypes, ...secondaryTypes];
-
-                    const combinedKey = sortedTypes.join('/');
-                    if (!acc[combinedKey]) {
-                        acc[combinedKey] = [];
-                    }
-                    acc[combinedKey].push(album);
-                } else {
-                    // If no release types, use "album" as fallback
-                    const albumKey = 'album';
-                    if (!acc[albumKey]) {
-                        acc[albumKey] = [];
-                    }
-                    acc[albumKey].push(album);
-                }
-
-                return acc;
-            },
-            {} as Record<string, Album[]>,
-        );
-
-        return grouped;
-    }
-
-    // Group by primary release types
-    const grouped = albums.reduce(
+    return albums.reduce(
         (acc, album) => {
-            // Priority 1: Appears on - artist is not an album artist
+            // "Appears on" wins over everything: the artist isn't credited as an
+            // album artist here, so the release's own type says nothing useful.
             const isAlbumArtist = album.albumArtists?.some((artist) => artist.id === routeId);
-            if (!isAlbumArtist) {
-                const appearsOnKey = 'appears-on';
-                if (!acc[appearsOnKey]) {
-                    acc[appearsOnKey] = [];
-                }
-                acc[appearsOnKey].push(album);
-                return acc;
-            }
-
-            const normalizedTypes = getNormalizedReleaseTypes(album);
-
-            let matchedType: null | string = null;
-
-            if (normalizedTypes.includes('album')) {
-                matchedType = 'album';
-            } else if (normalizedTypes.includes('single')) {
-                matchedType = 'single';
-            } else if (normalizedTypes.includes('ep')) {
-                matchedType = 'ep';
-            } else if (normalizedTypes.includes('broadcast')) {
-                matchedType = 'broadcast';
-            } else if (normalizedTypes.includes('other')) {
-                matchedType = 'other';
-            } else if (normalizedTypes.length > 0) {
-                matchedType = normalizedTypes[0];
-            } else {
-                matchedType = 'album';
-            }
-
-            const releaseTypeKey = matchedType;
-            if (!acc[releaseTypeKey]) {
-                acc[releaseTypeKey] = [];
-            }
-            acc[releaseTypeKey].push(album);
+            const key = isAlbumArtist
+                ? releaseTypeKeyFor(
+                      getNormalizedReleaseTypes(album),
+                      Boolean(album.isCompilation),
+                      groupingType,
+                  )
+                : 'appears-on';
+            (acc[key] ||= []).push(album);
             return acc;
         },
         {} as Record<string, Album[]>,
     );
-
-    return grouped;
 };
 
 export const releaseTypeToEnumMap: Record<string, ArtistReleaseTypeItem> = {
@@ -160,8 +133,10 @@ export const getArtistAlbumsGrouped = (
     groupingType: GroupingType,
     artistReleaseTypeItems: { disabled: boolean; id: string }[],
     t: (key: string, options?: any) => string,
+    missingReleases: LbBotRelease[] = [],
 ) => {
     const albumsByReleaseType = groupAlbumsByReleaseType(albums, routeId, groupingType);
+    const missingByReleaseType = groupMissingByReleaseType(missingReleases, groupingType);
 
     const enabledReleaseTypeEnums = new Set(
         artistReleaseTypeItems.filter((item) => !item.disabled).map((item) => item.id),
@@ -274,9 +249,16 @@ export const getArtistAlbumsGrouped = (
         return enumValue ? enabledReleaseTypeEnums.has(enumValue) : true;
     };
 
-    const releaseTypeEntries = Object.entries(albumsByReleaseType)
-        .filter(([releaseType]) => isReleaseTypeEnabled(releaseType))
-        .map(([releaseType, albums]) => {
+    // A type the library holds nothing of still gets a section when lb-bot knows
+    // of releases in it — otherwise an artist whose EPs you own none of would
+    // have its missing EPs silently dropped.
+    const allReleaseTypes = [
+        ...new Set([...Object.keys(albumsByReleaseType), ...Object.keys(missingByReleaseType)]),
+    ];
+
+    const releaseTypeEntries = allReleaseTypes
+        .filter((releaseType) => isReleaseTypeEnabled(releaseType))
+        .map((releaseType) => {
             let displayName: React.ReactNode | string;
 
             if (releaseType.includes('/')) {
@@ -287,7 +269,12 @@ export const getArtistAlbumsGrouped = (
                 displayName = getDisplayNameForType(releaseType);
             }
 
-            return { albums, displayName, releaseType };
+            return {
+                albums: albumsByReleaseType[releaseType] ?? [],
+                displayName,
+                missing: missingByReleaseType[releaseType] ?? [],
+                releaseType,
+            };
         })
         .sort((a, b) => {
             const priorityA = getPriority(a.releaseType);
@@ -314,16 +301,53 @@ export const getArtistAlbumsGrouped = (
 
     const flatSortedAlbums = releaseTypeEntries.flatMap((entry) => entry.albums);
 
-    return { flatSortedAlbums, releaseTypeEntries };
+    // Every individual release type this artist actually has something in,
+    // **before** the enabled filter above — a type the user has switched off is
+    // precisely the one whose toggle has to stay on screen, or turning
+    // compilations off would remove the only control that turns them back on.
+    //
+    // Ordered by the user's own release-type order rather than by `getPriority`,
+    // which only knows about enabled types — a toggle must not jump to the end of
+    // the menu the moment it is switched off.
+    const settingsOrder = new Map(
+        artistReleaseTypeItems.map((item, index) => [item.id as string, index]),
+    );
+    const presentReleaseTypes = [
+        ...new Set(allReleaseTypes.flatMap((releaseType) => releaseType.split('/'))),
+    ]
+        .filter((releaseType) => releaseTypeToEnumMap[releaseType])
+        .sort(
+            (a, b) =>
+                (settingsOrder.get(releaseTypeToEnumMap[a]) ?? 999) -
+                    (settingsOrder.get(releaseTypeToEnumMap[b]) ?? 999) || collator.compare(a, b),
+        );
+
+    return {
+        flatSortedAlbums,
+        presentReleaseTypes,
+        releaseTypeDisplayName: getDisplayNameForType,
+        releaseTypeEntries,
+    };
 };
 
-export const useArtistAlbumsGrouped = (albums: Album[], routeId: string) => {
+export const useArtistAlbumsGrouped = (
+    albums: Album[],
+    routeId: string,
+    missingReleases: LbBotRelease[] = [],
+) => {
     const { t } = useTranslation();
     const artistReleaseTypeItems = useArtistReleaseTypeItems();
     const albumArtistDetailSort = useAppStore((state) => state.albumArtistDetailSort);
     const groupingType = albumArtistDetailSort.groupingType;
 
     return useMemo(() => {
-        return getArtistAlbumsGrouped(albums, routeId, groupingType, artistReleaseTypeItems, t);
-    }, [albums, routeId, groupingType, artistReleaseTypeItems, t]);
+        return getArtistAlbumsGrouped(
+            albums,
+            routeId,
+            groupingType,
+            artistReleaseTypeItems,
+            t,
+            missingReleases,
+        );
+    }, [albums, routeId, groupingType, artistReleaseTypeItems, t, missingReleases]);
 };

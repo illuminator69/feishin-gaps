@@ -72,7 +72,11 @@ interface Actions {
     setCrossfadeDuration: (duration: number) => void;
     setCrossfadeStyle: (style: CrossfadeStyle) => void;
     setPauseOnNextSongEnd: (value: boolean) => void;
-    setQueue: (data: Song[], index?: number, position?: number) => void;
+    // navi-connect: `play` (default true) exists so a queue can be LOADED without ever
+    // entering PLAYING. Loading playing-then-pausing starts the engine asynchronously, and
+    // the pause can land before that play does — leaving audio running under a bar that
+    // reads "paused", with no way back because the engines only act on status *changes*.
+    setQueue: (data: Song[], index?: number, position?: number, play?: boolean) => void;
     setRepeat: (repeat: PlayerRepeat) => void;
     setShuffle: (shuffle: PlayerShuffle) => void;
     setSpeed: (speed: number) => void;
@@ -1464,7 +1468,7 @@ export const usePlayerStoreBase = createWithEqualityFn<PlayerState>()(
                         state.queue.default = newQueue;
                     });
                 },
-                setQueue: (items, index, position) => {
+                setQueue: (items, index, position, play) => {
                     const newItems = items.map(toQueueSong);
                     const newUniqueIds = newItems.map((item) => item._uniqueId);
 
@@ -1474,7 +1478,8 @@ export const usePlayerStoreBase = createWithEqualityFn<PlayerState>()(
                         });
 
                         state.player.index = index ?? 0;
-                        state.player.status = PlayerStatus.PLAYING;
+                        state.player.status =
+                            play === false ? PlayerStatus.PAUSED : PlayerStatus.PLAYING;
                         state.player.playerNum = 1;
                         state.queue.default = newUniqueIds;
                     });

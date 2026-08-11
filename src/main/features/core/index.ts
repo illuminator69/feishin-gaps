@@ -4,6 +4,7 @@ import './cast';
 import './custom-themes';
 import './downloads';
 import './hub';
+import './lbbot';
 import './lyrics';
 import './player';
 import './remote';
