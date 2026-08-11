@@ -1,3 +1,77 @@
+# Feishin — navi-connect fork
+
+> ### This is a fork of **[jeffvli/feishin](https://github.com/jeffvli/feishin)**
+> All credit for Feishin itself belongs to [Jeff Li](https://github.com/jeffvli) and its
+> contributors. This fork only adds the features below; **upstream's own README follows
+> unchanged further down**, and upstream is where you should go for Feishin itself, its
+> releases, and its issue tracker.
+>
+> Licensed **GPL-3.0**, same as upstream. This repository is the corresponding source for
+> the desktop binaries published in
+> [navi-connect's releases](https://github.com/illuminator69/navi-connect/releases).
+
+## What this fork adds
+
+It turns Feishin into a client for **[navi-connect](https://github.com/illuminator69/navi-connect)** —
+a shared playback session across devices — and a front end for
+**[lb-bot](https://github.com/illuminator69/lb-bot)**, which knows what your library is missing.
+
+**The albums you don't own, on the artist page next to the ones you do.**
+
+![Feishin artist page showing owned albums alongside greyed-out ones marked NOT IN LIBRARY, with a +38 MISSING badge](docs/screenshots/feishin-artist-missing-albums.png)
+
+**Downloads are reviewed, not fired blind** — pick the edition, check it against the canonical
+MusicBrainz tracklist, choose a quality, then look at real Soulseek sources ranked by coverage.
+
+![Missing-album dialog showing edition tabs, media-format tabs, the tracklist, a quality selector and a Find sources button](docs/screenshots/feishin-missing-album-review.png)
+
+Also:
+
+- **Remote control + transfer with resume.** One player bar drives local *or* remote playback via
+  transport interception — there is no separate remote UI. Move a song mid-play to a phone or a
+  Chromecast and it resumes on the same beat.
+- **Chromecast bridge.** `bonjour-service` + `castv2-client` in the main process; no Cast SDK. Every
+  discovered speaker is registered with the hub so it shows up in every client's device picker.
+- **AudioMuse-AI.** Auto DJ, Sonic Fingerprint, adaptive Mood Flow, CLAP text→mood search, and a
+  mood-reactive visualizer palette.
+- **Saved queues / Continue Listening**, synced through the hub and shared with the Android client.
+
+## Setup
+
+Don't start here — the stack has several pieces and they have an order.
+**→ [navi-connect setup guide](https://github.com/illuminator69/navi-connect/blob/main/TESTING-SETUP.md)**
+
+Prebuilt Windows binaries are on
+[navi-connect's releases page](https://github.com/illuminator69/navi-connect/releases). To build
+instead, upstream's instructions below still apply; note that the NSIS installer is unusable
+(Windows Defender quarantines the unsigned binary), so use the portable build:
+
+```bash
+pnpm install
+pnpm run build && pnpm exec electron-builder --win --x64 --dir   # → dist/win-unpacked/
+```
+
+## Relationship to upstream
+
+This fork tracks upstream and merges its releases — `v1.13.0` through `v1.15.1` so far. Upstream's
+full history is preserved here precisely so that `git merge upstream/<tag>` keeps working:
+
+```bash
+git remote add upstream https://github.com/jeffvli/feishin.git
+git fetch upstream --tags
+git merge v1.16.0
+```
+
+Please report bugs in **Feishin itself** to [upstream](https://github.com/jeffvli/feishin/issues) —
+they will not be fixed here. Bugs in the hub, cast, lb-bot or AudioMuse layers belong in
+[navi-connect](https://github.com/illuminator69/navi-connect/issues).
+
+---
+
+<sub>Upstream README follows, unmodified.</sub>
+
+---
+
 <img src="assets/icons/icon.png" alt="logo" title="feishin" align="right" height="60px" width="60px" />
 
 # Feishin
