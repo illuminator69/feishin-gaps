@@ -59,7 +59,7 @@ export const PlayTrackJourneyAction = ({ disabled, song }: PlayTrackJourneyActio
         } catch (error) {
             console.error('Failed to start sonic journey:', error);
         }
-    }, [currentSong, player, queryClient, radioCount, serverId, song.id]);
+    }, [currentSong, player, queryClient, radioCount, serverId, song.id, song.name]);
 
     if (
         !hasFeature(server, ServerFeature.SONIC_SIMILARITY) ||

@@ -665,6 +665,7 @@ export const useHub = () => {
             }
         },
         [
+            armSeek,
             clearQueue,
             mediaPause,
             mediaPlay,

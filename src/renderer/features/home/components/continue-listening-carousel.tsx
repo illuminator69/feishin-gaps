@@ -11,10 +11,10 @@ import { restartQueueSession } from '/@/renderer/features/player/utils/saved-que
 import { SaveAsPlaylistForm } from '/@/renderer/features/playlists/components/save-as-playlist-form';
 import { savedQueuePreviewModalProps } from '/@/renderer/features/saved-queues/components/saved-queue-preview-modal';
 import {
+    savedQueueTitle as queueTitle,
     savedQueueCoverSongId,
     savedQueueSourceLine,
     savedQueueSubtitle,
-    savedQueueTitle as queueTitle,
 } from '/@/renderer/features/saved-queues/utils/saved-queue-format';
 import { AppRoute } from '/@/renderer/router/routes';
 import {

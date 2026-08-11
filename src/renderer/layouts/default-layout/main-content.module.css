@@ -29,12 +29,12 @@
      * and the main content slides instead of jumping. Only applies to the horizontal side
      * queue; the base template already declares the 3 grid areas so the empty track is valid.
      */
-    :root[data-motion='true'] &.sidebar-expanded:not(.right-expanded):not(.vertical-layout) {
-        grid-template-columns: var(--sidebar-width) 1fr 0px;
+    :root[data-motion='true'] &.sidebar-expanded:not(.right-expanded, .vertical-layout) {
+        grid-template-columns: var(--sidebar-width) 1fr 0;
     }
 
-    :root[data-motion='true'] &.sidebar-collapsed:not(.right-expanded):not(.vertical-layout) {
-        grid-template-columns: 80px 1fr 0px;
+    :root[data-motion='true'] &.sidebar-collapsed:not(.right-expanded, .vertical-layout) {
+        grid-template-columns: 80px 1fr 0;
     }
 }
 

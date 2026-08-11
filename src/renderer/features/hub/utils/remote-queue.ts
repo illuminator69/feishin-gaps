@@ -69,9 +69,7 @@ export const buildHubTracksForSongs = async (
                         }),
                         base,
                     ) || undefined,
-                mime: container
-                    ? `audio/${container === 'mp3' ? 'mpeg' : container}`
-                    : undefined,
+                mime: container ? `audio/${container === 'mp3' ? 'mpeg' : container}` : undefined,
                 streamUrl: rewriteToPublic(streamUrl, base),
                 title: song.name,
             };

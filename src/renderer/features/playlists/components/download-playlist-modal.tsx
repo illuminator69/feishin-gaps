@@ -61,7 +61,7 @@ export const DownloadPlaylistModal = ({
     const [bitrate, setBitrate] = useState('');
     const [mirror, setMirror] = useState(true);
     const [running, setRunning] = useState(false);
-    const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+    const [progress, setProgress] = useState<null | { current: number; total: number }>(null);
 
     useEffect(() => {
         if (!downloads) return undefined;

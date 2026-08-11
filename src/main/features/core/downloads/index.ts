@@ -18,6 +18,11 @@ interface DownloadFile {
     url: string;
 }
 
+interface ManifestEntry {
+    filename: string;
+    id: string;
+}
+
 interface SyncArgs {
     dir: string;
     files: DownloadFile[];
@@ -32,14 +37,28 @@ interface SyncResult {
     skipped: number;
 }
 
-interface ManifestEntry {
-    filename: string;
-    id: string;
-}
-
 const MANIFEST = '.feishin-downloads.json';
 
 let cancelled = false;
+
+async function downloadOne(url: string, destPath: string): Promise<void> {
+    const response = await fetch(url);
+    if (!response.ok || !response.body) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+    const tmpPath = `${destPath}.part`;
+    await pipeline(Readable.fromWeb(response.body as never), createWriteStream(tmpPath));
+    await fsp.rename(tmpPath, destPath);
+}
+
+async function fileExists(path: string): Promise<boolean> {
+    try {
+        await fsp.stat(path);
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 async function readManifest(dir: string): Promise<ManifestEntry[]> {
     try {
@@ -57,28 +76,6 @@ async function readManifest(dir: string): Promise<ManifestEntry[]> {
 
 async function writeManifest(dir: string, files: ManifestEntry[]): Promise<void> {
     await fsp.writeFile(join(dir, MANIFEST), JSON.stringify({ files }, null, 2), 'utf-8');
-}
-
-async function fileExists(path: string): Promise<boolean> {
-    try {
-        await fsp.stat(path);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-async function downloadOne(url: string, destPath: string): Promise<void> {
-    const response = await fetch(url);
-    if (!response.ok || !response.body) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    const tmpPath = `${destPath}.part`;
-    await pipeline(
-        Readable.fromWeb(response.body as never),
-        createWriteStream(tmpPath),
-    );
-    await fsp.rename(tmpPath, destPath);
 }
 
 ipcMain.handle('downloads-select-directory', async () => {
@@ -111,9 +108,7 @@ ipcMain.handle('downloads-sync', async (event, args: SyncArgs): Promise<SyncResu
     let removed = 0;
     if (removeOthers) {
         for (const entry of managed) {
-            const departed = entry.id
-                ? !wantedIds.has(entry.id)
-                : !wantedNames.has(entry.filename);
+            const departed = entry.id ? !wantedIds.has(entry.id) : !wantedNames.has(entry.filename);
             if (departed) {
                 try {
                     await fsp.unlink(join(dir, entry.filename));

@@ -1,4 +1,3 @@
-import { useEffectiveTranscode } from '/@/renderer/features/player/audio-player/hooks/use-effective-transcode';
 import type { Dispatch } from 'react';
 import type WaveSurfer from 'wavesurfer.js';
 
@@ -8,6 +7,7 @@ import {
     WaveSurferPlayerEngine,
     WaveSurferPlayerEngineHandle,
 } from '/@/renderer/features/player/audio-player/engine/wavesurfer-player-engine';
+import { useEffectiveTranscode } from '/@/renderer/features/player/audio-player/hooks/use-effective-transcode';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
 import { useSongUrl } from '/@/renderer/features/player/audio-player/hooks/use-stream-url';
 import { PlayerOnProgressProps } from '/@/renderer/features/player/audio-player/types';

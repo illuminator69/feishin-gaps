@@ -86,7 +86,9 @@ export const SimilarSongsList = ({
 
     return (
         <ErrorBoundary FallbackComponent={ErrorFallback}>
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+            <div
+                style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}
+            >
                 {tableData.length > 0 && (
                     <Group gap="xs" px="sm" py="xs">
                         <Button

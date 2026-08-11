@@ -1477,29 +1477,6 @@ export const SubsonicController: InternalControllerEndpoint = {
             return acc;
         }, []);
     },
-    getSonicPath: async (args) => {
-        const { apiClientProps, query } = args;
-
-        const res = await ssApiClient(apiClientProps).findSonicPath({
-            query: {
-                count: query.count,
-                endSongId: query.endSongId,
-                startSongId: query.startSongId,
-            },
-        });
-
-        if (res.status !== 200) {
-            throw new Error('Failed to find sonic path');
-        }
-
-        if (!res.body.sonicMatch) {
-            return [];
-        }
-
-        return res.body.sonicMatch.map((match) =>
-            ssNormalize.song(match.entry, apiClientProps.server),
-        );
-    },
     getSongDetail: async (args) => {
         const { apiClientProps, query } = args;
 
@@ -1944,6 +1921,29 @@ export const SubsonicController: InternalControllerEndpoint = {
         }
 
         return totalRecordCount;
+    },
+    getSonicPath: async (args) => {
+        const { apiClientProps, query } = args;
+
+        const res = await ssApiClient(apiClientProps).findSonicPath({
+            query: {
+                count: query.count,
+                endSongId: query.endSongId,
+                startSongId: query.startSongId,
+            },
+        });
+
+        if (res.status !== 200) {
+            throw new Error('Failed to find sonic path');
+        }
+
+        if (!res.body.sonicMatch) {
+            return [];
+        }
+
+        return res.body.sonicMatch.map((match) =>
+            ssNormalize.song(match.entry, apiClientProps.server),
+        );
     },
     getStreamUrl: async ({ apiClientProps, query }) => {
         const { server } = apiClientProps;

@@ -6,9 +6,9 @@ import { forwardRef } from 'react';
 
 import styles from './animated-page.module.css';
 
+import { useExpressiveMotion } from '/@/renderer/store/settings.store';
 import { animationProps } from '/@/shared/components/animations/animation-props';
 import { pageTransition, pageVariants } from '/@/shared/components/animations/motion-tokens';
-import { useExpressiveMotion } from '/@/renderer/store/settings.store';
 
 interface AnimatedPageProps {
     children: ReactNode;

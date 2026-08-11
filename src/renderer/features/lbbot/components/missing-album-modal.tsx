@@ -277,7 +277,7 @@ const MissingAlbumModal = ({ artistName, release }: MissingAlbumModalProps) => {
                             unreachable — you could see that a Deluxe existed and
                             not select it. */}
                         {variants.length > 1 && (
-                            <div className={styles.editionBar}>
+                            <div className={styles['edition-bar']}>
                                 <SegmentedControl
                                     data={variants.map((v, i) => ({
                                         label: [v.title, v.disambiguation]
@@ -295,7 +295,7 @@ const MissingAlbumModal = ({ artistName, release }: MissingAlbumModalProps) => {
                         )}
 
                         {editions.length > 1 && (
-                            <div className={styles.editionBar}>
+                            <div className={styles['edition-bar']}>
                                 <SegmentedControl
                                     data={editions.map((e, i) => ({
                                         label: e.label,

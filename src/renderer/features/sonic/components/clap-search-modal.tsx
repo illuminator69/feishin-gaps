@@ -4,10 +4,7 @@ import { useTranslation } from 'react-i18next';
 import styles from './clap-search-modal.module.css';
 
 import { api } from '/@/renderer/api';
-import {
-    ClapResult,
-    fetchClapSearch,
-} from '/@/renderer/features/player/auto-dj/audio-muse-source';
+import { ClapResult, fetchClapSearch } from '/@/renderer/features/player/auto-dj/audio-muse-source';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { markNextQueueSource } from '/@/renderer/features/player/utils/saved-queue-source';
 import { useAudioMuseSettings, useCurrentServerId } from '/@/renderer/store';
@@ -18,8 +15,8 @@ import { closeAllModals, openModal } from '/@/shared/components/modal/modal';
 import { ScrollArea } from '/@/shared/components/scroll-area/scroll-area';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
-import { Text } from '/@/shared/components/text/text';
 import { TextInput } from '/@/shared/components/text-input/text-input';
+import { Text } from '/@/shared/components/text/text';
 import { toast } from '/@/shared/components/toast/toast';
 import { Song } from '/@/shared/types/domain-types';
 import { Play } from '/@/shared/types/types';
@@ -72,7 +69,9 @@ const ClapSearchModal = () => {
                 results.map((r) => r.id),
             );
             if (songs.length === 0) {
-                toast.warn({ message: t('common.noResultsFound', { postProcess: 'sentenceCase' }) });
+                toast.warn({
+                    message: t('common.noResultsFound', { postProcess: 'sentenceCase' }),
+                });
                 return;
             }
             if (type === Play.NOW) markNextQueueSource('moodFlow', query.trim() || undefined);
@@ -99,11 +98,7 @@ const ClapSearchModal = () => {
                         value={query}
                     />
                     <Button disabled={!query.trim() || isSearching} type="submit" variant="filled">
-                        {isSearching ? (
-                            <Spinner />
-                        ) : (
-                            <Icon icon="search" />
-                        )}
+                        {isSearching ? <Spinner /> : <Icon icon="search" />}
                     </Button>
                 </Group>
 

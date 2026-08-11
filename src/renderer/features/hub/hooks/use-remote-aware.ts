@@ -232,6 +232,11 @@ export const useRemoteAwareTimestamp = (): number => {
     if (!isRemote) return localTs;
 
     const s = useHubStore.getState();
+    // Deliberately impure: the hub publishes position at ~1 Hz, so the live value has to be
+    // interpolated from the wall clock. The 250 ms interval above is what re-renders this, and
+    // the "unstable across re-renders" the rule warns about is exactly the intent — a clock that
+    // advances. Moving it into state would add a render's worth of lag to the progress bar.
+    // eslint-disable-next-line react-hooks/purity
     const elapsed = s.remoteIsPlaying ? Date.now() - s.remotePositionAt : 0;
     return Math.max(0, (s.remotePositionMs + elapsed) / 1000);
 };

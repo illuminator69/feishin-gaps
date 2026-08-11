@@ -8,6 +8,12 @@ import { queryKeys } from '/@/renderer/api/query-keys';
 import { albumQueries } from '/@/renderer/features/albums/api/album-api';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
 import {
+    addToQueueTypeToRemoteMode,
+    enqueueToRemote,
+    isRemoteSessionActive,
+    remoteAct,
+} from '/@/renderer/features/hub/utils/remote-queue';
+import {
     filterSongsByPlayerFilters,
     getAlbumArtistSongsById,
     getAlbumSongsById,
@@ -15,18 +21,12 @@ import {
     getPlaylistSongsById,
     getSongsByFolder,
 } from '/@/renderer/features/player/utils';
-import { playlistsQueries } from '/@/renderer/features/playlists/api/playlists-api';
-import { songsQueries } from '/@/renderer/features/songs/api/songs-api';
-import {
-    addToQueueTypeToRemoteMode,
-    enqueueToRemote,
-    isRemoteSessionActive,
-    remoteAct,
-} from '/@/renderer/features/hub/utils/remote-queue';
 import {
     beginQueueSession,
     isNewQueueSessionPending,
 } from '/@/renderer/features/player/utils/saved-queue-source';
+import { playlistsQueries } from '/@/renderer/features/playlists/api/playlists-api';
+import { songsQueries } from '/@/renderer/features/songs/api/songs-api';
 import { AddToQueueType, useHubStore, usePlayerActions, useSettingsStore } from '/@/renderer/store';
 import { LogCategory, logFn } from '/@/renderer/utils/logger';
 import { logMsg } from '/@/renderer/utils/logger-message';
@@ -265,11 +265,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                           filteredData.findIndex((song) => song.id === playSongId),
                       )
                     : 0;
-                void enqueueToRemote(
-                    filteredData,
-                    addToQueueTypeToRemoteMode(type),
-                    startIndex,
-                );
+                void enqueueToRemote(filteredData, addToQueueTypeToRemoteMode(type), startIndex);
                 return;
             }
 
@@ -837,7 +833,10 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                         if (to !== from) remoteAct('move', { from, to });
                     }
                 } else if (items.length > 1) {
-                    toast.warn({ message: 'Reordering multiple tracks at once isn’t supported on a remote device.' });
+                    toast.warn({
+                        message:
+                            'Reordering multiple tracks at once isn’t supported on a remote device.',
+                    });
                 }
                 return;
             }

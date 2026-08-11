@@ -66,6 +66,14 @@ export const contract = c.router({
             200: ssType._response.baseResponse,
         },
     },
+    findSonicPath: {
+        method: 'GET',
+        path: 'findSonicPath',
+        query: ssType._parameters.sonicPath,
+        responses: {
+            200: ssType._response.sonicMatches,
+        },
+    },
     getAlbum: {
         method: 'GET',
         path: 'getAlbum.view',
@@ -229,28 +237,20 @@ export const contract = c.router({
             200: ssType._response.getSong,
         },
     },
-    getSonicSimilarTracks: {
-        method: 'GET',
-        path: 'getSonicSimilarTracks',
-        query: ssType._parameters.sonicSimilarTracks,
-        responses: {
-            200: ssType._response.sonicMatches,
-        },
-    },
-    findSonicPath: {
-        method: 'GET',
-        path: 'findSonicPath',
-        query: ssType._parameters.sonicPath,
-        responses: {
-            200: ssType._response.sonicMatches,
-        },
-    },
     getSongsByGenre: {
         method: 'GET',
         path: 'getSongsByGenre.view',
         query: ssType._parameters.getSongsByGenre,
         responses: {
             200: ssType._response.getSongsByGenre,
+        },
+    },
+    getSonicSimilarTracks: {
+        method: 'GET',
+        path: 'getSonicSimilarTracks',
+        query: ssType._parameters.sonicSimilarTracks,
+        responses: {
+            200: ssType._response.sonicMatches,
         },
     },
     getStarred: {

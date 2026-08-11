@@ -126,7 +126,10 @@ export const HubDevicePicker = () => {
                     icon="radio"
                     iconProps={{ size: 'xl' }}
                     size="sm"
-                    tooltip={{ label: hasActive ? 'Connected' : 'Connect to a device', openDelay: 0 }}
+                    tooltip={{
+                        label: hasActive ? 'Connected' : 'Connect to a device',
+                        openDelay: 0,
+                    }}
                     variant="subtle"
                 />
             </DropdownMenu.Target>

@@ -178,7 +178,14 @@ export const SynchronizedLyrics = ({
         };
 
         rafRef.current = requestAnimationFrame(runTick);
-    }, [delayMsRef, getTimestampSec, resumeAutoscroll, resumeEngineAutoscroll, stopRaf, syncAtTime]);
+    }, [
+        delayMsRef,
+        getTimestampSec,
+        resumeAutoscroll,
+        resumeEngineAutoscroll,
+        stopRaf,
+        syncAtTime,
+    ]);
 
     const syncFromCurrentTimestamp = useCallback(() => {
         const isPlaying = getStatus() === PlayerStatus.PLAYING;

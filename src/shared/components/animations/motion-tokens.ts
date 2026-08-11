@@ -24,12 +24,14 @@ export const DURATION = {
 // bezier (CSS/JS can't express an arbitrary path), which is a close visual match.
 type Bezier = [number, number, number, number];
 
-export const EASING: Record<'emphasized' | 'emphasizedAccelerate' | 'emphasizedDecelerate', Bezier> =
-    {
-        emphasized: [0.2, 0, 0, 1],
-        emphasizedAccelerate: [0.3, 0, 0.8, 0.15],
-        emphasizedDecelerate: [0.05, 0.7, 0.1, 1],
-    };
+export const EASING: Record<
+    'emphasized' | 'emphasizedAccelerate' | 'emphasizedDecelerate',
+    Bezier
+> = {
+    emphasized: [0.2, 0, 0, 1],
+    emphasizedAccelerate: [0.3, 0, 0.8, 0.15],
+    emphasizedDecelerate: [0.05, 0.7, 0.1, 1],
+};
 
 const bezierCss = (points: Bezier) => `cubic-bezier(${points.join(', ')})`;
 
@@ -70,7 +72,11 @@ export const modalTransitionProps = (motionEnabled: boolean) => {
     }
 
     if (prefersReducedMotion()) {
-        return { duration: DURATION.medium1, exitDuration: DURATION.medium1, transition: 'fade' as const };
+        return {
+            duration: DURATION.medium1,
+            exitDuration: DURATION.medium1,
+            transition: 'fade' as const,
+        };
     }
 
     return {

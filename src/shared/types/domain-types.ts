@@ -1572,10 +1572,10 @@ export type ControllerEndpoint = {
     getRoles: (args: BaseEndpointArgs) => Promise<Array<string | { label: string; value: string }>>;
     getServerInfo: (args: ServerInfoArgs) => Promise<ServerInfo>;
     getSimilarSongs: (args: SimilarSongsArgs) => Promise<Song[]>;
-    getSonicPath?: (args: SonicPathArgs) => Promise<Song[]>;
     getSongDetail: (args: SongDetailArgs) => Promise<SongDetailResponse>;
     getSongList: (args: SongListArgs) => Promise<SongListResponse>;
     getSongListCount: (args: SongListCountArgs) => Promise<number>;
+    getSonicPath?: (args: SonicPathArgs) => Promise<Song[]>;
     getStreamUrl: (args: StreamArgs) => Promise<string>;
     getStructuredLyrics?: (args: StructuredLyricsArgs) => Promise<StructuredLyric[]>;
     getTagList?: (args: TagListArgs) => Promise<TagListResponse>;
@@ -1738,10 +1738,10 @@ export type InternalControllerEndpoint = {
     ) => Promise<Array<string | { label: string; value: string }>>;
     getServerInfo: (args: ReplaceApiClientProps<ServerInfoArgs>) => Promise<ServerInfo>;
     getSimilarSongs: (args: ReplaceApiClientProps<SimilarSongsArgs>) => Promise<Song[]>;
-    getSonicPath?: (args: ReplaceApiClientProps<SonicPathArgs>) => Promise<Song[]>;
     getSongDetail: (args: ReplaceApiClientProps<SongDetailArgs>) => Promise<SongDetailResponse>;
     getSongList: (args: ReplaceApiClientProps<SongListArgs>) => Promise<SongListResponse>;
     getSongListCount: (args: ReplaceApiClientProps<SongListCountArgs>) => Promise<number>;
+    getSonicPath?: (args: ReplaceApiClientProps<SonicPathArgs>) => Promise<Song[]>;
     getStreamUrl: (args: ReplaceApiClientProps<StreamArgs>) => Promise<string>;
     getStructuredLyrics?: (
         args: ReplaceApiClientProps<StructuredLyricsArgs>,

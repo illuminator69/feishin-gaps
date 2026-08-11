@@ -3,8 +3,8 @@ import {
     describeGenerator,
     GeneratorSource,
 } from '/@/renderer/features/sonic/audio-muse-palette';
-import { useMoodCentroid } from '/@/renderer/store/mood-centroid.store';
 import { useSettingsStore } from '/@/renderer/store';
+import { useMoodCentroid } from '/@/renderer/store/mood-centroid.store';
 import { Badge } from '/@/shared/components/badge/badge';
 
 /**

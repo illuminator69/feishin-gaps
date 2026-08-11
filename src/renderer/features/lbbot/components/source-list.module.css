@@ -35,8 +35,8 @@
 
 .folder {
     overflow: hidden;
-    white-space: nowrap;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .files {
@@ -58,8 +58,8 @@
 
 .filename {
     overflow: hidden;
-    white-space: nowrap;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* A file matching no tracklist slot is the tell that the folder is the wrong

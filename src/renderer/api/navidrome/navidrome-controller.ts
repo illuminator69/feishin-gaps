@@ -782,9 +782,7 @@ export const NavidromeController: InternalControllerEndpoint = {
                 if (sonicRes.status === 200 && sonicRes.body.sonicMatch?.length) {
                     return sonicRes.body.sonicMatch
                         .filter((match) => match.entry.id !== query.songId)
-                        .map((match) =>
-                            ssNormalize.song(match.entry, apiClientProps.server),
-                        );
+                        .map((match) => ssNormalize.song(match.entry, apiClientProps.server));
                 }
             } catch (error) {
                 console.error('Sonic similar tracks failed, falling back:', error);

@@ -9,8 +9,8 @@
 .body {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
     padding-right: var(--theme-spacing-xs);
+    overflow-y: auto;
 }
 
 .footer {
@@ -28,8 +28,8 @@
 .cover {
     width: 96px;
     height: 96px;
-    border-radius: var(--theme-radius-md);
     object-fit: cover;
+    border-radius: var(--theme-radius-md);
 }
 
 .track {
@@ -42,12 +42,12 @@
 /* The variant/edition bars scroll rather than overflow: a release-group with a
    dozen pressings is wider than the modal, and an edition past the edge was one
    you could see existed and could not choose. */
-.editionBar {
-    overflow-x: auto;
+.edition-bar {
     max-width: 100%;
+    overflow-x: auto;
 }
 
-.editionBar > * {
+.edition-bar > * {
     width: max-content;
     min-width: 100%;
 }

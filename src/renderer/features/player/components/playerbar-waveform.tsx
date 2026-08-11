@@ -1,4 +1,3 @@
-import { useEffectiveTranscode } from '/@/renderer/features/player/audio-player/hooks/use-effective-transcode';
 import { useWavesurfer } from '@wavesurfer/react';
 import formatDuration from 'format-duration';
 import { AnimatePresence, motion } from 'motion/react';
@@ -7,15 +6,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CustomPlayerbarSlider } from './playerbar-slider';
 import styles from './playerbar-waveform.module.css';
 
+import { useEffectiveTranscode } from '/@/renderer/features/player/audio-player/hooks/use-effective-transcode';
 import { useSongUrl } from '/@/renderer/features/player/audio-player/hooks/use-stream-url';
 import { PlayerbarSeekSlider } from '/@/renderer/features/player/components/playerbar-seek-slider';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
-import {
-    BarAlign,
-    usePlayerbarSlider,
-    usePlayerSong,
-    usePlayerTimestamp,
-} from '/@/renderer/store';
+import { BarAlign, usePlayerbarSlider, usePlayerSong, usePlayerTimestamp } from '/@/renderer/store';
 import { useAppThemeColors, useColorScheme } from '/@/renderer/themes/use-app-theme';
 import { Text } from '/@/shared/components/text/text';
 

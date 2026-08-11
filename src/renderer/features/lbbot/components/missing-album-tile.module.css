@@ -14,8 +14,8 @@
    isn't filled, sitting in the same grid as the ones that are. */
 .frame {
     position: relative;
-    aspect-ratio: 1;
     width: 100%;
+    aspect-ratio: 1;
     overflow: hidden;
     border: 1px dashed var(--theme-colors-border);
     border-radius: var(--theme-radius-md);
@@ -44,8 +44,8 @@
     left: var(--theme-spacing-xs);
     justify-content: center;
     overflow: hidden;
-    white-space: nowrap;
     text-overflow: ellipsis;
+    white-space: nowrap;
     opacity: 0.9;
 }
 
@@ -58,6 +58,6 @@
 
 .name {
     overflow: hidden;
-    white-space: nowrap;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }

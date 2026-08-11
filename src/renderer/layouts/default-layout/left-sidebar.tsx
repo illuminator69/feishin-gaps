@@ -4,9 +4,9 @@ import { lazy, Suspense, useRef } from 'react';
 import styles from './left-sidebar.module.css';
 
 import { ResizeHandle } from '/@/renderer/features/shared/components/resize-handle';
+import { useAppStore } from '/@/renderer/store';
 import { DURATION, EASING } from '/@/shared/components/animations/motion-tokens';
 import { useExpressiveMotion } from '/@/shared/components/animations/use-expressive-motion';
-import { useAppStore } from '/@/renderer/store';
 
 const CollapsedSidebar = lazy(() =>
     import('/@/renderer/features/sidebar/components/collapsed-sidebar').then((module) => ({

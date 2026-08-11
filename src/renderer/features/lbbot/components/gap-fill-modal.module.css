@@ -12,9 +12,10 @@
 .body {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
+
     /* Room for the scrollbar so it never overlaps a source row's badges. */
     padding-right: var(--theme-spacing-xs);
+    overflow-y: auto;
 }
 
 .footer {
@@ -31,8 +32,8 @@
 
 .title {
     overflow: hidden;
-    white-space: nowrap;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* A track the library already has is context, not work — it must not compete

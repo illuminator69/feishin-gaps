@@ -12,18 +12,20 @@
 
 .text-container {
     display: grid;
+
     /* minmax(0, 1fr) (not 1fr) + min-height:0 so the two lines never grow past
        the row height — grid tracks default to min-height:auto, which let the
        title/artist line-heights overflow into adjacent rows (worst in the
        compact side queue and in narrow columns under display scaling). */
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
     gap: var(--theme-spacing-xs);
+    align-self: stretch;
     min-width: 0;
+
     /* The parent centers items (align-items: center), so without an explicit
        height the 1fr tracks resolve against content height and never clamp.
        Stretch to the full row height so the two lines clip to it. */
     height: 100%;
-    align-self: stretch;
     min-height: 0;
     overflow: hidden;
 }

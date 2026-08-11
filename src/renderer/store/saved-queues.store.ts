@@ -12,13 +12,6 @@ import { PlayerRepeat, PlayerShuffle } from '/@/shared/types/types';
 // navic .../domain/repositories/SavedQueueRepository.kt) so the two clients behave alike. Purely
 // local (persisted to this renderer's storage); the hub is not involved.
 
-/**
- * How a saved queue came to be — stored so the list can distinguish generated sessions (radio,
- * Mood Flow, Journey) from ordinary album/playlist/manual queues. String-valued (not a strict
- * union at the storage layer) for forward-compat with kinds from newer builds.
- */
-export type SavedQueueKind = 'album' | 'journey' | 'manual' | 'moodFlow' | 'playlist' | 'radio';
-
 export interface SavedQueue {
     // Cover art for the Continue Listening card — the queue's ORIGIN art (album/playlist, else
     // its first track), stamped once at creation so a card doesn't change as playback advances.
@@ -42,6 +35,13 @@ export interface SavedQueue {
     sourceName?: string;
     updatedAt: number;
 }
+
+/**
+ * How a saved queue came to be — stored so the list can distinguish generated sessions (radio,
+ * Mood Flow, Journey) from ordinary album/playlist/manual queues. String-valued (not a strict
+ * union at the storage layer) for forward-compat with kinds from newer builds.
+ */
+export type SavedQueueKind = 'album' | 'journey' | 'manual' | 'moodFlow' | 'playlist' | 'radio';
 
 /**
  * The subset [updateProgress] moves without rewriting the (large) song list. Deliberately
@@ -108,7 +108,8 @@ export const useSavedQueuesStore = createWithEqualityFn<SavedQueuesSlice>()(
                                         local.songs.some((s) => Boolean(s.albumId));
                                     return {
                                         ...r,
-                                        coverImageUrl: r.coverImageUrl ?? local?.coverImageUrl ?? null,
+                                        coverImageUrl:
+                                            r.coverImageUrl ?? local?.coverImageUrl ?? null,
                                         name: r.name ?? local?.name,
                                         songs: keepLocalSongs ? local.songs : r.songs,
                                         sourceName: r.sourceName ?? local?.sourceName,

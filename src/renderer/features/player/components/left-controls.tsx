@@ -30,9 +30,9 @@ import {
     useHubIsRemoteActive,
     useSetFullScreenPlayerStore,
 } from '/@/renderer/store';
+import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { DURATION, EASING } from '/@/shared/components/animations/motion-tokens';
 import { useExpressiveMotion } from '/@/shared/components/animations/use-expressive-motion';
-import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Center } from '/@/shared/components/center/center';
 import { Group } from '/@/shared/components/group/group';
 import { Icon } from '/@/shared/components/icon/icon';
@@ -146,7 +146,10 @@ export const LeftControls = () => {
                                 role="button"
                                 transition={
                                     motionEnabled
-                                        ? { duration: DURATION.medium2 / 1000, ease: EASING.emphasized }
+                                        ? {
+                                              duration: DURATION.medium2 / 1000,
+                                              ease: EASING.emphasized,
+                                          }
                                         : { duration: 0.2, ease: 'easeIn' }
                                 }
                             >

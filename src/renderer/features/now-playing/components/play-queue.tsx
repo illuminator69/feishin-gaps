@@ -174,7 +174,11 @@ export const PlayQueue = forwardRef<ItemListHandle, QueueProps>(
 
         const filteredData: QueueSong[] = useMemo(() => {
             if (debouncedSearchTerm) {
-                const searched = searchLibraryItems(baseData, debouncedSearchTerm, LibraryItem.SONG);
+                const searched = searchLibraryItems(
+                    baseData,
+                    debouncedSearchTerm,
+                    LibraryItem.SONG,
+                );
                 return searched;
             }
 

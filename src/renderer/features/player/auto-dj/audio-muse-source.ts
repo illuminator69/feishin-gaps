@@ -104,7 +104,7 @@ export const fetchAlchemyIds = async (
 export const fetchTrackMood = async (
     settings: AudioMuseSettings,
     itemId: string,
-): Promise<TrackMood | null> => {
+): Promise<null | TrackMood> => {
     const api = bridge();
     if (!api || !audioMuseConfigured(settings) || !itemId) return null;
     return api.trackMood(settings.url, settings.token, itemId);

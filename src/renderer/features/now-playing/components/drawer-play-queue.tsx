@@ -36,7 +36,11 @@ export const DrawerPlayQueue = () => {
             </div>
             <Flex bg="var(--theme-colors-background)" h="100%" mb="0.6rem">
                 {activeTab === 'queue' ? (
-                    <PlayQueue listKey={ItemListKey.SIDE_QUEUE} ref={queueRef} searchTerm={search} />
+                    <PlayQueue
+                        listKey={ItemListKey.SIDE_QUEUE}
+                        ref={queueRef}
+                        searchTerm={search}
+                    />
                 ) : (
                     <DockedSimilarSongs />
                 )}

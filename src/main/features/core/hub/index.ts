@@ -42,51 +42,6 @@ let backoffMs = INITIAL_BACKOFF_MS;
 let isAlive = false;
 let shouldRun = false;
 
-function deviceId(): string {
-    let id = store.get('hub.deviceId') as string | undefined;
-    if (!id) {
-        id = randomBytes(8).toString('hex');
-        store.set('hub.deviceId', id);
-    }
-    return id;
-}
-
-function send(obj: unknown): void {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(obj));
-    }
-}
-
-/**
- * Tell the renderer the transport state changed. The renderer only ever heard
- * hub frames, so a dropped socket left it stuck `connected: true` — routing
- * `act`s into a dead socket and freezing the player bar on stale remote state.
- * Synthetic frames ride the same `hub-message` channel so use-hub can react.
- */
-function emitStatus(status: 'disconnected'): void {
-    getMainWindow()?.webContents.send('hub-message', JSON.stringify({ t: status }));
-}
-
-function stopHeartbeat(): void {
-    if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = undefined;
-    }
-}
-
-function scheduleReconnect(): void {
-    ws = undefined;
-    stopHeartbeat();
-    if (!shouldRun || reconnectTimer) return;
-    const jitter = Math.random() * 0.3 * backoffMs;
-    const delay = backoffMs + jitter;
-    backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
-    reconnectTimer = setTimeout(() => {
-        reconnectTimer = undefined;
-        connect();
-    }, delay);
-}
-
 function connect(): void {
     if (!shouldRun || !config.url) return;
     try {
@@ -145,6 +100,44 @@ function connect(): void {
     });
 }
 
+function deviceId(): string {
+    let id = store.get('hub.deviceId') as string | undefined;
+    if (!id) {
+        id = randomBytes(8).toString('hex');
+        store.set('hub.deviceId', id);
+    }
+    return id;
+}
+
+/**
+ * Tell the renderer the transport state changed. The renderer only ever heard
+ * hub frames, so a dropped socket left it stuck `connected: true` — routing
+ * `act`s into a dead socket and freezing the player bar on stale remote state.
+ * Synthetic frames ride the same `hub-message` channel so use-hub can react.
+ */
+function emitStatus(status: 'disconnected'): void {
+    getMainWindow()?.webContents.send('hub-message', JSON.stringify({ t: status }));
+}
+
+function scheduleReconnect(): void {
+    ws = undefined;
+    stopHeartbeat();
+    if (!shouldRun || reconnectTimer) return;
+    const jitter = Math.random() * 0.3 * backoffMs;
+    const delay = backoffMs + jitter;
+    backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = undefined;
+        connect();
+    }, delay);
+}
+
+function send(obj: unknown): void {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(obj));
+    }
+}
+
 function start(): void {
     shouldRun = true;
     backoffMs = INITIAL_BACKOFF_MS;
@@ -164,6 +157,13 @@ function stop(): void {
         /* ignore */
     }
     ws = undefined;
+}
+
+function stopHeartbeat(): void {
+    if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = undefined;
+    }
 }
 
 ipcMain.on('hub-send', (_event, obj: unknown) => send(obj));

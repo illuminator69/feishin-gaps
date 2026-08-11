@@ -29,15 +29,15 @@
 .card {
     position: relative;
     display: flex;
-    flex-direction: column;
     flex: 0 0 auto;
+    flex-direction: column;
     width: 190px;
     padding: 0.5rem;
     text-align: left;
+    cursor: pointer;
     background: var(--theme-colors-background-alternate);
     border: 1px solid alpha(var(--theme-colors-border), 0.4);
     border-radius: var(--theme-border-radius-md, 8px);
-    cursor: pointer;
     transition: background 0.15s ease;
 }
 

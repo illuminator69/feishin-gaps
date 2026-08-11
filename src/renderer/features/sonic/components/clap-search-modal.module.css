@@ -1,6 +1,6 @@
 .results {
-    max-height: 50vh;
     min-height: 4rem;
+    max-height: 50vh;
 }
 
 .title {

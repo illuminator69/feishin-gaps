@@ -3,13 +3,13 @@ import isElectron from 'is-electron';
 import { useCallback, useEffect, useMemo, useState, WheelEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { audioMuseConfigured } from '/@/renderer/features/player/auto-dj/audio-muse-source';
 import { HubDevicePicker } from '/@/renderer/features/hub/components/hub-device-picker';
 import {
     useRemoteAwarePlayerSong,
     useRemoteAwareVolume,
 } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { PopoverPlayQueue } from '/@/renderer/features/now-playing/components/popover-play-queue';
+import { audioMuseConfigured } from '/@/renderer/features/player/auto-dj/audio-muse-source';
 import { PlayerConfig } from '/@/renderer/features/player/components/player-config';
 import { CustomPlayerbarSlider } from '/@/renderer/features/player/components/playerbar-slider';
 import { SleepTimerButton } from '/@/renderer/features/player/components/sleep-timer-button';
@@ -55,8 +55,8 @@ import { Rating } from '/@/shared/components/rating/rating';
 import { SegmentedControl } from '/@/shared/components/segmented-control/segmented-control';
 import { Select } from '/@/shared/components/select/select';
 import { Stack } from '/@/shared/components/stack/stack';
-import { Text } from '/@/shared/components/text/text';
 import { TextInput } from '/@/shared/components/text-input/text-input';
+import { Text } from '/@/shared/components/text/text';
 import { useMediaQuery } from '/@/shared/hooks/use-media-query';
 import { useThrottledCallback } from '/@/shared/hooks/use-throttled-callback';
 import { useThrottledValue } from '/@/shared/hooks/use-throttled-value';

@@ -27,6 +27,13 @@ export interface HubTrack {
     title?: string;
 }
 
+interface HubSlice extends HubState {
+    actions: {
+        reset: () => void;
+        setStore: (data: Partial<HubState>) => void;
+    };
+}
+
 interface HubState {
     activeDeviceId: null | string;
     connected: boolean;
@@ -34,24 +41,17 @@ interface HubState {
     myDeviceId: null | string;
     /** Whether the remote session is currently playing. */
     remoteIsPlaying: boolean;
-    /** Current queue index of the remote session. */
-    remoteQueueIndex: number;
     /** Position of the remote session at `remotePositionAt` (wall clock ms). */
     remotePositionAt: number;
     remotePositionMs: number;
     /** Lightweight mirror of the hub session queue (for now-playing display). */
     remoteQueue: HubTrack[];
+    /** Current queue index of the remote session. */
+    remoteQueueIndex: number;
     remoteRepeat: 'all' | 'none' | 'one';
     remoteShuffle: boolean;
     /** Saved-queue history id of the CURRENT session — the "Now Playing" record. */
     savedQueueId: null | string;
-}
-
-interface HubSlice extends HubState {
-    actions: {
-        reset: () => void;
-        setStore: (data: Partial<HubState>) => void;
-    };
 }
 
 const initialState: HubState = {

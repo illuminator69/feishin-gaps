@@ -206,18 +206,18 @@ const toFiniteNumber = (value: unknown): number | undefined => {
     return Number.isFinite(n) ? n : undefined;
 };
 
-interface ClapSearchArgs {
-    baseUrl: string;
-    limit: number;
-    query: string;
-    token: string;
-}
-
 export interface ClapResult {
     author: string;
     id: string;
     similarity: number;
     title: string;
+}
+
+interface ClapSearchArgs {
+    baseUrl: string;
+    limit: number;
+    query: string;
+    token: string;
 }
 
 const toClapResults = (data: unknown): ClapResult[] => {

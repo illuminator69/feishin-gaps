@@ -1,17 +1,17 @@
 .summary {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
     align-items: baseline;
-    flex-wrap: wrap;
 }
 
 .list {
-    max-height: min(55vh, 30rem);
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 0.125rem;
+    max-height: min(55vh, 30rem);
     padding-right: 0.25rem;
+    overflow-y: auto;
 }
 
 .track {
@@ -32,8 +32,8 @@
 }
 
 .index {
-    text-align: right;
     font-variant-numeric: tabular-nums;
+    text-align: right;
 }
 
 .title {

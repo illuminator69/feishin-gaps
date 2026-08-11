@@ -4,8 +4,8 @@ import { memo } from 'react';
 import { SettingsSection } from '/@/renderer/features/settings/components/settings-section';
 import { useHubSettings, useSettingsStoreActions } from '/@/renderer/store';
 import { Switch } from '/@/shared/components/switch/switch';
-import { Text } from '/@/shared/components/text/text';
 import { TextInput } from '/@/shared/components/text-input/text-input';
+import { Text } from '/@/shared/components/text/text';
 
 /**
  * Settings panel for navi-connect (Spotify-Connect-style remote control).
