@@ -101,6 +101,12 @@ const gapCancel = (groupId: string): Promise<LbBotResult<boolean>> =>
 const gapRescan = (groupId: string): Promise<LbBotResult<boolean>> =>
     ipcRenderer.invoke('lbbot-gap-rescan', { groupId });
 
+/** Post a system notification for a fill that landed while Feishin was in the
+ *  background. The main process suppresses it when the window is focused — the
+ *  renderer's toast has that case covered. */
+const notify = (title: string, body: string): Promise<void> =>
+    ipcRenderer.invoke('lbbot-notify', { body, title });
+
 export const lbBot = {
     albumReleases,
     albumSources,
@@ -117,5 +123,6 @@ export const lbBot = {
     gapSearch,
     gapSourceFiles,
     indexArtist,
+    notify,
     status,
 };

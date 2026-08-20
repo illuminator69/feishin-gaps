@@ -1,5 +1,7 @@
 export enum AppRoute {
     ACTION_REQUIRED = '/action-required',
+    /** navi-connect: albums lb-bot is fetching from Soulseek, in flight and finished. */
+    DOWNLOADS = '/downloads',
     EXPLORE = '/explore',
     FAKE_LIBRARY_ALBUM_DETAILS = '/library/albums/dummy/:albumId',
     FAVORITES = '/favorites',

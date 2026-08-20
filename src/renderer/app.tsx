@@ -15,6 +15,7 @@ import { WebAudioContext } from '/@/renderer/features/player/context/webaudio-co
 import { useCheckForUpdates } from '/@/renderer/hooks/use-check-for-updates';
 import { useNativeMenuSync } from '/@/renderer/hooks/use-native-menu-sync';
 import { useSyncSettingsToMain } from '/@/renderer/hooks/use-sync-settings-to-main';
+import { useFillAnnouncements } from '/@/renderer/features/lbbot/hooks/use-fill-announcements';
 import { AppRouter } from '/@/renderer/router/app-router';
 import {
     useCssSettings,
@@ -122,8 +123,17 @@ const AppEffects = () => (
         <LanguageEffect />
         <NativeMenuSyncEffect />
         <InputFocusEffect />
+        <LbBotFillAnnouncementsEffect />
     </>
 );
+
+/** navi-connect: announce an lb-bot fill landing or failing, from one place so a
+ *  page and a modal both watching it cannot announce it twice. */
+const LbBotFillAnnouncementsEffect = () => {
+    useFillAnnouncements();
+
+    return null;
+};
 
 const SyncSettingsEffect = () => {
     useSyncSettingsToMain();

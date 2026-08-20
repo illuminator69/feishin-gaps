@@ -260,6 +260,25 @@ const UNKNOWN_POLL_LIMIT = 18; // ≈90s at the 5s interval below
 /** Upper bound on how long one tile keeps watching a fill it started. */
 const WATCH_TIMEOUT_MS = 20 * 60 * 1000;
 
+/** The poll floor, and how many identical answers it takes to step off it. */
+const POLL_BASE_MS = 5000;
+const QUIET_TICKS_FIRST = 4;
+const QUIET_TICKS_SECOND = 10;
+
+/**
+ * How long before the next poll, given how many consecutive identical answers.
+ *
+ * Five seconds stays the answer for anything that is moving. But the data behind
+ * these routes only changes when lb-bot's own sixty-second transfer poll runs, so
+ * a download in progress is mostly re-reading a body it already has. An unchanged
+ * payload is free information: back off, and snap back the moment it differs.
+ */
+const pollInterval = (quietTicks: number): number => {
+    if (quietTicks < QUIET_TICKS_FIRST) return POLL_BASE_MS;
+    if (quietTicks < QUIET_TICKS_SECOND) return POLL_BASE_MS * 2;
+    return POLL_BASE_MS * 4;
+};
+
 /**
  * Poll one release's fill.
  *
@@ -271,6 +290,10 @@ const WATCH_TIMEOUT_MS = 20 * 60 * 1000;
 export const useLbBotFillStatus = (releaseMbid: null | string, enabled: boolean) => {
     const queryClient = useQueryClient();
     const queryKey = ['lbbot', 'album-status', releaseMbid];
+    // Consecutive unknowns, and consecutive *identical* answers. Both have to be
+    // counted outside the query data — react-query's own counters answer "how many
+    // fetches", which is a different question from either of these.
+    const ticks = useRef({ quiet: 0, unknown: 0 });
     return useQuery<LbBotFillStatus>({
         enabled: !!lbBot && !!releaseMbid && enabled,
         queryFn: async () => {
@@ -283,22 +306,38 @@ export const useLbBotFillStatus = (releaseMbid: null | string, enabled: boolean)
             // back to "not in library" for five seconds. Keep the last real
             // answer; the next tick corrects it either way.
             const previous = queryClient.getQueryData<LbBotFillStatus>(queryKey);
-            if (next.state === 'unknown' && previous && previous.state !== 'unknown') {
-                return previous;
-            }
-            return next;
+            const stale = next.state === 'unknown' && previous && previous.state !== 'unknown';
+            const answer = stale ? previous : next;
+
+            // `unknown` only means "give up" when it keeps saying so. It used to be
+            // counted with `dataUpdateCount`, which counts every successful fetch —
+            // so after ninety seconds of healthy polling any single tick that read
+            // `unknown` stopped the watch on a fill that was still running.
+            ticks.current.unknown = answer.state === 'unknown' ? ticks.current.unknown + 1 : 0;
+
+            // lb-bot refreshes slskd's transfer state every sixty seconds and this
+            // route just reads the counters that loop last wrote, so a long download
+            // spends eleven ticks in twelve returning a byte-identical body — each
+            // one taking the process-wide lock lb-bot's own 2s-polling SPA is on.
+            const same =
+                previous &&
+                previous.state === answer.state &&
+                previous.done === answer.done &&
+                previous.total === answer.total &&
+                previous.failed === answer.failed;
+            ticks.current.quiet = same ? ticks.current.quiet + 1 : 0;
+
+            return answer;
         },
         queryKey,
-        // Never tighter than the hub's own cache TTL — lb-bot is one Python
-        // process with a process-wide lock and its own 2s-polling SPA already
-        // on it. A faster poll here would buy nothing but load.
+        // Never tighter than five seconds — lb-bot is one Python process with a
+        // process-wide lock and its own 2s-polling SPA already on it — and slower
+        // than that once nothing is changing. Any difference at all snaps it back.
         refetchInterval: (query) => {
             const state = query.state.data?.state ?? 'unknown';
             if (TERMINAL_STATES.has(state)) return false;
-            if (state === 'unknown' && query.state.dataUpdateCount > UNKNOWN_POLL_LIMIT) {
-                return false;
-            }
-            return 5000;
+            if (state === 'unknown' && ticks.current.unknown > UNKNOWN_POLL_LIMIT) return false;
+            return pollInterval(ticks.current.quiet);
         },
         staleTime: 0,
     });
@@ -322,8 +361,15 @@ export const startAlbumDownload = async (
     const result = await lbBot.downloadAlbum(rgid, quality, source, edition);
     if (result.ok) {
         // Registered here rather than in the sheet: the fill takes minutes, and
-        // the page behind the sheet is what has to keep watching it.
-        useActiveFillsStore.getState().actions.start(rgid, result.releaseMbid, quality ?? '');
+        // the page behind the sheet is what has to keep watching it. The edition's
+        // artist and title ride along so the downloads view can name the row even
+        // after lb-bot (whose ledger is in memory) has forgotten the fill.
+        useActiveFillsStore.getState().actions.start(rgid, result.releaseMbid, quality ?? '', {
+            album: edition?.title,
+            artist: edition?.artist,
+            sourceFolder: source?.folder,
+            sourcePeer: source?.peer,
+        });
     }
     return result;
 };
@@ -360,7 +406,7 @@ export const useLbBotLibraryRefresh = () => {
  */
 export const useWatchedFill = (rgid: string, ndArtistId: string) => {
     const fill = useActiveFill(rgid);
-    const { settle } = useActiveFillsActions();
+    const { describe, settle } = useActiveFillsActions();
     const refresh = useLbBotLibraryRefresh();
 
     const status = useLbBotFillStatus(fill?.releaseMbid ?? null, !!fill && !fill.settled);
@@ -368,6 +414,16 @@ export const useWatchedFill = (rgid: string, ndArtistId: string) => {
 
     useEffect(() => {
         if (!fill || fill.settled || !state) return;
+
+        // Fold what the poll knows into the ledger row, so the downloads view can
+        // name the album without a second read — and can still name it after
+        // lb-bot has forgotten the fill, its own record being in memory.
+        describe(fill.rgid, {
+            album: status.data?.album,
+            artist: status.data?.artist,
+            mp3WouldHelp: status.data?.mp3WouldHelp,
+            state,
+        });
 
         // `placed` says the files are in the library folder. Navidrome may not
         // have indexed them yet — that's what `verified` is for — but refreshing
@@ -379,8 +435,19 @@ export const useWatchedFill = (rgid: string, ndArtistId: string) => {
         // `placed` forever. Without a wall clock of our own that is a poll with
         // no end, so stop watching well after anything could still happen.
         const expired = Date.now() - fill.startedAt > WATCH_TIMEOUT_MS;
-        if (TERMINAL_STATES.has(state) || expired) settle(fill.rgid);
-    }, [fill, state, settle, refresh, ndArtistId]);
+        if (TERMINAL_STATES.has(state)) {
+            settle(fill.rgid, {
+                mp3WouldHelp: status.data?.mp3WouldHelp,
+                outcome: state === 'verified' ? 'done' : 'failed',
+                reason: status.data?.reason,
+                state,
+            });
+        } else if (expired) {
+            // Ran out of clock rather than failed — a different thing, and worth
+            // saying so: nothing is known to have gone wrong.
+            settle(fill.rgid, { outcome: 'gaveUp', state });
+        }
+    }, [fill, state, status.data, settle, describe, refresh, ndArtistId]);
 
     return fill ? status.data : undefined;
 };
@@ -529,13 +596,28 @@ export const gapIsBusy = (gap: LbBotGap | null | undefined): boolean => {
  * lb-bot's single process and process-wide lock can afford anyway.
  */
 export const useLbBotGap = (groupId: null | string, enabled: boolean) => {
+    const queryClient = useQueryClient();
+    const queryKey = ['lbbot', 'gap', groupId];
+    const quiet = useRef(0);
     const query = useQuery<LbBotResult<LbBotGap>>({
         enabled: !!lbBot && !!groupId && enabled,
         // A failed tick must not blank the modal while the retry is pending.
         placeholderData: keepPreviousData,
-        queryFn: () => lbBot!.gap(groupId!),
-        queryKey: ['lbbot', 'gap', groupId],
-        refetchInterval: 5000,
+        queryFn: async () => {
+            const previous = queryClient.getQueryData<LbBotResult<LbBotGap>>(queryKey)?.data;
+            const next = await lbBot!.gap(groupId!);
+            // Per-track states are the whole of a gap's progress, so they are what
+            // the "has anything moved?" digest is built from. Same reason as the
+            // album path: most ticks re-read a body that has not changed.
+            const digest = (gap: LbBotGap | null | undefined) =>
+                gap
+                    ? `${gap.status}|${gap.sourceTask?.status}|${gap.tracks.map((t) => t.state).join('')}`
+                    : '';
+            quiet.current = digest(previous) === digest(next.data) ? quiet.current + 1 : 0;
+            return next;
+        },
+        queryKey,
+        refetchInterval: () => pollInterval(quiet.current),
         retry: false,
         staleTime: 0,
     });
@@ -622,13 +704,23 @@ const GAP_SETTLE_GRACE_MS = 90 * 1000;
  */
 export const useWatchedGap = (groupId: string, ndArtistId: string) => {
     const watch = useActiveGap(groupId);
-    const { settleGap } = useActiveFillsActions();
+    const { describe, settleGap } = useActiveFillsActions();
     const refresh = useLbBotLibraryRefresh();
 
     const { gap } = useLbBotGap(groupId || null, !!watch && !watch.settled);
 
     useEffect(() => {
         if (!watch || watch.settled || !gap) return;
+
+        // As on the album path: keep the ledger row able to name itself, so the
+        // downloads view needs no read of its own.
+        describe(groupId, {
+            album: gap.album,
+            artist: gap.artist,
+            mp3WouldHelp: gap.mp3WouldHelp,
+            state: gap.status,
+        });
+
         // `complete` means the tracks are in the album folder; the discography
         // row and Navidrome's own list both have to be re-read or the album
         // double-lists.
@@ -636,7 +728,7 @@ export const useWatchedGap = (groupId: string, ndArtistId: string) => {
 
         const age = Date.now() - watch.startedAt;
         if (age > WATCH_TIMEOUT_MS) {
-            settleGap(groupId);
+            settleGap(groupId, { outcome: 'gaveUp', state: gap.status });
             return;
         }
         // Two guards before calling it over, and both are the same lesson in
@@ -647,8 +739,65 @@ export const useWatchedGap = (groupId: string, ndArtistId: string) => {
         // to nobody. So: never inside the startup grace, and never while
         // `gapIsBusy` (which reads `sourceTask`, not `status`).
         if (age < GAP_SETTLE_GRACE_MS || gapIsBusy(gap)) return;
-        settleGap(groupId);
-    }, [watch, gap, groupId, settleGap, refresh, ndArtistId]);
+        settleGap(groupId, {
+            mp3WouldHelp: gap.mp3WouldHelp,
+            // `picking` with the search finished is the picker holding candidates and
+            // waiting on the user — a "your move", not a failure, and it must not be
+            // worded as one. `ready` here means nothing was found at all.
+            outcome:
+                gap.status === 'complete'
+                    ? 'done'
+                    : gap.status === 'picking'
+                      ? 'needsPick'
+                      : 'failed',
+            reason: gap.failReason || gap.noSourceReason || gap.sourceTask?.error,
+            state: gap.status,
+        });
+    }, [watch, gap, groupId, settleGap, describe, refresh, ndArtistId]);
 
     return watch ? gap : undefined;
+};
+
+/**
+ * Ask again for a fill the ledger remembers, with the options it was started with.
+ *
+ * Never automatic. lb-bot already walks its entire ranked source list before it
+ * reports a failure, so an unattended retry re-runs the identical search against the
+ * identical peers; the user asking again is the new information — the swarm has moved
+ * on, or they have just allowed mp3.
+ *
+ * A gap retries as `search`, never `auto`: `auto` is what failed, and `search` stops
+ * after ranking so the candidates can be judged. That review step matters more here,
+ * not less — the tracks land inside a record the user already owns, so a different
+ * pressing contaminates the album rather than merely disappointing.
+ */
+export const retryFill = async (row: { isGap: boolean; key: string }): Promise<boolean> => {
+    const { actions, fills } = useActiveFillsStore.getState();
+    if (row.isGap) {
+        const result = await searchGapSources(row.key, true);
+        if (result.ok) actions.startGap(row.key);
+        return result.ok;
+    }
+    const fill = fills[row.key];
+    if (!fill) return false;
+    const result = await startAlbumDownload(
+        row.key,
+        fill.quality,
+        fill.sourcePeer ? { folder: fill.sourceFolder ?? '', peer: fill.sourcePeer } : undefined,
+    );
+    // Re-open the existing row rather than adding a second one, so the history stays
+    // one line per album rather than one per attempt.
+    if (result.ok) actions.reopen(row.key, result.releaseMbid);
+    return result.ok;
+};
+
+/** Widen this one album's search to include mp3, then ask again. Offered only when
+ *  lb-bot said the search rejected mp3s and would otherwise have found something. */
+export const allowMp3AndRetry = async (row: {
+    groupId: string;
+    isGap: boolean;
+    key: string;
+}): Promise<boolean> => {
+    if (row.groupId) await allowMp3ForAlbum(row.groupId);
+    return retryFill(row);
 };

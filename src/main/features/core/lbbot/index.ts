@@ -23,7 +23,7 @@ import type {
     LbBotVariant,
 } from '/@/shared/types/lbbot-types';
 
-import { ipcMain } from 'electron';
+import { BrowserWindow, ipcMain, Notification } from 'electron';
 
 import { getHubConfig } from '../hub';
 
@@ -102,6 +102,18 @@ const failed = <T>(status: number, error: string): LbBotResult<T> => ({
 });
 
 /**
+ * How long the two *polled* routes get before this side gives up on the tick.
+ *
+ * Everything else here inherits Node's default, which is effectively the hub's own
+ * timeout (20 s for `album/status`, 45 s for the gap) plus the socket. That is right
+ * for a one-shot the user pressed, and wrong for something running every five
+ * seconds: a tick that has not answered in twelve has already missed its slot, and
+ * the next one will do. The hub's timeouts sitting above this is deliberate — the
+ * client is the side that has to give up first.
+ */
+const POLL_TIMEOUT_MS = 12_000;
+
+/**
  * The one place an lb-bot request is made.
  *
  * Returns a result rather than `null` so a caller can tell "lb-bot said no" from
@@ -112,7 +124,7 @@ const failed = <T>(status: number, error: string): LbBotResult<T> => ({
 const request = async <T = Json>(
     method: 'GET' | 'POST',
     path: string,
-    options: { body?: Json; params?: Record<string, string> } = {},
+    options: { body?: Json; params?: Record<string, string>; timeoutMs?: number } = {},
 ): Promise<LbBotResult<T>> => {
     const base = hubBase();
     if (!base) return failed(0, 'No navi-connect hub is configured.');
@@ -129,6 +141,7 @@ const request = async <T = Json>(
                 ...(options.body ? { 'Content-Type': 'application/json' } : {}),
             },
             method,
+            ...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
         });
     } catch (error) {
         // With the cause: `TypeError: fetch failed` on its own says only that
@@ -477,10 +490,15 @@ ipcMain.handle(
     async (_event, args: { releaseMbid?: string; rgid?: string }): Promise<LbBotFillStatus> => {
         if (!args.releaseMbid && !args.rgid) return UNKNOWN_STATUS;
         return toFillStatus(
-            await get('/lb/album/status', {
-                release_mbid: args.releaseMbid ?? '',
-                rgid: args.rgid ?? '',
-            }),
+            (
+                await request('GET', '/lb/album/status', {
+                    params: {
+                        release_mbid: args.releaseMbid ?? '',
+                        rgid: args.rgid ?? '',
+                    },
+                    timeoutMs: POLL_TIMEOUT_MS,
+                })
+            ).data,
         );
     },
 );
@@ -666,7 +684,10 @@ ipcMain.handle(
     'lbbot-gap',
     async (_event, args: { groupId: string }): Promise<LbBotResult<LbBotGap>> => {
         if (!args.groupId) return failed(0, 'No review group');
-        const result = await request('GET', '/lb/gap', { params: { group_id: args.groupId } });
+        const result = await request('GET', '/lb/gap', {
+            params: { group_id: args.groupId },
+            timeoutMs: POLL_TIMEOUT_MS,
+        });
         if (!result.ok) return failed(result.status, result.error);
         const d = result.data ?? {};
         return {
@@ -787,3 +808,31 @@ ipcMain.handle('lbbot-gap-rescan', async (_event, args: { groupId: string }) =>
         ? gapAction('/lb/gap/rescan', { group_id: args.groupId })
         : failed<boolean>(0, 'No review group'),
 );
+
+/**
+ * Tell the user a fill landed while Feishin was in the background.
+ *
+ * The renderer raises a toast unconditionally; this is the half a toast cannot do,
+ * and it is deliberately suppressed when the window is focused so a fill that
+ * completes while the user is watching does not announce itself twice.
+ *
+ * `Notification.isSupported()` is false on some Linux setups with no notification
+ * daemon, where constructing one throws.
+ */
+ipcMain.handle('lbbot-notify', (event, args: { body: string; title: string }) => {
+    if (!Notification.isSupported()) return;
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window?.isFocused()) return;
+    try {
+        const notification = new Notification({ body: args.body, title: args.title });
+        // Bring Feishin forward on click — the album is on an artist page somewhere,
+        // and the notification is the only handle the user has on it.
+        notification.on('click', () => {
+            window?.show();
+            window?.focus();
+        });
+        notification.show();
+    } catch (error) {
+        console.error(`[lbbot] could not post notification — ${String(error)}`);
+    }
+});

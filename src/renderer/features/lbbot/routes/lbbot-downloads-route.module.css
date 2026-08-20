@@ -1,0 +1,28 @@
+.row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.5rem;
+    border: 1px solid alpha(var(--theme-colors-border), 0.4);
+    border-radius: var(--theme-border-radius-md, 8px);
+}
+
+.row:hover {
+    background: alpha(var(--theme-colors-foreground), 0.05);
+}
+
+.cover {
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    object-fit: cover;
+    border-radius: var(--theme-border-radius-sm, 4px);
+}
+
+.body {
+    flex: 1 1 auto;
+
+    /* Without this a long lb-bot failure sentence pushes the buttons off the row
+       instead of wrapping — flex items default to min-width:auto. */
+    min-width: 0;
+}

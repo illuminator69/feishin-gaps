@@ -83,6 +83,10 @@ const SavedQueuesRoute = lazy(
     () => import('/@/renderer/features/saved-queues/routes/saved-queues-route'),
 );
 
+const LbBotDownloadsRoute = lazy(
+    () => import('/@/renderer/features/lbbot/routes/lbbot-downloads-route'),
+);
+
 const SearchRoute = lazy(() => import('/@/renderer/features/search/routes/search-route'));
 
 const FavoritesRoute = lazy(() => import('/@/renderer/features/favorites/routes/favorites-route'));
@@ -291,6 +295,10 @@ export const AppRouter = () => {
                                         <Route
                                             element={<SavedQueuesRoute />}
                                             path={AppRoute.SAVED_QUEUES}
+                                        />
+                                        <Route
+                                            element={<LbBotDownloadsRoute />}
+                                            path={AppRoute.DOWNLOADS}
                                         />
                                         <Route
                                             element={<PlaylistDetailSongListRoute />}

@@ -1,6 +1,8 @@
 import {
     RiAlbumFill,
     RiAlbumLine,
+    RiDownloadCloud2Fill,
+    RiDownloadCloud2Line,
     RiFlag2Fill,
     RiFlag2Line,
     RiFolder3Fill,
@@ -42,6 +44,11 @@ export const SidebarIcon = ({ active, route, size }: SidebarIconProps) => {
     const isActive = active !== undefined ? active : location.pathname === route;
     const renderIcon = () => {
         switch (route) {
+            // navi-connect: lb-bot acquisitions. A cloud, not the plain download arrow —
+            // this is fetching a record the library never had, not caching one it has.
+            case AppRoute.DOWNLOADS:
+                if (isActive) return <RiDownloadCloud2Fill size={size} />;
+                return <RiDownloadCloud2Line size={size} />;
             case AppRoute.HOME:
                 if (isActive) return <RiHome6Fill size={size} />;
                 return <RiHome6Line size={size} />;
