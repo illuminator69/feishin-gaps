@@ -13,6 +13,7 @@ import {
 import { ItemTableListColumn } from '/@/renderer/components/item-list/item-table-list/item-table-list-column';
 import { ItemListHandle } from '/@/renderer/components/item-list/types';
 import { eventEmitter } from '/@/renderer/events/event-emitter';
+import { hubTrackToQueueSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { useIsPlayerFetching, usePlayer } from '/@/renderer/features/player/context/player-context';
 import { searchLibraryItems } from '/@/renderer/features/shared/utils';
 import { useDragDrop } from '/@/renderer/hooks/use-drag-drop';
@@ -66,34 +67,13 @@ export const PlayQueue = forwardRef<ItemListHandle, QueueProps>(
         const remoteQueue = useHubStore((s) => s.remoteQueue, shallow);
         const remoteIndex = useHubStore((s) => s.remoteQueueIndex);
 
-        // While playback is on another navi-connect device, the side queue shows
-        // the REMOTE session queue (synthesized as QueueSongs). The `remote:<i>`
-        // uniqueId is the sentinel that routes a row double-click to a hub jump
-        // (see mediaPlay in player-context).
+        // While playback is on another navi-connect device the side queue shows the REMOTE
+        // session queue. The `remote:<i>` uniqueId is the sentinel that routes a row
+        // double-click to a hub jump (see mediaPlay in player-context).
         const remoteData: QueueSong[] = useMemo(
             () =>
-                remoteQueue.map(
-                    (track, i) =>
-                        ({
-                            _itemType: LibraryItem.SONG,
-                            _serverId: serverId ?? '',
-                            _uniqueId: `remote:${i}`,
-                            album: track.album ?? '',
-                            artistName: track.artist ?? '',
-                            artists: track.artist ? [{ id: '', name: track.artist }] : [],
-                            duration: track.durationMs ?? 0,
-                            id: track.id,
-                            // Build the cover from the Navidrome id with OUR server
-                            // creds (the song id doubles as the cover-art id), rather
-                            // than the publishing device's possibly-unreachable
-                            // imageUrl. imageUrl key kept (undefined) so the table's
-                            // song-row branch still matches and ItemImage falls to id.
-                            imageId: track.id,
-                            imageUrl: undefined,
-                            name: track.title ?? '',
-                            userFavorite: track.favorite ?? false,
-                            userRating: track.rating ?? null,
-                        }) as unknown as QueueSong,
+                remoteQueue.map((track, i) =>
+                    hubTrackToQueueSong(track, serverId ?? '', null, `remote:${i}`),
                 ),
             [remoteQueue, serverId],
         );

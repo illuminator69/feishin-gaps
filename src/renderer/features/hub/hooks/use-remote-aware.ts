@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { generatePath, useNavigate } from 'react-router';
 
 import { api } from '/@/renderer/api';
+import { isRemoteSessionActive } from '/@/renderer/features/hub/utils/remote-queue';
 import { AppRoute } from '/@/renderer/router/routes';
 import {
     useCurrentServerId,
@@ -21,8 +22,9 @@ import {
     usePlayerStore,
     usePlayerVolume,
 } from '/@/renderer/store';
+import { HubTrack } from '/@/renderer/store/hub.store';
 import { usePlayerTimestamp } from '/@/renderer/store/timestamp.store';
-import { QueueSong, Song } from '/@/shared/types/domain-types';
+import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
 
 const hub = isElectron() ? window.api.hub : null;
@@ -57,6 +59,51 @@ const resolveRemoteDetail = (serverId: string, id: string): Promise<null | Song>
     return inflight;
 };
 
+/**
+ * Build a `QueueSong` from a hub wire track.
+ *
+ * The single place this conversion happens. There used to be three of these — the now-playing
+ * hook, the OS snapshot below, and the side queue — each with a slightly different field set, so
+ * whether a remote track carried its rating, its album id, or its artist links depended on which
+ * part of the UI you happened to be looking at.
+ *
+ * Two things are load-bearing and were duplicated as comments in all three copies:
+ * - **Cover art is built from the Navidrome id with OUR server credentials**, never from the
+ *   publisher's `imageUrl`, which may be a LAN or tokened URL this client cannot reach. The song
+ *   id doubles as the cover-art id across this system. `imageUrl` is kept as an explicit
+ *   `undefined` so `ItemImage` falls back to the id and the table's song-row branch still matches.
+ * - `resolved` is the lazily fetched full song. Remote tracks carry only plain album/artist
+ *   *names*, so album/artist links can't navigate until it lands.
+ */
+export const hubTrackToQueueSong = (
+    track: HubTrack,
+    serverId: string,
+    resolved?: null | Song,
+    uniqueId?: string,
+): QueueSong =>
+    ({
+        _itemType: LibraryItem.SONG,
+        _serverId: serverId,
+        ...(uniqueId ? { _uniqueId: uniqueId } : {}),
+        album: track.album ?? resolved?.album ?? '',
+        albumArtists: resolved?.albumArtists,
+        albumId: resolved?.albumId ?? undefined,
+        artistName: track.artist ?? '',
+        artists:
+            resolved?.artists && resolved.artists.length > 0
+                ? resolved.artists
+                : track.artist
+                  ? [{ id: '', name: track.artist }]
+                  : [],
+        duration: track.durationMs ?? 0,
+        id: track.id,
+        imageId: resolved?.imageId ?? track.id,
+        imageUrl: undefined,
+        name: track.title ?? '',
+        userFavorite: track.favorite ?? false,
+        userRating: track.rating ?? null,
+    }) as unknown as QueueSong;
+
 /** The current song — remote now-playing when remote-active, else local. */
 export const useRemoteAwarePlayerSong = (): QueueSong | undefined => {
     const isRemote = useHubIsRemoteActive();
@@ -86,35 +133,7 @@ export const useRemoteAwarePlayerSong = (): QueueSong | undefined => {
 
     const resolved = detail?.id === remote.id ? detail : (remoteDetailCache.get(remote.id) ?? null);
 
-    // Synthesize enough of a QueueSong for the lyrics pipeline (id + serverId
-    // drive the server lyrics fetch; name/artist/duration drive remote search)
-    // plus favorite/rating so the playerbar's heart + stars reflect the remote
-    // track, and (when resolved) albumId/artists so its links navigate.
-    return {
-        _serverId: serverId ?? '',
-        album: remote.album ?? resolved?.album ?? '',
-        albumArtists: resolved?.albumArtists,
-        albumId: resolved?.albumId ?? undefined,
-        artistName: remote.artist ?? '',
-        artists:
-            resolved?.artists && resolved.artists.length > 0
-                ? resolved.artists
-                : remote.artist
-                  ? [{ id: '', name: remote.artist }]
-                  : [],
-        duration: remote.durationMs ?? 0,
-        id: remote.id,
-        // Build the cover from a Navidrome id with OUR own server creds rather
-        // than trusting the publishing device's imageUrl (which may be a LAN /
-        // tokened URL this client can't reach). The song id doubles as the
-        // cover-art id across this system; the resolved detail's imageId is used
-        // when available. imageUrl is left unset so ItemImage falls back to the id.
-        imageId: resolved?.imageId ?? remote.id,
-        imageUrl: undefined,
-        name: remote.title ?? '',
-        userFavorite: remote.favorite ?? false,
-        userRating: remote.rating ?? null,
-    } as unknown as QueueSong;
+    return hubTrackToQueueSong(remote, serverId ?? '', resolved);
 };
 
 /** The next song — remote session's when remote-active, else local. */
@@ -126,17 +145,7 @@ export const useRemoteAwareNextSong = (): QueueSong | undefined => {
 
     if (!isRemote) return nextSong;
     if (!next) return undefined;
-    return {
-        _serverId: serverId ?? '',
-        album: next.album ?? '',
-        artistName: next.artist ?? '',
-        duration: next.durationMs ?? 0,
-        id: next.id,
-        // Same reasoning as above: build the cover from the id with our own creds.
-        imageId: next.id,
-        imageUrl: undefined,
-        name: next.title ?? '',
-    } as unknown as QueueSong;
+    return hubTrackToQueueSong(next, serverId ?? '', remoteDetailCache.get(next.id));
 };
 
 /**
@@ -154,29 +163,22 @@ export const getRemoteAwareSnapshot = (): {
     status: PlayerStatus;
 } => {
     const hubState = useHubStore.getState();
-    const isRemote =
-        hubState.connected &&
-        hubState.activeDeviceId !== null &&
-        hubState.myDeviceId !== null &&
-        hubState.activeDeviceId !== hubState.myDeviceId;
+    // The one predicate, shared with remoteAct's gate — this used to be a fourth hand-rolled
+    // copy, and one of the four disagreed with the others about whether `connected` counted.
+    const isRemote = isRemoteSessionActive();
     const player = usePlayerStore.getState();
     if (!isRemote) {
         return { isRemote, song: player.getCurrentSong(), status: player.player.status };
     }
     const remote = hubState.remoteQueue[hubState.remoteQueueIndex];
-    const resolved = remote ? remoteDetailCache.get(remote.id) : undefined;
     return {
         isRemote,
         song: remote
-            ? ({
-                  album: remote.album ?? resolved?.album ?? '',
-                  artistName: remote.artist ?? '',
-                  duration: remote.durationMs ?? 0,
-                  id: remote.id,
-                  imageId: resolved?.imageId ?? remote.id,
-                  imageUrl: undefined,
-                  name: remote.title ?? '',
-              } as unknown as QueueSong)
+            ? hubTrackToQueueSong(
+                  remote,
+                  usePlayerStore.getState().getCurrentSong()?._serverId ?? '',
+                  remoteDetailCache.get(remote.id),
+              )
             : undefined,
         status: hubState.remoteIsPlaying ? PlayerStatus.PLAYING : PlayerStatus.PAUSED,
     };

@@ -7,14 +7,32 @@ import { createWithEqualityFn } from 'zustand/traditional';
  * Not persisted — it's a mirror of transient hub state.
  */
 export interface HubDevice {
+    /** Cast bridges only: is the receiver app currently up on the speaker? */
+    appRunning?: boolean | null;
+    /** For a virtual device (a Chromecast), the hub id of the client bridging it. */
+    bridgedBy?: null | string;
     caps: string[];
     id: string;
     isActive: boolean;
     name: string;
+    /**
+     * A WebSocket claiming this id is attached. For a bridged Chromecast that is the
+     * BRIDGE's socket — it says nothing about the speaker. See `reachable`.
+     */
     online: boolean;
     platform: string;
+    /**
+     * The bridge's verdict on the hardware (PROTOCOL §3.2): `true` reached recently,
+     * `false` connected-but-not-answering, `null`/absent unknown or not applicable —
+     * which is every ordinary client, since a client IS its own hardware.
+     */
+    reachable?: boolean | null;
     volume?: number;
 }
+
+/** Can the session be handed to this device right now? Unknown reachability is permissive. */
+export const isHubDeviceTransferable = (device: HubDevice): boolean =>
+    device.online && device.reachable !== false;
 
 export interface HubTrack {
     album?: string;

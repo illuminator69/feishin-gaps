@@ -555,6 +555,9 @@ export const useHub = () => {
                     mediaPlayByIndex(msg.index);
                     break;
                 case 'load': {
+                    // PROTOCOL §7.1: a transfer's load must be acknowledged, or the hub
+                    // commits the active slot and never learns we couldn't start.
+                    let loadOk = false;
                     const targetSec = (msg.positionMs ?? 0) / 1000;
                     const incomingIds: string[] = (msg.tracks ?? []).map((t: any) => t.id);
                     // We become the active device once this queue loads, so pre-set the
@@ -587,9 +590,20 @@ export const useHub = () => {
                         } else {
                             mediaSeekToTimestamp(targetSec);
                         }
+                        loadOk = true;
                     } else {
                         const songs = await resolveSongs(msg.tracks);
-                        if (!songs.length) return;
+                        if (!songs.length) {
+                            // Nothing resolved — the queue is unplayable here (server
+                            // down, ids this server doesn't know). Say so rather than
+                            // leaving the hub believing this device took the session.
+                            hub?.send({
+                                error: 'could not resolve any track in the queue',
+                                ok: false,
+                                t: 'loaded',
+                            });
+                            return;
+                        }
                         // Re-arm the hub-driven window: resolveSongs fans out one
                         // getSongDetail per track and can outlast the original 2 s, after
                         // which setQueue's own events read as a fresh user action.
@@ -602,9 +616,11 @@ export const useHub = () => {
                         };
                         // Load straight into the requested state — see setQueue's `play`.
                         setQueue(songs, msg.index ?? 0, targetSec, !wantPause);
+                        loadOk = true;
                     }
                     if (wantPause) mediaPause();
                     else mediaPlay();
+                    hub?.send({ ok: loadOk, t: 'loaded' });
                     break;
                 }
                 case 'pause':
@@ -898,9 +914,13 @@ export const useHub = () => {
                 const message =
                     msg.code === 'target_offline'
                         ? 'That device is offline.'
-                        : msg.code === 'auth'
-                          ? 'The hub rejected the token — check your navi-connect settings.'
-                          : (msg.message ?? 'Hub error');
+                        : msg.code === 'target_unreachable'
+                          ? (msg.message ?? "That device isn't responding.")
+                          : msg.code === 'load_failed'
+                            ? (msg.message ?? 'That device could not start playback.')
+                            : msg.code === 'auth'
+                              ? 'The hub rejected the token — check your navi-connect settings.'
+                              : (msg.message ?? 'Hub error');
                 toast.warn({ message });
             }
         });

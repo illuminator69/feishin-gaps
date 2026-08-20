@@ -3,6 +3,7 @@ import { useState } from 'react';
 
 import {
     HubDevice,
+    isHubDeviceTransferable,
     useHubActiveDeviceId,
     useHubDevices,
     useHubMyDeviceId,
@@ -35,6 +36,14 @@ const platformLabel = (platform: string): string => {
  * shows the device name + platform + status so two clients are distinguishable.
  * Offline devices auto-hide and manually-hidden ones are tucked behind a toggle.
  * Hidden unless navi-connect is enabled.
+ *
+ * Rows have THREE states, not two. `online` means a socket claiming that id is
+ * attached — for a Chromecast that is the bridging client's socket, which says
+ * nothing about the speaker. A speaker that is off, asleep, or on a network nobody
+ * here is on stays `online` and used to be offered as a perfectly good target; the
+ * transfer then committed and every device showed a playing bar over silence. So an
+ * unreachable device is shown (it is real, and it will come back) but greyed and not
+ * selectable — see PROTOCOL §3.2.
  */
 export const HubDevicePicker = () => {
     const settings = useHubSettings();
@@ -72,6 +81,7 @@ export const HubDevicePicker = () => {
         // The active device is only "playing" when the session actually is — it stays
         // the active receiver while paused, and claiming otherwise made a paused
         // session look live in every picker.
+        const unreachable = device.online && device.reachable === false;
         const statusText =
             device.id === activeId
                 ? remoteIsPlaying
@@ -79,9 +89,11 @@ export const HubDevicePicker = () => {
                     : 'paused'
                 : isSelf
                   ? 'this device'
-                  : device.online
-                    ? 'online'
-                    : 'offline';
+                  : unreachable
+                    ? 'not responding'
+                    : device.online
+                      ? 'available'
+                      : 'offline';
         const isHidden = hidden.has(device.id);
         return (
             // The hide/unhide control is a SIBLING of the menu item, not its child: a
@@ -93,7 +105,7 @@ export const HubDevicePicker = () => {
             >
                 <DropdownMenu.Item
                     closeMenuOnClick={false}
-                    disabled={!device.online || device.id === activeId}
+                    disabled={!isHubDeviceTransferable(device) || device.id === activeId}
                     onClick={() => transfer(device.id)}
                     rightSection={
                         <Text isMuted size="xs">

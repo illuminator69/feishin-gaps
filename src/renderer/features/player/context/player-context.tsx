@@ -141,6 +141,51 @@ const remoteActiveVolume = (): number => {
     return s.devices.find((d) => d.id === s.activeDeviceId)?.volume ?? 100;
 };
 
+/** How far the skip buttons jump, per the user's settings. */
+const skipAmount = (direction: 'backward' | 'forward'): number => {
+    const buttons = useSettingsStore.getState().general.skipButtons;
+    return direction === 'forward'
+        ? (buttons?.skipForwardSeconds ?? 10)
+        : (buttons?.skipBackwardSeconds ?? 5);
+};
+
+/**
+ * Skip relative to where the remote session actually is.
+ *
+ * The hub only understands absolute seeks, so the current position has to be interpolated the
+ * same way the scrubber does — `remotePositionMs` is a ~1 Hz sample, and skipping from the
+ * sample rather than from now would lose up to a second every press.
+ */
+const remoteSeekBy = (deltaSeconds: number): boolean => {
+    if (!isRemoteSessionActive()) return false;
+    const s = useHubStore.getState();
+    const elapsed = s.remoteIsPlaying ? Date.now() - s.remotePositionAt : 0;
+    const positionMs = Math.max(0, s.remotePositionMs + elapsed + deltaSeconds * 1000);
+    return remoteAct('seek', { positionMs: Math.round(positionMs) });
+};
+
+/**
+ * Move a single queue row via the hub. Returns false when the request can't be expressed as one
+ * `move` — the caller then says so rather than falling through to the local player.
+ *
+ * Multi-item moves are refused deliberately: `move` is a single from→to, and applying several in
+ * sequence races the session frames coming back the other way.
+ */
+const remoteMoveTo = (items: { _uniqueId: string }[], edge: 'bottom' | 'next' | 'top'): boolean => {
+    if (items.length !== 1) return false;
+    const from = Number(items[0]._uniqueId.slice('remote:'.length));
+    if (Number.isNaN(from)) return false;
+    const s = useHubStore.getState();
+    const last = Math.max(0, s.remoteQueue.length - 1);
+    const desired =
+        edge === 'top' ? 0 : edge === 'bottom' ? last : Math.min(last, s.remoteQueueIndex + 1);
+    // `desired` is in pre-removal coordinates, and the hub pops `from` before inserting — so a
+    // downward move lands one slot short. Same adjustment as moveSelectedTo below.
+    const to = from < desired ? desired - 1 : desired;
+    if (to === from) return true;
+    return remoteAct('move', { from, to });
+};
+
 const getRootQueryKey = (itemType: LibraryItem, serverId: string) => {
     switch (itemType) {
         case LibraryItem.ALBUM:
@@ -191,6 +236,8 @@ const tagPlaylistContext = (songs: Song[], contextPlaylistId: string): Song[] =>
 export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     const { t } = useTranslation();
     const queryClient = useQueryClient();
+    /** Volume to restore on unmute — the hub has no mute, only a level. */
+    const mutedVolume = useRef(100);
     const storeActions = usePlayerActions();
     const timeoutIds = useRef<null | Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -583,7 +630,22 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         [queryClient, confirmLargeFetch, t, addToQueueByData, addToQueueByFetch],
     );
 
+    /**
+     * Say so instead of silently driving the dead local player.
+     *
+     * The transport actions below used to fall straight through to `storeActions` during a
+     * remote session. That is worse than doing nothing: the local audio engine is not idle,
+     * it is deliberately held silent, and poking it is how the runaway-audio class of bug
+     * starts — the user hears their own machine start playing under a bar that says the
+     * music is on the speaker. Anything without a hub equivalent must be a visible no-op.
+     */
+    const unsupportedOnRemote = useCallback((what: string) => {
+        toast.warn({ message: `${what} isn't supported on a remote device.` });
+    }, []);
+
     const clearQueue = useCallback(() => {
+        if (remoteAct('clear')) return;
+
         logFn.debug(logMsg[LogCategory.PLAYER].clearQueue, {
             category: LogCategory.PLAYER,
         });
@@ -597,6 +659,17 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 category: LogCategory.PLAYER,
                 meta: { items: items.length },
             });
+
+            if (isRemoteSessionActive()) {
+                // The hub removes one index at a time. Highest first, so each removal can't
+                // shift the indexes of the ones still to go.
+                const indexes = items
+                    .map((item) => Number(item._uniqueId.slice('remote:'.length)))
+                    .filter((n) => !Number.isNaN(n))
+                    .sort((a, b) => b - a);
+                indexes.forEach((index) => remoteAct('remove', { index }));
+                return;
+            }
 
             storeActions.clearSelected(items);
         },
@@ -724,6 +797,15 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const mediaStop = useCallback(
         (options?: { reset?: boolean }) => {
+            // There is no hub `stop`: a remote receiver holds the session whether or not it
+            // is playing. Pausing (and rewinding, when asked to reset) is the honest
+            // equivalent — stopping would mean tearing down someone else's playback.
+            if (isRemoteSessionActive()) {
+                remoteAct('pause');
+                if (options?.reset) remoteAct('seek', { positionMs: 0 });
+                return;
+            }
+
             logFn.debug(logMsg[LogCategory.PLAYER].mediaStop, {
                 category: LogCategory.PLAYER,
                 meta: { reset: options?.reset },
@@ -749,6 +831,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     );
 
     const mediaSkipBackward = useCallback(() => {
+        if (remoteSeekBy(-skipAmount('backward'))) return;
+
         logFn.debug(logMsg[LogCategory.PLAYER].mediaSkipBackward, {
             category: LogCategory.PLAYER,
         });
@@ -757,6 +841,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     }, [storeActions]);
 
     const mediaSkipForward = useCallback(() => {
+        if (remoteSeekBy(skipAmount('forward'))) return;
+
         logFn.debug(logMsg[LogCategory.PLAYER].mediaSkipForward, {
             category: LogCategory.PLAYER,
         });
@@ -782,6 +868,13 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const setSpeed = useCallback(
         (speed: number) => {
+            // Playback rate is a property of the audio engine doing the decoding, which is on
+            // the other device (or is a Chromecast, which has no such control at all).
+            if (isRemoteSessionActive()) {
+                unsupportedOnRemote('Changing playback speed');
+                return;
+            }
+
             logFn.debug(logMsg[LogCategory.PLAYER].setSpeed, {
                 category: LogCategory.PLAYER,
                 meta: { speed },
@@ -789,10 +882,24 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
             storeActions.setSpeed(speed);
         },
-        [storeActions],
+        [storeActions, unsupportedOnRemote],
     );
 
     const mediaToggleMute = useCallback(() => {
+        // No hub `mute`: mute is volume 0 with the old level remembered, which is exactly what
+        // the local store does too. Muting locally would leave the remote device at full volume
+        // while the UI showed it silenced.
+        if (isRemoteSessionActive()) {
+            const current = remoteActiveVolume();
+            if (current > 0) {
+                mutedVolume.current = current;
+                remoteAct('volume', { level: 0 });
+            } else {
+                remoteAct('volume', { level: mutedVolume.current || 100 });
+            }
+            return;
+        }
+
         logFn.debug(logMsg[LogCategory.PLAYER].mediaToggleMute, {
             category: LogCategory.PLAYER,
         });
@@ -853,9 +960,14 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 meta: { items },
             });
 
+            if (isRemoteSessionActive()) {
+                if (!remoteMoveTo(items, 'bottom')) unsupportedOnRemote('Reordering these tracks');
+                return;
+            }
+
             storeActions.moveSelectedToBottom(items);
         },
-        [storeActions],
+        [storeActions, unsupportedOnRemote],
     );
 
     const moveSelectedToNext = useCallback(
@@ -865,9 +977,14 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 meta: { items },
             });
 
+            if (isRemoteSessionActive()) {
+                if (!remoteMoveTo(items, 'next')) unsupportedOnRemote('Reordering these tracks');
+                return;
+            }
+
             storeActions.moveSelectedToNext(items);
         },
-        [storeActions],
+        [storeActions, unsupportedOnRemote],
     );
 
     const moveSelectedToTop = useCallback(
@@ -877,9 +994,14 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 meta: { items },
             });
 
+            if (isRemoteSessionActive()) {
+                if (!remoteMoveTo(items, 'top')) unsupportedOnRemote('Reordering these tracks');
+                return;
+            }
+
             storeActions.moveSelectedToTop(items);
         },
-        [storeActions],
+        [storeActions, unsupportedOnRemote],
     );
 
     const setVolume = useCallback(
@@ -925,7 +1047,11 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         [storeActions],
     );
 
+    // Both of these mean "re-randomise the play order". The hub owns `order`, and re-asserting
+    // shuffle:true is how you ask it to compute a fresh one.
     const shuffle = useCallback(() => {
+        if (remoteAct('shuffle', { on: true })) return;
+
         logFn.debug(logMsg[LogCategory.PLAYER].shuffle, {
             category: LogCategory.PLAYER,
         });
@@ -934,6 +1060,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     }, [storeActions]);
 
     const shuffleAll = useCallback(() => {
+        if (remoteAct('shuffle', { on: true })) return;
+
         logFn.debug(logMsg[LogCategory.PLAYER].shuffleAll, {
             category: LogCategory.PLAYER,
         });
@@ -948,9 +1076,15 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 meta: { items },
             });
 
+            // Shuffling a SUBSET has no hub equivalent — `shuffle` reorders the whole queue.
+            if (isRemoteSessionActive()) {
+                unsupportedOnRemote('Shuffling a selection');
+                return;
+            }
+
             storeActions.shuffleSelected(items);
         },
-        [storeActions],
+        [storeActions, unsupportedOnRemote],
     );
 
     const toggleRepeat = useCallback(() => {

@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto';
 import { ipcMain } from 'electron';
+import log from 'electron-log/main';
 import { EventEmitter } from 'events';
 import { WebSocket } from 'ws';
 
@@ -36,6 +37,16 @@ const HEARTBEAT_MS = 10000;
 const config: HubConfig = { enabled: false, name: 'Feishin', token: '', url: '' };
 
 let ws: undefined | WebSocket;
+
+/** Shape of a hub `DeviceInfo` row (PROTOCOL §3.2) — only the fields we arbitrate on. */
+export interface HubDeviceInfo {
+    bridgedBy?: null | string;
+    id: string;
+    online: boolean;
+    reachable?: boolean | null;
+}
+
+let knownDevices: HubDeviceInfo[] = [];
 let reconnectTimer: NodeJS.Timeout | undefined;
 let heartbeatTimer: NodeJS.Timeout | undefined;
 let backoffMs = INITIAL_BACKOFF_MS;
@@ -76,7 +87,10 @@ function connect(): void {
         }, HEARTBEAT_MS);
         send({
             device: {
-                caps: ['receiver', 'controller'],
+                // `loadAck` (PROTOCOL §7.1): the renderer answers every transfer's
+                // do:load with a `loaded` frame, so a transfer here that can't start
+                // hands the session back instead of reading as playing everywhere.
+                caps: ['receiver', 'controller', 'loadAck'],
                 id: deviceId(),
                 name: config.name || 'Feishin',
                 platform: 'desktop',
@@ -89,7 +103,23 @@ function connect(): void {
         isAlive = true;
     });
     ws.on('message', (data) => {
-        getMainWindow()?.webContents.send('hub-message', data.toString());
+        const text = data.toString();
+        // Snoop the device registry on the way past. The cast bridge needs it to
+        // arbitrate ownership of a speaker BEFORE it registers (PROTOCOL §12.2 steps
+        // 1-3), and it can't read it from its own socket — that socket *is* the device
+        // being claimed, so by the time it has one the claim has already happened.
+        try {
+            const msg = JSON.parse(text);
+            if (msg?.t === 'welcome' || msg?.t === 'devices') {
+                if (Array.isArray(msg.devices)) {
+                    knownDevices = msg.devices;
+                    hubEvents.emit('devices', knownDevices);
+                }
+            }
+        } catch {
+            /* not our problem — the renderer owns protocol semantics */
+        }
+        getMainWindow()?.webContents.send('hub-message', text);
     });
     ws.on('close', () => {
         emitStatus('disconnected');
@@ -135,7 +165,14 @@ function scheduleReconnect(): void {
 function send(obj: unknown): void {
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(obj));
+        return;
     }
+    // Silently doing nothing on a closed socket is how an `act` the user definitely performed
+    // vanished with no trace anywhere — the renderer's remoteAct still reported success. Log it,
+    // so "the button did nothing" has something to find. Reports are excluded: they fire at 1 Hz
+    // and a disconnect would drown the log in them.
+    const t = (obj as { t?: string })?.t;
+    if (t && t !== 'report') log.warn(`[hub] dropped "${t}" — socket not open`);
 }
 
 function start(): void {
@@ -186,6 +223,12 @@ ipcMain.handle(
 /** Lets sibling features (the Cast bridge) follow the hub configuration. */
 export const hubEvents = new EventEmitter();
 
+/**
+ * Last device registry the hub broadcast. Empty until the first `welcome`, which the
+ * cast bridge treats as "unknown, don't claim yet" rather than "nobody is bridging".
+ */
+export const getHubDevices = (): HubDeviceInfo[] => knownDevices;
+
 export const getHubConfig = (): { enabled: boolean; token: string; url: string } => ({
     enabled: config.enabled,
     token: config.token,
@@ -193,3 +236,13 @@ export const getHubConfig = (): { enabled: boolean; token: string; url: string }
 });
 
 export const shutdownHub = (): void => stop();
+
+/** Whether this client's own hub connection is currently up. */
+export const isHubConnected = (): boolean => ws?.readyState === WebSocket.OPEN;
+
+/**
+ * This client's own hub device id. The cast bridge stamps it as `bridgedBy` on every
+ * speaker it registers, so the hub (and every picker) can say which client is holding
+ * a given virtual receiver — PROTOCOL §3.2.
+ */
+export const getHubDeviceId = (): string => deviceId();

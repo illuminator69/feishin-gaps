@@ -15,9 +15,10 @@ interface CastService {
 }
 import { Client, DefaultMediaReceiver } from 'castv2-client';
 import { ipcMain } from 'electron';
+import net from 'net';
 import { WebSocket } from 'ws';
 
-import { getHubConfig, hubEvents } from '../hub';
+import { getHubConfig, getHubDeviceId, getHubDevices, hubEvents, isHubConnected } from '../hub';
 
 /**
  * Chromecast ⇄ navi-connect bridge (the "full virtual receiver" model).
@@ -60,12 +61,47 @@ const HEARTBEAT_MS = 10000;
 // down long enough for the winner to keep the speaker. Navic already does this.
 const SUPERSEDED_CODE = 4003;
 const STAND_DOWN_MS = 5 * 60 * 1000;
+// PROTOCOL §12.2 step 3: two clients starting at the same moment both see an empty
+// registry and both claim. A random pause before claiming, then a re-check, settles
+// that without exchanging a single frame.
+const CLAIM_JITTER_MS = 3000;
+// An empty registry is ambiguous: nobody is bridging this speaker, OR the main hub
+// client hasn't delivered `welcome` yet. Claiming during that window is how the desktop
+// would steal a speaker Navic was already serving on every single launch. Wait for the
+// registry, but not forever — a hub that never connects must not disable casting.
+const REGISTRY_WAIT_MS = 10_000;
+// How long a hub connection must survive before it counts as "working" and the
+// reconnect backoff resets. Resetting it in `open` meant a socket that was accepted
+// and immediately evicted looked like a success every time, so the exponential backoff
+// could never engage and two bridges fought at full speed indefinitely.
+const BACKOFF_RESET_AFTER_MS = 60_000;
 
 // appId of the Default Media Receiver — used to spot an already-running cast
 // session to re-join (vs. launching a fresh one) after a bridge restart.
 const DEFAULT_MEDIA_RECEIVER_APP_ID = 'CC1AD845';
 
+// Reachability (PROTOCOL §3.2 / §12.2). `online` on a cast row means THIS process holds
+// the hub socket — it says nothing about the speaker, which may be off, asleep, or on a
+// network nobody here is on. The bridge is the only party that can tell the difference,
+// so it probes and reports. The probe is a bare TCP connect: asking the receiver app
+// would mean LAUNCHing it, and launching seizes the speaker's audio output.
+const CAST_PORT = 8009;
+const PROBE_TIMEOUT_MS = 2000;
+const REACHABILITY_INTERVAL_MS = 30_000;
+// Consecutive failed probes before we call a speaker down. One miss is a dropped packet;
+// two spread over a minute is a speaker that has genuinely gone away. A phantom receiver
+// for a minute is much cheaper than dropping a live one.
+const REACHABILITY_FAILS_BEFORE_DOWN = 2;
+// A Chromecast that is unplugged emits no mDNS goodbye, so `down` never fires and the
+// bridge would advertise a dead speaker forever. Sweep instead: gone from mDNS this long
+// AND failing the probe means tear the bridge down.
+const MISSING_GRACE_MS = 90_000;
+const BRIDGE_SWEEP_MS = 30_000;
+
 class CastDeviceBridge {
+    /** Last time mDNS said this speaker exists. Drives the missing-device sweep. */
+    lastSeenAt = Date.now();
+
     /** The id this bridge registers with the hub (matches activeDeviceId). */
     get hubDeviceId(): string {
         return `cast-${this.deviceId}`;
@@ -77,15 +113,26 @@ class CastDeviceBridge {
         return !this.destroyed && this.ws?.readyState === WebSocket.OPEN;
     }
 
+    /** True while the speaker is believed present — used by the missing-device sweep. */
+    get looksReachable(): boolean {
+        return this.reachable !== false;
+    }
+
     // Whether we've already tried to re-adopt a running cast session for the
     // current hub connection (reset on each fresh `welcome`).
     private adopted = false;
 
     private backoffMs = INITIAL_BACKOFF_MS;
 
+    private backoffResetTimer: NodeJS.Timeout | null = null;
+
     private castClient: Client | null = null;
 
     private castPlayer: import('castv2-client').CastPlayer | null = null;
+
+    private claimTimer: NodeJS.Timeout | null = null;
+
+    private readonly createdAt = Date.now();
 
     private destroyed = false;
 
@@ -98,6 +145,13 @@ class CastDeviceBridge {
     private lastPositionMs = 0;
 
     private playing = false;
+
+    private probeFailures = 0;
+
+    private reachabilityTimer: NodeJS.Timeout | null = null;
+
+    /** Our last asserted verdict on the speaker; null until the first probe lands. */
+    private reachable: boolean | null = null;
 
     private reconnectingCast = false;
 
@@ -112,6 +166,12 @@ class CastDeviceBridge {
         sourceKind?: string;
         sourceName?: string;
     } = {};
+
+    /** Set until the §12.2 stand-down expires; blocks re-claiming before then. */
+    private standDownUntil = 0;
+
+    /** True while another client holds this speaker and we are deliberately idle. */
+    private standingDown = false;
 
     private statusInFlight = false;
 
@@ -131,12 +191,15 @@ class CastDeviceBridge {
         private readonly hubUrl: string,
         private readonly token: string,
     ) {
-        this.connectHub();
+        this.scheduleClaim();
     }
 
     destroy(): void {
         this.destroyed = true;
         if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        if (this.claimTimer) clearTimeout(this.claimTimer);
+        if (this.backoffResetTimer) clearTimeout(this.backoffResetTimer);
+        this.stopReachability();
         this.stopHeartbeat();
         this.stopTicker();
         this.teardownCast();
@@ -146,6 +209,20 @@ class CastDeviceBridge {
             /* ignore */
         }
         this.ws = null;
+    }
+
+    // ----------------------------------------------------------------- hub
+
+    /**
+     * The hub's device list changed — PROTOCOL §12.2 step 2. A bridging client quitting
+     * is what frees the speaker, and nothing else would ever tell us.
+     */
+    reevaluate(): void {
+        if (this.destroyed || this.ws || !this.standingDown) return;
+        if (this.claimedElsewhere()) return;
+        log.info(`[cast-bridge] ${this.friendlyName}: speaker was released — claiming it`);
+        this.standingDown = false;
+        this.scheduleClaim();
     }
 
     /**
@@ -163,8 +240,6 @@ class CastDeviceBridge {
         // Whatever we held pointed at the old address; pick playback back up at the new one.
         if (wasPlaying && this.tracks.length) void this.loadCurrent(this.lastPositionMs, true);
     }
-
-    // ----------------------------------------------------------------- hub
 
     private adoptRunningSession(claim = false): Promise<void> {
         return new Promise((resolve) => {
@@ -229,14 +304,22 @@ class CastDeviceBridge {
                         }
                         player.getStatus((_e, status) => {
                             const contentId = status?.media?.contentId;
-                            // Claiming the idle active slot means telling every client this
-                            // speaker IS the session, so require proof: it must be playing a
-                            // track from that very queue. Someone else's Spotify or a stale
-                            // receiver session left over from yesterday matches nothing and
-                            // is left alone.
+                            // Adopting a session means telling every client this speaker IS
+                            // our session, so require proof: it must be playing a track from
+                            // that very queue. Someone else's cast, or a receiver session
+                            // left over from yesterday, matches nothing and is left alone.
+                            // This check used to be skipped entirely when `claim` was false
+                            // (the re-adopt-after-drop path), so a bridge would happily join
+                            // an unrelated Default Media Receiver session and then drive it.
+                            // Matching is on the Subsonic track id, not the whole URL — see
+                            // streamIdentity().
+                            const playingId = streamIdentity(contentId);
                             const matches =
-                                !!contentId && this.tracks.some((tk) => tk.streamUrl === contentId);
-                            if (claim && !matches) {
+                                !!playingId &&
+                                this.tracks.some(
+                                    (tk) => streamIdentity(tk.streamUrl) === playingId,
+                                );
+                            if (!matches) {
                                 log.info(
                                     `[cast-bridge] ${this.friendlyName}: running session is not ` +
                                         'ours — leaving it alone',
@@ -267,9 +350,9 @@ class CastDeviceBridge {
                                 }
                                 this.playing = status.playerState === 'PLAYING';
                                 // Re-sync the index from whatever is actually loaded.
-                                if (contentId) {
+                                if (playingId) {
                                     const idx = this.tracks.findIndex(
-                                        (tk) => tk.streamUrl === contentId,
+                                        (tk) => streamIdentity(tk.streamUrl) === playingId,
                                     );
                                     if (idx >= 0) this.index = idx;
                                 }
@@ -314,6 +397,40 @@ class CastDeviceBridge {
                 // castv2 throws synchronously ("reading 'send'" of null) when the
                 // cast socket has died — keep the last known position.
                 resolve();
+            }
+        });
+    }
+
+    /**
+     * Is the cast connection we hold still a connection? Weaker than castSessionAlive:
+     * it asks whether the device answers at all, not whether media is loaded — a freshly
+     * launched receiver with nothing playing is alive and must not be torn down.
+     */
+    private castLinkAlive(): Promise<boolean> {
+        return new Promise((resolve) => {
+            const player = this.castPlayer;
+            if (!player) {
+                resolve(false);
+                return;
+            }
+            let settled = false;
+            const done = (alive: boolean) => {
+                if (!settled) {
+                    settled = true;
+                    resolve(alive);
+                }
+            };
+            // A torn-down receiver doesn't refuse — it never answers. The timeout IS
+            // the answer.
+            const timer = setTimeout(() => done(false), 3000);
+            try {
+                player.getStatus((err) => {
+                    clearTimeout(timer);
+                    done(!err);
+                });
+            } catch {
+                clearTimeout(timer);
+                done(false);
             }
         });
     }
@@ -378,77 +495,62 @@ class CastDeviceBridge {
         );
     }
 
-    private connectHub(): void {
-        if (this.destroyed) return;
-        try {
-            this.ws = new WebSocket(this.hubUrl);
-        } catch {
-            this.scheduleReconnect();
-            return;
-        }
+    /**
+     * Is another client already bridging this speaker? PROTOCOL §12.2 step 1.
+     *
+     * Read off the MAIN hub client's registry, not this bridge's own socket: the bridge
+     * socket *is* the device being claimed, so by the time it could read `devices` the
+     * claim has already happened and the hub has already evicted somebody. That
+     * chicken-and-egg is why the desktop bridge used to register unconditionally while
+     * Navic implemented the full rule — the two then took turns every second.
+     */
+    private claimedElsewhere(): boolean {
+        const row = getHubDevices().find((d) => d.id === this.hubDeviceId);
+        if (!row || !row.online) return false;
+        // Our own previous socket doesn't count as a competitor.
+        return row.bridgedBy !== getHubDeviceId();
+    }
 
-        this.ws.on('open', () => {
-            log.info(`[cast-bridge] ${this.friendlyName}: registered with hub`);
-            this.backoffMs = INITIAL_BACKOFF_MS;
-            this.hubAlive = true;
-            this.startHeartbeat();
-            this.send({
-                device: {
-                    caps: ['receiver'],
-                    id: `cast-${this.deviceId}`,
-                    name: `📺 ${this.friendlyName}`,
-                    platform: 'chromecast',
-                },
-                t: 'hello',
-                token: this.token,
-            });
-        });
-        this.ws.on('pong', () => {
-            this.hubAlive = true;
-        });
-        this.ws.on('message', (data) => {
+    /**
+     * Run a castv2 command and report whether it actually reached the device.
+     *
+     * Every one of these used to be fire-and-forget (`castPlayer?.pause(noop)`), with the
+     * bridge then reporting the new state as fact. Three ways that lies: the optional
+     * chain swallows a null player entirely, castv2 throws *synchronously* on a dead
+     * socket, and a live socket to a gone receiver simply never calls back. All three
+     * produce "the hub thinks it happened" — the exact shape of the bug where the player
+     * reads paused/seeked and the speaker is doing something else.
+     */
+    private commandLanded(invoke: (cb: (err?: Error | null) => void) => unknown): Promise<boolean> {
+        return new Promise((resolve) => {
+            let settled = false;
+            const done = (ok: boolean) => {
+                if (!settled) {
+                    settled = true;
+                    resolve(ok);
+                }
+            };
+            const timer = setTimeout(() => done(false), 3000);
             try {
-                const msg = JSON.parse(data.toString());
-                if (msg.t === 'do') {
-                    void this.handleDo(msg);
-                } else if (msg.t === 'welcome') {
-                    // Fresh connection: allow one re-adoption attempt, then
-                    // evaluate the session the hub just handed us.
-                    this.adopted = false;
-                    this.maybeAdopt(msg.session);
-                } else if (msg.t === 'session') {
-                    this.maybeAdopt(msg);
+                const issued = invoke((err) => {
+                    clearTimeout(timer);
+                    done(!err);
+                });
+                // An optional-chained call on a null player returns undefined without
+                // ever invoking the callback — that is a miss, not a pending command.
+                if (issued === undefined && !this.castPlayer && !this.castClient) {
+                    clearTimeout(timer);
+                    done(false);
                 }
             } catch {
-                /* bad frame */
+                clearTimeout(timer);
+                done(false);
             }
-        });
-        this.ws.on('close', (code) => {
-            if (code === SUPERSEDED_CODE) {
-                // Another client bridges this speaker. Stand down rather than
-                // claim it back — whoever is holding it now is serving the user
-                // just as well, and taking turns every second serves nobody.
-                log.warn(
-                    `[cast-bridge] ${this.friendlyName}: superseded by another bridge — ` +
-                        `standing down for ${STAND_DOWN_MS / 60000} min`,
-                );
-                this.scheduleReconnect(STAND_DOWN_MS);
-                return;
-            }
-            log.warn(`[cast-bridge] ${this.friendlyName}: hub connection closed (${code})`);
-            this.scheduleReconnect();
-        });
-        this.ws.on('error', (err) => {
-            log.error(`[cast-bridge] ${this.friendlyName}: hub connection error`, err.message);
         });
     }
 
-    private ensureCast(): Promise<import('castv2-client').CastPlayer> {
+    private connectCast(): Promise<import('castv2-client').CastPlayer> {
         return new Promise((resolve, reject) => {
-            if (this.castPlayer) {
-                resolve(this.castPlayer);
-                return;
-            }
             const client = new Client();
             let settled = false;
             const fail = (err: Error) => {
@@ -492,6 +594,103 @@ class CastDeviceBridge {
         });
     }
 
+    private connectHub(): void {
+        if (this.destroyed) return;
+        try {
+            this.ws = new WebSocket(this.hubUrl);
+        } catch {
+            this.scheduleReconnect();
+            return;
+        }
+
+        this.ws.on('open', () => {
+            log.info(`[cast-bridge] ${this.friendlyName}: registered with hub`);
+            // Reset the backoff only once the connection has PROVEN itself. Doing it here
+            // unconditionally made an accept-then-evict cycle read as a success, so the
+            // exponential backoff never engaged.
+            if (this.backoffResetTimer) clearTimeout(this.backoffResetTimer);
+            this.backoffResetTimer = setTimeout(() => {
+                this.backoffResetTimer = null;
+                this.backoffMs = INITIAL_BACKOFF_MS;
+            }, BACKOFF_RESET_AFTER_MS);
+            this.hubAlive = true;
+            this.startHeartbeat();
+            this.send({
+                device: {
+                    // `loadAck` opts this receiver into the transfer acknowledgement
+                    // (§7.1): a cast load that fails is otherwise invisible for ~20 s,
+                    // during which every client shows a playing bar over silence.
+                    bridgedBy: getHubDeviceId(),
+                    caps: ['receiver', 'loadAck'],
+                    id: `cast-${this.deviceId}`,
+                    name: `📺 ${this.friendlyName}`,
+                    platform: 'chromecast',
+                },
+                t: 'hello',
+                token: this.token,
+            });
+            this.startReachability();
+        });
+        this.ws.on('pong', () => {
+            this.hubAlive = true;
+        });
+        this.ws.on('message', (data) => {
+            try {
+                const msg = JSON.parse(data.toString());
+                if (msg.t === 'do') {
+                    void this.handleDo(msg);
+                } else if (msg.t === 'welcome') {
+                    // Fresh connection: allow one re-adoption attempt, then
+                    // evaluate the session the hub just handed us.
+                    this.adopted = false;
+                    this.maybeAdopt(msg.session);
+                } else if (msg.t === 'session') {
+                    this.maybeAdopt(msg);
+                }
+            } catch {
+                /* bad frame */
+            }
+        });
+        this.ws.on('close', (code) => {
+            this.stopReachability();
+            if (code === SUPERSEDED_CODE) {
+                // Another client bridges this speaker. Stand down rather than
+                // claim it back — whoever is holding it now is serving the user
+                // just as well, and taking turns every second serves nobody.
+                log.warn(
+                    `[cast-bridge] ${this.friendlyName}: superseded by another bridge — ` +
+                        `standing down for ${STAND_DOWN_MS / 60000} min`,
+                );
+                this.standingDown = true;
+                this.standDownUntil = Date.now() + STAND_DOWN_MS;
+                this.scheduleReconnect(STAND_DOWN_MS);
+                return;
+            }
+            log.warn(`[cast-bridge] ${this.friendlyName}: hub connection closed (${code})`);
+            this.scheduleReconnect();
+        });
+        this.ws.on('error', (err) => {
+            log.error(`[cast-bridge] ${this.friendlyName}: hub connection error`, err.message);
+        });
+    }
+
+    private async ensureCast(): Promise<import('castv2-client').CastPlayer> {
+        // `castPlayer` is a plain object and stays valid-looking indefinitely — a
+        // Chromecast closes its receiver app after a few idle minutes and nothing here
+        // is told. Reusing it unasked is what made "cast to the TV" assume a session
+        // that had been dead for days: the load went into the void, and the ~20 s of
+        // stacked timeouts before it gave up were 20 s of every client showing a
+        // playing bar over a silent TV.
+        if (this.castPlayer) {
+            if (await this.castLinkAlive()) return this.castPlayer;
+            log.info(
+                `[cast-bridge] ${this.friendlyName}: cached cast session is dead — relaunching`,
+            );
+            this.teardownCast();
+        }
+        return this.connectCast();
+    }
+
     private async handleDo(msg: any): Promise<void> {
         try {
             switch (msg.cmd) {
@@ -499,16 +698,37 @@ class CastDeviceBridge {
                     this.index = msg.index ?? 0;
                     await this.loadCurrent(0, true);
                     break;
-                case 'load':
+                case 'load': {
                     this.releasing = false;
                     this.tracks = msg.tracks ?? [];
                     this.index = msg.index ?? 0;
-                    await this.loadCurrent(msg.positionMs ?? 0, msg.play !== false);
+                    const ok = await this.loadCurrent(msg.positionMs ?? 0, msg.play !== false);
+                    // PROTOCOL §7.1. Without this the hub commits the active slot and
+                    // never learns the speaker didn't start, so a transfer to a TV that
+                    // has been off for days reads as playing on every device until a
+                    // human intervenes.
+                    this.send({
+                        error: ok ? undefined : 'the speaker did not start playback',
+                        ok,
+                        t: 'loaded',
+                    });
                     break;
+                }
                 case 'pause':
-                    this.castPlayer?.pause(noop);
-                    this.playing = false;
-                    this.report();
+                    // Only claim paused if the pause actually reached the device. Reporting
+                    // it regardless told the hub — and every client — that a command had
+                    // landed which may never have left this process.
+                    if (await this.commandLanded((cb) => this.castPlayer?.pause(cb))) {
+                        this.playing = false;
+                        this.report();
+                    } else {
+                        log.warn(
+                            `[cast-bridge] ${this.friendlyName}: pause did not reach the device`,
+                        );
+                        this.teardownCast();
+                        this.playing = false;
+                        this.report();
+                    }
                     break;
                 case 'play':
                     // A Chromecast tears its receiver app down after a few idle minutes,
@@ -570,12 +790,35 @@ class CastDeviceBridge {
                     }
                     this.releasing = false;
                     break;
-                case 'seek':
-                    this.castPlayer?.seek((msg.positionMs ?? 0) / 1000, noop);
-                    this.lastPositionMs = msg.positionMs ?? 0;
+                case 'seek': {
+                    const target = msg.positionMs ?? 0;
+                    // The position used to be recorded whether or not the seek landed, so
+                    // the hub could hold — and hand to the next device — a position the
+                    // speaker had never been at. If it didn't land, reload there instead:
+                    // that IS where the user asked to be.
+                    if (
+                        await this.commandLanded((cb) => this.castPlayer?.seek(target / 1000, cb))
+                    ) {
+                        this.lastPositionMs = target;
+                    } else {
+                        log.warn(
+                            `[cast-bridge] ${this.friendlyName}: seek did not reach the device — reloading`,
+                        );
+                        this.teardownCast();
+                        await this.loadCurrent(target, this.playing);
+                    }
                     break;
+                }
                 case 'setVolume':
-                    this.castClient?.setVolume({ level: (msg.level ?? 100) / 100 }, noop);
+                    if (
+                        !(await this.commandLanded((cb) =>
+                            this.castClient?.setVolume({ level: (msg.level ?? 100) / 100 }, cb),
+                        ))
+                    ) {
+                        log.warn(
+                            `[cast-bridge] ${this.friendlyName}: volume did not reach the device`,
+                        );
+                    }
                     break;
                 default:
                     break;
@@ -585,23 +828,38 @@ class CastDeviceBridge {
         }
     }
 
-    private async loadCurrent(positionMs: number, play: boolean): Promise<void> {
+    /** @returns whether the speaker actually started (PROTOCOL §7.1's `loaded.ok`). */
+    private async loadCurrent(positionMs: number, play: boolean): Promise<boolean> {
         const track = this.tracks[this.index];
-        if (!track) return;
+        if (!track) return false;
         if (!track.streamUrl) {
             log.error(
                 `[cast-bridge] ${this.friendlyName}: track "${track.title}" has no streamUrl — ` +
                     'the queue was published by an older client; start playback again on the ' +
                     'sending device to republish it',
             );
-            return;
+            return false;
         }
         log.info(
             `[cast-bridge] ${this.friendlyName}: loading "${track.title}" ` +
                 `(${track.mime ?? 'audio/mpeg'}) @ ${positionMs}ms`,
         );
         log.info(`[cast-bridge] contentId: ${track.streamUrl}`);
-        const player = await this.ensureCast();
+        let player: import('castv2-client').CastPlayer;
+        try {
+            player = await this.ensureCast();
+        } catch (error) {
+            // Nothing to load into. This used to throw to a caller that only logged,
+            // leaving `playing` true — a playing bar over a speaker we could not even
+            // connect to.
+            log.error(
+                `[cast-bridge] ${this.friendlyName}: cannot reach the device ` +
+                    `(${(error as Error).message})`,
+            );
+            this.playing = false;
+            this.report();
+            return false;
+        }
         const media = {
             contentId: track.streamUrl,
             contentType: track.mime || 'audio/mpeg',
@@ -668,13 +926,14 @@ class CastDeviceBridge {
                 this.teardownCast();
                 this.playing = false;
                 this.report();
-                return;
+                return false;
             }
         }
         this.lastPositionMs = positionMs;
         this.playing = play;
         this.report();
         this.startTicker();
+        return true;
     }
 
     /**
@@ -763,6 +1022,32 @@ class CastDeviceBridge {
         }
     }
 
+    private async probeReachability(): Promise<void> {
+        if (this.destroyed) return;
+        const ok = await this.speakerReachable();
+        if (this.destroyed) return;
+        if (ok) {
+            this.probeFailures = 0;
+        } else {
+            this.probeFailures += 1;
+        }
+        // An open cast socket is proof enough on its own — don't let a probe that lost a
+        // packet contradict a speaker we are actively talking to.
+        const reachable =
+            ok || !!this.castClient || this.probeFailures < REACHABILITY_FAILS_BEFORE_DOWN;
+        if (reachable !== this.reachable) {
+            log.info(`[cast-bridge] ${this.friendlyName}: reachable → ${reachable}`);
+        }
+        this.reachable = reachable;
+        // Re-asserted every tick, not only on change: the hub expires a verdict whose
+        // bridge has gone quiet rather than keep speaking for it (§3.2).
+        this.send({
+            appRunning: !!this.castPlayer,
+            reachable,
+            t: 'deviceState',
+        });
+    }
+
     private report(extra?: Record<string, unknown>): void {
         this.send({
             index: this.index,
@@ -771,6 +1056,37 @@ class CastDeviceBridge {
             t: 'report',
             ...extra,
         });
+    }
+
+    /**
+     * Wait out the jitter, re-check, then claim — or stay down and wait for the next
+     * `devices` frame to tell us the holder let go.
+     */
+    private scheduleClaim(delayMs?: number): void {
+        if (this.destroyed || this.claimTimer || this.ws) return;
+        const wait = delayMs ?? Math.random() * CLAIM_JITTER_MS;
+        this.claimTimer = setTimeout(() => {
+            this.claimTimer = null;
+            if (this.destroyed || this.ws) return;
+            if (Date.now() < this.standDownUntil) return;
+            // Don't decide on a registry we haven't been given yet (see REGISTRY_WAIT_MS).
+            if (!isHubConnected() && Date.now() - this.createdAt < REGISTRY_WAIT_MS) {
+                this.scheduleClaim(1000);
+                return;
+            }
+            if (this.claimedElsewhere()) {
+                if (!this.standingDown) {
+                    log.info(
+                        `[cast-bridge] ${this.friendlyName}: already bridged by another ` +
+                            'client — standing down',
+                    );
+                }
+                this.standingDown = true;
+                return;
+            }
+            this.standingDown = false;
+            this.connectHub();
+        }, wait);
     }
 
     /** `delayMs` overrides the backoff — used by the superseded stand-down. */
@@ -783,14 +1099,53 @@ class CastDeviceBridge {
         this.backoffMs = Math.min(this.backoffMs * 2, MAX_BACKOFF_MS);
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
-            this.connectHub();
+            // Back through arbitration, not straight to connectHub: while we were away
+            // another client may have taken the speaker, and reclaiming it blindly is
+            // exactly the war the stand-down exists to end.
+            this.scheduleClaim(0);
         }, delay);
     }
 
     private send(obj: unknown): void {
         if (this.ws?.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify(obj));
+            return;
         }
+        // A `loaded` or `released` lost here leaves the hub waiting on an answer that will
+        // never arrive, so it is worth a line. Reports and heartbeats are not.
+        const t = (obj as { t?: string })?.t;
+        if (t && t !== 'report' && t !== 'deviceState') {
+            log.warn(`[cast-bridge] ${this.friendlyName}: dropped "${t}" — hub socket not open`);
+        }
+    }
+
+    /**
+     * Can we open a TCP connection to the speaker right now? Deliberately the weakest
+     * possible question: it proves the hardware is powered on and on a network we can
+     * reach, without touching whatever it happens to be doing. Probing at the castv2
+     * level would mean LAUNCHing the receiver app, which would silence a speaker that
+     * is happily playing over Bluetooth.
+     */
+    private speakerReachable(): Promise<boolean> {
+        return new Promise((resolve) => {
+            const socket = new net.Socket();
+            let settled = false;
+            const done = (ok: boolean) => {
+                if (settled) return;
+                settled = true;
+                socket.destroy();
+                resolve(ok);
+            };
+            socket.setTimeout(PROBE_TIMEOUT_MS);
+            socket.once('connect', () => done(true));
+            socket.once('timeout', () => done(false));
+            socket.once('error', () => done(false));
+            try {
+                socket.connect(CAST_PORT, this.host);
+            } catch {
+                done(false);
+            }
+        });
     }
 
     private startHeartbeat(): void {
@@ -813,6 +1168,15 @@ class CastDeviceBridge {
                 /* ignore */
             }
         }, HEARTBEAT_MS);
+    }
+
+    private startReachability(): void {
+        this.stopReachability();
+        void this.probeReachability();
+        this.reachabilityTimer = setInterval(
+            () => void this.probeReachability(),
+            REACHABILITY_INTERVAL_MS,
+        );
     }
 
     private startTicker(): void {
@@ -857,6 +1221,11 @@ class CastDeviceBridge {
         }
     }
 
+    private stopReachability(): void {
+        if (this.reachabilityTimer) clearInterval(this.reachabilityTimer);
+        this.reachabilityTimer = null;
+    }
+
     private stopTicker(): void {
         if (this.ticker) clearInterval(this.ticker);
         this.ticker = null;
@@ -891,6 +1260,27 @@ class CastDeviceBridge {
     }
 }
 
+/**
+ * Identity of a track inside a stream URL, for comparing against a Chromecast's
+ * `contentId`.
+ *
+ * Comparing whole URLs looked equivalent and was not: the URL carries a salted auth
+ * token and transcoding parameters, so rotating credentials, changing the bitrate
+ * setting or publishing from a different client all produce a different string for the
+ * same song — and every ownership check that depended on it silently answered "not
+ * ours". The Subsonic id is the part that actually identifies the track.
+ */
+function streamIdentity(url: null | string | undefined): null | string {
+    if (!url) return null;
+    try {
+        const id = new URL(url).searchParams.get('id');
+        if (id) return id;
+    } catch {
+        /* not a parseable URL — fall through */
+    }
+    return url;
+}
+
 // ------------------------------------------------------------------ manager
 
 const bridges = new Map<string, CastDeviceBridge>();
@@ -898,6 +1288,7 @@ let bonjour: InstanceType<typeof Bonjour> | null = null;
 let browser: CastBrowser | null = null;
 let requeryTimer: NodeJS.Timeout | null = null;
 let requeryCount = 0;
+let sweepTimer: NodeJS.Timeout | null = null;
 
 // bonjour-service sends ONE query when the browser is created and then relies on the device's own
 // periodic announcements, which a Chromecast makes only every couple of minutes. So a single lost
@@ -966,6 +1357,7 @@ function startBridging(): void {
         if (existing) {
             // Re-discovery is otherwise ignored, which froze each bridge at the address it
             // first saw. Every announcement is a chance to notice the device moved.
+            existing.lastSeenAt = Date.now();
             existing.updateHost(device.host);
             return;
         }
@@ -981,6 +1373,24 @@ function startBridging(): void {
         bridges.get(device.id)?.destroy();
         bridges.delete(device.id);
     });
+
+    // A bridge used to live until mDNS said `down` — which an unplugged Chromecast never
+    // says, because it isn't there to say it. So a speaker seen once on any network kept a
+    // healthy hub socket forever, and every client's picker offered it as an online
+    // receiver from anywhere in the world. Two independent signals have to agree before we
+    // give up on one: mDNS hasn't mentioned it for a while AND it doesn't answer a probe.
+    sweepTimer = setInterval(() => {
+        const cutoff = Date.now() - MISSING_GRACE_MS;
+        bridges.forEach((bridge, id) => {
+            if (bridge.lastSeenAt > cutoff || bridge.looksReachable) return;
+            log.info(
+                `[cast-bridge] ${id}: gone from mDNS for ${MISSING_GRACE_MS / 1000}s and not ` +
+                    'answering — dropping the bridge',
+            );
+            bridge.destroy();
+            bridges.delete(id);
+        });
+    }, BRIDGE_SWEEP_MS);
 
     requeryCount = 0;
     const requery = (): void => {
@@ -998,6 +1408,8 @@ function startBridging(): void {
 function stopBridging(): void {
     if (requeryTimer) clearTimeout(requeryTimer);
     requeryTimer = null;
+    if (sweepTimer) clearInterval(sweepTimer);
+    sweepTimer = null;
     browser?.stop();
     browser = null;
     bridges.forEach((bridge) => bridge.destroy());
@@ -1006,6 +1418,12 @@ function stopBridging(): void {
     bonjour?.destroy();
     bonjour = null;
 }
+
+// §12.2 step 2: re-evaluate ownership whenever the registry changes, so a speaker
+// released by a client that quit is picked back up without waiting for a restart.
+hubEvents.on('devices', () => {
+    bridges.forEach((bridge) => bridge.reevaluate());
+});
 
 hubEvents.on('settings', (settings: { enabled: boolean; token: string; url: string }) => {
     const changed =
