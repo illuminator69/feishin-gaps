@@ -6,7 +6,10 @@ import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/nati
 import {
     allowMp3AndRetry,
     caaCoverUrl,
+    cancelFill,
     retryFill,
+    useWatchedFill,
+    useWatchedGap,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
     LedgerRow,
@@ -35,10 +38,10 @@ import { Platform } from '/@/shared/types/types';
  * Navigate away and there was no way to see it, no way to know it had failed, and no
  * way to ask again.
  *
- * Reads the ledger and nothing else: no polling of its own. The artist pages already
- * poll whatever they can see, and this view shows the last state each fill reported —
- * which is honest, costs nothing, and keeps a second renderer-lifetime timer off
- * lb-bot's process-wide lock.
+ * Rows still in flight are watched from here too. This view used to only read the
+ * ledger, trusting the artist pages to poll — so a fill cancelled or failed while no
+ * artist page was open read "Downloading" forever, and a row that never settles never
+ * offers Retry. Settled rows are never polled.
  */
 
 /** What a row is doing, in the user's terms rather than lb-bot's.
@@ -46,6 +49,22 @@ import { Platform } from '/@/shared/types/types';
  *  The outcome is checked before the state because a settled row's last state is not
  *  the whole story: a fill given up on still reads `unknown`, and a cancelled one
  *  keeps whatever it was doing when it was cancelled. */
+/** The failure in a few words, before the row is even read closely.
+ *
+ *  "No peer had it" and "every source was rejected for format" are different
+ *  problems with different buttons, and telling them apart used to mean reading
+ *  lb-bot's sentence. These come from `failureKind`; the sentence stays below,
+ *  verbatim, because it carries the evidence ("103 peers offered 2,047 files,
+ *  but none in FLAC, OPUS") that no label can. */
+const FAILURE_LABEL: Record<string, string> = {
+    cancelled: 'Cancelled',
+    format_rejected: 'No copy in an allowed format',
+    mb_unavailable: "Downloaded — MusicBrainz wouldn't answer, so it couldn't be tagged",
+    no_source: 'Nobody is sharing this one',
+    placement_failed: "Downloaded, but couldn't be filed into the library",
+    transfer_failed: 'The download itself failed',
+};
+
 const stateLabel = (row: LedgerRow): string => {
     if (row.settled) {
         switch (row.outcome) {
@@ -54,13 +73,17 @@ const stateLabel = (row: LedgerRow): string => {
             case 'done':
                 return 'In your library';
             case 'gaveUp':
+                // Ran out of clock, not a failure — the distinction is deliberate.
                 return 'Stopped tracking this one';
             case 'needsPick':
                 return 'Waiting for you to pick a source';
             default:
-                return row.state === 'needs_match'
-                    ? 'Downloaded, but needs sorting out in lb-bot'
-                    : "Couldn't get this one";
+                if (row.state === 'needs_match') {
+                    return 'Downloaded, but needs sorting out in lb-bot';
+                }
+                return (
+                    (row.failureKind && FAILURE_LABEL[row.failureKind]) || "Couldn't get this one"
+                );
         }
     }
     switch (row.state) {
@@ -79,11 +102,26 @@ const stateLabel = (row: LedgerRow): string => {
     }
 };
 
+/** Keeps an unsettled row's state live. Both hooks are no-ops for a key that names
+ *  nothing, which is how one of them sits idle for each row. */
+const RowWatcher = ({ row }: { row: LedgerRow }) => {
+    useWatchedFill(row.isGap ? '' : row.key, '');
+    useWatchedGap(row.isGap ? row.key : '', '');
+    return null;
+};
+
 const FillRow = ({ row }: { row: LedgerRow }) => {
     const { dismiss } = useActiveFillsActions();
     const [busy, setBusy] = useState(false);
 
     const failed = row.settled && row.outcome !== 'done';
+    // Offer a plain Retry only when lb-bot says one is worth it. It is
+    // deliberately false for a format rejection MP3 would fix — that retry
+    // re-runs the identical search against the identical peers under the
+    // identical format policy, which is the same failure again, not a retry.
+    // A row from before lb-bot carried the field has no `failureKind` at all;
+    // absent means unknown, so keep offering Retry rather than hiding it.
+    const retryable = !row.failureKind || row.retryable !== false;
 
     const run = async (action: () => Promise<boolean>) => {
         setBusy(true);
@@ -94,6 +132,7 @@ const FillRow = ({ row }: { row: LedgerRow }) => {
 
     return (
         <div className={styles.row}>
+            {!row.settled && <RowWatcher row={row} />}
             {row.rgid && (
                 <img
                     alt=""
@@ -120,15 +159,43 @@ const FillRow = ({ row }: { row: LedgerRow }) => {
                         {row.reason}
                     </Text>
                 )}
+                {/* lb-bot's own count, which includes the automatic re-attempt the
+                    transient failure kinds get — so one failure reads differently
+                    from four without the user having to remember. */}
+                {failed && (row.attempts ?? 0) > 1 && (
+                    <Text isMuted size="sm">
+                        {`Tried ${row.attempts} times`}
+                    </Text>
+                )}
+                {/* A disabled button explains nothing on its own, and a tooltip on one
+                    never fires. Say why in the row instead. */}
+                {failed && row.mp3WouldHelp && !row.groupId && (
+                    <Text isMuted size="sm">
+                        lb-bot has no review group for this album, so the MP3 option has nothing to
+                        attach to — plain Retry still works.
+                    </Text>
+                )}
+                {/* No Retry offered, so say why rather than leaving a dead row.
+                    A format rejection has Allow MP3 above it; anything else
+                    non-retryable is a problem asking again cannot move. */}
+                {failed && !retryable && !row.mp3WouldHelp && (
+                    <Text isMuted size="sm">
+                        Asking again would hit the same problem — this one needs fixing in lb-bot.
+                    </Text>
+                )}
             </Stack>
             <Group gap="xs">
+                {/* Gated on the review group, not merely on `mp3WouldHelp`: the MP3
+                    opt-in hangs off lb-bot's review group, and an album fill only
+                    learns that id from a status poll. Passing the rgid instead made
+                    the button run a retry that widened nothing. */}
                 {failed && row.mp3WouldHelp && (
                     <Button
-                        disabled={busy}
+                        disabled={busy || !row.groupId}
                         onClick={() =>
                             run(() =>
                                 allowMp3AndRetry({
-                                    groupId: row.key,
+                                    groupId: row.groupId,
                                     isGap: row.isGap,
                                     key: row.key,
                                 }),
@@ -139,13 +206,33 @@ const FillRow = ({ row }: { row: LedgerRow }) => {
                         Allow MP3 and retry
                     </Button>
                 )}
-                {failed && (
+                {failed && retryable && (
                     <Button
                         disabled={busy}
                         onClick={() => run(() => retryFill({ isGap: row.isGap, key: row.key }))}
                         variant="subtle"
                     >
                         Retry
+                    </Button>
+                )}
+                {/* The peer was the problem (it crawled, or it dropped the transfer):
+                    ask again with it ruled out rather than re-issuing the same request. */}
+                {failed && !row.isGap && row.otherSourceExcludes.length > 0 && (
+                    <Button
+                        disabled={busy}
+                        onClick={() => run(() => retryFill(row, { anotherSource: true }))}
+                        variant="subtle"
+                    >
+                        Try another source
+                    </Button>
+                )}
+                {!row.settled && (
+                    <Button
+                        disabled={busy}
+                        onClick={() => run(() => cancelFill(row))}
+                        variant="subtle"
+                    >
+                        Cancel
                     </Button>
                 )}
                 {row.settled && (

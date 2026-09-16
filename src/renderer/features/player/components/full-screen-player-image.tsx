@@ -286,12 +286,19 @@ export const FullScreenPlayerImage = () => {
                                           •
                                       </Text>
                                   )}
+                                  {/* An empty id used to be linked anyway, and React Router
+                                      drops the empty segment — so it navigated to the
+                                      artist *list*. No id, no link. */}
                                   <Text
-                                      component={Link}
-                                      isLink
-                                      to={generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, {
-                                          albumArtistId: artist.id,
-                                      })}
+                                      component={artist.id ? Link : undefined}
+                                      isLink={Boolean(artist.id)}
+                                      to={
+                                          artist.id
+                                              ? generatePath(AppRoute.LIBRARY_ARTISTS_DETAIL, {
+                                                    artistId: artist.id,
+                                                })
+                                              : undefined
+                                      }
                                   >
                                       {artist.name}
                                   </Text>
@@ -304,13 +311,17 @@ export const FullScreenPlayerImage = () => {
                     </Text>
                 ) : (
                     <Text
-                        component={Link}
-                        isLink
+                        component={currentSong?.albumId ? Link : undefined}
+                        isLink={Boolean(currentSong?.albumId)}
                         overflow="hidden"
                         size="xl"
-                        to={generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, {
-                            albumId: currentSong?.albumId || '',
-                        })}
+                        to={
+                            currentSong?.albumId
+                                ? generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, {
+                                      albumId: currentSong.albumId,
+                                  })
+                                : undefined
+                        }
                         w="100%"
                     >
                         {currentSong?.album}

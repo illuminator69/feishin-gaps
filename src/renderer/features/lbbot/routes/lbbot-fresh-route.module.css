@@ -1,0 +1,89 @@
+.filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--theme-spacing-sm);
+    align-items: center;
+}
+
+.bucket {
+    display: flex;
+    gap: var(--theme-spacing-md);
+    align-items: center;
+}
+
+.bucketRule {
+    flex: 1;
+    height: 1px;
+    background: var(--theme-colors-border);
+}
+
+.grid {
+    display: grid;
+
+    /* auto-fill, not auto-fit: a bucket holding one release must render one
+       tile-sized tile, not a single cover stretched across the page. */
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: var(--theme-spacing-lg) var(--theme-spacing-md);
+}
+
+.tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--theme-spacing-xs);
+    width: 100%;
+    padding: 0;
+    text-align: left;
+    background: none;
+    border: none;
+}
+
+.frame {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    overflow: hidden;
+    cursor: pointer;
+    background: alpha(var(--theme-colors-foreground), 0.04);
+    border: 1px solid var(--theme-colors-border);
+    border-radius: var(--theme-radius-md);
+}
+
+/* Dashed and faded is this surface's established word for "the library doesn't
+   have this" — see missing-album-tile. A fresh release the library DOES already
+   hold gets the solid frame the owned albums have. */
+.frame.absent {
+    border-style: dashed;
+}
+
+.cover {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: opacity 0.15s ease;
+}
+
+.absent .cover {
+    opacity: 0.6;
+}
+
+.tile:hover .cover {
+    opacity: 1;
+}
+
+.badge {
+    position: absolute;
+    right: var(--theme-spacing-xs);
+    bottom: var(--theme-spacing-xs);
+    left: var(--theme-spacing-xs);
+    justify-content: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.9;
+}
+
+.name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

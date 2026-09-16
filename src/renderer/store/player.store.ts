@@ -69,6 +69,9 @@ interface Actions {
     moveSelectedToBottom: (items: QueueSong[]) => void;
     moveSelectedToNext: (items: QueueSong[]) => void;
     moveSelectedToTop: (items: QueueSong[]) => void;
+    // navi-connect: apply a queue edit made ELSEWHERE (the hub's `do:queueChanged`)
+    // without disturbing playback — see the implementation for why setQueue can't.
+    reconcileQueue: (items: Song[], index: number) => void;
     setCrossfadeDuration: (duration: number) => void;
     setCrossfadeStyle: (style: CrossfadeStyle) => void;
     setPauseOnNextSongEnd: (value: boolean) => void;
@@ -1468,6 +1471,68 @@ export const usePlayerStoreBase = createWithEqualityFn<PlayerState>()(
                         state.queue.default = newQueue;
                     });
                 },
+                // navi-connect: apply a queue edit that arrived from another client
+                // (`do:queueChanged`) WITHOUT disturbing playback.
+                //
+                // setQueue is the wrong tool for this, in four separate ways, and all four
+                // fire on an edit that never touched the playing track:
+                //   - it mints a fresh `_uniqueId` for EVERY track, so the playing song
+                //     becomes a new object and every consumer keyed on it re-runs — the
+                //     `<audio>` source among them;
+                //   - it forces `player.status` to PLAYING;
+                //   - it resets `playerNum` to 1, which on the dual-player web engine swaps
+                //     the slot the audio is actually in and reloads the source outright;
+                //   - it emits QUEUE_RESTORED, whose listener seeks the engine 100 ms later
+                //     — a seek on a streamed source is a range request, i.e. a real gap.
+                // Together: "playback stops for a second and the cover blinks" whenever
+                // someone enqueues or reorders from another device.
+                //
+                // Here, tracks that survive the edit keep their identity (matched by song id,
+                // consumed in order so a queue holding the same song twice keeps two distinct
+                // entries), the index is set from the caller's already-relocated value, and
+                // nothing else about the player is touched.
+                reconcileQueue: (items, index) => {
+                    set((state) => {
+                        const available = new Map<string, string[]>();
+                        for (const uniqueId of state.queue.default) {
+                            const song = state.queue.songs[uniqueId];
+                            if (!song) continue;
+                            const list = available.get(song.id);
+                            if (list) list.push(uniqueId);
+                            else available.set(song.id, [uniqueId]);
+                        }
+
+                        const nextIds: string[] = [];
+                        for (const item of items) {
+                            const reuse = available.get(item.id)?.shift();
+                            if (reuse) {
+                                nextIds.push(reuse);
+                            } else {
+                                const fresh = toQueueSong(item);
+                                state.queue.songs[fresh._uniqueId] = fresh;
+                                nextIds.push(fresh._uniqueId);
+                            }
+                        }
+
+                        state.queue.default = nextIds;
+
+                        const target = Math.max(0, Math.min(index, nextIds.length - 1));
+                        if (state.player.shuffle === PlayerShuffle.TRACK && nextIds.length) {
+                            // The shuffled order indexes into queue.default, so an edit made
+                            // elsewhere invalidates it wholesale. Regenerate and re-derive the
+                            // playback position — leaving it stale (which setQueue does) points
+                            // the playhead at whatever track happens to sit at that index now.
+                            state.queue.shuffled = generateShuffledIndexes(nextIds.length);
+                            state.player.index =
+                                findShuffledPositionForQueueIndex(target, state.queue.shuffled) ??
+                                target;
+                        } else {
+                            state.player.index = target;
+                        }
+
+                        cleanupOrphanedSongs(state);
+                    });
+                },
                 setQueue: (items, index, position, play) => {
                     const newItems = items.map(toQueueSong);
                     const newUniqueIds = newItems.map((item) => item._uniqueId);
@@ -1801,6 +1866,7 @@ export const usePlayerActions = () => {
             moveSelectedToBottom: state.moveSelectedToBottom,
             moveSelectedToNext: state.moveSelectedToNext,
             moveSelectedToTop: state.moveSelectedToTop,
+            reconcileQueue: state.reconcileQueue,
             setCrossfadeDuration: state.setCrossfadeDuration,
             setCrossfadeStyle: state.setCrossfadeStyle,
             setPauseOnNextSongEnd: state.setPauseOnNextSongEnd,
@@ -2286,19 +2352,22 @@ function cleanupOrphanedSongs(state: any): boolean {
     const songs = state.queue.songs;
     const songIds = Object.keys(songs);
     let hasOrphans = false;
-    const orphanedIds: string[] = [];
 
+    // Membership is decided against `allQueueIds` both times. The rebuild used to test
+    // against an ARRAY of orphans (`orphanedIds.includes`), making this quadratic in the
+    // queue length — which the reconcileQueue path above now walks into on every remote
+    // queue edit.
     for (const songId of songIds) {
         if (!allQueueIds.has(songId)) {
-            orphanedIds.push(songId);
             hasOrphans = true;
+            break;
         }
     }
 
     if (hasOrphans) {
         const cleanedSongs: Record<string, QueueSong> = {};
         for (const songId of songIds) {
-            if (!orphanedIds.includes(songId)) {
+            if (allQueueIds.has(songId)) {
                 cleanedSongs[songId] = songs[songId];
             }
         }

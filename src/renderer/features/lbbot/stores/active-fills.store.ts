@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+import { LbBotFailureKind, LbBotResolvedEdition } from '/@/shared/types/lbbot-types';
+
 /**
  * The fill ledger: every download this client has asked lb-bot for, in flight and
  * finished, keyed by release-group id (or review-group id for a gap).
@@ -38,7 +40,27 @@ export interface ActiveFill {
      *  forgotten the fill entirely — its own record of these is in memory. */
     album?: string;
     artist?: string;
+    /** How many fills lb-bot has recorded for this release. Its count, not ours —
+     *  it survives an lb-bot restart and includes its own automatic retries. */
+    attempts?: number;
+    /** The pressing the user actually chose. Kept so a Retry re-sends it instead of
+     *  letting lb-bot re-resolve the release-group to "official, earliest" — which
+     *  silently overrules the choice *and* re-enters its five-minute MusicBrainz
+     *  failure cache. */
+    edition?: LbBotResolvedEdition;
+    /** Peers "Try another source" has already ruled out for this album, so a
+     *  second go does not hand the fill back to the first slow peer. */
+    excludedPeers?: string[];
+    /** What kind of failure this was, from lb-bot rather than inferred from the
+     *  wording of `reason`. Empty on anything that has not failed. */
+    failureKind?: LbBotFailureKind;
     finishedAt?: number;
+    /** lb-bot's *review group* id, learned from a status poll. Not the rgid: Allow
+     *  MP3 is keyed on this, and sending the rgid instead silently no-ops. */
+    groupId?: string;
+    /** The peer lb-bot actually queued from, learned from a status poll — the one
+     *  to exclude when the user asks for another source. */
+    lastSource?: string;
     /** The search rejected mp3s and would have found something with them. */
     mp3WouldHelp?: boolean;
     outcome?: FillOutcome;
@@ -48,6 +70,9 @@ export interface ActiveFill {
     reason?: string;
     /** The release lb-bot resolved the group to — what the status poll is keyed on. */
     releaseMbid: string;
+    /** Whether a plain Retry is worth offering, per lb-bot. False for a format
+     *  rejection MP3 would fix: that retry re-runs the same rejected search. */
+    retryable?: boolean;
     rgid: string;
     /** Set once the fill reached a terminal state, so the page can stop polling. */
     settled: boolean;
@@ -86,9 +111,12 @@ export type FillOutcome = 'cancelled' | 'done' | 'failed' | 'gaveUp' | 'needsPic
 /** What settling a row records. Everything is optional because a cancel knows the
  *  outcome and nothing else, while a poll knows the state and the reason too. */
 export interface SettleInfo {
+    attempts?: number;
+    failureKind?: LbBotFailureKind;
     mp3WouldHelp?: boolean;
     outcome: FillOutcome;
     reason?: string;
+    retryable?: boolean;
     state?: string;
 }
 
@@ -190,6 +218,7 @@ export const useActiveFillsStore = create<ActiveFillsState>()(
                                       ...state.fills,
                                       [rgid]: {
                                           ...state.fills[rgid],
+                                          failureKind: undefined,
                                           finishedAt: undefined,
                                           outcome: 'running',
                                           reason: undefined,
@@ -323,11 +352,29 @@ export const usePreferredQuality = (): string =>
 export interface LedgerRow {
     album: string;
     artist: string;
+    /** lb-bot's own attempt count, including its automatic retries. 0 when it
+     *  predates the field, which is why the view only shows it above 1. */
+    attempts: number;
+    /** What kind of failure, from lb-bot rather than inferred from `reason`'s
+     *  wording. Empty on a gap fill, which has no equivalent, and on any row
+     *  recorded before lb-bot carried the field. */
+    failureKind: LbBotFailureKind;
+    /** lb-bot's review group, when one is known. A gap IS one, so its key doubles as
+     *  it; an album fill only learns it from a status poll, and Allow MP3 has nothing
+     *  to act on until then. Empty is a real answer — never substitute the rgid. */
+    groupId: string;
     isGap: boolean;
     key: string;
     mp3WouldHelp: boolean;
+    /** Peers a "Try another source" would exclude: the one lb-bot queued from and
+     *  any ruled out before. Empty when no peer is known yet, or for a gap. */
+    otherSourceExcludes: string[];
     outcome: FillOutcome;
     reason: string;
+    /** Whether a plain Retry is worth offering. True for a gap fill and for any
+     *  row predating the field — absent means unknown, and hiding the only
+     *  action on a guess is worse than offering one that may not help. */
+    retryable: boolean;
     rgid: string;
     settled: boolean;
     sortAt: number;
@@ -337,11 +384,26 @@ export interface LedgerRow {
 const toRow = (entry: ActiveFill | ActiveGap, isGap: boolean): LedgerRow => ({
     album: entry.album ?? '',
     artist: entry.artist ?? '',
+    attempts: isGap ? 0 : ((entry as ActiveFill).attempts ?? 0),
+    failureKind: isGap ? '' : ((entry as ActiveFill).failureKind ?? ''),
+    groupId: isGap ? (entry as ActiveGap).groupId : ((entry as ActiveFill).groupId ?? ''),
     isGap,
     key: isGap ? (entry as ActiveGap).groupId : (entry as ActiveFill).rgid,
     mp3WouldHelp: entry.mp3WouldHelp ?? false,
+    otherSourceExcludes: isGap
+        ? []
+        : [
+              ...new Set(
+                  [
+                      ...((entry as ActiveFill).excludedPeers ?? []),
+                      (entry as ActiveFill).lastSource,
+                      (entry as ActiveFill).sourcePeer,
+                  ].filter((peer): peer is string => !!peer),
+              ),
+          ],
     outcome: entry.outcome ?? (entry.settled ? 'gaveUp' : 'running'),
     reason: entry.reason ?? '',
+    retryable: isGap ? true : ((entry as ActiveFill).retryable ?? true),
     rgid: isGap ? '' : (entry as ActiveFill).rgid,
     settled: entry.settled,
     sortAt: entry.finishedAt ?? entry.startedAt,

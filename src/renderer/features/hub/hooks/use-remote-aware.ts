@@ -72,8 +72,11 @@ const resolveRemoteDetail = (serverId: string, id: string): Promise<null | Song>
  *   publisher's `imageUrl`, which may be a LAN or tokened URL this client cannot reach. The song
  *   id doubles as the cover-art id across this system. `imageUrl` is kept as an explicit
  *   `undefined` so `ItemImage` falls back to the id and the table's song-row branch still matches.
- * - `resolved` is the lazily fetched full song. Remote tracks carry only plain album/artist
- *   *names*, so album/artist links can't navigate until it lands.
+ * - `resolved` is the lazily fetched full song, and is now a *fallback*. A publisher that
+ *   sends `albumId`/`artists` (this client does; see buildHubTracks) makes the playerbar's
+ *   links work on the first frame instead of only once getSongDetail has round-tripped —
+ *   which is the whole of the "the artist name isn't clickable on remote playback" report.
+ *   An older publisher sends neither, and the resolve still covers it.
  */
 export const hubTrackToQueueSong = (
     track: HubTrack,
@@ -87,14 +90,16 @@ export const hubTrackToQueueSong = (
         ...(uniqueId ? { _uniqueId: uniqueId } : {}),
         album: track.album ?? resolved?.album ?? '',
         albumArtists: resolved?.albumArtists,
-        albumId: resolved?.albumId ?? undefined,
+        albumId: resolved?.albumId ?? track.albumId ?? undefined,
         artistName: track.artist ?? '',
         artists:
             resolved?.artists && resolved.artists.length > 0
                 ? resolved.artists
-                : track.artist
-                  ? [{ id: '', name: track.artist }]
-                  : [],
+                : track.artists && track.artists.length > 0
+                  ? track.artists
+                  : track.artist
+                    ? [{ id: '', name: track.artist }]
+                    : [],
         duration: track.durationMs ?? 0,
         id: track.id,
         imageId: resolved?.imageId ?? track.id,

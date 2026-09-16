@@ -80,6 +80,11 @@ const BACKOFF_RESET_AFTER_MS = 60_000;
 // session to re-join (vs. launching a fresh one) after a bridge restart.
 const DEFAULT_MEDIA_RECEIVER_APP_ID = 'CC1AD845';
 
+// Budget for getting a receiver on a connection we already hold. Kept short because it is the
+// optimistic path: if the socket is dead we still have to reconnect and launch inside the same
+// 10 s LOAD_TIMEOUT, and a join on a live socket answers in a few hundred milliseconds.
+const RELAUNCH_TIMEOUT_MS = 3500;
+
 // Reachability (PROTOCOL §3.2 / §12.2). `online` on a cast row means THIS process holds
 // the hub socket — it says nothing about the speaker, which may be off, asleep, or on a
 // network nobody here is on. The bridge is the only party that can tell the difference,
@@ -130,6 +135,16 @@ class CastDeviceBridge {
 
     private castPlayer: import('castv2-client').CastPlayer | null = null;
 
+    /**
+     * The in-flight session build, so there is never more than one.
+     *
+     * Two overlapping loads used to each construct their own `Client` and LAUNCH the receiver
+     * independently. The device answers the loser `LAUNCH_ERROR: CANCELLED`, both winners keep a
+     * `status` listener so every report doubled, and `connectCast`'s failure path called the
+     * shared `teardownCast()` — so a losing attempt destroyed the winning attempt's live session.
+     */
+    private castSetup: null | Promise<import('castv2-client').CastPlayer> = null;
+
     private claimTimer: NodeJS.Timeout | null = null;
 
     private readonly createdAt = Date.now();
@@ -143,6 +158,16 @@ class CastDeviceBridge {
     private index = 0;
 
     private lastPositionMs = 0;
+
+    /**
+     * The load currently in progress, so a second command can wait for it rather than race it.
+     *
+     * `castSetup` already stops two loads from building two sessions; this stops them issuing two
+     * LOADs into one. The pair matters because the second LOAD wins, and a `do:play` arriving
+     * mid-transfer carries a `lastPositionMs` that is older than the position the transfer asked
+     * for — so the race silently rewound playback.
+     */
+    private loadInFlight: null | Promise<boolean> = null;
 
     private playing = false;
 
@@ -239,6 +264,26 @@ class CastDeviceBridge {
         this.teardownCast();
         // Whatever we held pointed at the old address; pick playback back up at the new one.
         if (wasPlaying && this.tracks.length) void this.loadCurrent(this.lastPositionMs, true);
+    }
+
+    /** Make a freshly launched player the bridge's, with the listeners that go with it. */
+    private adoptPlayer(
+        client: Client,
+        player: import('castv2-client').CastPlayer,
+    ): import('castv2-client').CastPlayer {
+        this.castClient = client;
+        this.castPlayer = player;
+        // castv2-client leaks request listeners on slow channels.
+        (
+            player as unknown as { media?: { setMaxListeners?: (n: number) => void } }
+        ).media?.setMaxListeners?.(50);
+        // Identity check: a stray player left over from an overlapping attempt kept reporting,
+        // which is why every status line appeared twice in the log and the hub was fed two
+        // reports per tick.
+        player.on('status', (status) => {
+            if (this.castPlayer === player) this.onCastStatus(status);
+        });
+        return player;
     }
 
     private adoptRunningSession(claim = false): Promise<void> {
@@ -378,6 +423,51 @@ class CastDeviceBridge {
         });
     }
 
+    /**
+     * Say the receiver app is gone the moment it goes, instead of up to 30 s later.
+     *
+     * The hub gates transfers on this verdict (§3.2), so a stale "the app is up" costs a whole
+     * failed-transfer round trip — a `load_failed` toast and a rolled-back active slot — where an
+     * honest answer would have been a clean refusal. Reachability is left alone: the app going
+     * away says nothing about whether the hardware is still there.
+     */
+    private announceAppGone(): void {
+        this.send({ appRunning: false, reachable: this.reachable, t: 'deviceState' });
+    }
+
+    /**
+     * Build a session: reuse a proven one, otherwise launch, retrying a cancelled launch.
+     *
+     * Only ever called through [ensureCast], which guarantees one at a time.
+     */
+    private async buildCastSession(): Promise<import('castv2-client').CastPlayer> {
+        // `castPlayer` is a plain object and stays valid-looking indefinitely — a
+        // Chromecast closes its receiver app after a few idle minutes and nothing here
+        // is told. Reusing it unasked is what made "cast to the TV" assume a session
+        // that had been dead for days: the load went into the void, and the ~20 s of
+        // stacked timeouts before it gave up were 20 s of every client showing a
+        // playing bar over a silent TV.
+        if (this.castPlayer) {
+            if (await this.castLinkAlive()) return this.castPlayer;
+            log.info(`[cast-bridge] ${this.friendlyName}: cached cast session is dead`);
+            this.castPlayer = null;
+        }
+
+        // "The receiver app is gone" and "the connection is gone" are different facts, and only
+        // the probe above has been answered. Relaunch on the socket we already hold BEFORE
+        // closing anything: closing a sender connection is what makes the device tear its
+        // receiver down, and a LAUNCH landing in the seconds after that comes back CANCELLED —
+        // so close-then-reconnect manufactures the failure it then has to wait out, which is the
+        // loop the 01:34 log shows. Reusing the socket skips the window entirely.
+        if (this.castClient) {
+            const relaunched = await this.relaunchOnCurrentClient();
+            if (relaunched) return relaunched;
+            this.teardownCast();
+        }
+
+        return this.connectCast();
+    }
+
     private capturePosition(): Promise<void> {
         return new Promise((resolve) => {
             if (!this.castPlayer) {
@@ -481,6 +571,9 @@ class CastDeviceBridge {
         this.send({
             action: 'setQueue',
             index: this.index,
+            // The hub applies this flag to the WHOLE session and re-loads the active device with
+            // it (hub.py `_on_act`), so it must be what the speaker is actually doing. The only
+            // caller sets `playing` from the live receiver status immediately above.
             play: this.playing,
             positionMs: this.lastPositionMs,
             savedQueueId: this.sessionMeta.savedQueueId,
@@ -554,13 +647,22 @@ class CastDeviceBridge {
             const client = new Client();
             let settled = false;
             const fail = (err: Error) => {
-                this.teardownCast();
+                // Close OUR client, not the bridge's session. This used to call teardownCast(),
+                // which nulls the shared castClient/castPlayer, clears `playing` and now announces
+                // the app gone — so a failed attempt demolished whatever session the bridge
+                // actually held. Nothing is adopted until the launch callback below succeeds, so
+                // there is never anything of the bridge's to tear down from here.
+                try {
+                    client.close();
+                } catch {
+                    /* ignore */
+                }
                 if (!settled) {
                     settled = true;
                     reject(err);
                 }
             };
-            const timeout = setTimeout(() => fail(new Error('cast connect timeout')), 8000);
+            const timeout = setTimeout(() => fail(new Error('cast connect timeout')), 12_000);
             client.on('error', (err) => {
                 log.error(`[cast-bridge] ${this.friendlyName}: cast error`, err);
                 // A connect that times out or is refused usually means the address we
@@ -570,40 +672,50 @@ class CastDeviceBridge {
                 requeryCastDevices();
                 fail(err);
             });
-            client.on('close', () => this.onCastSocketClosed());
+            // Bound to THIS client, so it has to check it is still the one the bridge adopted:
+            // an abandoned attempt's close would otherwise tear down the live session.
+            client.on('close', () => {
+                if (this.castClient === client) this.onCastSocketClosed();
+            });
             log.info(`[cast-bridge] ${this.friendlyName}: connecting to ${this.host}`);
             client.connect(this.host, () => {
-                client.launch(DefaultMediaReceiver, (err, player) => {
-                    clearTimeout(timeout);
-                    if (err || !player) {
-                        fail(err ?? new Error('launch failed'));
-                        return;
-                    }
-                    log.info(`[cast-bridge] ${this.friendlyName}: media receiver launched`);
-                    this.castClient = client;
-                    this.castPlayer = player;
-                    // castv2-client leaks request listeners on slow channels.
-                    (
-                        player as unknown as { media?: { setMaxListeners?: (n: number) => void } }
-                    ).media?.setMaxListeners?.(50);
-                    player.on('status', (status) => this.onCastStatus(status));
-                    settled = true;
-                    resolve(player);
-                });
+                this.launchOrJoin(client).then(
+                    (player) => {
+                        clearTimeout(timeout);
+                        settled = true;
+                        resolve(this.adoptPlayer(client, player));
+                    },
+                    (err) => {
+                        clearTimeout(timeout);
+                        fail(err as Error);
+                    },
+                );
             });
         });
     }
 
     private connectHub(): void {
         if (this.destroyed) return;
+        let ws: WebSocket;
         try {
-            this.ws = new WebSocket(this.hubUrl);
+            ws = new WebSocket(this.hubUrl);
         } catch {
             this.scheduleReconnect();
             return;
         }
+        this.ws = ws;
 
-        this.ws.on('open', () => {
+        // Every handler below is bound to THIS socket but mutates state shared by the bridge, so
+        // each one checks it is still the current socket first. The hub closes the PREVIOUS socket
+        // with 4003 on any re-registration of a device id (hub.py `_register`), which means a stale
+        // `close` fires in the ordinary reconnect case. Unguarded it set `standingDown` and nulled
+        // `this.ws` while the replacement was live — after which send() dropped every outbound
+        // frame (`loaded`, `released`, `report`, `deviceState`) while inbound `do:*` kept running.
+        // A dropped `loaded` is indistinguishable to the hub from a load that failed.
+        const isCurrent = () => ws === this.ws;
+
+        ws.on('open', () => {
+            if (!isCurrent()) return;
             log.info(`[cast-bridge] ${this.friendlyName}: registered with hub`);
             // Reset the backoff only once the connection has PROVEN itself. Doing it here
             // unconditionally made an accept-then-evict cycle read as a success, so the
@@ -631,10 +743,12 @@ class CastDeviceBridge {
             });
             this.startReachability();
         });
-        this.ws.on('pong', () => {
+        ws.on('pong', () => {
+            if (!isCurrent()) return;
             this.hubAlive = true;
         });
-        this.ws.on('message', (data) => {
+        ws.on('message', (data) => {
+            if (!isCurrent()) return;
             try {
                 const msg = JSON.parse(data.toString());
                 if (msg.t === 'do') {
@@ -651,7 +765,8 @@ class CastDeviceBridge {
                 /* bad frame */
             }
         });
-        this.ws.on('close', (code) => {
+        ws.on('close', (code) => {
+            if (!isCurrent()) return;
             this.stopReachability();
             if (code === SUPERSEDED_CODE) {
                 // Another client bridges this speaker. Stand down rather than
@@ -669,29 +784,31 @@ class CastDeviceBridge {
             log.warn(`[cast-bridge] ${this.friendlyName}: hub connection closed (${code})`);
             this.scheduleReconnect();
         });
-        this.ws.on('error', (err) => {
+        ws.on('error', (err) => {
+            if (!isCurrent()) return;
             log.error(`[cast-bridge] ${this.friendlyName}: hub connection error`, err.message);
         });
     }
 
-    private async ensureCast(): Promise<import('castv2-client').CastPlayer> {
-        // `castPlayer` is a plain object and stays valid-looking indefinitely — a
-        // Chromecast closes its receiver app after a few idle minutes and nothing here
-        // is told. Reusing it unasked is what made "cast to the TV" assume a session
-        // that had been dead for days: the load went into the void, and the ~20 s of
-        // stacked timeouts before it gave up were 20 s of every client showing a
-        // playing bar over a silent TV.
-        if (this.castPlayer) {
-            if (await this.castLinkAlive()) return this.castPlayer;
-            log.info(
-                `[cast-bridge] ${this.friendlyName}: cached cast session is dead — relaunching`,
-            );
-            this.teardownCast();
-        }
-        return this.connectCast();
+    /**
+     * A live cast session, building one if needed — and never more than one at a time.
+     *
+     * The serialization is the point: see [castSetup].
+     */
+    private ensureCast(): Promise<import('castv2-client').CastPlayer> {
+        if (this.castSetup) return this.castSetup;
+        const attempt = this.buildCastSession().finally(() => {
+            if (this.castSetup === attempt) this.castSetup = null;
+        });
+        this.castSetup = attempt;
+        return attempt;
     }
 
     private async handleDo(msg: any): Promise<void> {
+        // Logged unconditionally, as Navic's bridge already does: when a transfer misbehaves the
+        // first thing worth knowing is what the hub actually asked for and how many times. Two
+        // `load`s 150 ms apart and one `load` that took two attempts look identical without this.
+        log.info(`[cast-bridge] ${this.friendlyName}: do ${msg.cmd}`);
         try {
             switch (msg.cmd) {
                 case 'jump':
@@ -725,7 +842,11 @@ class CastDeviceBridge {
                         log.warn(
                             `[cast-bridge] ${this.friendlyName}: pause did not reach the device`,
                         );
-                        this.teardownCast();
+                        // Only tear down a session we actually hold. With no player there is
+                        // nothing to drop, and doing it anyway wrecked an in-flight build: a
+                        // `do:pause` arriving mid-load nulled the client the builder was about
+                        // to adopt and cleared `playing` under it.
+                        if (this.castPlayer) this.teardownCast();
                         this.playing = false;
                         this.report();
                     }
@@ -736,10 +857,27 @@ class CastDeviceBridge {
                     // void while we reported playback that made no sound, with no way back
                     // short of switching devices. Prove the session is still there first,
                     // and rebuild it from the last known position when it isn't.
-                    if (this.castPlayer && (await this.castSessionAlive())) {
-                        this.castPlayer.play(noop);
+                    // And PLAY itself has to land, like pause and seek below: a
+                    // fire-and-forget play() reported as fact is the same lie one level
+                    // down, and the speaker's next status flipped the hub back to paused
+                    // a beat later — the play/pause oscillation, made here.
+                    if (
+                        this.castPlayer &&
+                        (await this.castSessionAlive()) &&
+                        (await this.commandLanded((cb) => this.castPlayer?.play(cb)))
+                    ) {
                         this.playing = true;
                         this.report();
+                    } else if (this.loadInFlight) {
+                        // A load is already building this exact session. Starting a second one
+                        // is how a `do:play` arriving mid-transfer loaded the same track at a
+                        // *stale* `lastPositionMs` — 128s where the transfer had asked for 141s
+                        // — and the later LOAD won. Let the one in progress finish.
+                        log.info(
+                            `[cast-bridge] ${this.friendlyName}: play while a load is in ` +
+                                'flight — waiting for it instead of starting another',
+                        );
+                        await this.loadInFlight;
                     } else if (this.tracks.length) {
                         if (this.castPlayer) {
                             log.info(
@@ -775,17 +913,31 @@ class CastDeviceBridge {
                         positionMs: this.lastPositionMs,
                         t: 'released',
                     });
-                    // stop() throws synchronously inside castv2 if no media
-                    // session is active (e.g. the last load failed → IDLE/ERROR,
-                    // so mediaSessionId is undefined). Isolate it so the throw
-                    // doesn't skip resetting `releasing` (which would freeze all
-                    // future reporting on this bridge).
+                    // PAUSE, not STOP. Releasing means "stop making sound", and pause does
+                    // that — while STOP ends the media session and takes the receiver app
+                    // down with it, which is a far bigger commitment than the handshake
+                    // needs and turns out to be the thing that breaks casting back.
+                    //
+                    // Measured, across four sessions of logs: every LAUNCH that followed a
+                    // release-with-stop was answered `LAUNCH_ERROR: CANCELLED`, and every
+                    // LAUNCH with no stop before it succeeded. Whatever state STOP leaves the
+                    // device in, it does not accept a new launch out of it — 9 s later, 12 s
+                    // later, on a fresh socket, retried: all cancelled. Leaving the app up
+                    // sidesteps the launch entirely, because the next `do:load` finds a live
+                    // session and simply loads into it (which is what the runs that DID work
+                    // were doing). The speaker idles the app out by itself eventually, and a
+                    // launch after a genuinely quiet stretch is the case that works.
+                    //
+                    // Still isolated: these throw synchronously inside castv2 when no media
+                    // session is active (the last load failed → IDLE/ERROR, so there is no
+                    // mediaSessionId), and the throw must not skip resetting `releasing` —
+                    // that would freeze reporting on this bridge for good.
                     try {
-                        this.castPlayer?.stop(noop);
-                    } catch (stopError) {
+                        this.castPlayer?.pause(noop);
+                    } catch (pauseError) {
                         log.warn(
-                            `[cast-bridge] ${this.friendlyName}: stop on release skipped (no active media session)`,
-                            stopError,
+                            `[cast-bridge] ${this.friendlyName}: pause on release skipped (no active media session)`,
+                            pauseError,
                         );
                     }
                     this.releasing = false;
@@ -804,8 +956,12 @@ class CastDeviceBridge {
                         log.warn(
                             `[cast-bridge] ${this.friendlyName}: seek did not reach the device — reloading`,
                         );
+                        // teardownCast() clears `playing`, so capture it first — otherwise the
+                        // reload below always passes play:false and a failed seek silently
+                        // pauses the session. Same capture as onCastSocketClosed and the ticker.
+                        const wasPlaying = this.playing;
                         this.teardownCast();
-                        await this.loadCurrent(target, this.playing);
+                        await this.loadCurrent(target, wasPlaying);
                     }
                     break;
                 }
@@ -828,8 +984,62 @@ class CastDeviceBridge {
         }
     }
 
+    private launchOrJoin(client: Client): Promise<import('castv2-client').CastPlayer> {
+        return new Promise((resolve, reject) => {
+            client.getSessions((err, sessions) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                const running = (sessions ?? []).find(
+                    (session) => session.appId === DEFAULT_MEDIA_RECEIVER_APP_ID,
+                );
+                if (running) {
+                    client.join(running, DefaultMediaReceiver, (joinErr, player) => {
+                        if (joinErr || !player) {
+                            reject(joinErr ?? new Error('join failed'));
+                            return;
+                        }
+                        log.info(
+                            `[cast-bridge] ${this.friendlyName}: joined the running media receiver`,
+                        );
+                        resolve(player);
+                    });
+                    return;
+                }
+                client.launch(DefaultMediaReceiver, (launchErr, player) => {
+                    if (launchErr || !player) {
+                        // Deliberately no retry. Across four sessions of logs not one retry
+                        // ever succeeded — at 1.1 s, 2.4 s, 2.6 s or 3.4 s after the first
+                        // refusal — while it spent 3 s of the hub's 10 s LOAD_TIMEOUT and
+                        // delayed the honest `loaded {ok:false}`. Failing fast is worth more
+                        // than a retry with no observed success.
+                        //
+                        // Log what the receiver says instead. Why it cancels is still not
+                        // established, and this is the state nobody has looked at yet:
+                        // `applications` (the backdrop counts as one), `isStandBy`,
+                        // `isActiveInput`.
+                        this.logReceiverState(client, 'after a cancelled launch');
+                        reject(launchErr ?? new Error('launch failed'));
+                        return;
+                    }
+                    log.info(`[cast-bridge] ${this.friendlyName}: media receiver launched`);
+                    resolve(player);
+                });
+            });
+        });
+    }
+
     /** @returns whether the speaker actually started (PROTOCOL §7.1's `loaded.ok`). */
-    private async loadCurrent(positionMs: number, play: boolean): Promise<boolean> {
+    private loadCurrent(positionMs: number, play: boolean): Promise<boolean> {
+        const attempt = this.loadCurrentOnce(positionMs, play).finally(() => {
+            if (this.loadInFlight === attempt) this.loadInFlight = null;
+        });
+        this.loadInFlight = attempt;
+        return attempt;
+    }
+
+    private async loadCurrentOnce(positionMs: number, play: boolean): Promise<boolean> {
         const track = this.tracks[this.index];
         if (!track) return false;
         if (!track.streamUrl) {
@@ -934,6 +1144,52 @@ class CastDeviceBridge {
         this.report();
         this.startTicker();
         return true;
+    }
+
+    /**
+     * Get a media receiver on this connection: JOIN the running one, LAUNCH only if there isn't.
+     *
+     * The distinction is the whole bug. `client.launch()` on an app that is **already running** is
+     * answered `LAUNCH_ERROR: CANCELLED` — the receiver cancels the redundant launch — and the
+     * bridge had no way to tell that apart from "the speaker refused me". It got there because the
+     * liveness probe asks the *media* namespace on a `transportId` from the previous session: when
+     * the app restarts that id is dead while `CC1AD845` itself is alive and well, so the probe says
+     * "session dead", we LAUNCH, and the device cancels it — every time, for as long as the app
+     * keeps running. Which is why it failed persistently rather than transiently, and why the
+     * ~1.2 s to the refusal was identical to the ~1.2 s of a successful launch: the device was not
+     * racing anything, it was answering.
+     *
+     * Navic's bridge has always done this (`CastChannel.launchOrJoin`); Feishin only ever joined on
+     * the separate adoption path, and this load path went straight to LAUNCH.
+     *
+     * Joining a session that isn't ours is fine here: this runs for an explicit `do:load`, and the
+     * LOAD that follows takes the session over anyway. The ownership check belongs to adoption,
+     * which is speculative — this is the user asking.
+     */
+    /**
+     * Dump what the receiver believes about itself. Diagnostic only — never gates anything.
+     *
+     * Three theories about the refusal have now been wrong, and each was wrong because it reasoned
+     * about the device's state instead of reading it. This reads it.
+     */
+    private logReceiverState(client: Client, when: string): void {
+        try {
+            client.getStatus((err, status) => {
+                if (err) {
+                    log.warn(
+                        `[cast-bridge] ${this.friendlyName}: receiver status ${when} ` +
+                            `unavailable (${err.message})`,
+                    );
+                    return;
+                }
+                log.info(
+                    `[cast-bridge] ${this.friendlyName}: receiver status ${when}: ` +
+                        JSON.stringify(status),
+                );
+            });
+        } catch {
+            /* diagnostics must never throw into the caller */
+        }
     }
 
     /**
@@ -1045,6 +1301,53 @@ class CastDeviceBridge {
             appRunning: !!this.castPlayer,
             reachable,
             t: 'deviceState',
+        });
+    }
+
+    /**
+     * Start a fresh receiver session on the connection we already have.
+     *
+     * Returns null if we have no client, it refuses, or it doesn't answer in time — all of which
+     * mean the caller has to build a connection from scratch.
+     */
+    private relaunchOnCurrentClient(): Promise<import('castv2-client').CastPlayer | null> {
+        return new Promise((resolve) => {
+            const client = this.castClient;
+            if (!client) {
+                resolve(null);
+                return;
+            }
+            let settled = false;
+            const done = (player: import('castv2-client').CastPlayer | null) => {
+                if (!settled) {
+                    settled = true;
+                    resolve(player);
+                }
+            };
+            // Bounded tightly: this is the optimistic path, and the whole load still has to
+            // answer `loaded` inside the hub's 10 s LOAD_TIMEOUT (§7.1).
+            const timer = setTimeout(() => done(null), RELAUNCH_TIMEOUT_MS);
+            try {
+                this.launchOrJoin(client).then(
+                    (player) => {
+                        clearTimeout(timer);
+                        done(this.adoptPlayer(client, player));
+                    },
+                    (err: Error) => {
+                        clearTimeout(timer);
+                        log.info(
+                            `[cast-bridge] ${this.friendlyName}: could not get a receiver on the ` +
+                                `existing connection (${err?.message ?? 'no player'}) — ` +
+                                'reconnecting',
+                        );
+                        done(null);
+                    },
+                );
+            } catch {
+                // castv2 throws synchronously on a dead socket.
+                clearTimeout(timer);
+                done(null);
+            }
         });
     }
 
@@ -1245,6 +1548,7 @@ class CastDeviceBridge {
         this.castClient = null;
         this.castPlayer = null;
         this.playing = false;
+        this.announceAppGone();
     }
 
     // Re-join a Chromecast session that's still playing after our socket dropped,

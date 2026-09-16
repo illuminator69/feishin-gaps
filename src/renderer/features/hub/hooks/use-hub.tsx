@@ -111,6 +111,7 @@ export const useHub = () => {
         mediaPlayByIndex,
         mediaSeekToTimestamp,
         mediaStop,
+        reconcileQueue,
         setQueue,
         setRepeat,
         setShuffle,
@@ -139,6 +140,8 @@ export const useHub = () => {
     const lastProgressReportAt = useRef(0);
     // Throttles the unclaimed-session escape in publishQueue (see there).
     const lastUnclaimedPublishAt = useRef(0);
+    // Latest-wins guard over the async queue publications — see publishQueue.
+    const publishGen = useRef(0);
     // Have we ever published a non-empty queue? Gates the "queue cleared" publish so the
     // momentarily-empty queue at startup can't wipe the hub session.
     const sawNonEmptyQueue = useRef(false);
@@ -284,7 +287,15 @@ export const useHub = () => {
                     }
                     return {
                         album: item.album ?? undefined,
+                        // The ids, not just the names. A receiver rebuilding this track
+                        // for its playerbar otherwise has nothing to link to until it
+                        // has round-tripped getSongDetail — which is why the artist name
+                        // rendered as plain text on remote playback.
+                        albumId: item.albumId ?? undefined,
                         artist: item.artistName,
+                        artists: item.artists?.length
+                            ? item.artists.map((a) => ({ id: a.id, name: a.name }))
+                            : undefined,
                         durationMs: item.duration ?? undefined,
                         favorite: item.userFavorite,
                         id: item.id,
@@ -446,11 +457,20 @@ export const useHub = () => {
             );
         }
         const sqId = resolveSavedQueueId(items.map((item) => item.id));
-        void (async () =>
+        // buildHubTracks resolves a stream URL per uncached track — real network I/O, so two
+        // publications can finish out of order and leave the hub holding the OLDER queue. Worse,
+        // `lastQueueSig` was advanced above for both, so the dedupe then suppresses the
+        // corrective publish and the session stays wrong until the queue changes again.
+        // A generation fixes the ordering; re-reading the store fixes the staleness.
+        const gen = ++publishGen.current;
+        void (async () => {
+            const tracks = await buildHubTracks(items);
+            if (gen !== publishGen.current) return;
+            const live = usePlayerStore.getState();
             hub.send({
                 action: 'setQueue',
                 coverImageUrl: savedQueueCoverUrl(),
-                index: index.current,
+                index: live.player.index,
                 play: playing.current,
                 positionMs: positionMs.current,
                 savedQueueId: sqId,
@@ -458,8 +478,9 @@ export const useHub = () => {
                 sourceKind: savedQueueKind.current,
                 sourceName: savedQueueName.current,
                 t: 'act',
-                tracks: await buildHubTracks(items),
-            }))();
+                tracks,
+            });
+        })();
     }, [buildHubTracks, resolveSavedQueueId, savedQueueCoverUrl]);
 
     // Spotify semantics: if the user starts playback locally while another
@@ -494,11 +515,16 @@ export const useHub = () => {
         }
         lastRoutedAt.current = Date.now();
         const sqId = resolveSavedQueueId(items.map((item) => item.id));
-        void (async () =>
+        // Same generation as publishQueue: these two race each other as readily as either
+        // races itself, and the loser must not overwrite the winner's queue.
+        const gen = ++publishGen.current;
+        void (async () => {
+            const tracks = await buildHubTracks(items);
+            if (gen !== publishGen.current) return;
             hub.send({
                 action: 'setQueue',
                 coverImageUrl: savedQueueCoverUrl(),
-                index: state.player.index,
+                index: usePlayerStore.getState().player.index,
                 play: true,
                 positionMs: 0,
                 savedQueueId: sqId,
@@ -506,8 +532,9 @@ export const useHub = () => {
                 sourceKind: savedQueueKind.current,
                 sourceName: savedQueueName.current,
                 t: 'act',
-                tracks: await buildHubTracks(items),
-            }))();
+                tracks,
+            });
+        })();
         // Keep the sig in sync so publishQueue doesn't re-send this queue later.
         lastQueueSig.current = items.map((item) => item.id).join(',');
         // The session plays it remotely — silence the local player.
@@ -518,6 +545,73 @@ export const useHub = () => {
     // superseded load, a queue that changed under us) would otherwise ambush the next
     // unrelated track change, seeking it to a stale offset. Expire them.
     const PENDING_SEEK_TTL = 10_000;
+
+    // ------------------------------------------------------------------ //
+    // Load acknowledgement (PROTOCOL §7.1-7.2)
+    //
+    // `loaded {ok:true}` must mean playback was established, not that we called the
+    // player's API. Every queue/seek/play call here is asynchronous — the file's own
+    // delayed seek and delayed re-pause exist precisely because they are — so acking
+    // straight after issuing them proves only that the commands left this function.
+    // The hub then commits the active slot on that word and every device shows a
+    // playing bar over silence.
+    //
+    // So watch for the outcome instead. Engine ground truth differs by intent:
+    //   playing -> the target track is current AND the engine clock is advancing
+    //              (`advancingSince`, fed by onPlayerProgress deltas — the same signal
+    //              the runaway watchdogs trust)
+    //   paused  -> the target track is current, we are not playing, and the timestamp
+    //              store sits at the requested offset (i.e. the seek actually landed)
+    // ------------------------------------------------------------------ //
+    const loadGen = useRef(0);
+    // Time kept back from the hub's budget for the ack's own trip. Answering at the
+    // deadline is the same as not answering: the hub has already rolled back.
+    const ACK_RESERVE_MS = 1500;
+    const ROLLING_PROOF_MS = 600;
+    const PAUSED_POSITION_SLACK_SEC = 3;
+
+    const awaitLoadOutcome = useCallback(
+        async (
+            gen: number,
+            targetIndex: number,
+            targetSec: number,
+            wantPause: boolean,
+            budgetMs: number,
+        ): Promise<{ error?: string; ok: boolean }> => {
+            const deadline = Date.now() + Math.max(1000, budgetMs - ACK_RESERVE_MS);
+            for (;;) {
+                // A newer load (or a release) owns the player now. Say nothing: this
+                // transfer's slot has already moved on, and an ack from here could only
+                // describe a queue we no longer have.
+                if (loadGen.current !== gen) return { error: 'superseded', ok: false };
+                const state = usePlayerStore.getState();
+                const onTarget = state.player.index === targetIndex;
+                if (onTarget) {
+                    if (!wantPause) {
+                        const rolling =
+                            advancingSince.current > 0 &&
+                            Date.now() - advancingSince.current >= ROLLING_PROOF_MS;
+                        if (rolling) return { ok: true };
+                    } else if (state.player.status !== PlayerStatus.PLAYING) {
+                        const at = useTimestampStoreBase.getState().timestamp || 0;
+                        if (Math.abs(at - targetSec) <= PAUSED_POSITION_SLACK_SEC) {
+                            return { ok: true };
+                        }
+                    }
+                }
+                if (Date.now() >= deadline) {
+                    return {
+                        error: onTarget
+                            ? `the player never ${wantPause ? 'settled at' : 'started'} the requested track`
+                            : 'the queue never reached the requested track',
+                        ok: false,
+                    };
+                }
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+        },
+        [],
+    );
 
     // Arm a seek for when the player reports the target track. If that track is ALREADY
     // current, seeking now is both correct and necessary — nothing will re-arm it,
@@ -535,9 +629,19 @@ export const useHub = () => {
     );
 
     const resolveSongs = useCallback(
-        (tracks: Array<any>): Promise<Song[]> => resolveHubTracks(tracks, serverIdRef.current),
+        (tracks: Array<any>, known?: Map<string, Song>): Promise<Song[]> =>
+            resolveHubTracks(tracks, serverIdRef.current, known),
         [],
     );
+
+    /** Songs the local queue already holds, by id — spares resolveSongs a round trip each. */
+    const heldSongs = useCallback((): Map<string, Song> => {
+        const map = new Map<string, Song>();
+        for (const item of usePlayerStore.getState().getQueue().items) {
+            if (!map.has(item.id)) map.set(item.id, item as unknown as Song);
+        }
+        return map;
+    }, []);
 
     const handleDo = useCallback(
         async (msg: any) => {
@@ -557,7 +661,11 @@ export const useHub = () => {
                 case 'load': {
                     // PROTOCOL §7.1: a transfer's load must be acknowledged, or the hub
                     // commits the active slot and never learns we couldn't start.
-                    let loadOk = false;
+                    // §7.2: the ack carries the directive's transferId, and must arrive
+                    // inside the budget the hub sent with it.
+                    const gen = ++loadGen.current;
+                    const transferId = msg.transferId;
+                    const budgetMs = Number(msg.timeoutMs) || 10_000;
                     const targetSec = (msg.positionMs ?? 0) / 1000;
                     const incomingIds: string[] = (msg.tracks ?? []).map((t: any) => t.id);
                     // We become the active device once this queue loads, so pre-set the
@@ -590,9 +698,8 @@ export const useHub = () => {
                         } else {
                             mediaSeekToTimestamp(targetSec);
                         }
-                        loadOk = true;
                     } else {
-                        const songs = await resolveSongs(msg.tracks);
+                        const songs = await resolveSongs(msg.tracks, heldSongs());
                         if (!songs.length) {
                             // Nothing resolved — the queue is unplayable here (server
                             // down, ids this server doesn't know). Say so rather than
@@ -601,6 +708,7 @@ export const useHub = () => {
                                 error: 'could not resolve any track in the queue',
                                 ok: false,
                                 t: 'loaded',
+                                transferId,
                             });
                             return;
                         }
@@ -616,11 +724,27 @@ export const useHub = () => {
                         };
                         // Load straight into the requested state — see setQueue's `play`.
                         setQueue(songs, msg.index ?? 0, targetSec, !wantPause);
-                        loadOk = true;
                     }
                     if (wantPause) mediaPause();
                     else mediaPlay();
-                    hub?.send({ ok: loadOk, t: 'loaded' });
+                    // Everything above is asynchronous. Watch for the result rather than
+                    // reporting the commands as one — see awaitLoadOutcome.
+                    const outcome = await awaitLoadOutcome(
+                        gen,
+                        msg.index ?? 0,
+                        targetSec,
+                        wantPause,
+                        budgetMs,
+                    );
+                    // A superseded load has no standing to answer: a newer directive owns
+                    // the player, and the hub has already cancelled this attempt's waiter.
+                    if (outcome.error === 'superseded') break;
+                    hub?.send({
+                        error: outcome.ok ? undefined : outcome.error,
+                        ok: outcome.ok,
+                        t: 'loaded',
+                        transferId,
+                    });
                     break;
                 }
                 case 'pause':
@@ -630,24 +754,48 @@ export const useHub = () => {
                     mediaPlay();
                     break;
                 case 'queueChanged': {
-                    // PROTOCOL §5.2: a queue edit must not disturb playback. setQueue
-                    // hard-codes PLAYING and restores from position 0, so carry the
-                    // current status/position across when the playing track is unchanged
-                    // (an enqueue/move/remove elsewhere in the queue).
+                    // PROTOCOL §5.2: a queue edit must not disturb playback — and the only
+                    // way to honour that is to not touch the audio engine at all when the
+                    // playing track survived the edit. See reconcileQueue below.
                     const before = usePlayerStore.getState();
                     const wasPlaying = before.player.status === PlayerStatus.PLAYING;
-                    const playingId = before.getQueue().items[before.player.index]?.id;
-                    const songs = await resolveSongs(msg.tracks);
+                    // getCurrentSong, not items[player.index]: under shuffle the index is a
+                    // position in the shuffled order, so indexing the display list names a
+                    // track that isn't playing — and everything below turns on this id.
+                    const playingId = before.getCurrentSong()?.id;
+                    // The edit resends the whole queue; only the ids we don't already hold
+                    // need a round trip.
+                    const songs = await resolveSongs(msg.tracks, heldSongs());
                     if (!songs.length) break;
                     hubDrivenUntil.current = Date.now() + 2000;
-                    const nextIndex = msg.index ?? 0;
-                    const sameSong = !!playingId && songs[nextIndex]?.id === playingId;
-                    const keepSec = sameSong ? positionMs.current / 1000 : 0;
-                    // PROTOCOL §5.2 again: a queue edit must not START playback either.
-                    setQueue(songs, nextIndex, keepSec, wasPlaying);
-                    if (sameSong) {
-                        armSeek(nextIndex, keepSec, !wasPlaying);
+                    // The hub echoes ITS OWN cursor, which is only as fresh as our last 1 Hz
+                    // report. An Auto DJ top-up landing just after a local auto-advance therefore
+                    // names the track that has already ENDED, `sameSong` reads false, and the
+                    // setQueue below restarts it from the top — a song playing twice in a row.
+                    // Re-locate the playing track by id, exactly as the cast bridge does
+                    // (`CastDeviceBridge.handleDo`'s `queueChanged`). The hub's index still wins
+                    // when it already agrees, so a queue holding the same track twice keeps
+                    // pointing at the copy that is actually playing.
+                    let nextIndex = msg.index ?? 0;
+                    if (playingId && songs[nextIndex]?.id !== playingId) {
+                        const relocated = songs.findIndex((song) => song.id === playingId);
+                        if (relocated >= 0) nextIndex = relocated;
                     }
+                    const sameSong = !!playingId && songs[nextIndex]?.id === playingId;
+                    if (sameSong) {
+                        // The playing track survived the edit, so the audio engine has
+                        // nothing to do: reconcile the list around it and leave the source,
+                        // the play state and the playhead exactly where they are. No
+                        // setQueue, and — crucially — no seek. Restoring a position the
+                        // engine never left is what made every remote enqueue audible as a
+                        // one-second gap with the artwork blinking through it.
+                        reconcileQueue(songs, nextIndex);
+                        break;
+                    }
+                    // The playing track is gone (removed from under us). Its replacement has
+                    // to be loaded for real — from the top, since there is no position to
+                    // carry across. PROTOCOL §5.2: don't START playback if we were paused.
+                    setQueue(songs, nextIndex, 0, wasPlaying);
                     break;
                 }
                 case 'release': {
@@ -655,12 +803,20 @@ export const useHub = () => {
                     // hub captures our exact spot before handing off. positionMs is fed
                     // by every onPlayerProgress tick (only the 1 Hz *report* is
                     // throttled), so it's already the engine's live position.
+                    //
+                    // Invalidate any load in flight first: the session is leaving this
+                    // device, so an outstanding awaitLoadOutcome has nothing left to
+                    // acknowledge and must not answer for a queue we no longer own.
+                    loadGen.current += 1;
                     mediaPause();
                     report({ isPlaying: false });
                     hub?.send({
                         index: index.current,
                         positionMs: positionMs.current,
                         t: 'released',
+                        // §7.2 — echo the handoff this release belongs to, so a duplicate
+                        // from an earlier one can't complete it.
+                        transferId: msg.transferId,
                     });
                     break;
                 }
@@ -681,13 +837,15 @@ export const useHub = () => {
             }
         },
         [
-            armSeek,
+            awaitLoadOutcome,
             clearQueue,
+            heldSongs,
             mediaPause,
             mediaPlay,
             mediaPlayByIndex,
             mediaSeekToTimestamp,
             mediaStop,
+            reconcileQueue,
             report,
             resolveSongs,
             setQueue,
@@ -731,7 +889,23 @@ export const useHub = () => {
                 // active device a moment ago; anything else fell through to the rewind
                 // branch below and yanked local playback back to the hub's frozen
                 // cursor — which is what stopped auto-advance.)
-                if (playing.current) {
+                // Publishing here IS a claim — it promotes this client to active and starts
+                // the session — so it needs more than `playing.current`, which only mirrors the
+                // store. There are three windows where the store says PLAYING and the user asked
+                // for nothing: while the hub is driving us, while an adopt-pause is still
+                // settling, and in the beat right after `hardPause` deliberately set the store
+                // PLAYING to correct a desync before pausing for real. A `session` frame landing
+                // in that last one turned a watchdog pause into "this client takes the session
+                // and plays" — the desktop starting up on its own after a cast transfer failed
+                // and the hub handed the slot back as null. `playing.current` is kept as the
+                // positive signal because the engine clock resets at every track boundary, and
+                // requiring it would pause a client that is legitimately mid-queue.
+                const weAreTheLiveReceiver =
+                    playing.current &&
+                    Date.now() >= hubDrivenUntil.current &&
+                    Date.now() >= adoptPauseGuardUntil.current &&
+                    Date.now() - lastHardPauseAt.current >= 2000;
+                if (weAreTheLiveReceiver) {
                     lastQueueSig.current = '';
                     publishQueue();
                     return;
@@ -788,6 +962,31 @@ export const useHub = () => {
             }, 400);
         },
         [armSeek, hardPause, mediaPause, mediaPlayByIndex, publishQueue, resolveSongs, setQueue],
+    );
+
+    /**
+     * Run hub directives one at a time, in the order the hub sent them.
+     *
+     * They used to be fired off as independent promises, so a `load` or `queueChanged` that spent
+     * a second resolving songs could still be running when the next seek, pause or release
+     * arrived — and then finish last, replacing the queue, re-arming `hubDrivenUntil` and arming a
+     * stale pending seek on top of newer intent. One mutable `pendingSeek` was never enough
+     * correlation for that. Serializing costs nothing (the hub sends one directive at a time in
+     * the normal case) and makes "last directive wins" actually true.
+     */
+    const directiveChain = useRef<Promise<void>>(Promise.resolve());
+    const runDirective = useCallback(
+        (msg: any): Promise<void> => {
+            const next = directiveChain.current.then(() =>
+                handleDo(msg).catch((e) => {
+                    // One bad directive must not break the chain for every later one.
+                    console.error('[hub] directive failed', msg?.cmd, e);
+                }),
+            );
+            directiveChain.current = next;
+            return next;
+        },
+        [handleDo],
     );
 
     // Held in a ref so the long-lived message handler below can call it without
@@ -893,9 +1092,12 @@ export const useHub = () => {
                 // lb-bot placed an album somewhere on the network. Whichever
                 // device did the asking, every device's idea of what the library
                 // holds — and of what lb-bot still calls missing — is now stale.
-                libraryRefresh.current();
+                libraryRefresh.current(undefined, {
+                    event: typeof msg.event === 'string' ? msg.event : undefined,
+                    ndAlbumIds: Array.isArray(msg.ndAlbumIds) ? msg.ndAlbumIds : undefined,
+                });
             } else if (msg.t === 'do') {
-                void handleDo(msg);
+                void runDirective(msg);
             } else if (msg.t === 'disconnected') {
                 // The main process lost the socket. Clear active/connected so
                 // isRemoteSessionActive() releases the player bar and the local
@@ -925,7 +1127,7 @@ export const useHub = () => {
             }
         });
         return () => dispose();
-    }, [adoptIfNoLiveReceiver, handleDo, publishQueue, reconcileRemoteActive]);
+    }, [adoptIfNoLiveReceiver, publishQueue, reconcileRemoteActive, runDirective]);
 
     // Deleting the history record we're publishing into restarts the session, so the queue
     // still playing gets a fresh card instead of disappearing from Continue Listening.

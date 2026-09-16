@@ -55,14 +55,20 @@ export const placeholderSong = (track: HubTrackLike, serverId: string): Song =>
 export const resolveHubTracks = async (
     tracks: HubTrackLike[],
     serverId: null | string,
+    // Songs this client already holds, by id. A queue edit resends the WHOLE queue, so
+    // without this an Auto DJ top-up of five tracks fired one getSongDetail per track in
+    // the queue — hundreds of requests, on the client that is playing, for five new ids.
+    known?: Map<string, Song>,
 ): Promise<Song[]> => {
     if (!serverId || !tracks?.length) return [];
     const results = await Promise.all(
-        tracks.map((track) =>
-            api.controller
+        tracks.map((track) => {
+            const already = known?.get(track.id);
+            if (already) return Promise.resolve(already);
+            return api.controller
                 .getSongDetail({ apiClientProps: { serverId }, query: { id: track.id } })
-                .catch(() => null),
-        ),
+                .catch(() => null);
+        }),
     );
     return results.map((song, i) => song ?? placeholderSong(tracks[i], serverId));
 };

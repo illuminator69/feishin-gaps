@@ -11,6 +11,10 @@ declare module 'castv2-client' {
         close(): void;
         connect(host: string | { host: string; port?: number }, callback: () => void): void;
         getSessions(callback: (err: Error | null, sessions: CastSession[]) => void): void;
+        // The receiver's own view of itself (volume, running applications). Diagnostic
+        // only — logReceiverState reads it instead of reasoning about the device's state,
+        // which is how three separate theories about the LAUNCH refusal went wrong.
+        getStatus(callback: (err: Error | null, status: unknown) => void): void;
         join(
             session: CastSession,
             app: unknown,

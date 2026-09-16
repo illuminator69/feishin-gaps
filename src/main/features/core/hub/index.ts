@@ -48,49 +48,89 @@ export interface HubDeviceInfo {
 
 let knownDevices: HubDeviceInfo[] = [];
 let reconnectTimer: NodeJS.Timeout | undefined;
-let heartbeatTimer: NodeJS.Timeout | undefined;
 let backoffMs = INITIAL_BACKOFF_MS;
-let isAlive = false;
 let shouldRun = false;
+
+/**
+ * Which connection attempt is current.
+ *
+ * Every listener below used to close over the module-level `ws` rather than the socket
+ * its own connect() created, so a socket that died slowly could still act on its
+ * replacement: socket A's late close ran scheduleReconnect(), which set the global `ws`
+ * to undefined and stopped the shared heartbeat — orphaning a perfectly healthy socket
+ * B. From then on send() dropped every frame and isHubConnected() said false, with
+ * nothing in the log to say why. Changing settings (stop(); start()) is the easy way to
+ * hit it, because it guarantees an old socket is closing while a new one opens.
+ *
+ * So each attempt captures its own socket and generation, and touches shared state only
+ * while it is still the current one.
+ */
+let generation = 0;
+
+const isCurrent = (socket: WebSocket, gen: number): boolean => gen === generation && socket === ws;
 
 function connect(): void {
     if (!shouldRun || !config.url) return;
+    const gen = ++generation;
+    let socket: WebSocket;
     try {
-        ws = new WebSocket(config.url);
+        socket = new WebSocket(config.url);
     } catch {
-        scheduleReconnect();
+        scheduleReconnect(undefined, gen);
         return;
     }
+    ws = socket;
+    // Per-connection, so a dying socket's heartbeat can never ping or terminate its
+    // successor — and so the successor's cannot be cleared out from under it.
+    let heartbeat: NodeJS.Timeout | undefined;
+    let alive = false;
+    const stopBeat = () => {
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = undefined;
+    };
 
-    ws.on('open', () => {
+    socket.on('open', () => {
+        if (!isCurrent(socket, gen)) {
+            // Superseded while connecting. Close quietly: this socket has no business
+            // registering a device id its replacement is already claiming, and the hub
+            // treats any re-registration as a claim (PROTOCOL §12.2).
+            try {
+                socket.close();
+            } catch {
+                /* ignore */
+            }
+            return;
+        }
         // The link is up — reset the backoff so the NEXT drop starts fast again.
         backoffMs = INITIAL_BACKOFF_MS;
-        isAlive = true;
-        stopHeartbeat();
-        heartbeatTimer = setInterval(() => {
+        alive = true;
+        heartbeat = setInterval(() => {
             // No pong since the last tick → the socket is half-open; kill it so
             // the close handler can reconnect instead of blocking forever.
-            if (!isAlive) {
+            if (!alive) {
                 try {
-                    ws?.terminate();
+                    socket.terminate();
                 } catch {
                     /* ignore */
                 }
                 return;
             }
-            isAlive = false;
+            alive = false;
             try {
-                ws?.ping();
+                socket.ping();
             } catch {
                 /* ignore */
             }
         }, HEARTBEAT_MS);
-        send({
+        sendOn(socket, {
             device: {
                 // `loadAck` (PROTOCOL §7.1): the renderer answers every transfer's
                 // do:load with a `loaded` frame, so a transfer here that can't start
                 // hands the session back instead of reading as playing everywhere.
-                caps: ['receiver', 'controller', 'loadAck'],
+                // `transferAckV2` (§7.2): that answer echoes the directive's transferId,
+                // so a reply the renderer took 10 s to produce can't satisfy the NEXT
+                // transfer to this device.
+                caps: ['receiver', 'controller', 'loadAck', 'transferAckV2'],
                 id: deviceId(),
                 name: config.name || 'Feishin',
                 platform: 'desktop',
@@ -99,10 +139,11 @@ function connect(): void {
             token: config.token,
         });
     });
-    ws.on('pong', () => {
-        isAlive = true;
+    socket.on('pong', () => {
+        alive = true;
     });
-    ws.on('message', (data) => {
+    socket.on('message', (data) => {
+        if (!isCurrent(socket, gen)) return;
         const text = data.toString();
         // Snoop the device registry on the way past. The cast bridge needs it to
         // arbitrate ownership of a speaker BEFORE it registers (PROTOCOL §12.2 steps
@@ -121,11 +162,15 @@ function connect(): void {
         }
         getMainWindow()?.webContents.send('hub-message', text);
     });
-    ws.on('close', () => {
+    socket.on('close', () => {
+        // Always stop this connection's own heartbeat; only the CURRENT connection gets
+        // to tell the renderer the transport went down and to schedule a reconnect.
+        stopBeat();
+        if (!isCurrent(socket, gen)) return;
         emitStatus('disconnected');
-        scheduleReconnect();
+        scheduleReconnect(socket, gen);
     });
-    ws.on('error', () => {
+    socket.on('error', () => {
         // 'close' fires after 'error'; reconnect is handled there.
     });
 }
@@ -149,9 +194,23 @@ function emitStatus(status: 'disconnected'): void {
     getMainWindow()?.webContents.send('hub-message', JSON.stringify({ t: status }));
 }
 
-function scheduleReconnect(): void {
+/**
+ * Retire a connection and queue the next attempt — but only if it was still the live one.
+ *
+ * A socket that closes after being replaced has nothing left to clean up. Clearing the
+ * globals from there is what used to orphan its successor.
+ */
+function scheduleReconnect(socket: undefined | WebSocket, gen: number): void {
+    if (gen !== generation) return;
+    if (socket !== undefined && socket !== ws) return;
     ws = undefined;
-    stopHeartbeat();
+    // The registry we snooped belongs to a connection that no longer exists. Cast
+    // arbitration reads it to decide whether a speaker is already bridged (§12.2), and an
+    // empty list is the "unknown, do not claim yet" state — which is the truth here. Left
+    // stale, it would let the bridge claim a speaker on the strength of a device list
+    // that could be minutes old.
+    knownDevices = [];
+    hubEvents.emit('devices', knownDevices);
     if (!shouldRun || reconnectTimer) return;
     const jitter = Math.random() * 0.3 * backoffMs;
     const delay = backoffMs + jitter;
@@ -163,8 +222,13 @@ function scheduleReconnect(): void {
 }
 
 function send(obj: unknown): void {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(obj));
+    sendOn(ws, obj);
+}
+
+/** Send on a specific socket, regardless of which one is current (used by the handshake). */
+function sendOn(socket: undefined | WebSocket, obj: unknown): void {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(obj));
         return;
     }
     // Silently doing nothing on a closed socket is how an `act` the user definitely performed
@@ -187,19 +251,16 @@ function stop(): void {
         clearTimeout(reconnectTimer);
         reconnectTimer = undefined;
     }
-    stopHeartbeat();
+    // Bump the generation before closing: the close fires asynchronously, and by then this
+    // socket must already be unable to speak for whatever start() has since created.
+    generation += 1;
+    const closing = ws;
+    ws = undefined;
+    knownDevices = [];
     try {
-        ws?.close();
+        closing?.close();
     } catch {
         /* ignore */
-    }
-    ws = undefined;
-}
-
-function stopHeartbeat(): void {
-    if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = undefined;
     }
 }
 

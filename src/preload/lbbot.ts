@@ -2,6 +2,7 @@ import type {
     LbBotDiscography,
     LbBotDownloadResult,
     LbBotFillStatus,
+    LbBotFreshFeed,
     LbBotGap,
     LbBotGapSource,
     LbBotReleaseDetail,
@@ -33,6 +34,24 @@ const discography = (ndId: string, mbid?: string): Promise<LbBotDiscography | nu
 const indexArtist = (ndId: string, mbid: string, name: string): Promise<null | string> =>
     ipcRenderer.invoke('lbbot-index-artist', { mbid, name, ndId });
 
+/** Add or refresh one release-group in an artist's index — the cheap alternative
+ *  to a full rescan for a release the stored discography predates. */
+const indexRelease = (args: {
+    artist?: string;
+    external?: boolean;
+    mbid?: string;
+    name?: string;
+    ndId?: string;
+    rgid: string;
+    title?: string;
+    type?: string;
+    year?: string;
+}): Promise<LbBotResult<boolean>> => ipcRenderer.invoke('lbbot-index-release', args);
+
+/** Site-wide fresh releases. Fail-soft: null when ListenBrainz or lb-bot is down. */
+const freshReleases = (days: number): Promise<LbBotFreshFeed | null> =>
+    ipcRenderer.invoke('lbbot-fresh-releases', { days });
+
 const albumReleases = (rgid: string): Promise<LbBotReleaseDetail | null> =>
     ipcRenderer.invoke('lbbot-album-releases', { rgid });
 
@@ -59,9 +78,11 @@ const downloadAlbum = (
     quality?: string,
     source?: { folder: string; peer: string },
     edition?: LbBotResolvedEdition,
+    excludeUsers?: string[],
 ): Promise<LbBotDownloadResult> =>
     ipcRenderer.invoke('lbbot-download-album', {
         artist: edition?.artist,
+        excludeUsers,
         quality,
         releaseMbid: edition?.releaseMbid,
         rgid,
@@ -73,6 +94,9 @@ const downloadAlbum = (
 
 const albumStatus = (releaseMbid?: string, rgid?: string): Promise<LbBotFillStatus> =>
     ipcRenderer.invoke('lbbot-album-status', { releaseMbid, rgid });
+
+const cancelAlbum = (releaseMbid: string): Promise<{ ok: boolean; status: LbBotFillStatus }> =>
+    ipcRenderer.invoke('lbbot-cancel-album', { releaseMbid });
 
 const allowMp3 = (groupId: string, allow = true): Promise<boolean> =>
     ipcRenderer.invoke('lbbot-allow-mp3', { allow, groupId });
@@ -113,8 +137,10 @@ export const lbBot = {
     albumStatus,
     albumTracklist,
     allowMp3,
+    cancelAlbum,
     discography,
     downloadAlbum,
+    freshReleases,
     gap,
     gapAuto,
     gapCancel,
@@ -123,6 +149,7 @@ export const lbBot = {
     gapSearch,
     gapSourceFiles,
     indexArtist,
+    indexRelease,
     notify,
     status,
 };

@@ -84,6 +84,24 @@ export interface LbBotEdition {
 }
 
 /**
+ * What kind of failure ended a fill. Alongside — never instead of — lb-bot's own
+ * `reason` sentence, which stays the thing shown to the user.
+ *
+ * `no_source` nobody was sharing it · `format_rejected` peers had it, the format
+ * policy turned them all away · `transfer_failed` the transfer itself ·
+ * `placement_failed` downloaded but not filed · `mb_unavailable` MusicBrainz
+ * would not answer, so the files could not be tagged.
+ */
+export type LbBotFailureKind =
+    | ''
+    | 'cancelled'
+    | 'format_rejected'
+    | 'mb_unavailable'
+    | 'no_source'
+    | 'placement_failed'
+    | 'transfer_failed';
+
+/**
  * unknown → searching → queued → downloading → placing → placed → verified,
  * with needs_match and failed as side exits.
  *
@@ -106,8 +124,13 @@ export type LbBotFillState =
 export interface LbBotFillStatus {
     album: string;
     artist: string;
+    /** How many fills this release has had. Cumulative, and it survives an
+     *  lb-bot restart, so it tells one failure from four. */
+    attempts: number;
     done: number;
     failed: number;
+    /** Empty on anything that has not failed — read it unconditionally. */
+    failureKind: LbBotFailureKind;
     /** lb-bot review group, when the album has one — required for Allow MP3. */
     groupId: string;
     /** The search rejected mp3s and would have found something with them. */
@@ -118,9 +141,19 @@ export interface LbBotFillStatus {
     /** lb-bot's own sentence for a failure. Shown verbatim. */
     reason: string;
     releaseMbid: string;
+    /**
+     * Whether a *plain* Retry is worth offering. Deliberately false for a format
+     * rejection MP3 would fix: re-running the identical search against the same
+     * peers under the same format policy is not a retry, it is the same failure
+     * again — `mp3WouldHelp` names the action that would actually change it.
+     */
+    retryable: boolean;
     /** The release-group the fill was started from — the handle the artist page
      *  needs to match a status back to the tile that started it. */
     rgid: string;
+    /** The Soulseek peer the transfer was queued from, auto-picked or chosen.
+     *  "Try another source" excludes it. Empty before the fill is queued. */
+    source: string;
     state: LbBotFillState;
     total: number;
 }
@@ -132,6 +165,56 @@ export interface LbBotFillStatus {
  * name. lb-bot speaks camelCase for its screen-shaped views (this one) and
  * snake_case for index rows (the discography).
  */
+/**
+ * One row of the site-wide ListenBrainz fresh-releases feed, as lb-bot normalizes
+ * it. Recent *and* upcoming — a `releaseDate` in the future is normal.
+ *
+ * **Two independent ownership flags, and they must never be conflated.**
+ * `artistOwned` says the artist is in the library; `releaseOwned` says this exact
+ * release-group is on disk. An owned artist with a brand-new album is still a
+ * download. (Upstream also sends `owned` as a backward-compatible alias for
+ * `artistOwned`; it is deliberately not carried here.)
+ */
+/**
+ * One page of the fresh-releases feed.
+ *
+ * `total` is how many rows lb-bot had before its own cut, so a client can say
+ * "showing N of M". The cut exists because the unbounded feed is the entire
+ * site-wide ListenBrainz window, which is larger than the hub will carry — and
+ * lb-bot keeps every row whose artist is in the library whatever the limit, so
+ * `truncated` never means "we dropped something you own".
+ */
+export interface LbBotFreshFeed {
+    releases: LbBotFreshRelease[];
+    total: number;
+    truncated: boolean;
+}
+
+export interface LbBotFreshRelease {
+    artist: string;
+    /** Navidrome artist id, when `artistOwned`. The handle for a real artist page. */
+    artistId: string;
+    artistMbids: string[];
+    artistOwned: boolean;
+    /** Public Cover Art Archive URL. Fetched straight from the Archive — never
+     *  through anything carrying Navidrome or reverse-proxy credentials. */
+    coverUrl: string;
+    /** Navidrome album id, when `releaseOwned`. The handle for the real album
+     *  page — a tile that says "In library" must not open a download page, and
+     *  the virtual page's own redirect cannot cover an album lb-bot filled
+     *  itself (placement writes no album ids). */
+    releaseAlbumId: string;
+    releaseDate: string;
+    releaseGroupMbid: string;
+    releaseMbid: string;
+    releaseName: string;
+    releaseOwned: boolean;
+    secondaryType: string;
+    /** MusicBrainz primary type. Frequently empty — those land in "Other" rather
+     *  than dropping out of every filter. */
+    type: string;
+}
+
 export interface LbBotGap {
     album: string;
     albumId: string;

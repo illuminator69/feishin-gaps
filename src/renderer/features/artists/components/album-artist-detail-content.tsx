@@ -195,9 +195,14 @@ const AlbumArtistMetadataGenres = ({ genres, order }: AlbumArtistMetadataGenresP
                                 albumArtistId: null,
                                 albumId: null,
                                 artistId: null,
+                                // navi-connect: the virtual artist/album routes' params.
+                                // generatePath types this against the union of every
+                                // AppRoute's params, so each one has to appear here.
+                                artistMbid: null,
                                 genreId: genre.id,
                                 itemType: null,
                                 playlistId: null,
+                                rgid: null,
                             })}
                             variant="outline"
                         >

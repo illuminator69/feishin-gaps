@@ -2,8 +2,11 @@ import type {
     LbBotDiscography,
     LbBotDownloadResult,
     LbBotEdition,
+    LbBotFailureKind,
     LbBotFillState,
     LbBotFillStatus,
+    LbBotFreshFeed,
+    LbBotFreshRelease,
     LbBotGap,
     LbBotGapSource,
     LbBotGapStatus,
@@ -299,6 +302,138 @@ ipcMain.handle(
     },
 );
 
+// Add or refresh ONE release-group in an artist's stored index.
+//
+// The alternative is a full rescan — one MusicBrainz request per second per
+// release-group — for a single album. And it is needed constantly, not rarely:
+// lb-bot serves a stored discography immediately even when stale *by design*, so
+// anything released since the last scan is simply absent, which is every row the
+// Fresh tab leads to.
+//
+// A `LbBotResult` rather than the fail-soft `get()` contract, because it is a
+// write the user's navigation is waiting on and a failure has to be sayable. An
+// older hub does not have the route: it answers 404, which `request` reports
+// rather than swallowing — that is what `/lb/status`'s `routes` list exists to
+// pre-empt.
+ipcMain.handle(
+    'lbbot-index-release',
+    async (
+        _event,
+        args: {
+            artist?: string;
+            external?: boolean;
+            mbid?: string;
+            name?: string;
+            ndId?: string;
+            rgid: string;
+            title?: string;
+            type?: string;
+            year?: string;
+        },
+    ): Promise<LbBotResult<boolean>> => {
+        if (!args.rgid) return failed<boolean>(0, 'No release-group id');
+        if (!args.mbid && !args.ndId) {
+            return failed<boolean>(0, 'No artist to index this release against');
+        }
+        // title/artist/type/year are lb-bot's MusicBrainz-outage override, used
+        // only when the release-group lookup answers nothing. It caches a
+        // transient failure for five minutes per exact query and returns {}
+        // inside that window without asking again, so one 503 made this a hard
+        // 502 on that album for anyone who asked next — and the caller reached
+        // it from a row that already names the release.
+        const result = await request('POST', '/lb/artist/release', {
+            body: {
+                artist: args.artist ?? '',
+                external: args.external === true,
+                mbid: args.mbid ?? '',
+                name: args.name ?? '',
+                nd_id: args.ndId ?? '',
+                rgid: args.rgid,
+                title: args.title ?? '',
+                type: args.type ?? '',
+                year: args.year ?? '',
+            },
+        });
+        if (!result.ok) return failed<boolean>(result.status, result.error);
+        const ok = result.data?.ok === true;
+        return {
+            data: ok,
+            error: ok ? '' : str(result.data?.error) || 'lb-bot refused the request.',
+            ok,
+            status: result.status,
+        };
+    },
+);
+
+// ---------------------------------------------------------------------------
+// Fresh releases
+// ---------------------------------------------------------------------------
+
+// Site-wide, not per-artist: ListenBrainz's own fresh-releases feed, enriched by
+// lb-bot with two *independent* ownership signals. `artistOwned` (+ `artistId`)
+// says the artist is in the library; `releaseOwned` says this release-group is
+// already on disk. Conflating them would hide every new album by an artist you
+// already have, which is exactly the set this page exists for. lb-bot's `owned`
+// alias for `artistOwned` is dropped here so nothing downstream can read it.
+//
+// `releaseAlbumId` is the Navidrome album behind `releaseOwned`. Without it a
+// tile badged "In library" could only be sent to the virtual album page and left
+// to redirect itself — which cannot work for an album lb-bot filled, since
+// nothing on the placement path writes the album ids that redirect reads.
+//
+// Fail-soft like the discography read: ListenBrainz being down answers null and
+// the tab says so, rather than erroring.
+//
+// How many rows to ask for. The page filters and buckets client-side, so this
+// only has to be comfortably more than anyone scrolls; lb-bot keeps every row
+// whose artist is in the library regardless of the limit, so nothing you care
+// about is cut to make room.
+const FRESH_LIMIT = 400;
+
+ipcMain.handle(
+    'lbbot-fresh-releases',
+    async (_event, args: { days?: number }): Promise<LbBotFreshFeed | null> => {
+        // `limit` is not optional in practice. Unbounded, this route answers with
+        // the entire site-wide ListenBrainz window, which runs past the hub's 4 MB
+        // response ceiling — and that ceiling used to truncate silently at HTTP
+        // 200, so `res.json()` threw, the body became `{}`, and this returned null
+        // with nothing in the log to say why. The tab simply showed no rows.
+        const data = await get('/lb/fresh-releases', {
+            days: String(args.days ?? 30),
+            limit: String(FRESH_LIMIT),
+        });
+        if (!data || !Array.isArray(data.releases)) return null;
+        const releases = data.releases.flatMap((row): LbBotFreshRelease[] => {
+            if (!row || typeof row !== 'object') return [];
+            const r = row as Json;
+            return [
+                {
+                    artist: str(r.artist),
+                    artistId: str(r.artistId),
+                    artistMbids: strList(r.artistMbids),
+                    artistOwned: r.artistOwned === true,
+                    coverUrl: str(r.coverUrl),
+                    releaseAlbumId: str(r.releaseAlbumId),
+                    releaseDate: str(r.releaseDate),
+                    releaseGroupMbid: str(r.releaseGroupMbid),
+                    releaseMbid: str(r.releaseMbid),
+                    releaseName: str(r.releaseName),
+                    releaseOwned: r.releaseOwned === true,
+                    secondaryType: str(r.secondaryType),
+                    type: str(r.type),
+                },
+            ];
+        });
+        // `total` is what lb-bot had before its own cut, so the page can say
+        // "showing N of M" rather than implying the feed is this small.
+        return {
+            releases,
+            total: num(data.total) || releases.length,
+            truncated: data.truncated === true,
+        };
+    },
+);
+
 // ---------------------------------------------------------------------------
 // Missing-album detail + download
 // ---------------------------------------------------------------------------
@@ -386,18 +521,39 @@ ipcMain.handle(
     },
 );
 
+/** Every failure kind lb-bot actually emits. Anything else is normalized away
+ *  rather than passed through: the renderer switches on this to choose a label
+ *  and a button, and an unknown string would silently fall through both. */
+const FAILURE_KINDS = new Set<LbBotFailureKind>([
+    'cancelled',
+    'format_rejected',
+    'mb_unavailable',
+    'no_source',
+    'placement_failed',
+    'transfer_failed',
+]);
+
+const toFailureKind = (value: unknown): LbBotFailureKind => {
+    const kind = str(value) as LbBotFailureKind;
+    return FAILURE_KINDS.has(kind) ? kind : '';
+};
+
 const UNKNOWN_STATUS: LbBotFillStatus = {
     album: '',
     artist: '',
+    attempts: 0,
     done: 0,
     failed: 0,
+    failureKind: '',
     groupId: '',
     mp3WouldHelp: false,
     percent: 0,
     quality: '',
     reason: '',
     releaseMbid: '',
+    retryable: false,
     rgid: '',
+    source: '',
     state: 'unknown',
     total: 0,
 };
@@ -407,15 +563,22 @@ const toFillStatus = (data: Json | null): LbBotFillStatus => {
     return {
         album: str(data.album),
         artist: str(data.artist),
+        attempts: num(data.attempts),
         done: num(data.done),
         failed: num(data.failed),
+        failureKind: toFailureKind(data.failureKind),
         groupId: str(data.groupId),
         mp3WouldHelp: data.mp3WouldHelp === true,
         percent: num(data.percent),
         quality: str(data.quality),
         reason: str(data.reason),
         releaseMbid: str(data.releaseMbid),
+        // An lb-bot that predates the field sends nothing, which reads as false —
+        // and the renderer treats "no failureKind" as unknown-so-offer-Retry, so
+        // an older service does not lose the button.
+        retryable: data.retryable === true,
         rgid: str(data.rgid),
+        source: str(data.source),
         state: (str(data.state) || 'unknown') as LbBotFillState,
         total: num(data.total),
     };
@@ -430,6 +593,8 @@ ipcMain.handle(
         _event,
         args: {
             artist?: string;
+            /** Peers that already failed or crawled for this album — "try another source". */
+            excludeUsers?: string[];
             quality?: string;
             releaseMbid?: string;
             rgid: string;
@@ -464,6 +629,7 @@ ipcMain.handle(
                 ...(args.quality ? { quality: args.quality } : {}),
                 ...(args.sourceUsername ? { sourceUsername: args.sourceUsername } : {}),
                 ...(args.sourceFolder ? { sourceFolder: args.sourceFolder } : {}),
+                ...(args.excludeUsers?.length ? { excludeUsers: args.excludeUsers } : {}),
             },
         });
         const data = result.data;
@@ -500,6 +666,28 @@ ipcMain.handle(
                 })
             ).data,
         );
+    },
+);
+
+// Stop one album fill wherever it has got to — searching, queued or transferring.
+// lb-bot records it as a retryable `cancelled` failure, which is what lets the row
+// offer Retry at all; before this the only cancel was slskd's own UI, and lb-bot
+// read that as a transfer failure and re-queued the album from another peer.
+ipcMain.handle(
+    'lbbot-cancel-album',
+    async (
+        _event,
+        args: { releaseMbid: string },
+    ): Promise<{ ok: boolean; status: LbBotFillStatus }> => {
+        if (!args.releaseMbid) return { ok: false, status: UNKNOWN_STATUS };
+        const result = await request('POST', '/lb/album/cancel', {
+            body: { release_mbid: args.releaseMbid },
+        });
+        const data = result.data;
+        return {
+            ok: result.ok && data?.ok === true,
+            status: toFillStatus((data?.status ?? null) as Json | null),
+        };
     },
 );
 

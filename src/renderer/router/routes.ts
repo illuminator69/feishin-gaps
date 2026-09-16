@@ -3,8 +3,16 @@ export enum AppRoute {
     /** navi-connect: albums lb-bot is fetching from Soulseek, in flight and finished. */
     DOWNLOADS = '/downloads',
     EXPLORE = '/explore',
+    /** navi-connect: an album the library does NOT have, keyed by MusicBrainz
+     *  release-group id. Its tracklist and source picker come from lb-bot. */
+    EXTERNAL_ALBUM_DETAIL = '/external/albums/:rgid',
+    /** navi-connect: an artist the library does NOT have, keyed by MusicBrainz
+     *  artist id — the `mb:` id form lb-bot's discography scan already understands. */
+    EXTERNAL_ARTIST_DETAIL = '/external/artists/:artistMbid',
     FAKE_LIBRARY_ALBUM_DETAILS = '/library/albums/dummy/:albumId',
     FAVORITES = '/favorites',
+    /** navi-connect: site-wide new and upcoming releases, from lb-bot. */
+    FRESH = '/fresh',
     HOME = '/',
     LIBRARY_ALBUM_ARTISTS = '/library/album-artists',
     LIBRARY_ALBUM_ARTISTS_DETAIL = '/library/album-artists/:albumArtistId',

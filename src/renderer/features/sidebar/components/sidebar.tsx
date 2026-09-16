@@ -162,6 +162,14 @@ export const Sidebar = () => {
                                 surface follows: unconfigured or unreachable renders
                                 nothing at all. */}
                             {lbBotAvailable && (
+                                <SidebarItem to={AppRoute.FRESH}>
+                                    <Group gap="md">
+                                        <SidebarIcon route={AppRoute.FRESH} />
+                                        Fresh
+                                    </Group>
+                                </SidebarItem>
+                            )}
+                            {lbBotAvailable && (
                                 <SidebarItem to={AppRoute.DOWNLOADS}>
                                     <Group gap="md">
                                         <SidebarIcon route={AppRoute.DOWNLOADS} />

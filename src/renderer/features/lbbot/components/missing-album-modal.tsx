@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
+import { Fragment, ReactNode, useCallback, useMemo, useState } from 'react';
+import { Link } from 'react-router';
 
 import styles from './missing-album-modal.module.css';
 
@@ -47,8 +48,17 @@ import {
  * still wins. Hence: choose, then review what is actually on offer, then commit.
  */
 
-interface MissingAlbumModalProps {
+interface MissingAlbumPanelProps {
     artistName: string;
+    /**
+     * Where the artist name links, if anywhere. The modal mounted from an artist
+     * page passes nothing — you are already there — while the virtual album page
+     * passes the real artist page for an owned artist and the virtual one
+     * otherwise. See `artistLinkPath`, which is the single rule both the Fresh
+     * tile and that page use, so the name cannot be a link in one place and
+     * bare text in the other.
+     */
+    artistTo?: string;
     release: LbBotRelease;
 }
 
@@ -80,7 +90,16 @@ const IN_FLIGHT: ReadonlySet<LbBotFillState> = new Set<LbBotFillState>([
     'searching',
 ]);
 
-const MissingAlbumModal = ({ artistName, release }: MissingAlbumModalProps) => {
+/**
+ * The whole two-step flow, as a component rather than a modal body.
+ *
+ * Mounted in the modal the artist page opens, and — unchanged — as the body of the
+ * virtual album page for a release the library doesn't have. Extracted rather than
+ * reimplemented: a second source picker would be a second set of the traps this one
+ * already pays for (the edition that must ride along, the pre-selected rank 1, the
+ * fill that outlives the view).
+ */
+export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbumPanelProps) => {
     const releasesQuery = useLbBotAlbumReleases(release.rgid);
     const [variantIndex, setVariantIndex] = useState(0);
     const [editionIndex, setEditionIndex] = useState(0);
@@ -99,6 +118,23 @@ const MissingAlbumModal = ({ artistName, release }: MissingAlbumModalProps) => {
     // exactly the friction that made the global-only setting useless.
     const preferredQuality = usePreferredQuality();
     const { setQuality } = useActiveFillsActions();
+
+    // The dotted meta line under the title. Built as nodes rather than a joined
+    // string because the artist is a link wherever the caller gave us somewhere
+    // for it to go.
+    const metaParts: ReactNode[] = [
+        artistName ? (
+            artistTo ? (
+                <Text component={Link} isLink isMuted size="sm" to={artistTo}>
+                    {artistName}
+                </Text>
+            ) : (
+                artistName
+            )
+        ) : null,
+        release.year,
+        release.effectiveType,
+    ].filter(Boolean);
 
     const variants = releasesQuery.data?.variants ?? [];
     const variant = variants[variantIndex];
@@ -231,9 +267,12 @@ const MissingAlbumModal = ({ artistName, release }: MissingAlbumModalProps) => {
                     <Stack gap="xs">
                         <Text fw={600}>{release.title}</Text>
                         <Text isMuted size="sm">
-                            {[artistName, release.year, release.effectiveType]
-                                .filter(Boolean)
-                                .join(' · ')}
+                            {metaParts.map((part, index) => (
+                                <Fragment key={index}>
+                                    {index > 0 && ' · '}
+                                    {part}
+                                </Fragment>
+                            ))}
                         </Text>
                         {variant?.trackCount ? (
                             <Text isMuted size="sm">
@@ -487,7 +526,7 @@ const MissingAlbumModal = ({ artistName, release }: MissingAlbumModalProps) => {
 
 export const openMissingAlbumModal = (artistName: string, release: LbBotRelease) => {
     openModal({
-        children: <MissingAlbumModal artistName={artistName} release={release} />,
+        children: <MissingAlbumPanel artistName={artistName} release={release} />,
         size: 'lg',
         title: release.title,
     });

@@ -5,6 +5,8 @@ import {
     RiDownloadCloud2Line,
     RiFlag2Fill,
     RiFlag2Line,
+    RiFlashlightFill,
+    RiFlashlightLine,
     RiFolder3Fill,
     RiFolder3Line,
     RiHeartFill,
@@ -49,6 +51,10 @@ export const SidebarIcon = ({ active, route, size }: SidebarIconProps) => {
             case AppRoute.DOWNLOADS:
                 if (isActive) return <RiDownloadCloud2Fill size={size} />;
                 return <RiDownloadCloud2Line size={size} />;
+            // navi-connect: new and upcoming releases from lb-bot.
+            case AppRoute.FRESH:
+                if (isActive) return <RiFlashlightFill size={size} />;
+                return <RiFlashlightLine size={size} />;
             case AppRoute.HOME:
                 if (isActive) return <RiHome6Fill size={size} />;
                 return <RiHome6Line size={size} />;

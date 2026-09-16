@@ -12,6 +12,12 @@ export const JOINED_ARTISTS_MUTED_PROPS = {
 
 interface JoinedArtistsProps {
     artistName: string;
+    /**
+     * Which detail route the ids belong to. `song.artists` are *track* artists and
+     * have always been linked as album artists here; pass `'artist'` where the ids
+     * came from a song rather than from an album's `albumArtists`.
+     */
+    artistRoute?: 'albumArtist' | 'artist';
     artists: AlbumArtist[] | RelatedAlbumArtist[] | RelatedArtist[];
     linkProps?: Partial<Omit<TextProps, 'children' | 'component' | 'to'>>;
     readOnly?: boolean;
@@ -20,11 +26,16 @@ interface JoinedArtistsProps {
 
 const JoinedArtistsComponent = ({
     artistName,
+    artistRoute = 'albumArtist',
     artists,
     linkProps,
     readOnly = false,
     rootTextProps,
 }: JoinedArtistsProps) => {
+    const pathFor = (id: string) =>
+        artistRoute === 'artist'
+            ? generatePath(AppRoute.LIBRARY_ARTISTS_DETAIL, { artistId: id })
+            : generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, { albumArtistId: id });
     const parts: (
         | string
         | {
@@ -123,9 +134,7 @@ const JoinedArtistsComponent = ({
                                 component={Link}
                                 fw={500}
                                 isLink
-                                to={generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, {
-                                    albumArtistId: artist.id,
-                                })}
+                                to={pathFor(artist.id)}
                                 {...linkProps}
                             >
                                 {artist.name}
@@ -166,9 +175,7 @@ const JoinedArtistsComponent = ({
                             fw={500}
                             isLink
                             key={`${artist.id}-${index}`}
-                            to={generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, {
-                                albumArtistId: artist.id,
-                            })}
+                            to={pathFor(artist.id)}
                             {...linkProps}
                         >
                             {text}
@@ -192,9 +199,7 @@ const JoinedArtistsComponent = ({
                                     component={Link}
                                     fw={500}
                                     isLink
-                                    to={generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, {
-                                        albumArtistId: artist.id,
-                                    })}
+                                    to={pathFor(artist.id)}
                                     {...linkProps}
                                 >
                                     {artist.name}

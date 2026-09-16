@@ -1,3 +1,5 @@
+import { generatePath, useNavigate } from 'react-router';
+
 import styles from './missing-album-tile.module.css';
 
 import { openMissingAlbumModal } from '/@/renderer/features/lbbot/components/missing-album-modal';
@@ -6,6 +8,7 @@ import {
     isAwaitingLibrary,
     useWatchedFill,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { AppRoute } from '/@/renderer/router/routes';
 import { Badge } from '/@/shared/components/badge/badge';
 import { Progress } from '/@/shared/components/progress/progress';
 import { Text } from '/@/shared/components/text/text';
@@ -38,7 +41,14 @@ const SHORT_STATE: Partial<Record<LbBotFillState, string>> = {
  * glance or the section becomes a lie.
  */
 export const MissingAlbumTile = ({ artistName, ndArtistId, release }: MissingAlbumTileProps) => {
+    const navigate = useNavigate();
     const fill = useWatchedFill(release.rgid, ndArtistId);
+    // A row that names a Navidrome album is not a download any more — the
+    // library holds it, and the tile has to open it. This is the case lb-bot's
+    // own fills produce: placement flips the index row to `present` and cannot
+    // write the album ids, so until the backfill resolves them every such row
+    // read as absent and the only thing a tap could offer was to fetch it again.
+    const ownedAlbumId = release.navidromeAlbumIds[0];
     // lb-bot flips its index row to `present` the moment a fill is placed, well
     // before Navidrome has indexed anything — so a row that is no longer
     // `missing` but still has no album here is a download that worked, and must
@@ -50,7 +60,13 @@ export const MissingAlbumTile = ({ artistName, ndArtistId, release }: MissingAlb
     return (
         <button
             className={styles.tile}
-            onClick={() => openMissingAlbumModal(artistName, release)}
+            onClick={() =>
+                ownedAlbumId
+                    ? navigate(
+                          generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, { albumId: ownedAlbumId }),
+                      )
+                    : openMissingAlbumModal(artistName, release)
+            }
             type="button"
         >
             <div className={styles.frame}>

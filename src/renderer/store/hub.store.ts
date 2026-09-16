@@ -36,7 +36,14 @@ export const isHubDeviceTransferable = (device: HubDevice): boolean =>
 
 export interface HubTrack {
     album?: string;
+    /** Navidrome album id. Additive on the wire and absent from any publisher that
+     *  doesn't send it — without it the receiving client's playerbar has only the
+     *  album *name*, so the album title cannot be a link until getSongDetail lands. */
+    albumId?: string;
     artist?: string;
+    /** Per-artist ids, for the same reason as `albumId`. Track artists, so they link
+     *  to the artist route rather than the album-artist one. */
+    artists?: { id: string; name: string }[];
     durationMs?: number;
     favorite?: boolean;
     id: string;

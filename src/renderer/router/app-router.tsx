@@ -87,6 +87,16 @@ const LbBotDownloadsRoute = lazy(
     () => import('/@/renderer/features/lbbot/routes/lbbot-downloads-route'),
 );
 
+const LbBotFreshRoute = lazy(() => import('/@/renderer/features/lbbot/routes/lbbot-fresh-route'));
+
+const LbBotExternalArtistRoute = lazy(
+    () => import('/@/renderer/features/lbbot/routes/lbbot-external-artist-route'),
+);
+
+const LbBotExternalAlbumRoute = lazy(
+    () => import('/@/renderer/features/lbbot/routes/lbbot-external-album-route'),
+);
+
 const SearchRoute = lazy(() => import('/@/renderer/features/search/routes/search-route'));
 
 const FavoritesRoute = lazy(() => import('/@/renderer/features/favorites/routes/favorites-route'));
@@ -299,6 +309,18 @@ export const AppRouter = () => {
                                         <Route
                                             element={<LbBotDownloadsRoute />}
                                             path={AppRoute.DOWNLOADS}
+                                        />
+                                        <Route
+                                            element={<LbBotFreshRoute />}
+                                            path={AppRoute.FRESH}
+                                        />
+                                        <Route
+                                            element={<LbBotExternalArtistRoute />}
+                                            path={AppRoute.EXTERNAL_ARTIST_DETAIL}
+                                        />
+                                        <Route
+                                            element={<LbBotExternalAlbumRoute />}
+                                            path={AppRoute.EXTERNAL_ALBUM_DETAIL}
                                         />
                                         <Route
                                             element={<PlaylistDetailSongListRoute />}

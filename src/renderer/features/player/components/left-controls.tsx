@@ -298,6 +298,9 @@ export const LeftControls = () => {
                             >
                                 <JoinedArtists
                                     artistName={currentSong?.artistName || ''}
+                                    // Track artists, not album artists — the ids come
+                                    // from `song.artists`.
+                                    artistRoute="artist"
                                     artists={artists || []}
                                     linkProps={{
                                         ...JOINED_ARTISTS_MUTED_PROPS.linkProps,
@@ -318,10 +321,14 @@ export const LeftControls = () => {
                                 )}
                                 onClick={stopPropagation}
                             >
+                                {/* `to=''` is a RELATIVE link, and the playerbar sits in a
+                                    pathless layout route whose base is `/` — so with no
+                                    album id it resolved to the home page. With no id there
+                                    is nothing to navigate to: render plain text. */}
                                 <Text
-                                    component={Link}
+                                    component={currentSong?.albumId ? Link : undefined}
                                     fw={500}
-                                    isLink
+                                    isLink={Boolean(currentSong?.albumId)}
                                     overflow="hidden"
                                     size="md"
                                     to={
@@ -329,7 +336,7 @@ export const LeftControls = () => {
                                             ? generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, {
                                                   albumId: currentSong.albumId,
                                               })
-                                            : ''
+                                            : undefined
                                     }
                                 >
                                     {currentSong?.album || '—'}

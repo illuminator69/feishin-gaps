@@ -155,12 +155,9 @@ export const MobilePlayerbar = () => {
                                         size="xs"
                                         to={
                                             artist.id
-                                                ? generatePath(
-                                                      AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL,
-                                                      {
-                                                          albumArtistId: artist.id,
-                                                      },
-                                                  )
+                                                ? generatePath(AppRoute.LIBRARY_ARTISTS_DETAIL, {
+                                                      artistId: artist.id,
+                                                  })
                                                 : undefined
                                         }
                                     >
@@ -177,10 +174,11 @@ export const MobilePlayerbar = () => {
                             )}
                             onClick={stopPropagation}
                         >
+                            {/* See left-controls: `to=''` resolves to the home page here. */}
                             <Text
-                                component={Link}
+                                component={currentSong?.albumId ? Link : undefined}
                                 fw={500}
-                                isLink
+                                isLink={Boolean(currentSong?.albumId)}
                                 onClick={handleToggleFullScreenPlayer}
                                 overflow="hidden"
                                 size="xs"
@@ -189,7 +187,7 @@ export const MobilePlayerbar = () => {
                                         ? generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, {
                                               albumId: currentSong.albumId,
                                           })
-                                        : ''
+                                        : undefined
                                 }
                             >
                                 {currentSong?.album || '—'}

@@ -54,7 +54,13 @@ export const buildHubTracksForSongs = async (
             const container = (song as Song & { container?: null | string }).container;
             return {
                 album: song.album ?? undefined,
+                // See use-hub's buildHubTracks: the ids ride along so a receiver can
+                // link the album/artist without resolving the song again.
+                albumId: song.albumId ?? undefined,
                 artist: song.artistName,
+                artists: song.artists?.length
+                    ? song.artists.map((a) => ({ id: a.id, name: a.name }))
+                    : undefined,
                 durationMs: song.duration ?? undefined,
                 id: song.id,
                 imageUrl:
