@@ -5,6 +5,9 @@ out
 .eslintcache
 *.log*
 release
+.idea
+.scratch
+tsconfig.*.tsbuildinfo
 
 # Local tooling / scratch (fork-only, not upstream)
 .claude/

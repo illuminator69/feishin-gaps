@@ -14,7 +14,7 @@ import {
     getDirectPlayProfiles,
 } from '/@/renderer/features/player/components/audio-players';
 import { randomString } from '/@/renderer/utils';
-import { logFn } from '/@/renderer/utils/logger';
+import { logger } from '/@/renderer/utils/logger';
 import { getServerUrl } from '/@/renderer/utils/normalize-server-url';
 import { ssNormalize } from '/@/shared/api/subsonic/subsonic-normalize';
 import {
@@ -314,6 +314,14 @@ export const SubsonicController: InternalControllerEndpoint = {
         return null;
     },
     authenticate: async (url, body) => {
+        if (body.action && body.action !== 'password') {
+            throw new Error('Subsonic does not support this authentication method');
+        }
+
+        if (typeof body.password !== 'string' || typeof body.username !== 'string') {
+            throw new Error('Subsonic authentication requires a username and password');
+        }
+
         let credential: string;
         let credentialParams: {
             p?: string;
@@ -496,7 +504,7 @@ export const SubsonicController: InternalControllerEndpoint = {
     getAlbumArtistInfo: async (args) => {
         const { apiClientProps, query } = args;
 
-        const artistInfoRes = await ssApiClient(apiClientProps).getArtistInfo({
+        const artistInfoRes = await ssApiClient(apiClientProps).getArtistInfo2({
             query: {
                 id: query.id,
                 ...(query.limit != null && { count: query.limit }),
@@ -507,14 +515,14 @@ export const SubsonicController: InternalControllerEndpoint = {
             return null;
         }
 
-        const artistInfo = artistInfoRes.body.artistInfo;
+        const artistInfo = artistInfoRes.body.artistInfo2;
 
         return {
             biography: artistInfo?.biography || null,
             similarArtists:
                 artistInfo?.similarArtist?.map((artist) => ({
-                    id: artist.id,
-                    imageId: artist.coverArt ?? artist.id,
+                    id: String(artist.id),
+                    imageId: artist.coverArt ?? String(artist.id),
                     imageUrl: null,
                     name: artist.name,
                     userFavorite: Boolean(artist.starred) || false,
@@ -976,6 +984,56 @@ export const SubsonicController: InternalControllerEndpoint = {
             '&c=Feishin'
         );
     },
+    getFavoriteSongs: async (args) => {
+        const { apiClientProps, query } = args;
+
+        // if user selects 'rating'
+        if (query.type === 'rating') {
+            const res = await SubsonicController.getSongList({
+                apiClientProps,
+                query: {
+                    artistIds: [query.artistId],
+                    sortBy: SongListSort.RATING,
+                    sortOrder: SortOrder.DESC,
+                    startIndex: 0,
+                },
+            });
+
+            const songsWithHighRating = orderBy(
+                res.items.filter((song) => song.userRating !== null && song.userRating > 2),
+                ['userRating', 'userFavorite', 'playCount', 'albumId', 'trackNumber'],
+                ['desc', 'desc', 'desc', 'asc', 'asc'],
+            );
+
+            return {
+                items: songsWithHighRating,
+                startIndex: 0,
+                totalRecordCount: res.totalRecordCount,
+            };
+        }
+
+        // else if user selects 'favorites'
+        const res = await SubsonicController.getSongList({
+            apiClientProps,
+            query: {
+                artistIds: [query.artistId],
+                sortBy: SongListSort.FAVORITED,
+                sortOrder: SortOrder.DESC,
+                startIndex: 0,
+            },
+        });
+        const songsWithFavorite = orderBy(
+            res.items.filter((song) => song.userFavorite),
+            ['userFavorite', 'userRating', 'playCount', 'albumId', 'trackNumber'],
+            ['desc', 'desc', 'desc', 'asc', 'asc'],
+        );
+
+        return {
+            items: songsWithFavorite,
+            startIndex: 0,
+            totalRecordCount: res.totalRecordCount,
+        };
+    },
     getFolder: async ({ apiClientProps, query }) => {
         const sortOrder = (query.sortOrder?.toLowerCase() ?? 'asc') as 'asc' | 'desc';
 
@@ -1355,6 +1413,22 @@ export const SubsonicController: InternalControllerEndpoint = {
         final.splice(0, 0, { label: 'all artists', value: '' });
         return final;
     },
+    getScanStatus: async (args) => {
+        const { apiClientProps } = args;
+
+        const res = await ssApiClient(apiClientProps).getScanStatus({ query: {} });
+
+        if (res.status !== 200) {
+            throw new Error('Failed to get scan status');
+        }
+
+        return {
+            count: res.body.scanStatus.count,
+            folderCount: res.body.scanStatus.folderCount,
+            lastScan: res.body.scanStatus.lastScan,
+            scanning: res.body.scanStatus.scanning,
+        };
+    },
     getServerInfo: async (args) => {
         const { apiClientProps } = args;
 
@@ -1402,6 +1476,10 @@ export const SubsonicController: InternalControllerEndpoint = {
         if (subsonicFeatures[SubsonicExtensions.PLAYBACK_REPORT]) {
             features.reportPlayback = [1];
         }
+
+        if (subsonicFeatures[SubsonicExtensions.TOP_SONGS_BY_ARTIST_ID]) {
+            features.topSongsByArtistId = [1];
+        }
         try {
             const jukeboxStatus = await ssApiClient(apiClientProps).jukeboxControl({
                 query: { action: 'status' },
@@ -1410,13 +1488,13 @@ export const SubsonicController: InternalControllerEndpoint = {
             if (jukeboxStatus.status === 200 && !(jukeboxStatus.body as any)?.error) {
                 features[ServerFeature.JUKEBOX] = [1];
             } else {
-                console.log(
+                logger.warn(
                     'Jukebox endpoint returned an error payload:',
                     (jukeboxStatus.body as any)?.error,
                 );
             }
         } catch (error) {
-            console.log('Jukebox is not supported by this server:', error);
+            logger.warn('Jukebox is not supported by this server:', error);
         }
 
         if (subsonicFeatures[SubsonicExtensions.SONIC_SIMILARITY]) {
@@ -1986,7 +2064,7 @@ export const SubsonicController: InternalControllerEndpoint = {
 
             // If the server returns an error for transcodeDecision, fall back to direct stream so that we don't break the player
             if (transcodeDecision.status !== 200) {
-                logFn.error(
+                logger.error(
                     `Failed to get transcode decision for song ${id}, falling back to direct stream`,
                 );
                 return streamUrl;
@@ -2000,7 +2078,7 @@ export const SubsonicController: InternalControllerEndpoint = {
                 return streamUrl;
             }
 
-            logFn.info(`Song ${id} requires transcoding: ${[td.transcodeReason].join(', ')}`);
+            logger.info(`Song ${id} requires transcoding: ${[td.transcodeReason].join(', ')}`);
 
             // If the server does not return transcode params, manually create the transcode params
             if (!td.transcodeParams) {
@@ -2022,11 +2100,21 @@ export const SubsonicController: InternalControllerEndpoint = {
     getStructuredLyrics: async (args) => {
         const { apiClientProps, query } = args;
         const server = apiClientProps.server;
+        const supportsStructuredLyrics = hasFeatureWithVersion(
+            server,
+            ServerFeature.LYRICS_MULTIPLE_STRUCTURED,
+            1,
+        );
+
         const supportsEnhancedLyrics = hasFeatureWithVersion(
             server,
             ServerFeature.LYRICS_MULTIPLE_STRUCTURED,
             2,
         );
+
+        if (!supportsStructuredLyrics && !supportsEnhancedLyrics) {
+            return [];
+        }
 
         const res = await ssApiClient(apiClientProps).getStructuredLyrics({
             query: {
@@ -2057,7 +2145,9 @@ export const SubsonicController: InternalControllerEndpoint = {
         if (type === 'community') {
             const res = await ssApiClient(apiClientProps).getTopSongsList({
                 query: {
-                    artist: query.artist,
+                    ...(hasFeature(apiClientProps.server, ServerFeature.TOP_SONGS_BY_ARTIST_ID)
+                        ? { id: query.artistId }
+                        : { artist: query.artist }),
                     count: query.limit,
                 },
             });
@@ -2399,6 +2489,17 @@ export const SubsonicController: InternalControllerEndpoint = {
                     rating: query.rating,
                 },
             });
+        }
+
+        return null;
+    },
+    startLibraryScan: async (args) => {
+        const { apiClientProps } = args;
+
+        const res = await ssApiClient(apiClientProps).startScan({ query: {} });
+
+        if (res.status !== 200) {
+            throw new Error('Failed to start library scan');
         }
 
         return null;

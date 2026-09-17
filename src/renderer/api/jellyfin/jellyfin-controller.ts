@@ -7,7 +7,8 @@ import { z } from 'zod';
 
 import { createAuthHeader, jfApiClient } from '/@/renderer/api/jellyfin/jellyfin-api';
 import { useRadioStore } from '/@/renderer/features/radio/store/radio-store';
-import { getServerUrl } from '/@/renderer/utils/normalize-server-url';
+import { isShuffleEnabled, usePlayerStoreBase } from '/@/renderer/store/player.store';
+import { getServerUrl, normalizeServerUrl } from '/@/renderer/utils/normalize-server-url';
 import { jfNormalize } from '/@/shared/api/jellyfin/jellyfin-normalize';
 import { JFSongListSort, JFSortOrder, jfType } from '/@/shared/api/jellyfin/jellyfin-types';
 import { getFeatures, hasFeature, sortSongList, VersionInfo } from '/@/shared/api/utils';
@@ -40,6 +41,33 @@ import {
     UploadPlaylistImageResponse,
 } from '/@/shared/types/domain-types';
 import { ServerFeature } from '/@/shared/types/features-types';
+
+// Jellyfin can receive the client's play queue with playback reports, which lets
+// server-side consumers (session UI, prefetch plugins) see the upcoming tracks.
+// Only a window from the current track onward is reported - full queues degrade
+// the /Sessions endpoint (jellyfin/jellyfin#13377).
+const QUEUE_REPORT_WINDOW = 20;
+
+const getNowPlayingQueueWindow = (): undefined | { Id: string }[] => {
+    try {
+        const state = usePlayerStoreBase.getState();
+        const { default: order, shuffled, songs } = state.queue;
+        const playOrder = isShuffleEnabled(state) ? shuffled.map((idx) => order[idx]) : order;
+        const index = state.player.index;
+
+        if (index < 0 || index >= playOrder.length) {
+            return undefined;
+        }
+
+        const window = playOrder
+            .slice(index, index + QUEUE_REPORT_WINDOW)
+            .flatMap((uniqueId) => (songs[uniqueId] ? [{ Id: songs[uniqueId].id }] : []));
+
+        return window.length > 1 ? window : undefined;
+    } catch {
+        return undefined;
+    }
+};
 
 const getJellyfinImageRequest = ({
     apiClientProps: { server },
@@ -243,25 +271,104 @@ export const JellyfinController: InternalControllerEndpoint = {
         return null;
     },
     authenticate: async (url, body) => {
-        const cleanServerUrl = url.replace(/\/$/, '');
+        const normalizedUrl = normalizeServerUrl(url);
 
-        const res = await jfApiClient({ server: null, url: cleanServerUrl }).authenticate({
-            body: {
-                Pw: body.password,
-                Username: body.username,
-            },
-        });
+        switch (body.action) {
+            case 'isQuickConnectEnabled': {
+                try {
+                    const res = await jfApiClient({
+                        server: null,
+                        url: normalizedUrl,
+                    }).quickConnectEnabled();
+                    return res.status === 200 && res.body === true;
+                } catch {
+                    return false;
+                }
+            }
+            case 'password':
+            case undefined: {
+                if (typeof body.password !== 'string' || typeof body.username !== 'string') {
+                    throw new Error(
+                        'Jellyfin password authentication requires a username and password',
+                    );
+                }
 
-        if (res.status !== 200) {
-            throw new Error('Failed to authenticate');
+                const res = await jfApiClient({ server: null, url: normalizedUrl }).authenticate({
+                    body: {
+                        Pw: body.password,
+                        Username: body.username,
+                    },
+                });
+
+                if (res.status !== 200) {
+                    throw new Error('Failed to authenticate');
+                }
+
+                return {
+                    credential: res.body.AccessToken,
+                    isAdmin: Boolean(res.body.User.Policy.IsAdministrator),
+                    userId: res.body.User.Id,
+                    username: res.body.User.Name,
+                };
+            }
+            case 'quickConnectAuthenticate': {
+                if (typeof body.secret !== 'string') {
+                    throw new Error('Jellyfin Quick Connect authentication requires a secret');
+                }
+
+                const res = await jfApiClient({
+                    server: null,
+                    url: normalizedUrl,
+                }).quickConnectAuthenticate({
+                    body: { Secret: body.secret },
+                });
+
+                if (res.status !== 200) {
+                    throw new Error('Failed to authenticate with Quick Connect');
+                }
+
+                return {
+                    credential: res.body.AccessToken,
+                    isAdmin: Boolean(res.body.User.Policy.IsAdministrator),
+                    userId: res.body.User.Id,
+                    username: res.body.User.Name,
+                };
+            }
+            case 'quickConnectInitiate': {
+                const res = await jfApiClient({
+                    server: null,
+                    url: normalizedUrl,
+                }).quickConnectInitiate({
+                    body: null,
+                });
+
+                if (res.status !== 200 || !res.body.Secret || !res.body.Code) {
+                    throw new Error('Quick Connect is not active on this server');
+                }
+
+                return { code: res.body.Code, secret: res.body.Secret };
+            }
+            case 'quickConnectState': {
+                if (typeof body.secret !== 'string') {
+                    throw new Error('Jellyfin Quick Connect state requires a secret');
+                }
+
+                const res = await jfApiClient({
+                    server: null,
+                    url: normalizedUrl,
+                }).quickConnectState({
+                    query: { secret: body.secret },
+                });
+
+                if (res.status !== 200) {
+                    throw new Error('Quick Connect request expired or was deactivated');
+                }
+
+                return Boolean(res.body.Authenticated);
+            }
+            default:
+                throw new Error('Jellyfin does not support this authentication method');
         }
-
-        return {
-            credential: res.body.AccessToken,
-            isAdmin: Boolean(res.body.User.Policy.IsAdministrator),
-            userId: res.body.User.Id,
-            username: res.body.User.Name,
-        };
     },
     createFavorite: async (args) => {
         const { apiClientProps, query } = args;
@@ -502,10 +609,10 @@ export const JellyfinController: InternalControllerEndpoint = {
                 userId: apiClientProps.server.userId,
             },
             query: {
-                AlbumIds: query.id,
                 EnableUserData: true,
                 Fields: JF_FIELDS.SONG,
                 IncludeItemTypes: 'Audio',
+                ParentId: query.id,
                 Recursive: true,
                 SortBy: 'ParentIndexNumber,IndexNumber,SortName',
                 SortOrder: JFSortOrder.ASC,
@@ -678,6 +785,43 @@ export const JellyfinController: InternalControllerEndpoint = {
         const { apiClientProps, query } = args;
 
         return `${apiClientProps.server?.url}/items/${query.id}/download?apiKey=${apiClientProps.server?.credential}`;
+    },
+    getFavoriteSongs: async (args) => {
+        const { apiClientProps, query } = args;
+
+        if (!apiClientProps.server?.userId) {
+            throw new Error('No userId found');
+        }
+
+        // Gets songs sorted by play count and filters favorited songs
+        const res = await jfApiClient(apiClientProps).getTopSongsList({
+            params: {
+                userId: apiClientProps.server?.userId,
+            },
+            query: {
+                ArtistIds: query.artistId,
+                Fields: JF_FIELDS.SONG,
+                IncludeItemTypes: 'Audio',
+                IsFavorite: true,
+                Limit: query.limit,
+                Recursive: true,
+                SortBy: JFSongListSort.PLAY_COUNT,
+                SortOrder: 'Descending',
+                UserId: apiClientProps.server?.userId,
+            },
+        });
+
+        if (res.status !== 200) {
+            throw new Error('Failed to get top song list');
+        }
+
+        const items = res.body.Items.map((item) => jfNormalize.song(item, apiClientProps.server));
+
+        return {
+            items,
+            startIndex: 0,
+            totalRecordCount: res.body.TotalRecordCount,
+        };
     },
     getFolder: async (args) => {
         const { apiClientProps, query } = args;
@@ -1161,6 +1305,34 @@ export const JellyfinController: InternalControllerEndpoint = {
         };
     },
     getRoles: async () => [],
+    getScanStatus: async (args) => {
+        const { apiClientProps } = args;
+
+        const res = await jfApiClient(apiClientProps).getScheduledTasks();
+
+        if (res.status !== 200) {
+            throw new Error('Failed to get scan status');
+        }
+
+        const task =
+            res.body.find((t) => t.Key === 'RefreshLibrary') ||
+            res.body.find((t) => t.Name === 'Scan Media Library');
+
+        if (!task) {
+            return {
+                count: 0,
+                folderCount: 0,
+                scanning: false,
+            };
+        }
+
+        return {
+            count: 0,
+            folderCount: 0,
+            lastScan: task.LastExecutionResult?.EndTimeUtc ?? undefined,
+            scanning: task.State === 'Running' || task.State === 'Cancelling',
+        };
+    },
     getServerInfo: async (args) => {
         const { apiClientProps } = args;
 
@@ -1379,12 +1551,63 @@ export const JellyfinController: InternalControllerEndpoint = {
             query: { ...query, limit: 1, startIndex: 0 },
         }).then((result) => result!.totalRecordCount!),
     getStreamUrl: async ({ apiClientProps: { server }, query }) => {
-        const { bitrate, format, id, transcode } = query;
+        // Lossy encoders top out at 48 kHz (libmp3lame, libopus, aac); asking Jellyfin
+        // for more makes ffmpeg fail and the stream never starts.
+        const clampSampleRate = (rate: number | undefined, codec: string) =>
+            rate && ['aac', 'mp3', 'ogg', 'opus', 'vorbis'].includes(codec)
+                ? Math.min(rate, 48000)
+                : rate;
+        const {
+            bitrate,
+            container,
+            format,
+            forRenderer,
+            id,
+            maxSampleRate,
+            sampleRate,
+            startTime,
+            transcode,
+        } = query;
+        // A transcoded stream is chunked and cannot be ranged into, so a seek is expressed
+        // as a new stream that starts at the requested offset.
+        const startTimeTicks =
+            transcode && startTime && startTime > 0 ? Math.round(startTime * 10_000_000) : 0;
+        // Jellyfin keys a running transcode on media path, user agent, device id and play
+        // session id only. With an empty session id a request for the same file with new
+        // parameters (another offset, a changed cap) is served from the job already running,
+        // and a running job is also found by session id alone, so the id carries the item and
+        // every parameter that must yield a different stream.
+        const transcodeSession = (codec: string, rate: number | undefined) =>
+            `feishin-${id}-${codec}-${rate ?? 0}-${startTimeTicks}`;
         const deviceId = '';
 
         let url = `${server?.url}/Items/${id}/Download?apiKey=${server?.credential}&playSessionId=${deviceId}`;
 
-        if (transcode) {
+        if (transcode && forRenderer) {
+            // UPnP/DLNA renderers commonly pick a decoder from the URL's file extension and
+            // refuse the extension-less universal route, so build a stream.{format} URL for
+            // them. That route takes an exact sample rate, so only cap when the source is
+            // above the configured maximum, and send the file untouched when it already
+            // matches the requested format.
+            const realFormat = (format || 'mp3').toLowerCase();
+            if (container?.toLowerCase() !== realFormat) {
+                const cappedRate = clampSampleRate(maxSampleRate, realFormat);
+                url =
+                    `${server?.url}/Audio/${id}/stream.${realFormat}` +
+                    `?audioCodec=${realFormat}&static=false` +
+                    `&apiKey=${server?.credential}` +
+                    `&playSessionId=${transcodeSession(realFormat, cappedRate)}`;
+                if (bitrate !== undefined) {
+                    url += `&audioBitRate=${bitrate * 1000}`;
+                }
+                if (cappedRate && sampleRate && sampleRate > cappedRate) {
+                    url += `&audioSampleRate=${cappedRate}`;
+                }
+                if (startTimeTicks > 0) {
+                    url += `&startTimeTicks=${startTimeTicks}`;
+                }
+            }
+        } else if (transcode) {
             // Some format appears to be required. Fall back to trusty MP3 if not specified
             // Otherwise, ffmpeg appears to crash
             const realFormat = format || 'mp3';
@@ -1409,6 +1632,17 @@ export const JellyfinController: InternalControllerEndpoint = {
             if (bitrate !== undefined) {
                 url += `&maxStreamingBitrate=${bitrate * 1000}`;
             }
+            const cappedRate = clampSampleRate(maxSampleRate, realFormat.toLowerCase());
+            if (cappedRate) {
+                url += `&maxAudioSampleRate=${cappedRate}`;
+            }
+            if (startTimeTicks > 0) {
+                url += `&startTimeTicks=${startTimeTicks}`;
+            }
+            url = url.replace(
+                `&playSessionId=${deviceId}`,
+                `&playSessionId=${transcodeSession(realFormat.toLowerCase(), cappedRate)}`,
+            );
         }
 
         return url;
@@ -1707,6 +1941,7 @@ export const JellyfinController: InternalControllerEndpoint = {
         const { apiClientProps, query } = args;
 
         const position = query.position && Math.round(query.position);
+        const nowPlayingQueue = getNowPlayingQueueWindow();
 
         if (query.submission) {
             // Checked by jellyfin-plugin-lastfm for whether or not to send the "finished" scrobble (uses PositionTicks)
@@ -1725,6 +1960,7 @@ export const JellyfinController: InternalControllerEndpoint = {
             jfApiClient(apiClientProps).scrobblePlaying({
                 body: {
                     ItemId: query.id,
+                    NowPlayingQueue: nowPlayingQueue,
                     PositionTicks: position,
                 },
             });
@@ -1751,6 +1987,7 @@ export const JellyfinController: InternalControllerEndpoint = {
                     EventName: query.event,
                     IsPaused: false,
                     ItemId: query.id,
+                    NowPlayingQueue: nowPlayingQueue,
                     PositionTicks: position,
                 },
             });
@@ -1772,6 +2009,7 @@ export const JellyfinController: InternalControllerEndpoint = {
         jfApiClient(apiClientProps).scrobbleProgress({
             body: {
                 ItemId: query.id,
+                NowPlayingQueue: nowPlayingQueue,
                 PositionTicks: position,
             },
         });
@@ -1886,6 +2124,54 @@ export const JellyfinController: InternalControllerEndpoint = {
         if (res.status !== 204) {
             throw new Error('Failed to update playlist songs');
         }
+
+        return null;
+    },
+    startLibraryScan: async (args) => {
+        const { apiClientProps } = args;
+        const server = apiClientProps.server;
+        const userId = server?.userId;
+
+        if (!userId) {
+            throw new Error('No userId found');
+        }
+
+        let musicFolderIds = server.musicFolderId?.filter(Boolean) ?? [];
+
+        if (musicFolderIds.length === 0) {
+            const res = await jfApiClient(apiClientProps).getMusicFolderList({
+                params: { userId },
+            });
+
+            if (res.status !== 200) {
+                throw new Error('Failed to get music folders');
+            }
+
+            musicFolderIds = res.body.Items.filter(
+                (folder) => folder.CollectionType === jfType._enum.collection.MUSIC,
+            ).map((folder) => folder.Id);
+        }
+
+        if (musicFolderIds.length === 0) {
+            throw new Error('No music folders found');
+        }
+
+        await Promise.all(
+            musicFolderIds.map((id) =>
+                jfApiClient(apiClientProps).refreshItem({
+                    body: null,
+                    params: { id },
+                    query: {
+                        ImageRefreshMode: 'Default',
+                        MetadataRefreshMode: 'Default',
+                        Recursive: true,
+                        RegenerateTrickplay: false,
+                        ReplaceAllImages: false,
+                        ReplaceAllMetadata: false,
+                    },
+                }),
+            ),
+        );
 
         return null;
     },

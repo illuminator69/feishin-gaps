@@ -1,4 +1,4 @@
-import { LibraryItem, Song } from '/@/shared/types/domain-types';
+import { FullLyricsMetadata, LibraryItem, Song } from '/@/shared/types/domain-types';
 
 export type AutoDJQueueAddedEventPayload = {
     songCount: number;
@@ -11,6 +11,7 @@ export type EventMap = {
     MEDIA_NEXT: MediaNextEventPayload;
     MEDIA_PREV: MediaPrevEventPayload;
     MPV_RELOAD: MpvReloadEventPayload;
+    PLAYER_LYRICS_FETCHED: PlayerLyricsFetchedEventPayload;
     PLAYER_PLAY: PlayerPlayEventPayload;
     PLAYER_REPEATED: PlayerRepeatedEventPayload;
     PLAYER_STOP: PlayerStopEventPayload;
@@ -20,6 +21,7 @@ export type EventMap = {
     PLAYLIST_MOVE_UP: PlaylistMoveEventPayload;
     PLAYLIST_REORDER: PlaylistReorderEventPayload;
     QUEUE_RESTORED: QueueRestoredEventPayload;
+    TAG_EDITED: TagEditedEventPayload;
     USER_FAVORITE: UserFavoriteEventPayload;
     USER_RATING: UserRatingEventPayload;
 };
@@ -45,6 +47,12 @@ export type MediaPrevEventPayload = {
 };
 
 export type MpvReloadEventPayload = Record<string, never>;
+
+export type PlayerLyricsFetchedEventPayload = {
+    lyrics: FullLyricsMetadata;
+    offsetMs: null | number;
+    synced: boolean;
+};
 
 export type PlayerPlayEventPayload = {
     id: string;
@@ -77,6 +85,12 @@ export type QueueRestoredEventPayload = {
     data: Song[];
     index: number;
     position: number;
+};
+
+export type TagEditedEventPayload = {
+    id: string[];
+    itemType: LibraryItem;
+    serverId: string;
 };
 
 export type UserFavoriteEventPayload = {

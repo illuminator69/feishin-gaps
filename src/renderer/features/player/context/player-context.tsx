@@ -27,9 +27,15 @@ import {
 } from '/@/renderer/features/player/utils/saved-queue-source';
 import { playlistsQueries } from '/@/renderer/features/playlists/api/playlists-api';
 import { songsQueries } from '/@/renderer/features/songs/api/songs-api';
-import { AddToQueueType, useHubStore, usePlayerActions, useSettingsStore } from '/@/renderer/store';
-import { LogCategory, logFn } from '/@/renderer/utils/logger';
-import { logMsg } from '/@/renderer/utils/logger-message';
+import {
+    AddToQueueOptions,
+    AddToQueueType,
+    useHubStore,
+    usePlayerActions,
+    useSettingsStore,
+    useSettingsStoreActions,
+} from '/@/renderer/store';
+import { logger } from '/@/renderer/utils/logger';
 import { shuffle as shuffleArray } from '/@/renderer/utils/shuffle';
 import { sortSongsByFetchedOrder } from '/@/shared/api/utils';
 import { Checkbox } from '/@/shared/components/checkbox/checkbox';
@@ -54,12 +60,18 @@ export interface PlayerContext {
         type: AddToQueueType,
         playSongId?: string,
         contextPlaylistId?: null | string,
+        // Bypasses confirmQueueChange entirely — for callers (the remote
+        // control bridge) that already obtained confirmation themselves
+        // before calling this, where the confirm modal this would otherwise
+        // open has no way to reach whoever actually needs to answer it.
+        skipConfirmation?: boolean,
     ) => void;
     addToQueueByFetch: (
         serverId: string,
         id: string[],
         itemType: LibraryItem,
         type: AddToQueueType,
+        options?: AddToQueueOptions,
     ) => void;
     addToQueueByListQuery: (
         serverId: string,
@@ -67,7 +79,7 @@ export interface PlayerContext {
         itemType: LibraryItem,
         type: AddToQueueType,
     ) => Promise<void>;
-    clearQueue: () => void;
+    clearQueue: (skipConfirmation?: boolean) => void;
     clearSelected: (items: QueueSong[]) => void;
     decreaseVolume: (amount: number) => void;
     getQueue: () => QueueSong[];
@@ -101,7 +113,7 @@ export interface PlayerContext {
 
 export const PlayerContext = createContext<PlayerContext>({
     addToQueueByData: () => {},
-    addToQueueByFetch: () => {},
+    addToQueueByFetch: async () => {},
     addToQueueByListQuery: async () => {},
     clearQueue: () => {},
     clearSelected: () => {},
@@ -239,12 +251,55 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     /** Volume to restore on unmute — the hub has no mute, only a level. */
     const mutedVolume = useRef(100);
     const storeActions = usePlayerActions();
+    const settingsActions = useSettingsStoreActions();
     const timeoutIds = useRef<null | Record<string, ReturnType<typeof setTimeout>>>({});
 
     const [doNotShowAgain, setDoNotShowAgain] = useLocalStorage({
         defaultValue: false,
         key: 'large_fetch_confirmation',
     });
+
+    const confirmQueueChange = useCallback(
+        (onConfirm: () => void) => {
+            const shouldConfirm = useSettingsStore.getState().general.confirmQueueChanges;
+
+            if (!shouldConfirm || storeActions.getQueue().items.length === 0) {
+                onConfirm();
+                return;
+            }
+
+            openModal({
+                children: (
+                    <ConfirmModal
+                        labels={{
+                            cancel: t('common.cancel'),
+                            confirm: t('common.confirm'),
+                        }}
+                        onConfirm={() => {
+                            closeAllModals();
+                            onConfirm();
+                        }}
+                    >
+                        <Stack>
+                            <Text>{t('form.queueChangeConfirmation.description')}</Text>
+                            <Checkbox
+                                label={t('common.doNotShowAgain')}
+                                onChange={(event) => {
+                                    settingsActions.setSettings({
+                                        general: {
+                                            confirmQueueChanges: !event.currentTarget.checked,
+                                        },
+                                    });
+                                }}
+                            />
+                        </Stack>
+                    </ConfirmModal>
+                ),
+                title: t('form.queueChangeConfirmation.title'),
+            });
+        },
+        [settingsActions, storeActions, t],
+    );
 
     const confirmLargeFetch = useCallback((): Promise<boolean> => {
         if (doNotShowAgain) {
@@ -290,8 +345,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             type: AddToQueueType,
             playSongId?: string,
             contextPlaylistId?: null | string,
+            skipConfirmation?: boolean,
         ) => {
-            announceNewQueueSession(type);
             const filters = useSettingsStore.getState().playback.filters;
             let filteredData = filterSongsByPlayerFilters(data, filters);
             const resolvedContextId =
@@ -301,50 +356,73 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 filteredData = tagPlaylistContext(filteredData, resolvedContextId);
             }
 
-            // When playback is on another navi-connect device, route to it
-            // instead of the (paused) local player.
-            if (isRemoteSessionActive()) {
-                // Thread the clicked song → start index so Play.NOW on a specific
-                // track starts there remotely instead of at track 1.
-                const startIndex = playSongId
-                    ? Math.max(
-                          0,
-                          filteredData.findIndex((song) => song.id === playSongId),
-                      )
-                    : 0;
-                void enqueueToRemote(filteredData, addToQueueTypeToRemoteMode(type), startIndex);
-                return;
-            }
+            const addToQueue = () => {
+                announceNewQueueSession(type);
 
-            if (typeof type === 'object' && 'edge' in type && type.edge !== null) {
-                const edge = type.edge === 'top' ? 'top' : 'bottom';
+                // When playback is on another navi-connect device, route to it
+                // instead of the (paused) local player.
+                if (isRemoteSessionActive()) {
+                    // Thread the clicked song → start index so Play.NOW on a specific
+                    // track starts there remotely instead of at track 1.
+                    const startIndex = playSongId
+                        ? Math.max(
+                              0,
+                              filteredData.findIndex((song) => song.id === playSongId),
+                          )
+                        : 0;
+                    void enqueueToRemote(
+                        filteredData,
+                        addToQueueTypeToRemoteMode(type),
+                        startIndex,
+                    );
+                    return;
+                }
 
-                logFn.debug(logMsg[LogCategory.PLAYER].addToQueueByData, {
-                    category: LogCategory.PLAYER,
-                    meta: {
+                if (typeof type === 'object' && 'edge' in type && type.edge !== null) {
+                    const edge = type.edge === 'top' ? 'top' : 'bottom';
+
+                    logger.debug('Added to queue by data', {
                         data: data.length,
                         edge,
                         filtered: filteredData.length,
                         type,
                         uniqueId: type.uniqueId,
-                    },
-                });
+                    });
 
-                storeActions.addToQueueByUniqueId(filteredData, type.uniqueId, edge, playSongId);
+                    storeActions.addToQueueByUniqueId(
+                        filteredData,
+                        type.uniqueId,
+                        edge,
+                        playSongId,
+                    );
+                } else {
+                    logger.debug('Added to queue by type', {
+                        data: data.length,
+                        filtered: filteredData.length,
+                        type,
+                    });
+
+                    storeActions.addToQueueByType(filteredData, type as Play, playSongId);
+                }
+            };
+
+            if (!skipConfirmation && isReplaceQueueType(type)) {
+                confirmQueueChange(addToQueue);
             } else {
-                logFn.debug(logMsg[LogCategory.PLAYER].addToQueueByType, {
-                    category: LogCategory.PLAYER,
-                    meta: { data: data.length, filtered: filteredData.length, type },
-                });
-
-                storeActions.addToQueueByType(filteredData, type as Play, playSongId);
+                addToQueue();
             }
         },
-        [storeActions],
+        [confirmQueueChange, storeActions],
     );
 
     const addToQueueByFetch = useCallback(
-        async (serverId: string, id: string[], itemType: LibraryItem, type: AddToQueueType) => {
+        async (
+            serverId: string,
+            id: string[],
+            itemType: LibraryItem,
+            type: AddToQueueType,
+            options?: AddToQueueOptions,
+        ) => {
             let toastId: null | string = null;
             const fetchId = nanoid();
 
@@ -371,10 +449,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             };
 
             try {
-                logFn.debug(logMsg[LogCategory.PLAYER].addToQueueByFetch, {
-                    category: LogCategory.PLAYER,
-                    meta: { ids: id, itemType, serverId, type },
-                });
+                logger.debug('Added to queue by fetch', { ids: id, itemType, serverId, type });
 
                 const songs = await queryClient.fetchQuery({
                     gcTime: 0,
@@ -403,9 +478,12 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                     sortedSongs = sortSongsByFetchedOrder(songs, id, itemType);
                 }
 
-                announceNewQueueSession(type);
                 const filters = useSettingsStore.getState().playback.filters;
                 let filteredSongs = filterSongsByPlayerFilters(sortedSongs, filters);
+
+                if (options?.filter) {
+                    filteredSongs = filteredSongs.filter(options.filter);
+                }
 
                 // Songs from multiple playlists are merged together, so there is no single
                 // playlist to attribute them to: skip tagging (and URL inference) entirely.
@@ -421,13 +499,23 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                     filteredSongs = tagPlaylistContext(filteredSongs, resolvedContextId);
                 }
 
-                if (isRemoteSessionActive()) {
-                    await enqueueToRemote(filteredSongs, addToQueueTypeToRemoteMode(type));
-                } else if (typeof type === 'object' && 'edge' in type && type.edge !== null) {
-                    const edge = type.edge === 'top' ? 'top' : 'bottom';
-                    storeActions.addToQueueByUniqueId(filteredSongs, type.uniqueId, edge);
+                const addToQueue = () => {
+                    announceNewQueueSession(type);
+
+                    if (isRemoteSessionActive()) {
+                        void enqueueToRemote(filteredSongs, addToQueueTypeToRemoteMode(type));
+                    } else if (typeof type === 'object' && 'edge' in type && type.edge !== null) {
+                        const edge = type.edge === 'top' ? 'top' : 'bottom';
+                        storeActions.addToQueueByUniqueId(filteredSongs, type.uniqueId, edge);
+                    } else {
+                        storeActions.addToQueueByType(filteredSongs, type as Play);
+                    }
+                };
+
+                if (!options?.skipConfirmation && isReplaceQueueType(type)) {
+                    confirmQueueChange(addToQueue);
                 } else {
-                    storeActions.addToQueueByType(filteredSongs, type as Play);
+                    addToQueue();
                 }
             } catch (err: any) {
                 if (instanceOfCancellationError(err)) {
@@ -446,7 +534,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 });
             }
         },
-        [queryClient, storeActions, t],
+        [confirmQueueChange, queryClient, storeActions, t],
     );
 
     const addToQueueByListQuery = useCallback(
@@ -454,10 +542,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             let toastId: null | string = null;
             let fetchId: null | string = null;
 
-            logFn.debug(logMsg[LogCategory.PLAYER].addToQueueByListQuery, {
-                category: LogCategory.PLAYER,
-                meta: { itemType, query, serverId, type },
-            });
+            logger.debug('Added to queue by list query', { itemType, query, serverId, type });
 
             try {
                 let totalCount = 0;
@@ -533,10 +618,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                             autoClose: false,
                             message: t('player.playbackFetchCancel'),
                             onClose: () => {
-                                logFn.debug(logMsg[LogCategory.PLAYER].cancelledFetch, {
-                                    category: LogCategory.PLAYER,
-                                    meta: { itemType, serverId },
-                                });
+                                logger.debug('Cancelled fetch', { itemType, serverId });
 
                                 queryClient.cancelQueries({
                                     exact: false,
@@ -643,22 +725,33 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         toast.warn({ message: `${what} isn't supported on a remote device.` });
     }, []);
 
-    const clearQueue = useCallback(() => {
-        if (remoteAct('clear')) return;
+    const clearQueue = useCallback(
+        (skipConfirmation?: boolean) => {
+            const run = () => {
+                if (remoteAct('clear')) return;
 
-        logFn.debug(logMsg[LogCategory.PLAYER].clearQueue, {
-            category: LogCategory.PLAYER,
-        });
+                logger.debug('Cleared queue');
 
-        storeActions.clearQueue();
-    }, [storeActions]);
+                storeActions.clearQueue();
+            };
+
+            // Same bypass as addToQueueByData's skipConfirmation — the
+            // remote control bridge already obtained confirmation on the
+            // phone itself before calling this, and the modal
+            // confirmQueueChange would otherwise open has no way to reach
+            // whoever actually needs to answer it.
+            if (skipConfirmation) {
+                run();
+            } else {
+                confirmQueueChange(run);
+            }
+        },
+        [confirmQueueChange, storeActions],
+    );
 
     const clearSelected = useCallback(
         (items: QueueSong[]) => {
-            logFn.debug(logMsg[LogCategory.PLAYER].clearSelected, {
-                category: LogCategory.PLAYER,
-                meta: { items: items.length },
-            });
+            logger.debug('Cleared selected', { items: items.length });
 
             if (isRemoteSessionActive()) {
                 // The hub removes one index at a time. Highest first, so each removal can't
@@ -683,10 +776,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 return;
             }
 
-            logFn.debug(logMsg[LogCategory.PLAYER].decreaseVolume, {
-                category: LogCategory.PLAYER,
-                meta: { amount },
-            });
+            logger.debug('Decreased volume', { amount });
 
             storeActions.decreaseVolume(amount);
         },
@@ -694,10 +784,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     );
 
     const getQueue = useCallback(() => {
-        logFn.debug(logMsg[LogCategory.PLAYER].clearQueue, {
-            category: LogCategory.PLAYER,
-        });
-
         const queue = storeActions.getQueue();
         return queue.items;
     }, [storeActions]);
@@ -709,10 +795,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 return;
             }
 
-            logFn.debug(logMsg[LogCategory.PLAYER].increaseVolume, {
-                category: LogCategory.PLAYER,
-                meta: { amount },
-            });
+            logger.debug('Increased volume', { amount });
 
             storeActions.increaseVolume(amount);
         },
@@ -725,9 +808,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             // controls drive the session instead of the (paused) local player.
             if (remoteAct('next')) return;
 
-            logFn.debug(logMsg[LogCategory.PLAYER].mediaNext, {
-                category: LogCategory.PLAYER,
-            });
+            logger.debug('Media next');
 
             storeActions.mediaNext(toNextAlbum);
         },
@@ -737,9 +818,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     const mediaPause = useCallback(() => {
         if (remoteAct('pause')) return;
 
-        logFn.debug(logMsg[LogCategory.PLAYER].mediaPause, {
-            category: LogCategory.PLAYER,
-        });
+        logger.debug('Media pause');
 
         storeActions.mediaPause();
     }, [storeActions]);
@@ -758,10 +837,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 return;
             }
 
-            logFn.debug(logMsg[LogCategory.PLAYER].mediaPlay, {
-                category: LogCategory.PLAYER,
-                meta: { id },
-            });
+            logger.debug('Media play', { id });
 
             storeActions.mediaPlay(id);
         },
@@ -772,10 +848,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         (index: number) => {
             if (remoteAct('jump', { index })) return;
 
-            logFn.debug(logMsg[LogCategory.PLAYER].mediaPlayByIndex, {
-                category: LogCategory.PLAYER,
-                meta: { index },
-            });
+            logger.debug('Media play by index', { index });
 
             storeActions.mediaPlayByIndex(index);
         },
@@ -786,9 +859,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         (toPreviousAlbum: boolean) => {
             if (remoteAct('previous')) return;
 
-            logFn.debug(logMsg[LogCategory.PLAYER].mediaPrevious, {
-                category: LogCategory.PLAYER,
-            });
+            logger.debug('Media previous');
 
             storeActions.mediaPrevious(toPreviousAlbum);
         },
@@ -806,10 +877,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 return;
             }
 
-            logFn.debug(logMsg[LogCategory.PLAYER].mediaStop, {
-                category: LogCategory.PLAYER,
-                meta: { reset: options?.reset },
-            });
+            logger.debug('Media stop', { reset: options?.reset });
 
             storeActions.mediaStop(options);
         },
@@ -820,10 +888,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         (timestamp: number) => {
             if (remoteAct('seek', { positionMs: Math.round(timestamp * 1000) })) return;
 
-            logFn.debug(logMsg[LogCategory.PLAYER].mediaSeekToTimestamp, {
-                category: LogCategory.PLAYER,
-                meta: { timestamp },
-            });
+            logger.debug('Media seek to timestamp', { timestamp });
 
             storeActions.mediaSeekToTimestamp(timestamp);
         },
@@ -833,9 +898,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     const mediaSkipBackward = useCallback(() => {
         if (remoteSeekBy(-skipAmount('backward'))) return;
 
-        logFn.debug(logMsg[LogCategory.PLAYER].mediaSkipBackward, {
-            category: LogCategory.PLAYER,
-        });
+        logger.debug('Media skip backward');
 
         storeActions.mediaSkipBackward();
     }, [storeActions]);
@@ -843,27 +906,24 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     const mediaSkipForward = useCallback(() => {
         if (remoteSeekBy(skipAmount('forward'))) return;
 
-        logFn.debug(logMsg[LogCategory.PLAYER].mediaSkipForward, {
-            category: LogCategory.PLAYER,
-        });
+        logger.debug('Media skip forward');
 
         storeActions.mediaSkipForward();
     }, [storeActions]);
 
     const setQueue = useCallback(
         (data: Song[], index?: number, position?: number) => {
-            logFn.debug(logMsg[LogCategory.PLAYER].setQueue, {
-                category: LogCategory.PLAYER,
-                meta: {
+            confirmQueueChange(() => {
+                logger.debug('Set queue', {
                     data: data.length,
                     index,
                     position,
-                },
-            });
+                });
 
-            storeActions.setQueue(data, index, position);
+                storeActions.setQueue(data, index, position);
+            });
         },
-        [storeActions],
+        [confirmQueueChange, storeActions],
     );
 
     const setSpeed = useCallback(
@@ -875,10 +935,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 return;
             }
 
-            logFn.debug(logMsg[LogCategory.PLAYER].setSpeed, {
-                category: LogCategory.PLAYER,
-                meta: { speed },
-            });
+            logger.debug('Set speed', { speed });
 
             storeActions.setSpeed(speed);
         },
@@ -900,9 +957,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             return;
         }
 
-        logFn.debug(logMsg[LogCategory.PLAYER].mediaToggleMute, {
-            category: LogCategory.PLAYER,
-        });
+        logger.debug('Media toggle mute');
 
         storeActions.mediaToggleMute();
     }, [storeActions]);
@@ -910,19 +965,14 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     const mediaTogglePlayPause = useCallback(() => {
         if (remoteAct('playpause')) return;
 
-        logFn.debug(logMsg[LogCategory.PLAYER].mediaTogglePlayPause, {
-            category: LogCategory.PLAYER,
-        });
+        logger.debug('Media toggle play pause');
 
         storeActions.mediaTogglePlayPause();
     }, [storeActions]);
 
     const moveSelectedTo = useCallback(
         (items: QueueSong[], edge: 'bottom' | 'top', uniqueId: string) => {
-            logFn.debug(logMsg[LogCategory.PLAYER].moveSelectedTo, {
-                category: LogCategory.PLAYER,
-                meta: { edge, items, uniqueId },
-            });
+            logger.debug('Moved selected to', { edge, items, uniqueId });
 
             // Remote session: reorder via the hub (rows carry `remote:<i>` ids).
             // The hub `move` act is a single from→to; a multi-item drag can't be
@@ -955,10 +1005,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const moveSelectedToBottom = useCallback(
         (items: QueueSong[]) => {
-            logFn.debug(logMsg[LogCategory.PLAYER].moveSelectedToBottom, {
-                category: LogCategory.PLAYER,
-                meta: { items },
-            });
+            logger.debug('Moved selected to bottom', { items });
 
             if (isRemoteSessionActive()) {
                 if (!remoteMoveTo(items, 'bottom')) unsupportedOnRemote('Reordering these tracks');
@@ -972,10 +1019,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const moveSelectedToNext = useCallback(
         (items: QueueSong[]) => {
-            logFn.debug(logMsg[LogCategory.PLAYER].moveSelectedToNext, {
-                category: LogCategory.PLAYER,
-                meta: { items },
-            });
+            logger.debug('Moved selected to next', { items });
 
             if (isRemoteSessionActive()) {
                 if (!remoteMoveTo(items, 'next')) unsupportedOnRemote('Reordering these tracks');
@@ -989,10 +1033,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     const moveSelectedToTop = useCallback(
         (items: QueueSong[]) => {
-            logFn.debug(logMsg[LogCategory.PLAYER].moveSelectedToTop, {
-                category: LogCategory.PLAYER,
-                meta: { items },
-            });
+            logger.debug('Moved selected to top', { items });
 
             if (isRemoteSessionActive()) {
                 if (!remoteMoveTo(items, 'top')) unsupportedOnRemote('Reordering these tracks');
@@ -1008,10 +1049,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         (volume: number) => {
             if (remoteAct('volume', { level: Math.round(volume) })) return;
 
-            logFn.debug(logMsg[LogCategory.PLAYER].setVolume, {
-                category: LogCategory.PLAYER,
-                meta: { volume },
-            });
+            logger.debug('Set volume', { volume });
 
             storeActions.setVolume(volume);
         },
@@ -1023,10 +1061,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             // PlayerRepeat values ('none'/'all'/'one') match the hub's modes.
             if (remoteAct('repeat', { mode: repeat })) return;
 
-            logFn.debug(logMsg[LogCategory.PLAYER].setRepeat, {
-                category: LogCategory.PLAYER,
-                meta: { repeat },
-            });
+            logger.debug('Set repeat', { repeat });
 
             storeActions.setRepeat(repeat);
         },
@@ -1037,10 +1072,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         (shuffle: PlayerShuffle) => {
             if (remoteAct('shuffle', { on: shuffle === PlayerShuffle.TRACK })) return;
 
-            logFn.debug(logMsg[LogCategory.PLAYER].setShuffle, {
-                category: LogCategory.PLAYER,
-                meta: { shuffle },
-            });
+            logger.debug('Set shuffle', { shuffle });
 
             storeActions.setShuffle(shuffle);
         },
@@ -1052,9 +1084,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     const shuffle = useCallback(() => {
         if (remoteAct('shuffle', { on: true })) return;
 
-        logFn.debug(logMsg[LogCategory.PLAYER].shuffle, {
-            category: LogCategory.PLAYER,
-        });
+        logger.debug('Shuffle');
 
         storeActions.shuffle();
     }, [storeActions]);
@@ -1062,19 +1092,14 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     const shuffleAll = useCallback(() => {
         if (remoteAct('shuffle', { on: true })) return;
 
-        logFn.debug(logMsg[LogCategory.PLAYER].shuffleAll, {
-            category: LogCategory.PLAYER,
-        });
+        logger.debug('Shuffle all');
 
         storeActions.shuffleAll();
     }, [storeActions]);
 
     const shuffleSelected = useCallback(
         (items: QueueSong[]) => {
-            logFn.debug(logMsg[LogCategory.PLAYER].shuffleSelected, {
-                category: LogCategory.PLAYER,
-                meta: { items },
-            });
+            logger.debug('Shuffle selected', { items });
 
             // Shuffling a SUBSET has no hub equivalent — `shuffle` reorders the whole queue.
             if (isRemoteSessionActive()) {
@@ -1095,9 +1120,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             return;
         }
 
-        logFn.debug(logMsg[LogCategory.PLAYER].toggleRepeat, {
-            category: LogCategory.PLAYER,
-        });
+        logger.debug('Toggle repeat');
 
         storeActions.toggleRepeat();
     }, [storeActions]);
@@ -1108,9 +1131,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             return;
         }
 
-        logFn.debug(logMsg[LogCategory.PLAYER].toggleShuffle, {
-            category: LogCategory.PLAYER,
-        });
+        logger.debug('Toggle shuffle');
 
         storeActions.toggleShuffle();
     }, [storeActions]);

@@ -338,7 +338,6 @@ export const SynchronizedLyrics = ({
                 {settings.showProvider && source && (
                     <LyricLine
                         alignment={settings.alignment}
-                        className="lyric-credit"
                         fontSize={effectiveFontSize}
                         text={`${source}`}
                     />
@@ -346,7 +345,6 @@ export const SynchronizedLyrics = ({
                 {settings.showMatch && (
                     <LyricLine
                         alignment={settings.alignment}
-                        className="lyric-credit"
                         fontSize={effectiveFontSize}
                         text={`${name} — ${artist}`}
                     />

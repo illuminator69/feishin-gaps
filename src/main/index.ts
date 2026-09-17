@@ -22,7 +22,6 @@ import {
     Tray,
 } from 'electron';
 import electronLocalShortcut from 'electron-localshortcut';
-import log from 'electron-log/main';
 import { AppImageUpdater, autoUpdater, MacUpdater, NsisUpdater } from 'electron-updater';
 import { access, constants, readdirSync } from 'fs';
 import path, { join } from 'path';
@@ -33,11 +32,17 @@ import { disableMediaKeys, enableMediaKeys } from './features/core/player/media-
 import { shutdownServer } from './features/core/remote';
 import { store } from './features/core/settings';
 import { canHandleVisualizerDisplayMedia } from './features/core/visualizer';
+import log, { autoUpdaterLogInterface } from './logger';
 import MenuBuilder, { MenuPlaybackState } from './menu';
 import './features';
-import { autoUpdaterLogInterface, createLog, hotkeyToElectronAccelerator } from './utils';
+import { hotkeyToElectronAccelerator } from './utils';
 
 import { disableAutoUpdates, isLinux, isMacOS, isWindows } from '/@/main/env';
+import {
+    clampWindowBoundsToDisplay,
+    DEFAULT_WINDOW_BOUNDS,
+    resolveWindowBounds,
+} from '/@/main/utils/window-bounds';
 import { PlayerRepeat, PlayerStatus, PlayerType, TitleTheme } from '/@/shared/types/types';
 
 const ALPHA_UPDATER_CONFIG: {
@@ -63,12 +68,20 @@ type UpdaterInstance = AppImageUpdater | MacUpdater | NsisUpdater | typeof autoU
 class AppUpdater {
     constructor() {
         const effectiveChannel = store.get('release_channel') as string;
-        console.log('Effective update channel:', effectiveChannel);
+        log.info('Effective update channel:', effectiveChannel);
         if (effectiveChannel === 'alpha') {
             checkAllChannelsAndGetBest().then(({ result, updater: updaterInstance }) => {
+                attachUpdaterMilestoneLogs(updaterInstance);
+
                 if (!result?.isUpdateAvailable) {
+                    log.info('Updater check complete', { available: false });
                     return;
                 }
+
+                log.info('Updater check complete', {
+                    available: true,
+                    version: result.updateInfo.version,
+                });
 
                 updaterInstance.autoInstallOnAppQuit = true;
                 updaterInstance.autoRunAppAfterInstall = true;
@@ -78,6 +91,7 @@ class AppUpdater {
                         result.updateInfo.version,
                     );
                 } else {
+                    log.info('Updater download starting', { version: result.updateInfo.version });
                     updaterInstance.autoDownload = true;
                     updaterInstance.checkForUpdatesAndNotify();
                 }
@@ -85,24 +99,63 @@ class AppUpdater {
             return;
         }
 
-        configureAndGetUpdater();
+        const updater = configureAndGetUpdater();
+        attachUpdaterMilestoneLogs(updater);
+
         if (isMacOS()) {
             autoUpdater.autoDownload = false;
             autoUpdater
                 .checkForUpdates()
                 .then((result) => {
                     if (result?.isUpdateAvailable) {
+                        log.info('Updater check complete', {
+                            available: true,
+                            version: result.updateInfo.version,
+                        });
                         getMainWindow()?.webContents.send(
                             'update-available',
                             result.updateInfo.version,
                         );
+                    } else {
+                        log.info('Updater check complete', { available: false });
                     }
                 })
-                .catch((err) => console.error('Check for updates failed', err));
+                .catch((err) => log.error('Check for updates failed', err));
         } else {
             autoUpdater.checkForUpdatesAndNotify();
         }
     }
+}
+
+function attachUpdaterMilestoneLogs(updater: UpdaterInstance): void {
+    let downloadStarted = false;
+
+    updater.on('checking-for-update', () => {
+        log.info('Updater checking for update');
+    });
+
+    updater.on('update-available', (info) => {
+        log.info('Updater update available', { version: info.version });
+    });
+
+    updater.on('update-not-available', (info) => {
+        log.info('Updater update not available', { version: info.version });
+    });
+
+    updater.on('download-progress', () => {
+        if (!downloadStarted) {
+            downloadStarted = true;
+            log.info('Updater download starting');
+        }
+    });
+
+    updater.on('update-downloaded', (info) => {
+        log.info('Updater download complete', { version: info.version });
+    });
+
+    updater.on('error', (error) => {
+        log.error('Updater error', error);
+    });
 }
 
 // When release channel is alpha, check alpha and latest for updates and return
@@ -122,7 +175,7 @@ async function checkAllChannelsAndGetBest(): Promise<{
     const alphaUpdater = createAlphaUpdaterInstance({ probeOnly: true });
 
     try {
-        console.log('Checking for updates on alpha channel');
+        log.info('Checking for updates on alpha channel');
         const alphaResult = await alphaUpdater.checkForUpdates();
         if (
             alphaResult?.updateInfo?.version &&
@@ -138,7 +191,7 @@ async function checkAllChannelsAndGetBest(): Promise<{
 
     try {
         const latestUpdater = createGithubUpdaterInstance('latest', { probeOnly: true });
-        console.log('Checking for updates on latest channel (GitHub)');
+        log.info('Checking for updates on latest channel (GitHub)');
         const latestResult = await latestUpdater.checkForUpdates();
         if (
             latestResult?.updateInfo?.version &&
@@ -174,13 +227,13 @@ function configureAndGetUpdater(): UpdaterInstance {
     let releaseChannel = store.get('release_channel');
     const isNotConfigured = !releaseChannel;
 
-    console.log('Release channel:', releaseChannel);
-    console.log('Is beta version:', isBetaVersion);
-    console.log('Is alpha version:', isAlphaVersion);
-    console.log('Is not configured:', isNotConfigured);
+    log.info('Release channel:', releaseChannel);
+    log.info('Is beta version:', isBetaVersion);
+    log.info('Is alpha version:', isAlphaVersion);
+    log.info('Is not configured:', isNotConfigured);
 
     if (isNotConfigured) {
-        console.log('Release channel not configured, setting default channel');
+        log.info('Release channel not configured, setting default channel');
         const defaultChannel = isAlphaVersion ? 'alpha' : isBetaVersion ? 'beta' : 'latest';
         store.set('release_channel', defaultChannel);
         releaseChannel = defaultChannel;
@@ -189,11 +242,9 @@ function configureAndGetUpdater(): UpdaterInstance {
     const effectiveChannel = store.get('release_channel') as string;
 
     if (effectiveChannel === 'alpha') {
-        log.transports.file.level = 'info';
         return createAlphaUpdaterInstance();
     }
 
-    log.transports.file.level = 'info';
     autoUpdater.logger = autoUpdaterLogInterface;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.autoRunAppAfterInstall = true;
@@ -217,7 +268,6 @@ function configureAndGetUpdater(): UpdaterInstance {
  * Used when checking multiple channels or when the winning channel is beta/latest.
  */
 function configureAutoUpdaterForChannel(channel: 'beta' | 'latest'): void {
-    log.transports.file.level = 'info';
     autoUpdater.logger = autoUpdaterLogInterface;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.autoRunAppAfterInstall = true;
@@ -297,7 +347,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 process.on('uncaughtException', (error: any) => {
-    console.error('Error in main process', error);
+    log.error('Error in main process', error);
 });
 
 if (store.get('ignore_ssl')) {
@@ -321,6 +371,11 @@ let currentPrivateMode = false;
 let currentRepeatMode: PlayerRepeat = PlayerRepeat.NONE;
 let currentSidebarCollapsed = false;
 let currentShuffleEnabled = false;
+
+app.on('before-quit', () => {
+    forceQuit = true;
+    log.info('App quitting', { reason: exitFromTray ? 'tray' : 'before-quit' });
+});
 let playbackMenuAccelerators: MenuPlaybackState['accelerators'] = {};
 let inputFocused = false;
 
@@ -358,10 +413,7 @@ const installExtensions = async () => {
                 { forceDownload },
             )
             .then((installedExtensions) => {
-                createLog({
-                    message: `Installed extension: ${installedExtensions}`,
-                    type: 'info',
-                });
+                log.info(`Installed extension: ${installedExtensions}`);
             })
             .catch(() => {
                 // Ignore
@@ -419,6 +471,33 @@ const resolveAppUserModelId = (): string => {
 
 export const getMainWindow = () => {
     return mainWindow;
+};
+
+const hideMainWindowToTray = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+    }
+
+    mainWindow.setSkipTaskbar(true);
+    mainWindow.hide();
+};
+
+export const showMainWindow = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        void createWindow(false);
+        return;
+    }
+
+    if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+    }
+
+    mainWindow.setSkipTaskbar(false);
+    mainWindow.show();
+    mainWindow.focus();
+    createWinThumbarButtons();
 };
 
 const getMainMenuState = (): MenuPlaybackState => ({
@@ -530,8 +609,7 @@ const createTray = () => {
             click: () => {
                 if (mainWindow === null) createWindow(false);
                 else {
-                    mainWindow.show();
-                    createWinThumbarButtons();
+                    showMainWindow();
                 }
             },
             label: 'Open main window',
@@ -547,16 +625,10 @@ const createTray = () => {
 
     if (!isMacOS()) {
         tray.on('click', () => {
-            if (store.get('window_minimize_to_tray')) {
-                if (mainWindow?.isVisible()) {
-                    mainWindow?.hide();
-                } else {
-                    mainWindow?.show();
-                    createWinThumbarButtons();
-                }
+            if (store.get('window_minimize_to_tray') && mainWindow?.isVisible()) {
+                hideMainWindowToTray();
             } else {
-                mainWindow?.show();
-                createWinThumbarButtons();
+                showMainWindow();
             }
         });
     }
@@ -576,7 +648,7 @@ const validateUrl = (url: string): boolean => {
 
 async function createWindow(first = true): Promise<void> {
     if (isDevelopment) {
-        await installExtensions().catch(console.log);
+        await installExtensions().catch((error) => log.error(error));
     }
 
     const nativeFrame = store.get('window_window_bar_style', 'linux') === 'linux';
@@ -599,11 +671,29 @@ async function createWindow(first = true): Promise<void> {
         },
     };
 
+    const savedBounds = store.get('bounds') as Rectangle | undefined;
+    const workArea = (
+        savedBounds && Number.isFinite(savedBounds.x) && Number.isFinite(savedBounds.y)
+            ? screen.getDisplayMatching(savedBounds)
+            : screen.getPrimaryDisplay()
+    ).workArea;
+    const windowBounds = resolveWindowBounds(savedBounds, workArea);
+
+    if (
+        savedBounds &&
+        (windowBounds.width !== savedBounds.width || windowBounds.height !== savedBounds.height)
+    ) {
+        log.warn('Clamped window bounds to display', {
+            saved: savedBounds,
+            windowBounds,
+            workArea,
+        });
+    }
+
     // Create the browser window.
     mainWindow = new BrowserWindow({
         autoHideMenuBar: true,
         frame: false,
-        height: 900,
         icon: isWindows() ? getAssetPath('icons/icon.ico') : getAssetPath('icons/icon.png'),
         minHeight: 120,
         minWidth: 480,
@@ -618,31 +708,12 @@ async function createWindow(first = true): Promise<void> {
             sandbox: true,
             webSecurity: !store.get('ignore_cors'),
         },
-        width: 1440,
         ...(nativeFrame && isLinux() && nativeFrameConfig.linux),
         ...(nativeFrame && isMacOS() && nativeFrameConfig.macOS),
         ...(nativeFrame && isWindows() && nativeFrameConfig.windows),
+        ...DEFAULT_WINDOW_BOUNDS,
+        ...windowBounds,
     });
-
-    // From https://github.com/electron/electron/issues/526#issuecomment-1663959513
-    const bounds = store.get('bounds') as Rectangle | undefined;
-    if (bounds) {
-        const screenArea = screen.getDisplayMatching(bounds).workArea;
-        if (
-            bounds.x > screenArea.x + screenArea.width ||
-            bounds.x < screenArea.x ||
-            bounds.y < screenArea.y ||
-            bounds.y > screenArea.y + screenArea.height
-        ) {
-            if (bounds.width < screenArea.width && bounds.height < screenArea.height) {
-                mainWindow.setBounds({ height: bounds.height, width: bounds.width });
-            } else {
-                mainWindow.setBounds({ height: 900, width: 1440 });
-            }
-        } else {
-            mainWindow.setBounds(bounds);
-        }
-    }
 
     electronLocalShortcut.register(mainWindow, 'Ctrl+Shift+I', () => {
         mainWindow?.webContents.openDevTools();
@@ -661,7 +732,12 @@ async function createWindow(first = true): Promise<void> {
     });
 
     ipcMain.on('window-minimize', () => {
-        mainWindow?.minimize();
+        if (store.get('window_minimize_to_tray') === true) {
+            log.info('Main window minimized to tray');
+            hideMainWindowToTray();
+        } else {
+            mainWindow?.minimize();
+        }
     });
 
     ipcMain.on('window-close', () => {
@@ -669,6 +745,7 @@ async function createWindow(first = true): Promise<void> {
     });
 
     ipcMain.on('window-quit', () => {
+        log.info('App quitting', { reason: 'window-quit' });
         shutdownServer();
         mainWindow?.close();
         app.exit();
@@ -734,33 +811,80 @@ async function createWindow(first = true): Promise<void> {
             mainWindow.show();
             createWinThumbarButtons();
         }
+
+        log.info('Main window created', { startMinimized: startWindowMinimized && first });
+    });
+
+    mainWindow.webContents.on('render-process-gone', (_event, details) => {
+        log.error('Renderer process gone', {
+            exitCode: details.exitCode,
+            reason: details.reason,
+        });
+    });
+
+    mainWindow.webContents.on('unresponsive', () => {
+        log.error('Renderer process unresponsive');
+    });
+
+    // Mouse navigation
+    mainWindow.on('app-command', (_event, command) => {
+        if (
+            command === 'browser-backward' &&
+            mainWindow?.webContents.navigationHistory.canGoBack()
+        ) {
+            mainWindow.webContents.navigationHistory.goBack();
+        } else if (
+            command === 'browser-forward' &&
+            mainWindow?.webContents.navigationHistory.canGoForward()
+        ) {
+            mainWindow.webContents.navigationHistory.goForward();
+        }
+    });
+
+    mainWindow.on('swipe', (_event, direction) => {
+        if (direction === 'right' && mainWindow?.webContents.navigationHistory.canGoForward()) {
+            mainWindow.webContents.navigationHistory.goForward();
+        } else if (direction === 'left' && mainWindow?.webContents.navigationHistory.canGoBack()) {
+            mainWindow.webContents.navigationHistory.goBack();
+        }
     });
 
     mainWindow.on('closed', () => {
+        log.info('Main window closed');
         ipcMain.removeHandler('window-clear-cache');
         ipcMain.removeHandler('app-check-for-updates');
         mainWindow = null;
     });
 
     mainWindow.on('close', (event) => {
-        store.set('bounds', mainWindow?.getNormalBounds());
-        store.set('maximized', mainWindow?.isMaximized());
-        store.set('fullscreen', mainWindow?.isFullScreen());
+        if (mainWindow) {
+            const bounds = mainWindow.getNormalBounds();
+            store.set(
+                'bounds',
+                clampWindowBoundsToDisplay(bounds, screen.getDisplayMatching(bounds).workArea),
+            );
+            store.set('maximized', mainWindow.isMaximized());
+            store.set('fullscreen', mainWindow.isFullScreen());
+        }
 
         if (!exitFromTray && store.get('window_exit_to_tray')) {
             event.preventDefault();
-            mainWindow?.hide();
+            log.info('Main window hidden to tray');
+            hideMainWindowToTray();
         }
 
         if (forceQuit) {
+            log.info('App quitting', { reason: 'forceQuit' });
             app.exit();
         }
     });
 
-    (mainWindow as any).on('minimize', (event: any) => {
+    mainWindow.on('minimize', () => {
         if (store.get('window_minimize_to_tray') === true) {
-            event.preventDefault();
-            mainWindow?.hide();
+            log.info('Main window minimized to tray');
+            setImmediate(() => {
+                hideMainWindowToTray();
+            });
         }
     });
 
@@ -768,13 +892,7 @@ async function createWindow(first = true): Promise<void> {
         app.setAppUserModelId(resolveAppUserModelId());
     }
 
-    if (isMacOS()) {
-        app.on('before-quit', () => {
-            forceQuit = true;
-        });
-    }
-
-    menuBuilder = new MenuBuilder(mainWindow);
+    menuBuilder = new MenuBuilder(mainWindow, showMainWindow);
     rebuildMainMenu();
 
     // Open URLs in the user's browser
@@ -997,19 +1115,6 @@ ipcMain.on(
     },
 );
 
-ipcMain.on(
-    'logger',
-    (
-        _event,
-        data: {
-            message: string;
-            type: 'debug' | 'error' | 'info' | 'success' | 'verbose' | 'warning';
-        },
-    ) => {
-        createLog(data);
-    },
-);
-
 ipcMain.handle('power-save-blocker-start', (_event, { full }: { full: boolean }) => {
     if (powerSaveBlockerId !== null) {
         return powerSaveBlockerId;
@@ -1080,18 +1185,21 @@ if (!singleInstance) {
 } else {
     app.on('second-instance', () => {
         if (mainWindow) {
-            if (mainWindow.isMinimized()) {
-                mainWindow.restore();
-            } else if (!mainWindow.isVisible()) {
-                mainWindow.show();
-            }
-
-            mainWindow.focus();
+            showMainWindow();
         }
     });
 
     app.whenReady()
         .then(() => {
+            log.info('App ready', {
+                arch: process.arch,
+                electron: process.versions.electron,
+                ignoreCors: !!store.get('ignore_cors'),
+                ignoreSsl: !!store.get('ignore_ssl'),
+                platform: process.platform,
+                version: packageJson.version,
+            });
+
             protocol.handle('feishin', async () => {
                 const filePath = store.get('local_font_path');
                 if (typeof filePath !== 'string') {
@@ -1156,13 +1264,12 @@ if (!singleInstance) {
                 // On macOS it's common to re-create a window in the app when the
                 // dock icon is clicked and there are no other windows open.
                 if (mainWindow === null) createWindow(false);
-                else if (!mainWindow.isVisible()) {
-                    mainWindow.show();
-                    createWinThumbarButtons();
+                else if (!mainWindow.isVisible() || mainWindow.isMinimized()) {
+                    showMainWindow();
                 }
             });
         })
-        .catch(console.log);
+        .catch((error) => log.error(error));
 }
 
 // Register 'open-item' handler globally, ensuring it is only registered once

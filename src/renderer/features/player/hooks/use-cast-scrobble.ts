@@ -9,7 +9,7 @@ import {
     usePlaybackSettings,
     useSettingsStore,
 } from '/@/renderer/store';
-import { LogCategory, logFn } from '/@/renderer/utils/logger';
+import { logger } from '/@/renderer/utils/logger';
 
 /**
  * Scrobbling for playback on a Chromecast.
@@ -173,9 +173,9 @@ const CastScrobbleInner = () => {
                 },
                 {
                     onSuccess: () => {
-                        logFn.debug('scrobbled a cast play', {
-                            category: LogCategory.SCROBBLE,
-                            meta: { id: track.id, reason: 'cast bridge' },
+                        logger.debug('Scrobbled a cast play', {
+                            id: track.id,
+                            reason: 'cast bridge',
                         });
                     },
                 },

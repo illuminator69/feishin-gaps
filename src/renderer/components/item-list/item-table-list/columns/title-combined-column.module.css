@@ -47,15 +47,23 @@
 }
 
 .title {
-    display: inline-block;
+    display: -webkit-inline-box;
     width: 100%;
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+}
 
-    --text-text-wrap: nowrap;
+.title.compact {
+    -webkit-line-clamp: 1;
+}
+
+.title.large {
+    -webkit-line-clamp: 3;
 }
 
 a.title {

@@ -6,6 +6,7 @@ import { browser } from './browser';
 import { cast } from './cast';
 import { customThemes } from './custom-themes';
 import { discordRpc } from './discord-rpc';
+import { dlnaPlayer, dlnaPlayerListener } from './dlna-player';
 import { downloads } from './downloads';
 import { hub } from './hub';
 import { ipc } from './ipc';
@@ -26,6 +27,8 @@ const api = {
     cast,
     customThemes,
     discordRpc,
+    dlnaPlayer,
+    dlnaPlayerListener,
     downloads,
     getPathForFile: webUtils.getPathForFile,
     hub,

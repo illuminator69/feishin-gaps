@@ -26,8 +26,7 @@ import {
     usePlayerStoreBase,
     useSettingsStore,
 } from '/@/renderer/store';
-import { LogCategory, logFn } from '/@/renderer/utils/logger';
-import { logMsg } from '/@/renderer/utils/logger-message';
+import { logger } from '/@/renderer/utils/logger';
 import { hasFeature } from '/@/shared/api/utils';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { ServerFeature } from '/@/shared/types/features-types';
@@ -165,9 +164,10 @@ export const useAutoDJ = () => {
                     return;
                 }
 
-                logFn.debug(logMsg[LogCategory.PLAYER].autoPlayTriggered, {
-                    category: LogCategory.PLAYER,
-                    meta: { remaining: properties.remaining, songId: properties.song?.id },
+                logger.info('Auto DJ triggered', {
+                    remaining: properties.remaining,
+                    songId: properties.song?.id,
+                    songName: properties.song?.name,
                 });
 
                 try {
@@ -190,8 +190,10 @@ export const useAutoDJ = () => {
                         !hasMusicFolder || (hasMusicFolder && hasSimilarSongsMusicFolder);
 
                     const runnerDepsBase = {
+                        allowDuplicates: settings.allowDuplicates,
                         itemCount: settings.itemCount,
                         musicFolderId,
+                        onlySimilar: settings.onlySimilar,
                         queryClient,
                         server,
                         serverId,
@@ -253,9 +255,9 @@ export const useAutoDJ = () => {
                         });
                     }
                 } catch (error) {
-                    logFn.error(logMsg[LogCategory.PLAYER].autoPlayFailed, {
-                        category: LogCategory.PLAYER,
-                        meta: { error: (error as Error).message, songId: properties.song?.id },
+                    logger.error('Auto DJ failed', {
+                        error: (error as Error).message,
+                        songId: properties.song?.id,
                     });
                 }
             },
@@ -304,8 +306,10 @@ export const useAutoDJ = () => {
                     !hasMusicFolder || (hasMusicFolder && hasSimilarSongsMusicFolder);
 
                 const runnerDepsBase = {
+                    allowDuplicates: settings.allowDuplicates,
                     itemCount: settings.itemCount,
                     musicFolderId,
+                    onlySimilar: settings.onlySimilar,
                     queryClient,
                     server,
                     serverId,
@@ -347,9 +351,9 @@ export const useAutoDJ = () => {
                     eventEmitter.emit('AUTODJ_QUEUE_ADDED', { songCount: songsToAdd.length });
                 }
             } catch (error) {
-                logFn.error(logMsg[LogCategory.PLAYER].autoPlayFailed, {
-                    category: LogCategory.PLAYER,
-                    meta: { error: (error as Error).message, songId: nowId },
+                logger.error('Auto DJ failed', {
+                    error: (error as Error).message,
+                    songId: nowId,
                 });
             } finally {
                 remoteRunningRef.current = false;
@@ -404,9 +408,11 @@ export const useAutoDJ = () => {
         settings.autoplaySource,
         settings.enabled,
         settings.albumStrategy,
+        settings.allowDuplicates,
         settings.itemCount,
         settings.mode,
         settings.moodCharacter,
+        settings.onlySimilar,
         settings.songStrategy,
         settings.timing,
     ]);

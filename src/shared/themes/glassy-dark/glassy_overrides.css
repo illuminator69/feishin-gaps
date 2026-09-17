@@ -121,12 +121,8 @@ table {
 }
 */
 
-.fs-main-content-module-main-content-body {
-    height: 100vh;
-}
-
 :has(.fs-window-bar-module-window-bar) .fs-main-content-module-main-content-container {
-    height: calc(100vh - 30px);
+    height: calc(100vh - 120px);
 }
 
 .mantine-Tabs-root {
@@ -147,6 +143,10 @@ table {
 .fs-image-module-image:not(.ag-cell *):not(.fs-left-controls-module-image *):not(
         .fs-sidebar-playlist-list-module-row-group *
     ) {
+    border-radius: 18px;
+}
+
+.fs-image-module-hash {
     border-radius: 18px;
 }
 
@@ -216,23 +216,7 @@ table {
 }
 
 .fs-expanded-list-item-module-container {
-    position: relative;
-    bottom: 90px;
     border-radius: 18px;
-}
-
-/*
- * Keep the side-queue panels (queue / lyrics / visualizer) above the translucent player bar.
- * This theme stretches the side queue to full viewport height (it lives inside .main-content-body,
- * forced to 100vh above), so its bottom panel would otherwise run behind the bar. Reserving the
- * 90px bar height on the panel container shrinks the split-pane group so every pane reflows to fit
- * above the bar — no visualizer bleed, and no gap. Replaces the old per-section `bottom: 90px`
- * relative-shift hack, which lifted only the lyrics panel (leaving a 90px hole below it) and missed
- * the visualizer panel entirely (so it bled under the bar).
- */
-#sidebar-play-queue-container {
-    box-sizing: border-box;
-    padding-bottom: 90px;
 }
 
 .fs-page-header-module-container {
@@ -272,7 +256,11 @@ table {
     height: 100vh !important;
 
     .fs-full-screen-player-module-responsive-container {
-        height: calc(100% - 250px);
+        height: calc(100% - 180px);
+    }
+
+    .fs-full-screen-player-queue-module-controls-container {
+        bottom: 120px;
     }
 }
 
@@ -324,8 +312,4 @@ table {
 .mantine-Accordion-root .mantine-Accordion-item {
     background-color: transparent;
     border: 0;
-}
-
-.fs-item-table-list-module-height-100 {
-    padding-bottom: 65px !important;
 }

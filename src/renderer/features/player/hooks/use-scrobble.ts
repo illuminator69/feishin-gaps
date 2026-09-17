@@ -6,6 +6,7 @@ import { useSendScrobble } from '/@/renderer/features/player/mutations/scrobble-
 import {
     getServerById,
     publishScrobbleDebug,
+    ScrobbleMinimumMode,
     useAppStore,
     usePlaybackSettings,
     usePlayerSong,
@@ -14,8 +15,7 @@ import {
     useSettingsStore,
     useTimestampStoreBase,
 } from '/@/renderer/store';
-import { LogCategory, logFn } from '/@/renderer/utils/logger';
-import { logMsg } from '/@/renderer/utils/logger-message';
+import { logger } from '/@/renderer/utils/logger';
 import { hasFeature } from '/@/shared/api/utils';
 import { LibraryItem, QueueSong, ServerType } from '/@/shared/types/domain-types';
 import { ServerFeature } from '/@/shared/types/features-types';
@@ -89,13 +89,19 @@ const SCROBBLE_RESTART_PREVIOUS_MIN_SEC = 10;
 const MAX_LISTEN_DELTA_SEC = 5;
 
 const checkScrobbleConditions = (args: {
+    minimumMode: 'both' | 'percentage' | 'seconds';
     scrobbleAtDurationMs: number;
     scrobbleAtPercentage: number;
     songCompletedDurationMs: number;
     songDurationMs: number;
 }) => {
-    const { scrobbleAtDurationMs, scrobbleAtPercentage, songCompletedDurationMs, songDurationMs } =
-        args;
+    const {
+        minimumMode,
+        scrobbleAtDurationMs,
+        scrobbleAtPercentage,
+        songCompletedDurationMs,
+        songDurationMs,
+    } = args;
     const percentageOfSongCompleted = songDurationMs
         ? (songCompletedDurationMs / songDurationMs) * 100
         : 0;
@@ -103,7 +109,16 @@ const checkScrobbleConditions = (args: {
     const shouldScrobbleBasedOnPercentage = percentageOfSongCompleted >= scrobbleAtPercentage;
     const shouldScrobbleBasedOnDuration = songCompletedDurationMs >= scrobbleAtDurationMs;
 
-    return shouldScrobbleBasedOnPercentage || shouldScrobbleBasedOnDuration;
+    switch (minimumMode) {
+        case ScrobbleMinimumMode.BOTH:
+            return shouldScrobbleBasedOnPercentage || shouldScrobbleBasedOnDuration;
+        case ScrobbleMinimumMode.PERCENTAGE:
+            return shouldScrobbleBasedOnPercentage;
+        case ScrobbleMinimumMode.SECONDS:
+            return shouldScrobbleBasedOnDuration;
+        default:
+            return shouldScrobbleBasedOnPercentage || shouldScrobbleBasedOnDuration;
+    }
 };
 
 export const useScrobble = () => {
@@ -127,6 +142,7 @@ export const useScrobble = () => {
     const lastListenSampleTimeRef = useRef<null | number>(null);
     const scrobbleAtDurationMsRef = useRef(0);
     const scrobbleAtPercentageRef = useRef(75);
+    const minimumModeRef = useRef<ScrobbleMinimumMode>(ScrobbleMinimumMode.BOTH);
 
     const previousSongRef = useRef<QueueSong | undefined>(undefined);
     const previousTimestampRef = useRef<number>(0);
@@ -144,7 +160,12 @@ export const useScrobble = () => {
     useEffect(() => {
         scrobbleAtDurationMsRef.current = (scrobbleSettings?.scrobbleAtDuration ?? 0) * 1000;
         scrobbleAtPercentageRef.current = scrobbleSettings?.scrobbleAtPercentage ?? 75;
-    }, [scrobbleSettings?.scrobbleAtDuration, scrobbleSettings?.scrobbleAtPercentage]);
+        minimumModeRef.current = scrobbleSettings?.minimumMode;
+    }, [
+        scrobbleSettings?.minimumMode,
+        scrobbleSettings?.scrobbleAtDuration,
+        scrobbleSettings?.scrobbleAtPercentage,
+    ]);
 
     const flushScrobbleDebug = useCallback(() => {
         const song = usePlayerStore.getState().getCurrentSong();
@@ -155,6 +176,7 @@ export const useScrobble = () => {
         const eligibilityMet = Boolean(
             song?.id &&
             checkScrobbleConditions({
+                minimumMode: minimumModeRef.current,
                 scrobbleAtDurationMs: scrobbleAtDurationMsRef.current,
                 scrobbleAtPercentage: scrobbleAtPercentageRef.current,
                 songCompletedDurationMs: listenedMsRef.current,
@@ -211,12 +233,9 @@ export const useScrobble = () => {
                 },
                 {
                     onSuccess: () => {
-                        logFn.debug(logMsg[LogCategory.SCROBBLE].scrobbledTimeupdate, {
-                            category: LogCategory.SCROBBLE,
-                            meta: {
-                                id: song.id,
-                                reason: 'after submission',
-                            },
+                        logger.debug('Scrobbled a timeupdate event', {
+                            id: song.id,
+                            reason: 'after submission',
                         });
                     },
                 },
@@ -305,8 +324,7 @@ export const useScrobble = () => {
             //             },
             //             {
             //                 onSuccess: () => {
-            //                     logFn.debug(logMsg[LogCategory.SCROBBLE].scrobbledTimeupdate, {
-            //                         category: LogCategory.SCROBBLE,
+            //                     logFn.debug("Scrobbled a timeupdate event", {
             //                         meta: {
             //                             id: currentSong.id,
             //                         },
@@ -321,6 +339,7 @@ export const useScrobble = () => {
             // Check if we should submit scrobble based on listened time
             if (!isCurrentSongScrobbledRef.current) {
                 const shouldSubmitScrobble = checkScrobbleConditions({
+                    minimumMode: minimumModeRef.current,
                     scrobbleAtDurationMs: scrobbleAtDurationMsRef.current,
                     scrobbleAtPercentage: scrobbleAtPercentageRef.current,
                     songCompletedDurationMs: listenedMsRef.current,
@@ -342,12 +361,9 @@ export const useScrobble = () => {
                         },
                         {
                             onSuccess: () => {
-                                logFn.debug(logMsg[LogCategory.SCROBBLE].scrobbledSubmission, {
-                                    category: LogCategory.SCROBBLE,
-                                    meta: {
-                                        id: currentSong.id,
-                                        reason: 'from listened time',
-                                    },
+                                logger.info('Scrobbled a submission event', {
+                                    id: currentSong.id,
+                                    reason: 'from listened time',
                                 });
                                 sendProgressAfterSubmission(currentSong);
                             },
@@ -399,11 +415,8 @@ export const useScrobble = () => {
                                 silent: true,
                             });
                         } catch (error) {
-                            logFn.error('an error occurred while sending a desktop notification', {
-                                category: LogCategory.SCROBBLE,
-                                meta: {
-                                    error: error as Error,
-                                },
+                            logger.error('an error occurred while sending a desktop notification', {
+                                error: error as Error,
                             });
                         }
                     }
@@ -447,11 +460,8 @@ export const useScrobble = () => {
                         },
                         {
                             onSuccess: () => {
-                                logFn.debug(logMsg[LogCategory.SCROBBLE].scrobbledStart, {
-                                    category: LogCategory.SCROBBLE,
-                                    meta: {
-                                        id: currentSong.id,
-                                    },
+                                logger.info('Scrobbled a start event', {
+                                    id: currentSong.id,
                                 });
                             },
                         },
@@ -480,11 +490,8 @@ export const useScrobble = () => {
                         },
                         {
                             onSuccess: () => {
-                                logFn.debug(logMsg[LogCategory.SCROBBLE].scrobbledStop, {
-                                    category: LogCategory.SCROBBLE,
-                                    meta: {
-                                        id: previousSong.id,
-                                    },
+                                logger.info('Scrobbled a stop event', {
+                                    id: previousSong.id,
                                 });
                             },
                         },
@@ -578,11 +585,8 @@ export const useScrobble = () => {
                 },
                 {
                     onSuccess: () => {
-                        logFn.debug(logMsg[LogCategory.SCROBBLE].scrobbledTimeupdate, {
-                            category: LogCategory.SCROBBLE,
-                            meta: {
-                                id: currentSong.id,
-                            },
+                        logger.debug('Scrobbled a timeupdate event', {
+                            id: currentSong.id,
                         });
                     },
                 },
@@ -633,11 +637,8 @@ export const useScrobble = () => {
                     },
                     {
                         onSuccess: () => {
-                            logFn.debug(logMsg[LogCategory.SCROBBLE].scrobbledPause, {
-                                category: LogCategory.SCROBBLE,
-                                meta: {
-                                    id: currentSong.id,
-                                },
+                            logger.debug('Scrobbled a pause event', {
+                                id: currentSong.id,
                             });
                         },
                     },
@@ -661,11 +662,8 @@ export const useScrobble = () => {
                     },
                     {
                         onSuccess: () => {
-                            logFn.debug(logMsg[LogCategory.SCROBBLE].scrobbledUnpause, {
-                                category: LogCategory.SCROBBLE,
-                                meta: {
-                                    id: currentSong.id,
-                                },
+                            logger.debug('Scrobbled an unpause event', {
+                                id: currentSong.id,
                             });
                         },
                     },
@@ -694,11 +692,8 @@ export const useScrobble = () => {
                     },
                     {
                         onSuccess: () => {
-                            logFn.debug(logMsg[LogCategory.SCROBBLE].scrobbledStart, {
-                                category: LogCategory.SCROBBLE,
-                                meta: {
-                                    id: currentSong.id,
-                                },
+                            logger.info('Scrobbled a start event', {
+                                id: currentSong.id,
                             });
                         },
                     },
@@ -726,11 +721,8 @@ export const useScrobble = () => {
                     },
                     {
                         onSuccess: () => {
-                            logFn.debug(logMsg[LogCategory.SCROBBLE].scrobbledStop, {
-                                category: LogCategory.SCROBBLE,
-                                meta: {
-                                    id: currentSong.id,
-                                },
+                            logger.info('Scrobbled a stop event', {
+                                id: currentSong.id,
                             });
                         },
                     },
@@ -777,12 +769,9 @@ export const useScrobble = () => {
             },
             {
                 onSuccess: () => {
-                    logFn.debug(logMsg[LogCategory.SCROBBLE].scrobbledStart, {
-                        category: LogCategory.SCROBBLE,
-                        meta: {
-                            id: currentSong.id,
-                            reason: 'from repeat',
-                        },
+                    logger.info('Scrobbled a start event', {
+                        id: currentSong.id,
+                        reason: 'from repeat',
                     });
                 },
             },
@@ -840,12 +829,9 @@ export const useScrobble = () => {
                     },
                     {
                         onSuccess: () => {
-                            logFn.debug(logMsg[LogCategory.SCROBBLE].scrobbledSubmission, {
-                                category: LogCategory.SCROBBLE,
-                                meta: {
-                                    id: song.id,
-                                    reason: 'forced from UI',
-                                },
+                            logger.info('Scrobbled a submission event', {
+                                id: song.id,
+                                reason: 'forced from UI',
                             });
                             sendProgressAfterSubmission(song);
                         },

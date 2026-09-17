@@ -2,9 +2,11 @@ declare global {
     interface Window {
         ANALYTICS_DISABLED?: boolean | string;
         FS_AUTO_DJ_ALBUM_STRATEGY?: string;
+        FS_AUTO_DJ_ALLOW_DUPLICATES?: string;
         FS_AUTO_DJ_ENABLED?: string;
         FS_AUTO_DJ_ITEM_COUNT?: string;
         FS_AUTO_DJ_MODE?: string;
+        FS_AUTO_DJ_ONLY_SIMILAR?: string;
         FS_AUTO_DJ_SONG_STRATEGY?: string;
         FS_AUTO_DJ_TIMING?: string;
         FS_CSS_CONTENT?: string;
@@ -33,6 +35,7 @@ declare global {
         FS_GENERAL_FOLLOW_SYSTEM_THEME?: string;
         FS_GENERAL_HOME_FEATURE?: string;
         FS_GENERAL_HOME_FEATURE_STYLE?: string;
+        FS_GENERAL_IMAGE_PLACEHOLDER_PRIORITY?: string;
         FS_GENERAL_LANGUAGE?: string;
         FS_GENERAL_LAST_FM?: string;
         FS_GENERAL_LASTFM_API_KEY?: string;
@@ -49,6 +52,7 @@ declare global {
         FS_GENERAL_SIDE_QUEUE_TYPE?: string;
         FS_GENERAL_SIDEBAR_COLLAPSE_SHARED?: string;
         FS_GENERAL_SIDEBAR_COLLAPSED_NAVIGATION?: string;
+        FS_GENERAL_SIDEBAR_IMAGE_EXPAND?: string;
         FS_GENERAL_SIDEBAR_PLAYLIST_FOLDER_SEPARATOR?: string;
         FS_GENERAL_SIDEBAR_PLAYLIST_FOLDER_TREE_INDENT?: string;
         FS_GENERAL_SIDEBAR_PLAYLIST_FOLDER_TREE_LINE_COLOR?: string;

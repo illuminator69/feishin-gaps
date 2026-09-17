@@ -5,6 +5,7 @@ import styles from './mobile-fullscreen-player.module.css';
 
 import { useRemoteAwareTimestamp } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { PlayerbarSeekSlider } from '/@/renderer/features/player/components/playerbar-seek-slider';
+import { useIsRadioActive } from '/@/renderer/features/radio/hooks/use-radio-player';
 import { PlayerbarSliderType, usePlayerbarSlider } from '/@/renderer/store/settings.store';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Text } from '/@/shared/components/text/text';
@@ -31,7 +32,12 @@ export const MobileFullscreenPlayerProgress = memo(
         const formattedDuration = formatDuration(songDuration * 1000 || 0);
         const formattedTime = formatDuration(currentTime * 1000 || 0);
 
+        const isRadioActive = useIsRadioActive();
         const isWaveform = playerbarSlider?.type === PlayerbarSliderType.WAVEFORM;
+
+        if (isRadioActive) {
+            return <></>;
+        }
 
         return (
             <div className={styles.progressContainer}>

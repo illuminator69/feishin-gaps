@@ -1,6 +1,7 @@
 import './audiomuse';
 import './autodiscover';
 import './cast';
+import './dlna';
 import './custom-themes';
 import './downloads';
 import './hub';

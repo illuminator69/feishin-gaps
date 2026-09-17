@@ -4,6 +4,7 @@ import qs from 'qs';
 import { z } from 'zod';
 
 import i18n from '/@/i18n/i18n';
+import { validateResponse } from '/@/renderer/api/response-validation';
 import { authenticationFailure } from '/@/renderer/api/utils';
 import { useAuthStore } from '/@/renderer/store';
 import { getServerUrl } from '/@/renderer/utils/normalize-server-url';
@@ -106,12 +107,12 @@ export const contract = c.router({
             200: ssType._response.getArtist,
         },
     },
-    getArtistInfo: {
+    getArtistInfo2: {
         method: 'GET',
-        path: 'getArtistInfo.view',
+        path: 'getArtistInfo2.view',
         query: ssType._parameters.artistInfo,
         responses: {
-            200: ssType._response.artistInfo,
+            200: ssType._response.artistInfo2,
         },
     },
     getArtists: {
@@ -501,7 +502,7 @@ export const ssApiClient = (args: {
     const { forceRemoteUrl, server, signal, silent, url } = args;
 
     return initClient(contract, {
-        api: async ({ body, headers, method, path, rawQuery }) => {
+        api: async ({ body, headers, method, path, rawQuery, route }) => {
             if (server && !server.credential) {
                 throw new Error('Not authenticated');
             }
@@ -583,6 +584,15 @@ export const ssApiClient = (args: {
                     await axiosClient.request<z.infer<typeof ssType._response.baseResponse>>(
                         request,
                     );
+                validateResponse({
+                    controller: 'Subsonic',
+                    method,
+                    path: api,
+                    response: result.data['subsonic-response'],
+                    route,
+                    status: result.status,
+                    validationResponse: result.data,
+                });
 
                 return {
                     body: result.data['subsonic-response'],
@@ -597,6 +607,15 @@ export const ssApiClient = (args: {
 
                     const error = e as AxiosError;
                     const response = error.response as AxiosResponse;
+                    validateResponse({
+                        controller: 'Subsonic',
+                        method,
+                        path: api,
+                        response: response?.data?.['subsonic-response'] ?? response?.data,
+                        route,
+                        status: response?.status,
+                        validationResponse: response?.data,
+                    });
 
                     return {
                         body: response?.data,

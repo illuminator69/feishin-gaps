@@ -6,8 +6,10 @@ import omitBy from 'lodash/omitBy';
 import qs from 'qs';
 
 import i18n from '/@/i18n/i18n';
+import { validateResponse } from '/@/renderer/api/response-validation';
 import { authenticationFailure } from '/@/renderer/api/utils';
 import { useAuthStore } from '/@/renderer/store';
+import { logger } from '/@/renderer/utils/logger';
 import { getServerUrl } from '/@/renderer/utils/normalize-server-url';
 import { ndType } from '/@/shared/api/navidrome/navidrome-types';
 import { resultWithHeaders } from '/@/shared/api/utils';
@@ -443,7 +445,7 @@ axiosClient.interceptors.response.use(
                             console.error('Error when trying to reauthenticate: ', newError);
 
                             if (isAxiosError(newError) && newError.code === 'ERR_NETWORK') {
-                                console.log(
+                                logger.warn(
                                     'Network error during reauthentication - preserving credentials',
                                 );
                             } else {
@@ -460,7 +462,7 @@ axiosClient.interceptors.response.use(
             }
 
             if (isAxiosError(error) && error.code === 'ERR_NETWORK') {
-                console.log('Network error during authentication - preserving credentials');
+                logger.warn('Network error during authentication - preserving credentials');
             } else {
                 limitedFail(currentServer);
             }
@@ -479,7 +481,7 @@ export const ndApiClient = (args: {
     const { forceRemoteUrl, server, signal, url } = args;
 
     return initClient(contract, {
-        api: async ({ body, headers, method, path }) => {
+        api: async ({ body, headers, method, path, route }) => {
             let baseUrl: string | undefined;
             let token: string | undefined;
 
@@ -507,6 +509,14 @@ export const ndApiClient = (args: {
                     signal,
                     url: `${baseUrl}/${api}`,
                 });
+                validateResponse({
+                    controller: 'Navidrome',
+                    method,
+                    path: api,
+                    response: { data: result.data, headers: result.headers },
+                    route,
+                    status: result.status,
+                });
                 return {
                     body: { data: result.data, headers: result.headers },
                     headers: result.headers as any,
@@ -520,6 +530,14 @@ export const ndApiClient = (args: {
 
                     const error = e as AxiosError;
                     const response = error.response as AxiosResponse;
+                    validateResponse({
+                        controller: 'Navidrome',
+                        method,
+                        path: api,
+                        response: { data: response?.data, headers: response?.headers },
+                        route,
+                        status: response?.status,
+                    });
                     return {
                         body: { data: response?.data, headers: response?.headers },
                         headers: response?.headers as any,

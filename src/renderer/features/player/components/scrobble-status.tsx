@@ -6,7 +6,12 @@ import {
     invokeScrobbleForceSubmit,
     invokeScrobbleResetListenedState,
 } from '/@/renderer/features/player/hooks/use-scrobble';
-import { useAppStore, useScrobbleDebugSnapshot, useSettingsStore } from '/@/renderer/store';
+import {
+    ScrobbleMinimumMode,
+    useAppStore,
+    useScrobbleDebugSnapshot,
+    useSettingsStore,
+} from '/@/renderer/store';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
 import { HoverCard } from '/@/shared/components/hover-card/hover-card';
@@ -37,6 +42,7 @@ const ScrobbleConditionProgress = ({ value }: { value: number }) => (
 export const ScrobbleStatus = () => {
     const { t } = useTranslation();
     const scrobbleEnabled = useSettingsStore((state) => state.playback.scrobble.enabled);
+    const scrobbleMinimumMode = useSettingsStore((state) => state.playback.scrobble.minimumMode);
     const privateMode = useAppStore((state) => state.privateMode);
     const snapshot = useScrobbleDebugSnapshot();
     // Remote-aware, like the slider beside it. This read the *local* player's
@@ -66,6 +72,12 @@ export const ScrobbleStatus = () => {
         listenPercentDisplay,
         snapshot.targetPercentage,
     );
+    const showDurationCondition =
+        scrobbleMinimumMode === ScrobbleMinimumMode.SECONDS ||
+        scrobbleMinimumMode === ScrobbleMinimumMode.BOTH;
+    const showPercentageCondition =
+        scrobbleMinimumMode === ScrobbleMinimumMode.PERCENTAGE ||
+        scrobbleMinimumMode === ScrobbleMinimumMode.BOTH;
 
     return (
         <HoverCard openDelay={500} position="top" width={280}>
@@ -105,18 +117,22 @@ export const ScrobbleStatus = () => {
                         <Text size="sm">{t('form.privateMode.enabled')}</Text>
                     ) : (
                         <>
-                            <Stack gap="xs">
-                                <Text size="xs">
-                                    {`${listenedSecDisplay.toFixed(1)}s / ${snapshot.targetDurationSec}s`}
-                                </Text>
-                                <ScrobbleConditionProgress value={durationConditionPct} />
-                            </Stack>
-                            <Stack gap="xs">
-                                <Text size="xs">
-                                    {`${listenPercentDisplay.toFixed(1)}% / ${snapshot.targetPercentage}%`}
-                                </Text>
-                                <ScrobbleConditionProgress value={percentConditionPct} />
-                            </Stack>
+                            {showDurationCondition && (
+                                <Stack gap="xs">
+                                    <Text size="xs">
+                                        {`${listenedSecDisplay.toFixed(1)}s / ${snapshot.targetDurationSec}s`}
+                                    </Text>
+                                    <ScrobbleConditionProgress value={durationConditionPct} />
+                                </Stack>
+                            )}
+                            {showPercentageCondition && (
+                                <Stack gap="xs">
+                                    <Text size="xs">
+                                        {`${listenPercentDisplay.toFixed(1)}% / ${snapshot.targetPercentage}%`}
+                                    </Text>
+                                    <ScrobbleConditionProgress value={percentConditionPct} />
+                                </Stack>
+                            )}
                             <Group gap="xs" grow wrap="nowrap">
                                 <Button
                                     disabled={!snapshot.songId}

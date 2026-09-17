@@ -134,7 +134,7 @@ const ShuffleButton = ({ disabled }: { disabled?: boolean }) => {
             disabled={disabled}
             icon={
                 <Icon
-                    fill={shuffle === PlayerShuffle.NONE ? 'default' : 'primary'}
+                    color={shuffle === PlayerShuffle.NONE ? 'default' : 'primary'}
                     icon="mediaShuffle"
                     size={buttonSize}
                 />

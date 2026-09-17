@@ -42,11 +42,14 @@ interface LibraryHeaderProps {
     imagePlaceholderUrl?: null | string;
     imageUrl?: null | string;
     item: {
+        blurHash?: null | string;
         children?: ReactNode;
+        dominantColor?: null | string;
         explicitStatus?: ExplicitStatus | null;
         imageId?: null | string;
         imageUrl?: null | string;
         route: string;
+        thumbHash?: null | string;
         type?: LibraryItem;
     };
     loading?: boolean;
@@ -114,7 +117,7 @@ export const LibraryHeader = forwardRef(
                         onClick={() => closeAllModals()}
                         style={{
                             cursor: 'pointer',
-                            height: 'calc(100vh - 80px)',
+                            height: 'calc(100vh - 72px - 10px - 12px - 12px)', // 72px header, 10px outer modal border, 12px padding bottom image, 12px scrollbar bottom
                             width: '100%',
                         }}
                     >
@@ -171,8 +174,10 @@ export const LibraryHeader = forwardRef(
                         {...imageSectionSharedProps}
                     >
                         <ItemImage
+                            blurHash={item.blurHash}
                             className={styles.image}
                             containerClassName={styles.image}
+                            dominantColor={item.dominantColor}
                             enableDebounce={false}
                             enableViewport={false}
                             explicitStatus={item.explicitStatus ?? null}
@@ -180,6 +185,7 @@ export const LibraryHeader = forwardRef(
                             id={item.imageId}
                             itemType={item.type as LibraryItem}
                             src={imageUrl || ''}
+                            thumbHash={item.thumbHash}
                             type="header"
                         />
                         {imageOverlay && (
@@ -196,8 +202,10 @@ export const LibraryHeader = forwardRef(
                 ) : (
                     <div className={styles.imageSection} {...imageSectionSharedProps}>
                         <ItemImage
+                            blurHash={item.blurHash}
                             className={styles.image}
                             containerClassName={styles.image}
+                            dominantColor={item.dominantColor}
                             enableDebounce={false}
                             enableViewport={false}
                             explicitStatus={item.explicitStatus ?? null}
@@ -205,6 +213,7 @@ export const LibraryHeader = forwardRef(
                             id={item.imageId}
                             itemType={item.type as LibraryItem}
                             src={imageUrl || ''}
+                            thumbHash={item.thumbHash}
                             type="header"
                         />
                         {imageOverlay && (
@@ -394,21 +403,19 @@ export const LibraryHeaderMenu = ({
                     <PlayLastTextButton {...handlePlayLast.handlers} {...handlePlayLast.props} />
                 )}
                 {onAlbumRadio && (
-                    <Button
+                    <ActionIcon
                         disabled={isPlayerFetching}
-                        leftSection={
-                            isPlayerFetching ? (
-                                <Spinner color="white" />
-                            ) : (
-                                <Icon icon="radio" size="lg" />
-                            )
-                        }
                         onClick={onAlbumRadio}
-                        size="md"
+                        size="lg"
+                        tooltip={{ label: t('player.albumRadio') }}
                         variant="transparent"
                     >
-                        {t('player.albumRadio')}
-                    </Button>
+                        {isPlayerFetching ? (
+                            <Spinner color="white" size="lg" />
+                        ) : (
+                            <Icon icon="radio" size="lg" />
+                        )}
+                    </ActionIcon>
                 )}
                 {onArtistRadio && (
                     <Button
