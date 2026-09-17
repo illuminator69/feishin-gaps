@@ -178,11 +178,13 @@ export const useLbBotDiscography = (ndId: string, mbid?: null | string) => {
 export const useIndexArtist = (ndId: string) => {
     const queryClient = useQueryClient();
     const [pending, setPending] = useState(false);
+    const [error, setError] = useState('');
 
     const indexArtist = useCallback(
         async (mbid: string, name: string) => {
             if (!lbBot || !mbid || !name) return false;
             setPending(true);
+            setError('');
             // What the index says *before* the scan. A rescan of an artist that
             // is already indexed never flips `indexed`, so waiting on that flag
             // alone declared victory on the first tick and dropped the spinner
@@ -197,6 +199,7 @@ export const useIndexArtist = (ndId: string) => {
             const taskId = await lbBot.indexArtist(ndId, mbid, name);
             if (!taskId) {
                 setPending(false);
+                setError('lb-bot did not start the scan. Is it reachable?');
                 return false;
             }
             // A big discography takes 10-60s at MusicBrainz's one-request-a-second.
@@ -210,7 +213,16 @@ export const useIndexArtist = (ndId: string) => {
                     queryKey: ['lbbot', 'discography', ndId],
                 });
                 const rescanned = (data?.scannedAt ?? 0) > previousScan;
-                if ((data?.indexed && rescanned) || attempts >= 20) {
+                // A failed scan used to be invisible: the index simply never
+                // changed, the spinner ran out after 100 s, and the page said
+                // nothing. lb-bot now keeps the old discography and says why.
+                const scan = data?.scan;
+                // Matched by task id, not time: lb-bot's clock is not this one.
+                const failed = scan?.state === 'failed' && scan.taskId === taskId;
+                if (failed) setError(scan.error || 'The discography scan failed.');
+                // A scan that retries MusicBrainz can take a few minutes; the
+                // scan record says when it is really over, so waiting is cheap.
+                if ((data?.indexed && rescanned) || failed || attempts >= 60) {
                     window.clearInterval(tick);
                     setPending(false);
                 }
@@ -220,7 +232,7 @@ export const useIndexArtist = (ndId: string) => {
         [ndId, queryClient],
     );
 
-    return { indexArtist, pending };
+    return { error, indexArtist, pending };
 };
 
 /**
@@ -463,12 +475,20 @@ export const useLbBotLibraryRefresh = () => {
         (ndArtistId?: string, landing?: LbBotLibraryLanding) => {
             // The hub drops its cached discography before it broadcasts, so this
             // re-read is lb-bot's live answer rather than a minute-old copy.
+            if (landing?.event === 'artistScanned' && landing.ndArtistId) {
+                // A scan changes one artist's index and nothing in Navidrome.
+                void queryClient.invalidateQueries({
+                    queryKey: ['lbbot', 'discography', landing.ndArtistId],
+                });
+                return;
+            }
             void queryClient.invalidateQueries({ queryKey: ['lbbot', 'discography'] });
             if (ndArtistId) {
                 void queryClient.invalidateQueries({
                     queryKey: ['lbbot', 'discography', ndArtistId],
                 });
             }
+            if (landing?.event === 'artistScanned') return;
             // `albumPlaced` fires before Navidrome's scan, so re-reading the
             // library then only fetches it as it was. `albumIndexed` follows
             // once Navidrome has the album and is the one worth a refetch.
@@ -491,9 +511,11 @@ export const useLbBotLibraryRefresh = () => {
 
 /** What a `library` frame (or the local fill poll) says landed. */
 export interface LbBotLibraryLanding {
-    /** `albumPlaced` (files placed, not scanned) or `albumIndexed` (Navidrome has it). */
+    /** `albumPlaced` (files placed, not scanned), `albumIndexed` (Navidrome has
+     *  it) or `artistScanned` (a discography scan finished or failed). */
     event?: string;
     ndAlbumIds?: string[];
+    ndArtistId?: string;
 }
 
 /**

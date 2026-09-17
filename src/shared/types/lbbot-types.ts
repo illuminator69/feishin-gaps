@@ -6,10 +6,27 @@
  * See ../../../../DESIGN-lbbot-client-integration.md.
  */
 
+/**
+ * The newest discography scan lb-bot ran for an artist. Without it a scan that
+ * MusicBrainz failed looked exactly like one that found nothing.
+ */
+export interface LbBotArtistScan {
+    /** lb-bot's own sentence, shown verbatim. Empty unless `failed`. */
+    error: string;
+    /** Epoch seconds; 0 while running. */
+    finishedAt: number;
+    startedAt: number;
+    state: 'done' | 'failed' | 'running';
+    /** The scan task this record belongs to — what the rescan that started it matches on. */
+    taskId: string;
+}
+
 export interface LbBotDiscography {
     artistName: string;
     indexed: boolean;
     releases: LbBotRelease[];
+    /** The last scan lb-bot ran for this artist since it started; null if none. */
+    scan: LbBotArtistScan | null;
     /** Epoch seconds of the scan that built this index. Upstream: `scanned_at`. */
     scannedAt: number;
     /** Index older than lb-bot's TTL, or built by an older scan version. */

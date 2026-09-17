@@ -1,4 +1,5 @@
 import type {
+    LbBotArtistScan,
     LbBotDiscography,
     LbBotDownloadResult,
     LbBotEdition,
@@ -255,6 +256,22 @@ const toRelease = (row: unknown): LbBotRelease[] => {
     ];
 };
 
+const SCAN_STATES = new Set(['done', 'failed', 'running']);
+
+const toScan = (raw: unknown): LbBotArtistScan | null => {
+    if (!raw || typeof raw !== 'object') return null;
+    const scan = raw as Record<string, unknown>;
+    const state = str(scan.state);
+    if (!SCAN_STATES.has(state)) return null;
+    return {
+        error: str(scan.error),
+        finishedAt: num(scan.finishedAt),
+        startedAt: num(scan.startedAt),
+        state: state as LbBotArtistScan['state'],
+        taskId: str(scan.taskId),
+    };
+};
+
 // An instant SQLite read on lb-bot's side keyed by the Navidrome artist id the
 // page already holds — never a MusicBrainz round trip, so it is safe to fire on
 // every artist page open. `indexed: false` means "never scanned", which the UI
@@ -268,14 +285,23 @@ ipcMain.handle(
             nd_id: args.ndId,
         });
         if (!data) return null;
+        const scan = toScan(data.scan);
         if (data.indexed !== true) {
-            return { artistName: '', indexed: false, releases: [], scannedAt: 0, stale: false };
+            return {
+                artistName: '',
+                indexed: false,
+                releases: [],
+                scan,
+                scannedAt: 0,
+                stale: false,
+            };
         }
         const releases = Array.isArray(data.releases) ? data.releases : [];
         return {
             artistName: str(data.artist_name),
             indexed: true,
             releases: releases.flatMap(toRelease),
+            scan,
             // Epoch seconds of the scan that built this index. It is the only
             // thing that changes when a *rescan* of an already-indexed artist
             // finishes — `indexed` was already true — so it is what the rescan

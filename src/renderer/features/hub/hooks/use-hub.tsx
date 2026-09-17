@@ -1095,6 +1095,7 @@ export const useHub = () => {
                 libraryRefresh.current(undefined, {
                     event: typeof msg.event === 'string' ? msg.event : undefined,
                     ndAlbumIds: Array.isArray(msg.ndAlbumIds) ? msg.ndAlbumIds : undefined,
+                    ndArtistId: typeof msg.ndArtistId === 'string' ? msg.ndArtistId : undefined,
                 });
             } else if (msg.t === 'do') {
                 void runDirective(msg);

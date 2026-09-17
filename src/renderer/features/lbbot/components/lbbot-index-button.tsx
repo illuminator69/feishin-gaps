@@ -35,7 +35,7 @@ export const LbBotIndexButton = ({
     discography,
     ndId,
 }: LbBotIndexButtonProps) => {
-    const { indexArtist, pending } = useIndexArtist(ndId);
+    const { error, indexArtist, pending } = useIndexArtist(ndId);
 
     if (!discography) return null;
 
@@ -74,10 +74,16 @@ export const LbBotIndexButton = ({
             {/* What makes an always-visible Rescan actionable rather than decorative:
                 without it there is no way to tell an index built this morning from
                 one built in March. `stale` is lb-bot's own verdict on its TTL. */}
-            {discography.indexed && discography.scannedAt > 0 && (
+            {discography.indexed && discography.scannedAt > 0 && !error && (
                 <Text isMuted size="xs">
                     {describeScan(discography.scannedAt)}
                     {discography.stale ? ' · out of date' : ''}
+                </Text>
+            )}
+            {/* The scan failed and lb-bot kept what it had: say so, in its words. */}
+            {error && !pending && (
+                <Text c="red" size="xs">
+                    {error}
                 </Text>
             )}
         </Group>
