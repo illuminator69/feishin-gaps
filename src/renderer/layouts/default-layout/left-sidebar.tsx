@@ -30,6 +30,23 @@ export const LeftSidebar = ({ isResizing, startResizing }: LeftSidebarProps) => 
     const collapsed = useAppStore((state) => state.sidebar.collapsed);
     const motionEnabled = useExpressiveMotion();
 
+    /*
+     * A crossfade entry must never reuse a node that is still exiting. Keying the two states by
+     * `collapsed` alone did exactly that: a resize drag flips collapsed on the way past the
+     * threshold and back again on the way out, so the re-entering state was handed its OWN
+     * exiting node — the exit animation kept running and settled it at opacity 0, and nothing
+     * removed it afterwards because it is a present child again. That is the blank sidebar whose
+     * invisible buttons still respond. Stamping each flip with a generation makes every entry a
+     * fresh node that animates in from scratch, and leaves the stale one to finish and unmount.
+     */
+    const generationRef = useRef(0);
+    const previousCollapsedRef = useRef(collapsed);
+
+    if (previousCollapsedRef.current !== collapsed) {
+        previousCollapsedRef.current = collapsed;
+        generationRef.current += 1;
+    }
+
     const content = (
         <Suspense fallback={<></>}>{collapsed ? <CollapsedSidebar /> : <Sidebar />}</Suspense>
     );
@@ -46,9 +63,9 @@ export const LeftSidebar = ({ isResizing, startResizing }: LeftSidebarProps) => 
                 <AnimatePresence initial={false}>
                     <motion.div
                         animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
+                        exit={{ opacity: 0, pointerEvents: 'none' }}
                         initial={{ opacity: 0 }}
-                        key={collapsed ? 'collapsed' : 'expanded'}
+                        key={`${collapsed ? 'collapsed' : 'expanded'}-${generationRef.current}`}
                         style={{ inset: 0, position: 'absolute' }}
                         transition={{ duration: DURATION.medium1 / 1000, ease: EASING.emphasized }}
                     >

@@ -165,13 +165,23 @@
 }
 
 .title {
-    display: flex;
+    /*
+     * `display: flex` made the text an anonymous flex item, which does not shrink below its
+     * max-content width — so a title that is one long token (a generated playlist name like
+     * `Electronic_Indie_Rock_Medium_Relaxed_...`, where nothing is a break opportunity) ran
+     * straight out of the header and under the side queue. Block layout plus an emergency
+     * break (`overflow-wrap: anywhere`, which still honours `keep-all` between CJK glyphs)
+     * wraps it inside the column instead.
+     */
+    display: block;
+    max-width: 100%;
     margin: 0;
-    font-size: clamp(1.75rem, 3dvw, 2.75rem);
+    font-size: clamp(1.75rem, 3cqw, 2.75rem);
     font-weight: 800;
     line-height: 1.2;
     word-break: keep-all;
     text-wrap: pretty;
+    overflow-wrap: anywhere;
 }
 
 .library-header-menu {

@@ -10,12 +10,14 @@
 .text-container {
     display: grid;
 
-    /* minmax(0, 1fr) + min-height:0 so the two lines never grow past the row
-       height (grid tracks default to min-height:auto, letting line-heights
-       overflow into adjacent rows — worst in compact rows / narrow columns
-       under display scaling). */
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    /* Content-sized rows centred in the row rather than two equal 1fr tracks: the
+       equal split bounded the overflow but still asked the title for more lines than
+       its track was tall, so the clip sliced the last line through its glyphs. See
+       title-combined-column.module.css for the full note. */
+    grid-template-rows: auto auto;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--theme-spacing-xs);
+    align-content: center;
     align-self: stretch;
     min-width: 0;
     height: 100%;
@@ -45,9 +47,10 @@
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    line-height: 1.3;
     white-space: normal;
+    -webkit-box-orient: vertical;
 }
 
 .title.compact {
@@ -55,7 +58,7 @@
 }
 
 .title.large {
-    -webkit-line-clamp: 3;
+    -webkit-line-clamp: 2;
 }
 
 a.title {

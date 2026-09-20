@@ -297,40 +297,46 @@ export const calculateWeightedLength = (str: string): number => {
     return length;
 };
 
+/*
+ * Sized in container units, not viewport units: the header lives inside the content column, so a
+ * `dvw` size ignored the left sidebar's width and the side queue and kept picking a size for a
+ * window far wider than the space the title actually has. `cqw` falls back to the viewport when
+ * there is no inline-size container above, which is the old behaviour.
+ */
 export const calculateTitleSize = (title: string) => {
     const titleLength = calculateWeightedLength(title);
-    let baseSize = '3dvw';
+    let baseSize = '3cqw';
 
     if (titleLength > 20) {
-        baseSize = '2.5dvw';
+        baseSize = '2.5cqw';
     }
 
     if (titleLength > 30) {
-        baseSize = '2.25dvw';
+        baseSize = '2.25cqw';
     }
 
     if (titleLength > 40) {
-        baseSize = '2dvw';
+        baseSize = '2cqw';
     }
 
     if (titleLength > 50) {
-        baseSize = '1.875dvw';
+        baseSize = '1.875cqw';
     }
 
     if (titleLength > 60) {
-        baseSize = '1.75dvw';
+        baseSize = '1.75cqw';
     }
 
     if (titleLength > 70) {
-        baseSize = '1.5dvw';
+        baseSize = '1.5cqw';
     }
 
     if (titleLength > 80) {
-        baseSize = '1.4dvw';
+        baseSize = '1.4cqw';
     }
 
     if (titleLength > 90) {
-        baseSize = '1.3dvw';
+        baseSize = '1.3cqw';
     }
 
     return `clamp(1.75rem, ${baseSize}, 2.75rem)`;
