@@ -13,3 +13,6 @@ tsconfig.*.tsbuildinfo
 .claude/
 .codex-*/
 package-lock.json
+
+# pnpm store written by the Docker Linux build (see the AppImage note)
+.pnpm-store

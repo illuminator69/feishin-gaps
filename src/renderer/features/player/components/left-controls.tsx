@@ -158,7 +158,6 @@ export const LeftControls = () => {
                                           }
                                         : { duration: 0.2, ease: 'easeOut' }
                                 }
-                                whileHover={{ scale: 1.1 }}
                             >
                                 <Tooltip label={t('player.toggleFullscreenPlayer')}>
                                     {isRadioMode && hasRadioStationImage ? (
