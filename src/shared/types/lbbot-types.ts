@@ -534,6 +534,11 @@ export interface LbBotResolvedEdition {
 }
 
 export interface LbBotSimilarAlbum {
+    /** Navidrome album id. Every row on this shelf is a record the library
+     *  already holds, so this is normally present and is what a tap should
+     *  open — routing on the rgid alone sends an owned album to its own
+     *  download page. Empty only when Navidrome has not scanned it yet. */
+    albumId: string;
     artist: string;
     /** Navidrome artist id — the similar artist, who is in the library. */
     artistId: string;

@@ -719,6 +719,7 @@ const toSimilarAlbum = (row: unknown): LbBotSimilarAlbum[] => {
     if (!rgid) return [];
     return [
         {
+            albumId: str(r.albumId),
             artist: str(r.artist),
             artistId: str(r.artistId),
             because: str(r.because),

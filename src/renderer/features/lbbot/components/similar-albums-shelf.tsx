@@ -57,15 +57,24 @@ export const SimilarAlbumsShelf = ({ artistMbid, artistName, rgid }: SimilarAlbu
                     <button
                         className={styles.tile}
                         key={album.rgid}
-                        // The external album page is the only route that works
-                        // from a release-group id alone: lb-bot picks these rows
-                        // out of its discography index, which is keyed by
-                        // release-group and carries no Navidrome album id. That
-                        // page already redirects to the library album when it
-                        // can resolve one.
+                        // Straight to the library album. Every row here is a
+                        // record the library already holds, so the external page
+                        // was always the wrong destination — it was used only
+                        // because the row carried no Navidrome album id, and its
+                        // redirect cannot fire when lb-bot's index row has no id
+                        // either. The result was a fully-downloaded album opening
+                        // its own download page. lb-bot sends `albumId` now; the
+                        // external page stays as the fallback for a row it
+                        // genuinely cannot resolve.
                         onClick={() =>
                             navigate(
-                                generatePath(AppRoute.EXTERNAL_ALBUM_DETAIL, { rgid: album.rgid }),
+                                album.albumId
+                                    ? generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, {
+                                          albumId: album.albumId,
+                                      })
+                                    : generatePath(AppRoute.EXTERNAL_ALBUM_DETAIL, {
+                                          rgid: album.rgid,
+                                      }),
                             )
                         }
                         type="button"
