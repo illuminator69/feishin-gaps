@@ -529,11 +529,17 @@ export const AlbumDetailContent = () => {
         enabled: Boolean(server?.id && albumId),
     });
     const notes = albumInfoQuery.data?.notes;
+    // Until this settles we do not know whether there are notes, and rendering
+    // the `comment` meanwhile would mean replacing it the moment they land —
+    // the very swap this whole block exists to remove. It is a Navidrome call
+    // alongside the detail the page already waits for, so the slot is filled
+    // once, by one decision.
+    const notesPending = albumInfoQuery.isLoading;
 
     const metaQuery = useLbBotAlbumMeta(mbzReleaseGroupId, mbzId);
     const meta = metaQuery.data;
     const hasMetaText = Boolean(meta?.summary || meta?.paragraphs.length);
-    const hasDescription = Boolean(notes || comment || hasMetaText);
+    const hasDescription = !notesPending && Boolean(notes || comment || hasMetaText);
 
     return (
         <div className={styles.contentContainer}>
