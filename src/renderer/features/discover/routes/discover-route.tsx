@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 
 import { FreshRow } from '../components/fresh-row';
+import { ListenBrainzRow } from '../components/listenbrainz-row';
 import { MoodRow } from '../components/mood-row';
 import { RediscoveryRow } from '../components/rediscovery-row';
 import { SimilarArtistsRow } from '../components/similar-artists-row';
@@ -40,6 +41,8 @@ const renderRow = (id: DiscoverRowId, title: string) => {
     switch (id) {
         case 'fresh':
             return <FreshRow key={id} title={title} />;
+        case 'listenbrainz':
+            return <ListenBrainzRow key={id} title={title} />;
         case 'mood':
             return <MoodRow key={id} title={title} />;
         case 'rediscovery':

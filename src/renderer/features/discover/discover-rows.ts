@@ -35,11 +35,12 @@ export interface DiscoverRowDefinition {
     title: string;
 }
 
-export type DiscoverRowId = 'fresh' | 'mood' | 'rediscovery' | 'similar-artists';
+export type DiscoverRowId = 'fresh' | 'listenbrainz' | 'mood' | 'rediscovery' | 'similar-artists';
 
 /**
  * Render order. Leverage first: what is new, then who you are missing, then
- * what you already own and forgot, then a way to ask a question of your own.
+ * what was picked for you, then what you already own and forgot, then a way to
+ * ask a question of your own.
  *
  * `stations` is deliberately absent rather than disabled. Persistent named
  * stations were scoped and deferred to a hub-side implementation next to saved
@@ -55,6 +56,14 @@ export const DISCOVER_ROWS: DiscoverRowDefinition[] = [
         capability: { kind: 'lbbot', route: 'GET /lb/artist/similar' },
         id: 'similar-artists',
         title: 'Fans also like',
+    },
+    {
+        // Navidrome only: the `listenbrainz-daily-playlist` plugin writes these
+        // as ordinary server-side playlists, so this row is a name filter and
+        // costs no route, no probe and no lb-bot.
+        capability: { kind: 'library' },
+        id: 'listenbrainz',
+        title: 'Made for you by ListenBrainz',
     },
     {
         capability: { kind: 'library' },

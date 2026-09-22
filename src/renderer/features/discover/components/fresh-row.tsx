@@ -2,8 +2,10 @@ import { useMemo } from 'react';
 import { generatePath, useNavigate } from 'react-router';
 
 import { DiscoverRow } from './discover-row';
+import styles from './discover-row.module.css';
 import { DiscoverTile } from './discover-tile';
 
+import { AcquireButton } from '/@/renderer/features/lbbot/components/acquire-button';
 import { useLbBotFreshReleases } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { externalAlbumPath } from '/@/renderer/features/lbbot/utils/external-paths';
 import { AppRoute } from '/@/renderer/router/routes';
@@ -33,6 +35,20 @@ export const FreshRow = ({ title }: { title: string }) => {
             releases.map((release) => ({
                 content: (
                     <DiscoverTile
+                        // One tap to fetch it, but never blind: the control
+                        // reviews lb-bot's ranked sources first and opens the
+                        // picker whenever there is anything left to decide.
+                        action={
+                            release.releaseOwned ? undefined : (
+                                <AcquireButton
+                                    artist={release.artist}
+                                    className={styles.action}
+                                    onReview={() => navigate(externalAlbumPath(release))}
+                                    rgid={release.releaseGroupMbid}
+                                    title={release.releaseName}
+                                />
+                            )
+                        }
                         imageUrl={release.coverUrl}
                         isUnowned={!release.releaseOwned}
                         itemType={LibraryItem.ALBUM}

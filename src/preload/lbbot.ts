@@ -1,4 +1,5 @@
 import type {
+    LbBotAlbumCandidate,
     LbBotArtistCandidate,
     LbBotDiscography,
     LbBotDownloadResult,
@@ -134,6 +135,11 @@ const gapRescan = (groupId: string): Promise<LbBotResult<boolean>> =>
 const artistLookup = (q: string): Promise<LbBotArtistCandidate[]> =>
     ipcRenderer.invoke('lbbot-artist-lookup', { q });
 
+/** MusicBrainz album search, with each hit marked owned or not. Same empty-array
+ *  contract as `artistLookup`. */
+const albumLookup = (q: string): Promise<LbBotAlbumCandidate[]> =>
+    ipcRenderer.invoke('lbbot-album-lookup', { q });
+
 /** "Similar albums" — one album per similar artist, all from your own library,
  *  each row naming the artist that justifies it. Null when we could not ask. */
 const albumSimilar = (args: {
@@ -171,6 +177,7 @@ const notify = (title: string, body: string): Promise<void> =>
     ipcRenderer.invoke('lbbot-notify', { body, title });
 
 export const lbBot = {
+    albumLookup,
     albumReleases,
     albumSimilar,
     albumSources,

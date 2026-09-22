@@ -1,4 +1,5 @@
 import type {
+    LbBotAlbumCandidate,
     LbBotArtistCandidate,
     LbBotArtistScan,
     LbBotDiscography,
@@ -697,6 +698,40 @@ ipcMain.handle(
                     name: str(r.name),
                     score: num(r.score),
                     type: str(r.type),
+                },
+            ];
+        });
+    },
+);
+
+// MusicBrainz album search, the other half of "Not in your library". Unlike the
+// artist route this answer carries ownership per candidate, marked by
+// release-group id rather than by a name match — so the renderer can show an
+// owned hit as a library row that opens the album instead of offering to fetch
+// a record already on disk.
+ipcMain.handle(
+    'lbbot-album-lookup',
+    async (_event, args: { q: string }): Promise<LbBotAlbumCandidate[]> => {
+        const q = (args.q ?? '').trim();
+        if (!q) return [];
+        const data = await get('/lb/album/lookup', { q });
+        const rows = Array.isArray(data?.candidates) ? data.candidates : [];
+        return rows.flatMap((row): LbBotAlbumCandidate[] => {
+            if (!row || typeof row !== 'object') return [];
+            const r = row as Json;
+            const rgid = str(r.rgid);
+            if (!rgid) return [];
+            return [
+                {
+                    artist: str(r.artist),
+                    coverUrl: str(r.coverUrl),
+                    primaryType: str(r.primary_type),
+                    releaseAlbumId: str(r.releaseAlbumId),
+                    releaseOwned: r.releaseOwned === true,
+                    rgid,
+                    score: num(r.score),
+                    title: str(r.title),
+                    year: str(r.year),
                 },
             ];
         });

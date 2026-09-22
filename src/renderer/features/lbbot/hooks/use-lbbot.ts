@@ -1,4 +1,5 @@
 import type {
+    LbBotAlbumCandidate,
     LbBotArtistCandidate,
     LbBotDiscography,
     LbBotDownloadResult,
@@ -345,6 +346,29 @@ export const useLbBotArtistLookup = (query: string, enabled = true) => {
 };
 
 /**
+ * MusicBrainz album search — the other half of "Not in your library".
+ *
+ * Same 1 req/sec lock, so the same rules: debounced term only, and nothing
+ * shorter than {@link LOOKUP_MIN_LENGTH}. Note both lookups share that one
+ * global second, so a search box firing them together spends two.
+ *
+ * Unlike the artist lookup, an owned hit is *not* dropped and not routed
+ * externally: lb-bot marks ownership by release-group id, which is exact, and
+ * `releaseAlbumId` is where the tap goes.
+ */
+export const useLbBotAlbumLookup = (query: string, enabled = true) => {
+    const available = useLbBotAvailable();
+    const term = query.trim();
+    return useQuery<LbBotAlbumCandidate[]>({
+        enabled: !!lbBot && available && enabled && term.length >= LOOKUP_MIN_LENGTH,
+        queryFn: () => lbBot!.albumLookup(term),
+        queryKey: ['lbbot', 'album-lookup', term],
+        refetchOnWindowFocus: false,
+        staleTime: 10 * 60 * 1000,
+    });
+};
+
+/**
  * "Similar albums" for an album page.
  *
  * lb-bot has answered this route since the Fresh work shipped and no client has
@@ -587,6 +611,11 @@ export const startAlbumDownload = async (
     source?: { folder: string; peer: string },
     edition?: LbBotResolvedEdition,
     excludeUsers?: string[],
+    /** Names for the ledger row when no edition was resolved to supply them —
+     *  a one-tap acquire has the title and artist from whatever row it was
+     *  fired from, and without them the downloads view captions the row with a
+     *  release-group id. */
+    names?: { album?: string; artist?: string },
 ): Promise<LbBotDownloadResult> => {
     if (!lbBot) {
         return {
@@ -604,8 +633,8 @@ export const startAlbumDownload = async (
         // artist and title ride along so the downloads view can name the row even
         // after lb-bot (whose ledger is in memory) has forgotten the fill.
         useActiveFillsStore.getState().actions.start(rgid, result.releaseMbid, quality ?? '', {
-            album: edition?.title,
-            artist: edition?.artist,
+            album: edition?.title || names?.album,
+            artist: edition?.artist || names?.artist,
             // The whole edition, not just its display fields: a Retry has to re-send
             // it or lb-bot re-resolves the group and the chosen pressing is lost.
             edition,
@@ -615,6 +644,96 @@ export const startAlbumDownload = async (
         });
     }
     return result;
+};
+
+/**
+ * Why a one-tap acquire did not fire, in the terms the caller has to explain.
+ *
+ * `review` is not a failure — it is the picker doing its job. Every reason here
+ * is a question only the user can answer.
+ */
+export type AcquireOutcome =
+    | { format: string; kind: 'started'; peer: string; result: LbBotDownloadResult }
+    | {
+          kind: 'review';
+          reason: 'incomplete' | 'noSources' | 'unavailable' | 'uncertainMatch' | 'wrongFormat';
+      };
+
+/** Formats a lossless preference is actually satisfied by. */
+const LOSSLESS = /^(flac|alac|wav|aiff|ape|wv)$/i;
+
+/**
+ * Star-on-an-unowned-row: acquire in one gesture, but never blind.
+ *
+ * lb-bot's own documentation records why the blind version was removed — it
+ * fetched the wrong record for a self-titled album, where every candidate
+ * folder's name looks plausible, and nothing before or after the fact said so.
+ * That is what `/lb/album/sources` and the two-step picker exist for. So this
+ * reviews on the user's behalf and only fires when there is nothing left to
+ * decide: lb-bot's top-ranked folder, its own "is this the right record"
+ * verdict, and complete coverage **against the canonical MusicBrainz tracklist
+ * rather than a file count**. Anything else returns `review` and the caller
+ * opens the picker.
+ *
+ * Two things it is easy to get wrong here:
+ *
+ * 1. **It is one gesture, not an instant result.** `/lb/album/sources` is a
+ *    live slskd fan-out and takes 30-90s. The caller has to show that, because
+ *    the ledger has nothing to show until the download is actually posted.
+ * 2. **Quality is a ranking term upstream, not a filter**, so the top-ranked
+ *    folder can legitimately be MP3 when the preference is FLAC. The preference
+ *    itself lives in lb-bot when it is the default (`''`), so there is nothing
+ *    to check against — but when the user has picked a *lossless* one on this
+ *    client, a lossy top pick is exactly the surprise the source row exists to
+ *    prevent, and it goes to the picker instead.
+ *
+ * The sources fetch is keyed identically to {@link useLbBotAlbumSources}, so the
+ * picker this falls through to opens on the answer already in hand rather than
+ * starting a second search.
+ */
+export const useAcquireAlbum = () => {
+    const queryClient = useQueryClient();
+    return useCallback(
+        async (release: {
+            artist?: string;
+            rgid: string;
+            title?: string;
+        }): Promise<AcquireOutcome> => {
+            if (!lbBot || !release.rgid) return { kind: 'review', reason: 'unavailable' };
+
+            const answer = await queryClient.fetchQuery<LbBotResult<LbBotGapSource[]>>({
+                queryFn: () => lbBot!.albumSources(release.rgid),
+                queryKey: ['lbbot', 'album-sources', release.rgid, ''],
+                staleTime: 60 * 1000,
+            });
+            const sources = answer?.ok ? (answer.data ?? []) : null;
+            if (!sources) return { kind: 'review', reason: 'unavailable' };
+
+            const top = sources[0];
+            if (!top) return { kind: 'review', reason: 'noSources' };
+            if (!top.albumMatchOk) return { kind: 'review', reason: 'uncertainMatch' };
+            if (!top.coverageFull || top.coverageDetail.totalTracks <= 0) {
+                return { kind: 'review', reason: 'incomplete' };
+            }
+
+            const quality = useActiveFillsStore.getState().preferredQuality;
+            const wantsLossless = quality === 'flac-16-44' || quality === 'flac-any';
+            if (wantsLossless && !LOSSLESS.test((top.format || '').trim())) {
+                return { kind: 'review', reason: 'wrongFormat' };
+            }
+
+            const result = await startAlbumDownload(
+                release.rgid,
+                quality,
+                { folder: top.folder, peer: top.peer },
+                undefined,
+                undefined,
+                { album: release.title, artist: release.artist },
+            );
+            return { format: top.format, kind: 'started', peer: top.peer, result };
+        },
+        [queryClient],
+    );
 };
 
 /**

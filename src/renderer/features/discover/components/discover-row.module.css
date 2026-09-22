@@ -22,6 +22,13 @@
     gap: var(--theme-spacing-sm);
 }
 
+/* The card's positioning context, so an overlaid control (the one-tap acquire)
+   has something to anchor to without the card itself becoming one. */
+.wrapper {
+    position: relative;
+    height: 100%;
+}
+
 /* A poster card, matching item-card's: the surface, the padding and the radius
    are the same tokens, so a Discover row and a home carousel read as one app. */
 .tile {
@@ -65,6 +72,21 @@
 .cover.unowned {
     border: 1px dashed var(--theme-colors-foreground-muted);
     opacity: 0.55;
+}
+
+.action {
+    position: absolute;
+    top: calc(var(--theme-spacing-md) + var(--theme-spacing-xs));
+    right: calc(var(--theme-spacing-md) + var(--theme-spacing-xs));
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+/* Revealed on hover like every other card control, and always available to the
+   keyboard, which has no hover to offer. */
+.wrapper:hover .action,
+.action:focus-visible {
+    opacity: 1;
 }
 
 .name {

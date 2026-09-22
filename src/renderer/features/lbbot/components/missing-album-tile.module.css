@@ -1,4 +1,10 @@
+/* The wrapper is a positioning context for the acquire control, which sits over
+   the cover the way a favourite heart does on a library card. */
 .tile {
+    position: relative;
+}
+
+.main {
     display: flex;
     flex-direction: column;
     gap: var(--theme-spacing-xs);
@@ -32,7 +38,7 @@
         filter 0.15s ease;
 }
 
-.tile:hover .cover {
+.main:hover .cover {
     opacity: 0.75;
     filter: grayscale(0);
 }
@@ -60,4 +66,19 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.acquire {
+    position: absolute;
+    top: var(--theme-spacing-xs);
+    right: var(--theme-spacing-xs);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+/* Revealed on hover, like every other card control here — and always visible to
+   the keyboard, which has no hover to offer. */
+.tile:hover .acquire,
+.acquire:focus-visible {
+    opacity: 1;
 }

@@ -2,6 +2,7 @@ import { generatePath, useNavigate } from 'react-router';
 
 import styles from './missing-album-tile.module.css';
 
+import { AcquireButton } from '/@/renderer/features/lbbot/components/acquire-button';
 import { openMissingAlbumModal } from '/@/renderer/features/lbbot/components/missing-album-modal';
 import {
     caaCoverUrl,
@@ -58,42 +59,62 @@ export const MissingAlbumTile = ({ artistName, ndArtistId, release }: MissingAlb
         (isAwaitingLibrary(release) ? 'Added — waiting for library' : undefined);
 
     return (
-        <button
-            className={styles.tile}
-            onClick={() =>
-                ownedAlbumId
-                    ? navigate(
-                          generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, { albumId: ownedAlbumId }),
-                      )
-                    : openMissingAlbumModal(artistName, release)
-            }
-            type="button"
-        >
-            <div className={styles.frame}>
-                <img
-                    alt=""
-                    className={styles.cover}
-                    loading="lazy"
-                    onError={(e) => {
-                        // Plenty of release-groups have no Cover Art Archive
-                        // front; the empty frame stands in for it.
-                        e.currentTarget.style.visibility = 'hidden';
-                    }}
-                    src={caaCoverUrl(release.rgid)}
+        // A div wrapping a button rather than one button: the acquire control is
+        // itself a button, and a button inside a button is invalid markup that
+        // browsers resolve by dropping the inner one.
+        <div className={styles.tile}>
+            <button
+                className={styles.main}
+                onClick={() =>
+                    ownedAlbumId
+                        ? navigate(
+                              generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, {
+                                  albumId: ownedAlbumId,
+                              }),
+                          )
+                        : openMissingAlbumModal(artistName, release)
+                }
+                type="button"
+            >
+                <div className={styles.frame}>
+                    <img
+                        alt=""
+                        className={styles.cover}
+                        loading="lazy"
+                        onError={(e) => {
+                            // Plenty of release-groups have no Cover Art Archive
+                            // front; the empty frame stands in for it.
+                            e.currentTarget.style.visibility = 'hidden';
+                        }}
+                        src={caaCoverUrl(release.rgid)}
+                    />
+                    <Badge className={styles.badge} size="xs">
+                        {label ?? 'Not in library'}
+                    </Badge>
+                    {fill && fill.percent > 0 && fill.percent < 100 && (
+                        <Progress className={styles.progress} size="xs" value={fill.percent} />
+                    )}
+                </div>
+                <Text className={styles.name} size="sm">
+                    {release.title}
+                </Text>
+                <Text isMuted size="xs">
+                    {release.year}
+                </Text>
+            </button>
+            {/* Only on a row that is genuinely absent. An owned row's tap opens
+                the library album, and offering to fetch a record already on disk
+                is the trap this whole tile exists to avoid. A fill already in
+                flight has its own progress below. */}
+            {!ownedAlbumId && !fill && (
+                <AcquireButton
+                    artist={artistName}
+                    className={styles.acquire}
+                    onReview={() => openMissingAlbumModal(artistName, release)}
+                    rgid={release.rgid}
+                    title={release.title}
                 />
-                <Badge className={styles.badge} size="xs">
-                    {label ?? 'Not in library'}
-                </Badge>
-                {fill && fill.percent > 0 && fill.percent < 100 && (
-                    <Progress className={styles.progress} size="xs" value={fill.percent} />
-                )}
-            </div>
-            <Text className={styles.name} size="sm">
-                {release.title}
-            </Text>
-            <Text isMuted size="xs">
-                {release.year}
-            </Text>
-        </button>
+            )}
+        </div>
     );
 };

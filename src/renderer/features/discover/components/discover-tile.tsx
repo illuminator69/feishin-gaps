@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { ReactNode } from 'react';
 
 import styles from './discover-row.module.css';
 
@@ -24,6 +25,13 @@ import { LibraryItem } from '/@/shared/types/domain-types';
  * icon instead of a text-only tile.
  */
 interface DiscoverTileProps {
+    /**
+     * A control laid over the cover — today the one-tap acquire on an unowned
+     * release. Rendered as a sibling of the card's own button rather than inside
+     * it, because a button within a button is markup browsers resolve by
+     * dropping the inner one.
+     */
+    action?: ReactNode;
     /** Navidrome id, for anything the library holds. */
     imageId?: null | string;
     /** A ready-made URL, for release art that lives outside the library. */
@@ -39,6 +47,7 @@ interface DiscoverTileProps {
 }
 
 export const DiscoverTile = ({
+    action,
     imageId,
     imageUrl,
     isRound,
@@ -48,25 +57,28 @@ export const DiscoverTile = ({
     subtitle,
     title,
 }: DiscoverTileProps) => (
-    <button className={styles.tile} onClick={onClick} type="button">
-        <ItemImage
-            className={styles.image}
-            containerClassName={clsx(styles.cover, {
-                [styles.round]: isRound,
-                [styles.unowned]: isUnowned,
-            })}
-            id={imageId}
-            itemType={itemType}
-            src={imageUrl}
-            type="itemCard"
-        />
-        <Text className={styles.name} size="sm">
-            {title}
-        </Text>
-        {subtitle && (
-            <Text className={styles.name} isMuted size="sm">
-                {subtitle}
+    <div className={styles.wrapper}>
+        <button className={styles.tile} onClick={onClick} type="button">
+            <ItemImage
+                className={styles.image}
+                containerClassName={clsx(styles.cover, {
+                    [styles.round]: isRound,
+                    [styles.unowned]: isUnowned,
+                })}
+                id={imageId}
+                itemType={itemType}
+                src={imageUrl}
+                type="itemCard"
+            />
+            <Text className={styles.name} size="sm">
+                {title}
             </Text>
-        )}
-    </button>
+            {subtitle && (
+                <Text className={styles.name} isMuted size="sm">
+                    {subtitle}
+                </Text>
+            )}
+        </button>
+        {action}
+    </div>
 );

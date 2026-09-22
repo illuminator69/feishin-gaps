@@ -245,9 +245,42 @@ const FillRow = ({ row }: { row: LedgerRow }) => {
     );
 };
 
+/**
+ * What a chip asks for. All four are predicates over what the ledger already
+ * carries — `outcome` and `settled` — so none of this is new vocabulary and
+ * nothing here polls.
+ *
+ * Deliberately component state rather than a persisted setting: "show me the
+ * failures" is a thing you want for the next thirty seconds, and a filter that
+ * survives a restart is a downloads page that looks empty for reasons the user
+ * has long forgotten choosing.
+ */
+type LedgerFilter = 'all' | 'done' | 'failed' | 'running';
+
+const MATCHES: Record<LedgerFilter, (row: LedgerRow) => boolean> = {
+    all: () => true,
+    done: (row) => row.settled && row.outcome === 'done',
+    // Everything that ended in something other than success, cancellations and
+    // "stopped tracking this one" included: the question the chip answers is
+    // "what didn't I get", not "what errored".
+    failed: (row) => row.settled && row.outcome !== 'done',
+    running: (row) => !row.settled,
+};
+
+const FILTER_LABEL: Record<LedgerFilter, string> = {
+    all: 'All',
+    done: 'In your library',
+    failed: "Didn't land",
+    running: 'In flight',
+};
+
+const FILTER_ORDER: LedgerFilter[] = ['all', 'running', 'failed', 'done'];
+
 const LbBotDownloadsRoute = () => {
     const rows = useFillLedger();
+    const [filter, setFilter] = useState<LedgerFilter>('all');
     const { windowBarStyle } = useWindowSettings();
+    const shown = rows.filter(MATCHES[filter]);
 
     return (
         <AnimatedPage>
@@ -272,14 +305,38 @@ const LbBotDownloadsRoute = () => {
                         <Text size="xl" weight={700}>
                             Downloads
                         </Text>
+                        {/* Only once there is something to filter. A row of chips
+                            over an empty page is four controls that all do the
+                            same nothing. */}
+                        {rows.length > 0 && (
+                            <Group gap="xs">
+                                {FILTER_ORDER.map((id) => {
+                                    const count = rows.filter(MATCHES[id]).length;
+                                    return (
+                                        <Button
+                                            disabled={count === 0 && id !== 'all'}
+                                            key={id}
+                                            onClick={() => setFilter(id)}
+                                            variant={filter === id ? 'filled' : 'subtle'}
+                                        >
+                                            {`${FILTER_LABEL[id]} (${count})`}
+                                        </Button>
+                                    );
+                                })}
+                            </Group>
+                        )}
                         {rows.length === 0 ? (
                             <Text isMuted>
                                 Nothing yet. Albums you ask lb-bot to fetch show up here while they
                                 download, and stay until you dismiss them.
                             </Text>
+                        ) : shown.length === 0 ? (
+                            // A filter that hides everything must say it was the
+                            // filter, not that there is nothing here.
+                            <Text isMuted>{`Nothing matches "${FILTER_LABEL[filter]}".`}</Text>
                         ) : (
                             <Stack gap="sm">
-                                {rows.map((row) => (
+                                {shown.map((row) => (
                                     <FillRow key={row.key} row={row} />
                                 ))}
                             </Stack>

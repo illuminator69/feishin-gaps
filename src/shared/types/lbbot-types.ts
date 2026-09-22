@@ -92,6 +92,37 @@ export const LB_BOT_QUALITY_OPTIONS: { label: string; value: LbBotQuality }[] = 
 ];
 
 /**
+ * One MusicBrainz album search hit — the other half of reaching outside the
+ * library.
+ *
+ * Unlike {@link LbBotArtistCandidate} this one answers whether the library
+ * already holds the record, and that is the whole reason it is safe to render
+ * in a search box. `releaseOwned` is marked by release-group id, which is
+ * exact, so an owned row is shown as a library row and opens
+ * `releaseAlbumId` — never the download page. Rendering these unmarked is the
+ * "the tile said the library holds it and the tap opened the download page"
+ * bug that the Fresh tab and the similar-albums shelf have each paid for.
+ *
+ * `releaseAlbumId` can be empty on an owned row: lb-bot flips its index row to
+ * `present` at placement and cannot know the Navidrome ids until the backfill
+ * resolves them. Owned with nowhere to send the tap is a real state.
+ *
+ * `primaryType` is lb-bot's snake_case `primary_type`, renamed at this boundary
+ * like every other field — the wire shape is not the renderer's problem.
+ */
+export interface LbBotAlbumCandidate {
+    artist: string;
+    coverUrl: string;
+    primaryType: string;
+    releaseAlbumId: string;
+    releaseOwned: boolean;
+    rgid: string;
+    score: number;
+    title: string;
+    year: string;
+}
+
+/**
  * One row of the "Similar albums" shelf: a record from *your own library*, by an
  * artist ListenBrainz (cross-checked with Last.fm) puts near the one on screen.
  *

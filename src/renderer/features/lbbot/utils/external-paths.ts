@@ -26,8 +26,34 @@ const withParams = (path: string, params: Record<string, string | undefined>): s
 export const externalArtistPath = (artistMbid: string, name?: string): string =>
     withParams(generatePath(AppRoute.EXTERNAL_ARTIST_DETAIL, { artistMbid }), { name });
 
+/**
+ * The virtual album page, from whatever hints the caller happens to hold.
+ *
+ * A Fresh row carries far more than an album search hit does, so the fields are
+ * all optional and the page re-reads the real values regardless. Only `rgid` is
+ * load-bearing.
+ */
+export const externalAlbumPathFor = (args: {
+    artist?: string;
+    /** The *real* artist page, when the caller knows the library has them. */
+    artistId?: string;
+    artistMbid?: string;
+    rgid: string;
+    title?: string;
+    type?: string;
+    year?: string;
+}): string =>
+    withParams(generatePath(AppRoute.EXTERNAL_ALBUM_DETAIL, { rgid: args.rgid }), {
+        artist: args.artist,
+        artistId: args.artistId,
+        artistMbid: args.artistMbid,
+        title: args.title,
+        type: args.type,
+        year: args.year,
+    });
+
 export const externalAlbumPath = (release: LbBotFreshRelease): string =>
-    withParams(generatePath(AppRoute.EXTERNAL_ALBUM_DETAIL, { rgid: release.releaseGroupMbid }), {
+    externalAlbumPathFor({
         artist: release.artist,
         // Carried so the album page can link the artist name to the *real*
         // artist page. It has the MBID either way, but sending an owned artist
@@ -35,6 +61,7 @@ export const externalAlbumPath = (release: LbBotFreshRelease): string =>
         // opened from already gave.
         artistId: release.artistOwned ? release.artistId : '',
         artistMbid: release.artistMbids[0],
+        rgid: release.releaseGroupMbid,
         title: release.releaseName,
         type: release.secondaryType || release.type,
         year: (release.releaseDate || '').slice(0, 4),

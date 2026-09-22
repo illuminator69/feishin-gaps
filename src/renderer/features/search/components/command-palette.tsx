@@ -5,6 +5,7 @@ import { GoToCommands } from '/@/renderer/features/search/components/go-to-comma
 import { HomeCommands } from '/@/renderer/features/search/components/home-commands';
 import { SearchAlbumArtistsSection } from '/@/renderer/features/search/components/search-album-artists-section';
 import { SearchAlbumsSection } from '/@/renderer/features/search/components/search-albums-section';
+import { SearchExternalAlbumsSection } from '/@/renderer/features/search/components/search-external-albums-section';
 import { SearchExternalArtistsSection } from '/@/renderer/features/search/components/search-external-artists-section';
 import { SearchSongsSection } from '/@/renderer/features/search/components/search-songs-section';
 import { ServerCommands } from '/@/renderer/features/search/components/server-commands';
@@ -29,6 +30,8 @@ interface CommandPaletteProps {
 const SEARCH_SECTION_IDS = {
     albums: 'albums',
     artists: 'artists',
+    /** navi-connect: MusicBrainz albums, each marked owned or not. */
+    externalAlbums: 'externalAlbums',
     /** navi-connect: MusicBrainz artists the library does not have. */
     externalArtists: 'externalArtists',
     tracks: 'tracks',
@@ -140,6 +143,24 @@ function CommandPaletteSearch({
                                 SEARCH_SECTION_IDS.externalArtists,
                                 !(
                                     searchSectionsExpanded[SEARCH_SECTION_IDS.externalArtists] ??
+                                    false
+                                ),
+                            )
+                        }
+                    />
+                    {/* And the album half, below it for the same reason. */}
+                    <SearchExternalAlbumsSection
+                        debouncedQuery={deferredSearchQuery}
+                        expanded={
+                            searchSectionsExpanded[SEARCH_SECTION_IDS.externalAlbums] ?? false
+                        }
+                        isHome={isHome}
+                        onSelectResult={onSelectResult}
+                        onToggle={() =>
+                            setSearchSectionExpanded(
+                                SEARCH_SECTION_IDS.externalAlbums,
+                                !(
+                                    searchSectionsExpanded[SEARCH_SECTION_IDS.externalAlbums] ??
                                     false
                                 ),
                             )
