@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router';
 
 import { Command, CommandPalettePages } from '/@/renderer/features/search/components/command';
 import { openSettingsModal } from '/@/renderer/features/settings/utils/open-settings-modal';
+import { useNaviConnectSidebarItems } from '/@/renderer/features/sidebar/components/navi-connect-items';
 import { AppRoute } from '/@/renderer/router/routes';
 
 interface GoToCommandsProps {
@@ -25,6 +26,8 @@ export const GoToCommands = ({ handleClose, setPages, setQuery }: GoToCommandsPr
         },
         [handleClose, navigate, setPages, setQuery],
     );
+
+    const naviConnectItems = useNaviConnectSidebarItems();
 
     return (
         <>
@@ -63,6 +66,19 @@ export const GoToCommands = ({ handleClose, setPages, setQuery }: GoToCommandsPr
                     {t('page.sidebar.playlists')}
                 </Command.Item>
             </Command.Group>
+            {/* navi-connect: Discover, Fresh and Downloads were reachable from
+                the sidebar only — the palette is the keyboard route to every
+                other page, and it did not know these existed. Gated on their
+                sources the same way the sidebar entries are. */}
+            {naviConnectItems.length > 0 && (
+                <Command.Group heading="Discover">
+                    {naviConnectItems.map((item) => (
+                        <Command.Item key={item.id} onSelect={() => goTo(item.route as AppRoute)}>
+                            {item.label}
+                        </Command.Item>
+                    ))}
+                </Command.Group>
+            )}
             <Command.Separator />
         </>
     );

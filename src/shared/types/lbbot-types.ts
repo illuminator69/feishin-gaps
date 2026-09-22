@@ -554,6 +554,29 @@ export interface LbBotSimilarAlbums {
     sources: string[];
 }
 
+export interface LbBotSimilarArtist {
+    /** Navidrome artist id, empty when the library does not hold them. */
+    artistId: string;
+    /** lb-bot has walked their discography, so "what am I missing from them"
+     *  is answerable without starting a scan first. Independent of `owned`: an
+     *  artist can be in the library and never have been indexed. */
+    indexed: boolean;
+    mbid: string;
+    name: string;
+    owned: boolean;
+    score: number;
+    /** Which of ListenBrainz / Last.fm proposed them. */
+    sources: string[];
+}
+
+export interface LbBotSimilarArtists {
+    artists: LbBotSimilarArtist[];
+    /** The artist that justifies the row — what the "Because you listen to …"
+     *  line names. */
+    because: string;
+    sources: string[];
+}
+
 export interface LbBotSourceCoverage {
     haveTracks: number;
     totalTracks: number;

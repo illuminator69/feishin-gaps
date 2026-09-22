@@ -9,6 +9,7 @@ import styles from './collapsed-sidebar.module.css';
 import { useScanStatus } from '/@/renderer/features/shared/hooks/use-scan-status';
 import { CollapsedSidebarButton } from '/@/renderer/features/sidebar/components/collapsed-sidebar-button';
 import { CollapsedSidebarItem } from '/@/renderer/features/sidebar/components/collapsed-sidebar-item';
+import { useNaviConnectSidebarItems } from '/@/renderer/features/sidebar/components/navi-connect-items';
 import { getCollectionTo } from '/@/renderer/features/sidebar/components/sidebar-collection-list';
 import { SidebarIcon } from '/@/renderer/features/sidebar/components/sidebar-icon';
 import { AppMenu } from '/@/renderer/features/titlebar/components/app-menu';
@@ -58,6 +59,8 @@ export const CollapsedSidebar = () => {
         [t],
     );
 
+    const naviConnectItems = useNaviConnectSidebarItems();
+
     const sidebarItemsWithRoute: SidebarItemType[] = useMemo(() => {
         if (!sidebarItems) return [];
 
@@ -70,8 +73,11 @@ export const CollapsedSidebar = () => {
                     item.label,
             }));
 
-        return items;
-    }, [sidebarItems, translatedSidebarItemMap]);
+        // navi-connect: Discover / Fresh / Downloads are appended rather than
+        // stored in `sidebarItems`, so iterating that list alone left them out
+        // of this sidebar entirely — they existed only in the expanded one.
+        return [...items, ...naviConnectItems];
+    }, [sidebarItems, translatedSidebarItemMap, naviConnectItems]);
 
     return (
         <motion.div

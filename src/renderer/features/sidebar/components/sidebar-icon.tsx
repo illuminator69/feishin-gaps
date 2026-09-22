@@ -1,6 +1,8 @@
 import {
     RiAlbumFill,
     RiAlbumLine,
+    RiCompassDiscoverFill,
+    RiCompassDiscoverLine,
     RiDownloadCloud2Fill,
     RiDownloadCloud2Line,
     RiFlag2Fill,
@@ -51,6 +53,10 @@ export const SidebarIcon = ({ active, route, size }: SidebarIconProps) => {
             case AppRoute.DOWNLOADS:
                 if (isActive) return <RiDownloadCloud2Fill size={size} />;
                 return <RiDownloadCloud2Line size={size} />;
+            // navi-connect: the Discover screen.
+            case AppRoute.EXPLORE:
+                if (isActive) return <RiCompassDiscoverFill size={size} />;
+                return <RiCompassDiscoverLine size={size} />;
             // navi-connect: new and upcoming releases from lb-bot.
             case AppRoute.FRESH:
                 if (isActive) return <RiFlashlightFill size={size} />;

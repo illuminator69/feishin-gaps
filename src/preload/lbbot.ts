@@ -11,6 +11,7 @@ import type {
     LbBotResolvedEdition,
     LbBotResult,
     LbBotSimilarAlbums,
+    LbBotSimilarArtists,
     LbBotSourceFiles,
     LbBotStatus,
     LbBotTracklist,
@@ -142,6 +143,16 @@ const albumSimilar = (args: {
     rgid?: string;
 }): Promise<LbBotSimilarAlbums | null> => ipcRenderer.invoke('lbbot-album-similar', args);
 
+/** "Fans also like" — similar artists, owned and unowned alike. Unlike
+ *  `albumSimilar` this one is a shopping list: every row carries `owned` and
+ *  `indexed` rather than being filtered out. Prefer `mbid`.
+ *  Null when we could not ask. */
+const artistSimilar = (args: {
+    limit?: number;
+    mbid?: string;
+    name?: string;
+}): Promise<LbBotSimilarArtists | null> => ipcRenderer.invoke('lbbot-artist-similar', args);
+
 /** Editorial "About" for an artist — full Wikipedia text with its CC BY-SA
  *  attribution, the Wikidata one-liner, members/side-projects and links.
  *  Prefer `mbid`; `name` costs lb-bot an extra MusicBrainz search.
@@ -167,6 +178,7 @@ export const lbBot = {
     albumTracklist,
     allowMp3,
     artistLookup,
+    artistSimilar,
     cancelAlbum,
     discography,
     downloadAlbum,

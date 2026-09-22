@@ -2,6 +2,11 @@ export enum AppRoute {
     ACTION_REQUIRED = '/action-required',
     /** navi-connect: albums lb-bot is fetching from Soulseek, in flight and finished. */
     DOWNLOADS = '/downloads',
+    /** navi-connect: the Discover screen — Fresh, similar artists you don't
+     *  own, the rediscovery set and mood search, on one shared row catalogue.
+     *  The enum slot predates it and was unused; claimed deliberately, so a
+     *  later upstream Explore page shows up as a merge conflict rather than
+     *  two pages quietly fighting over one path. */
     EXPLORE = '/explore',
     /** navi-connect: an album the library does NOT have, keyed by MusicBrainz
      *  release-group id. Its tracklist and source picker come from lb-bot. */

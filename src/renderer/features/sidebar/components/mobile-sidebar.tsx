@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import styles from './mobile-sidebar.module.css';
 
 import { ActionBar } from '/@/renderer/features/sidebar/components/action-bar';
+import { useNaviConnectSidebarItems } from '/@/renderer/features/sidebar/components/navi-connect-items';
 import { SidebarIcon } from '/@/renderer/features/sidebar/components/sidebar-icon';
 import { SidebarItem } from '/@/renderer/features/sidebar/components/sidebar-item';
 import {
@@ -56,6 +57,8 @@ export const MobileSidebar = () => {
 
     const sidebarItems = useSidebarItems();
 
+    const naviConnectItems = useNaviConnectSidebarItems();
+
     const sidebarItemsWithRoute: SidebarItemType[] = useMemo(() => {
         if (!sidebarItems) return [];
 
@@ -68,8 +71,11 @@ export const MobileSidebar = () => {
                     item.label,
             }));
 
-        return items;
-    }, [sidebarItems, translatedSidebarItemMap]);
+        // navi-connect: Discover / Fresh / Downloads are appended rather than
+        // stored in `sidebarItems`, so iterating that list alone left them out
+        // of this sidebar entirely — they existed only in the expanded one.
+        return [...items, ...naviConnectItems];
+    }, [sidebarItems, translatedSidebarItemMap, naviConnectItems]);
 
     return (
         <div className={styles.container} id="mobile-sidebar">

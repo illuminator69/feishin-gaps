@@ -37,13 +37,13 @@ const resolveSongs = async (serverId: string, ids: string[]): Promise<Song[]> =>
     return songs.filter((song): song is Song => Boolean(song));
 };
 
-const ClapSearchModal = () => {
+const ClapSearchModal = ({ initialQuery = '' }: { initialQuery?: string }) => {
     const { t } = useTranslation();
     const player = usePlayer();
     const serverId = useCurrentServerId();
     const audioMuse = useAudioMuseSettings();
 
-    const [query, setQuery] = useState('');
+    const [query, setQuery] = useState(initialQuery);
     const [isSearching, setIsSearching] = useState(false);
     const [isQueuing, setIsQueuing] = useState(false);
     const [results, setResults] = useState<ClapResult[] | null>(null);
@@ -151,9 +151,12 @@ const ClapSearchModal = () => {
     );
 };
 
-export const openClapSearchModal = () => {
+/** `initialQuery` lets a caller open this already carrying a prompt — the
+ *  Discover row's suggestion chips do, so the modal is a place to refine a
+ *  question rather than a blank box to think of one in. */
+export const openClapSearchModal = (initialQuery?: string) => {
     openModal({
-        children: <ClapSearchModal />,
+        children: <ClapSearchModal initialQuery={initialQuery} />,
         size: 'lg',
         title: 'Mood search',
     });

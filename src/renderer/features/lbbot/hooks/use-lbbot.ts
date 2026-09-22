@@ -12,6 +12,7 @@ import type {
     LbBotResolvedEdition,
     LbBotResult,
     LbBotSimilarAlbums,
+    LbBotSimilarArtists,
     LbBotSourceFiles,
     LbBotTracklist,
 } from '/@/shared/types/lbbot-types';
@@ -156,6 +157,15 @@ export const useHubSupports = (route: string): boolean => {
     const routes = useLbBotStatus().data?.routes;
     return !routes || routes.length === 0 || routes.includes(route);
 };
+
+/**
+ * The raw advertised route list, for a caller checking several routes at once.
+ *
+ * `useHubSupports` is the right shape for one route at a call site; the Discover
+ * catalogue asks about a different route per row and would otherwise have to
+ * call a hook in a loop.
+ */
+export const useLbBotStatusRoutes = (): string[] | undefined => useLbBotStatus().data?.routes;
 
 /**
  * An artist's full MusicBrainz discography as lb-bot indexed it.
@@ -365,6 +375,46 @@ export const useLbBotSimilarAlbums = (args: {
         queryKey: ['lbbot', 'album-similar', artistMbid || artistName, rgid],
         refetchOnWindowFocus: false,
         // The hub holds this for hours and lb-bot caches the similarity for 24h.
+        staleTime: 60 * 60 * 1000,
+    });
+};
+
+/**
+ * "Fans also like" — similar artists, the ones you do not own included.
+ *
+ * The sibling `useLbBotSimilarAlbums` is deliberately a shelf of records you
+ * already have. This is the other reading of the same merge: lb-bot marks each
+ * row `owned` / `indexed` rather than filtering, so the unowned artists — the
+ * point of a Discover row — survive to the client.
+ *
+ * Gated on `useHubSupports` as well as availability: the route is newer than
+ * some hubs, and a hub that has not been restarted answers 404, which
+ * `describeFailure` reports as "the hub is older than this app".
+ *
+ * Empty is the common case on a cold library and is not an error.
+ */
+export const useLbBotSimilarArtists = (args: {
+    limit?: number;
+    mbid?: null | string;
+    name?: null | string;
+}) => {
+    const available = useLbBotAvailable();
+    const supported = useHubSupports('GET /lb/artist/similar');
+    const { limit, mbid, name } = args;
+    return useQuery<LbBotSimilarArtists | null>({
+        enabled: !!lbBot && available && supported && !!(mbid || name),
+        queryFn: () =>
+            lbBot!.artistSimilar({
+                limit,
+                mbid: mbid ?? undefined,
+                name: name ?? undefined,
+            }),
+        queryKey: ['lbbot', 'artist-similar', mbid || name, limit],
+        refetchOnWindowFocus: false,
+        // lb-bot caches the merge for 24h; what moves inside that window is the
+        // ownership marking, which the hub keeps on its short TTL. An hour here
+        // is well inside both and saves re-asking as the row's seed rotates
+        // back around.
         staleTime: 60 * 60 * 1000,
     });
 };

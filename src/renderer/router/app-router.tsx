@@ -88,6 +88,8 @@ const LbBotDownloadsRoute = lazy(
     () => import('/@/renderer/features/lbbot/routes/lbbot-downloads-route'),
 );
 
+const DiscoverRoute = lazy(() => import('/@/renderer/features/discover/routes/discover-route'));
+
 const LbBotFreshRoute = lazy(() => import('/@/renderer/features/lbbot/routes/lbbot-fresh-route'));
 
 const LbBotExternalArtistRoute = lazy(
@@ -326,6 +328,10 @@ export const AppRouter = () => {
                                         <Route
                                             element={<LbBotDownloadsRoute />}
                                             path={AppRoute.DOWNLOADS}
+                                        />
+                                        <Route
+                                            element={<DiscoverRoute />}
+                                            path={AppRoute.EXPLORE}
                                         />
                                         <Route
                                             element={<LbBotFreshRoute />}

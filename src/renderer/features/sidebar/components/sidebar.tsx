@@ -8,12 +8,12 @@ import styles from './sidebar.module.css';
 import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
 import { useRemoteAwarePlayerSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
-import { useLbBotAvailable } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
     useIsRadioActive,
     useRadioPlayer,
 } from '/@/renderer/features/radio/hooks/use-radio-player';
 import { ActionBar } from '/@/renderer/features/sidebar/components/action-bar';
+import { useNaviConnectSidebarItems } from '/@/renderer/features/sidebar/components/navi-connect-items';
 import { SidebarCollectionList } from '/@/renderer/features/sidebar/components/sidebar-collection-list';
 import { SidebarIcon } from '/@/renderer/features/sidebar/components/sidebar-icon';
 import { SidebarItem } from '/@/renderer/features/sidebar/components/sidebar-item';
@@ -23,7 +23,6 @@ import {
     SidebarSharedPlaylistList,
     useSidebarPlaylistAddDragMonitor,
 } from '/@/renderer/features/sidebar/components/sidebar-playlist-list';
-import { AppRoute } from '/@/renderer/router/routes';
 import {
     useAppStore,
     useAppStoreActions,
@@ -115,7 +114,7 @@ export const Sidebar = () => {
         [sidebarItemsWithRoute],
     );
 
-    const lbBotAvailable = useLbBotAvailable();
+    const naviConnectItems = useNaviConnectSidebarItems();
 
     const isCustomWindowBar =
         windowBarStyle === Platform.WINDOWS || windowBarStyle === Platform.MACOS;
@@ -158,29 +157,17 @@ export const Sidebar = () => {
                                     </SidebarItem>
                                 );
                             })}
-                            {/* navi-connect: appended rather than added to `sidebarItems`,
-                                which is a persisted, user-reorderable list — a new entry
-                                there would need a store migration and would still be
-                                absent for anyone whose settings predate it. Appearing and
-                                disappearing with lb-bot is also the rule the rest of this
-                                surface follows: unconfigured or unreachable renders
-                                nothing at all. */}
-                            {lbBotAvailable && (
-                                <SidebarItem to={AppRoute.FRESH}>
+                            {/* navi-connect: appended rather than added to `sidebarItems`
+                                — see `useNaviConnectSidebarItems` for why, and for why
+                                the list lives there rather than inline here. */}
+                            {naviConnectItems.map((item) => (
+                                <SidebarItem key={item.id} to={item.route}>
                                     <Group gap="md">
-                                        <SidebarIcon route={AppRoute.FRESH} />
-                                        Fresh
+                                        <SidebarIcon route={item.route} />
+                                        {item.label}
                                     </Group>
                                 </SidebarItem>
-                            )}
-                            {lbBotAvailable && (
-                                <SidebarItem to={AppRoute.DOWNLOADS}>
-                                    <Group gap="md">
-                                        <SidebarIcon route={AppRoute.DOWNLOADS} />
-                                        Downloads
-                                    </Group>
-                                </SidebarItem>
-                            )}
+                            ))}
                         </Accordion.Panel>
                     </Accordion.Item>
                     <SidebarCollectionList />

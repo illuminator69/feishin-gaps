@@ -25,6 +25,8 @@ import type {
     LbBotResult,
     LbBotSimilarAlbum,
     LbBotSimilarAlbums,
+    LbBotSimilarArtist,
+    LbBotSimilarArtists,
     LbBotSourceCoverage,
     LbBotSourceFile,
     LbBotSourceFiles,
@@ -749,6 +751,52 @@ ipcMain.handle(
         const albums = Array.isArray(data.albums) ? data.albums.flatMap(toSimilarAlbum) : [];
         return {
             albums,
+            because: str(data.because),
+            sources: Array.isArray(data.sources) ? data.sources.map(str).filter(Boolean) : [],
+        };
+    },
+);
+
+// "Fans also like", and unlike the album shelf above this one is a shopping
+// list: lb-bot marks ownership on each row instead of filtering on it, so the
+// artists you do NOT have are the point. `owned` and `indexed` are separate
+// facts — an artist can be in the library and never have been indexed, and the
+// renderer offers a different action for each.
+const toSimilarArtist = (row: unknown): LbBotSimilarArtist[] => {
+    if (!row || typeof row !== 'object') return [];
+    const r = row as Json;
+    const name = str(r.name);
+    const mbid = str(r.mbid);
+    // Without one of the two there is nothing to render and nowhere to go: the
+    // external page is keyed by MBID and the library page by artist id.
+    if (!name && !mbid) return [];
+    return [
+        {
+            artistId: str(r.artistId),
+            indexed: r.indexed === true,
+            mbid,
+            name,
+            owned: r.owned === true,
+            score: num(r.score),
+            sources: Array.isArray(r.sources) ? r.sources.map(str).filter(Boolean) : [],
+        },
+    ];
+};
+
+ipcMain.handle(
+    'lbbot-artist-similar',
+    async (
+        _event,
+        args: { limit?: number; mbid?: string; name?: string },
+    ): Promise<LbBotSimilarArtists | null> => {
+        if (!args.mbid && !args.name) return null;
+        const params: Record<string, string> = { limit: String(args.limit ?? 20) };
+        if (args.mbid) params.mbid = args.mbid;
+        if (args.name) params.name = args.name;
+        const data = await get('/lb/artist/similar', params);
+        if (!data) return null;
+        return {
+            artists: Array.isArray(data.artists) ? data.artists.flatMap(toSimilarArtist) : [],
             because: str(data.because),
             sources: Array.isArray(data.sources) ? data.sources.map(str).filter(Boolean) : [],
         };

@@ -1,0 +1,50 @@
+/* A plain horizontal shelf, for the same reason `similar-albums-shelf` is one:
+   these rows arrive as fixed, already-ranked lists from lb-bot with nothing to
+   page through, unlike the home carousels which query Navidrome by criteria. */
+.shelf {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(132px, 1fr);
+    gap: var(--theme-spacing-md);
+    overflow-x: auto;
+    padding-bottom: var(--theme-spacing-xs);
+}
+
+.tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--theme-spacing-xs);
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+.cover {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: var(--theme-radius-md);
+}
+
+/* Unowned rows are dashed and faded, matching the missing-album tiles on the
+   artist page — the same visual grammar for the same fact, so "you don't have
+   this" never has to be spelled out twice in two different ways. */
+.unowned .cover {
+    opacity: 0.55;
+    border: 1px dashed var(--theme-colors-foreground-muted);
+}
+
+.name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--theme-spacing-md);
+}
