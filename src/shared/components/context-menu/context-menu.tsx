@@ -135,6 +135,24 @@ function Item(props: ItemProps) {
                 [styles['has-right-icon']]: !!rightIcon,
             })}
             disabled={disabled}
+            // A non-primary release must never activate an item. Radix's own
+            // `MenuItem.onPointerUp` calls `currentTarget.click()` whenever the
+            // item never saw the matching `pointerdown` — that is what makes
+            // press-drag-release pick the item you let go over — but it does not
+            // look at `event.button`. On Linux, Chromium fires `contextmenu` on
+            // mouse*down*, so this menu opens with the right button still held
+            // and its release lands on whatever item is under the cursor, which
+            // Radix then treats as a selection. The user's own click selects it
+            // a second time, which is how one "Add next" added the song twice
+            // (and one "Remove from queue" ran twice). Radix's `composeEventHandlers`
+            // skips its own handler once ours has called `preventDefault`, so this
+            // disarms only the synthetic click and leaves the left-button
+            // press-drag-release gesture intact.
+            onPointerUp={(event) => {
+                if (event.button !== 0) {
+                    event.preventDefault();
+                }
+            }}
             onSelect={onSelect}
         >
             {leftIcon && <Icon className={styles.leftIcon} icon={leftIcon} />}
