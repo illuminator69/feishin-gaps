@@ -1,50 +1,74 @@
-/* A plain horizontal shelf, for the same reason `similar-albums-shelf` is one:
-   these rows arrive as fixed, already-ranked lists from lb-bot with nothing to
-   page through, unlike the home carousels which query Navidrome by criteria. */
-.shelf {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(132px, 1fr);
-    gap: var(--theme-spacing-md);
-    overflow-x: auto;
-    padding-bottom: var(--theme-spacing-xs);
+/* The row header sits in GridCarousel's custom-title slot, which is a flex row
+   with the page arrows on the right, so this half only has to stack the title
+   over its reason line. */
+.header {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-width: 0;
 }
 
+.header-title {
+    display: flex;
+    gap: var(--theme-spacing-md);
+    align-items: baseline;
+}
+
+/* Rows whose items are not cards — the mood prompts — keep the same header and
+   wrap their content instead of paging it. */
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--theme-spacing-sm);
+}
+
+/* A poster card, matching item-card's: the surface, the padding and the radius
+   are the same tokens, so a Discover row and a home carousel read as one app. */
 .tile {
     display: flex;
     flex-direction: column;
     gap: var(--theme-spacing-xs);
-    padding: 0;
+    width: 100%;
+    height: 100%;
+    padding: var(--theme-spacing-md);
+    overflow: hidden;
     text-align: left;
     cursor: pointer;
-    background: none;
+    user-select: none;
+    background-color: var(--theme-colors-surface);
     border: none;
-}
-
-.cover {
-    width: 100%;
-    aspect-ratio: 1;
-    object-fit: cover;
     border-radius: var(--theme-radius-md);
 }
 
-/* Unowned rows are dashed and faded, matching the missing-album tiles on the
+.cover {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    margin-bottom: var(--theme-spacing-xs);
+    overflow: hidden;
+    border-radius: var(--theme-radius-md);
+}
+
+.cover.round {
+    border-radius: 50%;
+}
+
+.image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Unowned covers are dashed and faded, matching the missing-album tiles on the
    artist page — the same visual grammar for the same fact, so "you don't have
    this" never has to be spelled out twice in two different ways. */
-.unowned .cover {
-    opacity: 0.55;
+.cover.unowned {
     border: 1px dashed var(--theme-colors-foreground-muted);
+    opacity: 0.55;
 }
 
 .name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--theme-spacing-md);
 }

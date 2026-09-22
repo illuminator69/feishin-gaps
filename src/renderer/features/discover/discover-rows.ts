@@ -23,9 +23,9 @@
 export type DiscoverCapability =
     /** AudioMuse's CLAP index, probed through `/sonic/clap/stats`. */
     | { kind: 'clap' }
-    /** Navidrome alone — always answerable. */
-    | { kind: 'lbbot'; route: string }
     /** An lb-bot route, gated on `/lb/status.routes` advertising it. */
+    | { kind: 'lbbot'; route: string }
+    /** Navidrome alone — always answerable. */
     | { kind: 'library' };
 
 export interface DiscoverRowDefinition {

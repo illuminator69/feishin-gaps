@@ -1,14 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { generatePath, useNavigate } from 'react-router';
 
-import { DiscoverRow, discoverRowStyles as styles } from './discover-row';
+import { DiscoverRow } from './discover-row';
+import { DiscoverTile } from './discover-tile';
 
 import { playlistsQueries } from '/@/renderer/features/playlists/api/playlists-api';
 import { REDISCOVERY_PREFIX } from '/@/renderer/features/playlists/rediscovery-playlists';
 import { AppRoute } from '/@/renderer/router/routes';
 import { useCurrentServerId } from '/@/renderer/store';
-import { Text } from '/@/shared/components/text/text';
-import { PlaylistListSort, SortOrder } from '/@/shared/types/domain-types';
+import { LibraryItem, PlaylistListSort, SortOrder } from '/@/shared/types/domain-types';
 
 /**
  * The rediscovery smart playlists, surfaced instead of buried.
@@ -40,39 +41,45 @@ export const RediscoveryRow = ({ title }: { title: string }) => {
         }),
     );
 
-    const playlists = (data?.items ?? []).filter((p) => p.name.startsWith(REDISCOVERY_PREFIX));
+    const playlists = useMemo(
+        () => (data?.items ?? []).filter((p) => p.name.startsWith(REDISCOVERY_PREFIX)),
+        [data],
+    );
+
+    const cards = useMemo(
+        () =>
+            playlists.map((playlist) => ({
+                content: (
+                    <DiscoverTile
+                        imageId={playlist.imageId ?? playlist.id}
+                        imageUrl={playlist.imageUrl}
+                        itemType={LibraryItem.PLAYLIST}
+                        onClick={() =>
+                            navigate(
+                                generatePath(AppRoute.PLAYLISTS_DETAIL_SONGS, {
+                                    playlistId: playlist.id,
+                                }),
+                            )
+                        }
+                        // The definition's own one-line description, written
+                        // into the Navidrome playlist comment when it was
+                        // created and never surfaced anywhere until now. It is a
+                        // ready-made reason line, per playlist.
+                        subtitle={playlist.description ?? undefined}
+                        title={playlist.name.slice(REDISCOVERY_PREFIX.length)}
+                    />
+                ),
+                id: playlist.id,
+            })),
+        [navigate, playlists],
+    );
 
     return (
         <DiscoverRow
             because="Already in your library, and you have not played it in a long time"
-            isEmpty={playlists.length === 0}
+            cards={cards}
+            isEmpty={cards.length === 0}
             title={title}
-        >
-            {playlists.map((playlist) => (
-                <button
-                    className={styles.tile}
-                    key={playlist.id}
-                    onClick={() =>
-                        navigate(
-                            generatePath(AppRoute.PLAYLISTS_DETAIL_SONGS, {
-                                playlistId: playlist.id,
-                            }),
-                        )
-                    }
-                    type="button"
-                >
-                    <Text className={styles.name} size="sm">
-                        {playlist.name.slice(REDISCOVERY_PREFIX.length)}
-                    </Text>
-                    {/* The definition's own one-line description, written into
-                        the Navidrome playlist comment when it was created and
-                        never surfaced anywhere until now. It is a ready-made
-                        reason line, per playlist. */}
-                    <Text className={styles.name} isMuted size="sm">
-                        {playlist.description ?? ''}
-                    </Text>
-                </button>
-            ))}
-        </DiscoverRow>
+        />
     );
 };

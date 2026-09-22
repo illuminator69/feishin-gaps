@@ -1,7 +1,7 @@
-import { DiscoverRow, discoverRowStyles as styles } from './discover-row';
+import { DiscoverRow } from './discover-row';
 
 import { openClapSearchModal } from '/@/renderer/features/sonic/components/clap-search-modal';
-import { Text } from '/@/shared/components/text/text';
+import { Button } from '/@/shared/components/button/button';
 
 /**
  * CLAP mood search, as an inline entry point rather than a modal you have to
@@ -14,7 +14,9 @@ import { Text } from '/@/shared/components/text/text';
  *
  * The chips are prompts, not results — this row's job is to show what kind of
  * question can be asked. They open the existing modal carrying the prompt, so
- * nothing about the search itself is duplicated here.
+ * nothing about the search itself is duplicated here. They are also the one row
+ * that is not a carousel: there is nothing to page through and nothing to
+ * illustrate, so they wrap instead.
  */
 const PROMPTS = [
     'rainy sunday morning',
@@ -32,16 +34,15 @@ export const MoodRow = ({ title }: { title: string }) => (
         title={title}
     >
         {PROMPTS.map((prompt) => (
-            <button
-                className={styles.tile}
+            <Button
                 key={prompt}
                 onClick={() => openClapSearchModal(prompt)}
-                type="button"
+                radius="xl"
+                size="compact-md"
+                variant="default"
             >
-                <Text className={styles.name} size="sm">
-                    {`"${prompt}"`}
-                </Text>
-            </button>
+                {prompt}
+            </Button>
         ))}
     </DiscoverRow>
 );

@@ -72,7 +72,7 @@ const DiscoverRoute = () => {
             >
                 <LibraryContainer>
                     <Stack
-                        gap="xl"
+                        gap="2xl"
                         mb="5rem"
                         pt={windowBarStyle === Platform.WEB ? '5rem' : '3rem'}
                         px="2rem"
