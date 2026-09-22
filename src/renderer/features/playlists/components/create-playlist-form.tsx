@@ -1,13 +1,16 @@
+import { useQuery } from '@tanstack/react-query';
 import { t } from 'i18next';
 import { MouseEvent, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { playlistsQueries } from '/@/renderer/features/playlists/api/playlists-api';
 import {
     PlaylistQueryBuilder,
     PlaylistQueryBuilderRef,
 } from '/@/renderer/features/playlists/components/playlist-query-builder';
 import { useAddToPlaylist } from '/@/renderer/features/playlists/mutations/add-to-playlist-mutation';
 import { useCreatePlaylist } from '/@/renderer/features/playlists/mutations/create-playlist-mutation';
+import { missingRediscoveryPlaylists } from '/@/renderer/features/playlists/rediscovery-playlists';
 import { convertQueryGroupToNDQuery } from '/@/renderer/features/playlists/utils';
 import { useCurrentServer } from '/@/renderer/store';
 import { hasFeature } from '/@/shared/api/utils';
@@ -23,10 +26,12 @@ import { toast } from '/@/shared/components/toast/toast';
 import { useForm } from '/@/shared/hooks/use-form';
 import {
     CreatePlaylistBody,
+    PlaylistListSort,
     ServerListItem,
     ServerType,
     Song,
     SongListSort,
+    SortOrder,
 } from '/@/shared/types/domain-types';
 import { ServerFeature } from '/@/shared/types/features-types';
 
@@ -53,6 +58,64 @@ export const CreatePlaylistForm = ({ onCancel, songs }: CreatePlaylistFormProps)
     });
     const [isSmartPlaylist, setIsSmartPlaylist] = useState(false);
     const [step, setStep] = useState<1 | 2>(1);
+    const [rediscoveryPending, setRediscoveryPending] = useState(false);
+
+    // Existing playlist names, so the rediscovery set can be created
+    // idempotently — matched by name, so pressing it twice leaves one copy of
+    // each rather than two. Navidrome only: the rules are its criteria grammar.
+    const isNavidrome = server?.type === ServerType.NAVIDROME;
+    const playlistListQuery = useQuery({
+        ...playlistsQueries.list({
+            query: { sortBy: PlaylistListSort.NAME, sortOrder: SortOrder.ASC, startIndex: 0 },
+            serverId: server?.id,
+        }),
+        enabled: Boolean(server?.id && isNavidrome),
+    });
+
+    /**
+     * Create the four rediscovery smart playlists Navidrome will then keep
+     * current by itself — so every client sees them, not just this one.
+     *
+     * Sequential rather than parallel: four `POST /api/playlist` calls fired at
+     * once against Navidrome is needless, and reporting partial failure means
+     * knowing which one failed.
+     */
+    const handleCreateRediscoverySet = async () => {
+        if (!server) return;
+        const existing = (playlistListQuery.data?.items ?? []).map((playlist) => playlist.name);
+        const missing = missingRediscoveryPlaylists(existing);
+        if (missing.length === 0) {
+            toast.success({ message: 'The rediscovery playlists already exist' });
+            return;
+        }
+        setRediscoveryPending(true);
+        const failed: string[] = [];
+        for (const definition of missing) {
+            try {
+                await createPlaylistMutation.mutateAsync({
+                    apiClientProps: { serverId: server.id },
+                    body: {
+                        comment: definition.comment,
+                        name: definition.name,
+                        queryBuilderRules:
+                            definition.rules as CreatePlaylistBody['queryBuilderRules'],
+                    },
+                });
+            } catch {
+                failed.push(definition.name);
+            }
+        }
+        setRediscoveryPending(false);
+        if (failed.length > 0) {
+            toast.error({
+                message: `Could not create: ${failed.join(', ')}`,
+                title: t('error.genericError'),
+            });
+            return;
+        }
+        toast.success({ message: `Added ${missing.length} rediscovery playlists` });
+        onCancel();
+    };
 
     const isPrefilledPlaylist = !!songs && songs.length > 0;
 
@@ -204,6 +267,30 @@ export const CreatePlaylistForm = ({ onCancel, songs }: CreatePlaylistFormProps)
                             sortBy={[SongListSort.ALBUM]}
                             sortOrder="asc"
                         />
+                    </Stack>
+                )}
+
+                {/* Four ready-made smart playlists for music already in the
+                    library and rarely or never played — the one thing no
+                    surface here does today. Opt-in, and idempotent by name. */}
+                {isNavidrome && !isPrefilledPlaylist && step === 1 && (
+                    <Stack gap="xs" pt="1rem">
+                        <Text isMuted size="sm">
+                            Or add the rediscovery set: never played, loved but stale, highly rated
+                            and long unplayed, deep cuts. Navidrome keeps them current.
+                        </Text>
+                        <Group justify="flex-start">
+                            <ModalButton
+                                disabled={rediscoveryPending || playlistListQuery.isLoading}
+                                loading={rediscoveryPending}
+                                onClick={handleCreateRediscoverySet}
+                                px="2xl"
+                                uppercase
+                                variant="subtle"
+                            >
+                                Add rediscovery set
+                            </ModalButton>
+                        </Group>
                     </Stack>
                 )}
 
