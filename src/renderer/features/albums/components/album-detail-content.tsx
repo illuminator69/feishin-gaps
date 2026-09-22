@@ -21,6 +21,9 @@ import { ItemTableListColumn } from '/@/renderer/components/item-list/item-table
 import { ItemControls } from '/@/renderer/components/item-list/types';
 import { albumQueries } from '/@/renderer/features/albums/api/album-api';
 import { AlbumInfiniteCarousel } from '/@/renderer/features/albums/components/album-infinite-carousel';
+import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
+import { SimilarAlbumsShelf } from '/@/renderer/features/lbbot/components/similar-albums-shelf';
+import { useLbBotAlbumMeta } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
     ListConfigMenu,
@@ -49,6 +52,7 @@ import { Pill, PillLink } from '/@/shared/components/pill/pill';
 import { Spoiler } from '/@/shared/components/spoiler/spoiler';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextInput } from '/@/shared/components/text-input/text-input';
+import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { Text } from '/@/shared/components/text/text';
 import { useDebouncedValue } from '/@/shared/hooks/use-debounced-value';
 import {
@@ -61,6 +65,7 @@ import {
     SongListSort,
     SortOrder,
 } from '/@/shared/types/domain-types';
+import { LbBotMetaCredit } from '/@/shared/types/lbbot-types';
 import { ItemListKey, ListDisplayType } from '/@/shared/types/types';
 
 const MetadataPillGroup = ({
@@ -511,10 +516,26 @@ export const AlbumDetailContent = () => {
     const labels = detailQuery?.data?.recordLabels;
 
     const mbzId = detailQuery?.data?.mbzId;
+    const mbzReleaseGroupId = detailQuery?.data?.mbzReleaseGroupId;
+
+    // The first album description this stack has ever shown. What the page
+    // displayed before is the ID3 `comment` tag, which is not a description and
+    // is usually absent; `getAlbumInfo2.notes` was already being fetched on
+    // every album page and thrown away, with Discord Rich Presence as its only
+    // consumer. Both remain below as fallbacks.
+    const metaQuery = useLbBotAlbumMeta(mbzReleaseGroupId, mbzId);
+    const meta = metaQuery.data;
+    const hasMetaText = Boolean(meta?.summary || meta?.paragraphs.length);
 
     return (
         <div className={styles.contentContainer}>
             <div className={styles.detailContainer}>
+                {meta && (hasMetaText || meta.credits.length > 0) && (
+                    <Stack gap="md" pb="md">
+                        {hasMetaText && <MetaAbout maxHeight={120} meta={meta} />}
+                        {meta.credits.length > 0 && <AlbumCredits credits={meta.credits} />}
+                    </Stack>
+                )}
                 {comment && (
                     <Spoiler maxHeight={75}>
                         <Text pb="md">{replaceURLWithHTMLLinks(comment)}</Text>
@@ -553,11 +574,50 @@ export const AlbumDetailContent = () => {
                         ))}
                     </Stack>
                 )}
+                <Stack gap="lg" mt="3rem">
+                    {/* Navidrome's `albumArtists` rows carry only an id and a
+                        name, so there is no artist MBID to send. lb-bot
+                        resolves it from its own Navidrome artist index before
+                        asking ListenBrainz — whose similar-artists endpoint is
+                        keyed by MBID and answers nothing for a bare name, which
+                        is why a name-only call used to return an empty shelf
+                        every time. */}
+                    <SimilarAlbumsShelf
+                        artistName={detailQuery?.data?.albumArtistName}
+                        rgid={mbzReleaseGroupId}
+                    />
+                </Stack>
                 <AlbumDetailCarousels data={detailQuery?.data} />
             </div>
         </div>
     );
 };
+
+/**
+ * Producer, engineer, writer, featured performer — from MusicBrainz release
+ * relations, roles already collapsed per person by lb-bot.
+ *
+ * A flat list rather than a table: MusicBrainz's role vocabulary is long and
+ * uneven, and grouping by role produces a dozen one-line sections on a typical
+ * record.
+ */
+const AlbumCredits = ({ credits }: { credits: LbBotMetaCredit[] }) => (
+    <Stack gap="xs">
+        <TextTitle fw={700} order={4}>
+            Credits
+        </TextTitle>
+        <Stack gap={2}>
+            {credits.map((credit) => (
+                <Text key={credit.mbid || credit.name} size="sm">
+                    <Text component="span" isMuted size="sm">
+                        {`${credit.roles.join(', ')} — `}
+                    </Text>
+                    {credit.name}
+                </Text>
+            ))}
+        </Stack>
+    </Stack>
+);
 
 interface AlbumDetailSongsTableProps {
     songs: Song[];

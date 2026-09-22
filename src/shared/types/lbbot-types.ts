@@ -91,6 +91,35 @@ export const LB_BOT_QUALITY_OPTIONS: { label: string; value: LbBotQuality }[] = 
     { label: 'Prefer Opus', value: 'prefer-opus' },
 ];
 
+/**
+ * One row of the "Similar albums" shelf: a record from *your own library*, by an
+ * artist ListenBrainz (cross-checked with Last.fm) puts near the one on screen.
+ *
+ * `because` is the attribution and it is not decorative — the shelf is "more of
+ * what you already have, and here is why", never a free-floating popularity
+ * claim. Render it.
+ *
+ * Only `rgid` identifies the album: lb-bot picks it out of its discography
+ * index, which is keyed by release-group, so routing goes through the external
+ * album page and lets it redirect to the library album.
+ */
+/**
+ * One MusicBrainz artist search hit — an artist that may or may not be in the
+ * library, which is the point: without this a client could only reach an
+ * external artist page if it already held an MBID from a Fresh row.
+ *
+ * `disambiguation` is MusicBrainz's own "(UK band)" note and is the only thing
+ * that tells two identically-named artists apart. Show it.
+ */
+export interface LbBotArtistCandidate {
+    country: string;
+    disambiguation: string;
+    mbid: string;
+    name: string;
+    score: number;
+    type: string;
+}
+
 export interface LbBotEdition {
     coverUrl: string;
     format: string;
@@ -362,6 +391,83 @@ export type LbBotGapTrackState =
     | 'queued'
     | 'skipped';
 
+/**
+ * Editorial metadata for an artist or an album: real, attributed, full-length
+ * text instead of the Last.fm summary that dead-ends in a "Read more on
+ * Last.fm" anchor.
+ *
+ * Resolved by lb-bot from MusicBrainz url-relations -> Wikidata -> Wikipedia,
+ * which is why it serves the virtual `mb:<mbid>` pages as well as owned ones —
+ * a Navidrome metadata agent could only ever answer for the library.
+ *
+ * `found` is false for a legitimate "nobody has written about this", which is a
+ * normal answer and not an error: the section renders nothing.
+ */
+export interface LbBotMeta {
+    /** Present only on an album. Producer/engineer/writer, roles collapsed per person. */
+    credits: LbBotMetaCredit[];
+    found: boolean;
+    /** Wikipedia's page image, when it has one. Never a cover. */
+    imageUrl: string;
+    links: LbBotMetaLink[];
+    /** Body text, already capped by lb-bot to fit the hub's 4 MB ceiling. */
+    paragraphs: string[];
+    /** Present only on an artist. */
+    relations: LbBotMetaRelations;
+    /**
+     * **Render this whenever any text is shown.** Wikipedia is CC BY-SA and the
+     * attribution is a licence condition, not a nicety — and its URL is also
+     * simply a better "Read more" than Last.fm's.
+     */
+    source: LbBotMetaSource | null;
+    /** The lead paragraph. Equal to `paragraphs[0]` when there is any text. */
+    summary: string;
+    /** Wikidata's one-liner ("English rock band formed in Abingdon in 1985").
+     *  Often present when there is no article at all, which makes it the right
+     *  thing to put in a header slot. */
+    wikidataDescription: string;
+}
+
+export interface LbBotMetaCredit {
+    mbid: string;
+    name: string;
+    /** "producer", "engineer", … — MusicBrainz's own relation type names. */
+    roles: string[];
+}
+
+export interface LbBotMetaLink {
+    label: string;
+    /** MusicBrainz url-relation type, e.g. `official homepage`. */
+    type: string;
+    url: string;
+}
+
+export interface LbBotMetaRelation {
+    /** Years, when MusicBrainz dates the relation. */
+    begin: string;
+    /** MusicBrainz states a relation from one side only; this says which. */
+    direction: string;
+    end: string;
+    ended: boolean;
+    mbid: string;
+    name: string;
+    type: string;
+}
+
+export interface LbBotMetaRelations {
+    /** Band members, or the bands a person is a member of. */
+    members: LbBotMetaRelation[];
+    /** Collaborations, subgroups, side projects. */
+    related: LbBotMetaRelation[];
+}
+
+export interface LbBotMetaSource {
+    license: string;
+    name: string;
+    title: string;
+    url: string;
+}
+
 export interface LbBotRelease {
     /** album | ep | single | compilation | live | … (lb-bot's `effective_type`). */
     effectiveType: string;
@@ -417,6 +523,27 @@ export interface LbBotResolvedEdition {
     releaseMbid: string;
     title: string;
     totalTracks: number;
+}
+
+export interface LbBotSimilarAlbum {
+    artist: string;
+    /** Navidrome artist id — the similar artist, who is in the library. */
+    artistId: string;
+    /** The artist that justifies this row, i.e. the one whose page you are on. */
+    because: string;
+    coverUrl: string;
+    rgid: string;
+    /** Which of ListenBrainz / Last.fm proposed the artist. */
+    sources: string[];
+    status: LbBotReleaseStatus;
+    title: string;
+    year: string;
+}
+
+export interface LbBotSimilarAlbums {
+    albums: LbBotSimilarAlbum[];
+    because: string;
+    sources: string[];
 }
 
 export interface LbBotSourceCoverage {

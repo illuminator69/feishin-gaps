@@ -1,0 +1,37 @@
+/* A plain horizontal shelf rather than one of the infinite carousels: those
+   query Navidrome by criteria (a genre, an artist), and these rows arrive as a
+   fixed, already-ranked list from lb-bot that nothing can page through. */
+.shelf {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(132px, 1fr);
+    gap: var(--theme-spacing-md);
+    overflow-x: auto;
+    padding-bottom: var(--theme-spacing-xs);
+}
+
+.tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--theme-spacing-xs);
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+/* No dashed frame and no fading, unlike the missing-album tile: every row here
+   is a record the library already holds, and dimming it would say the opposite. */
+.cover {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: var(--theme-radius-md);
+}
+
+.name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

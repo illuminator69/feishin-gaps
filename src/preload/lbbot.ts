@@ -1,13 +1,16 @@
 import type {
+    LbBotArtistCandidate,
     LbBotDiscography,
     LbBotDownloadResult,
     LbBotFillStatus,
     LbBotFreshFeed,
     LbBotGap,
     LbBotGapSource,
+    LbBotMeta,
     LbBotReleaseDetail,
     LbBotResolvedEdition,
     LbBotResult,
+    LbBotSimilarAlbums,
     LbBotSourceFiles,
     LbBotStatus,
     LbBotTracklist,
@@ -125,6 +128,31 @@ const gapCancel = (groupId: string): Promise<LbBotResult<boolean>> =>
 const gapRescan = (groupId: string): Promise<LbBotResult<boolean>> =>
     ipcRenderer.invoke('lbbot-gap-rescan', { groupId });
 
+/** MusicBrainz artist search — the "Not in your library" half of search.
+ *  Empty array when we could not ask; the section then does not render. */
+const artistLookup = (q: string): Promise<LbBotArtistCandidate[]> =>
+    ipcRenderer.invoke('lbbot-artist-lookup', { q });
+
+/** "Similar albums" — one album per similar artist, all from your own library,
+ *  each row naming the artist that justifies it. Null when we could not ask. */
+const albumSimilar = (args: {
+    artistMbid?: string;
+    artistName?: string;
+    limit?: number;
+    rgid?: string;
+}): Promise<LbBotSimilarAlbums | null> => ipcRenderer.invoke('lbbot-album-similar', args);
+
+/** Editorial "About" for an artist — full Wikipedia text with its CC BY-SA
+ *  attribution, the Wikidata one-liner, members/side-projects and links.
+ *  Prefer `mbid`; `name` costs lb-bot an extra MusicBrainz search.
+ *  Null means we could not ask, which hides the section. */
+const metaArtist = (args: { mbid?: string; name?: string }): Promise<LbBotMeta | null> =>
+    ipcRenderer.invoke('lbbot-meta-artist', args);
+
+/** The same for a release-group, plus release credits. */
+const metaAlbum = (args: { releaseMbid?: string; rgid: string }): Promise<LbBotMeta | null> =>
+    ipcRenderer.invoke('lbbot-meta-album', args);
+
 /** Post a system notification for a fill that landed while Feishin was in the
  *  background. The main process suppresses it when the window is focused — the
  *  renderer's toast has that case covered. */
@@ -133,10 +161,12 @@ const notify = (title: string, body: string): Promise<void> =>
 
 export const lbBot = {
     albumReleases,
+    albumSimilar,
     albumSources,
     albumStatus,
     albumTracklist,
     allowMp3,
+    artistLookup,
     cancelAlbum,
     discography,
     downloadAlbum,
@@ -150,6 +180,8 @@ export const lbBot = {
     gapSourceFiles,
     indexArtist,
     indexRelease,
+    metaAlbum,
+    metaArtist,
     notify,
     status,
 };

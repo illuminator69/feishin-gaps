@@ -26,10 +26,12 @@ import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
 import { AlbumArtistGridCarousel } from '/@/renderer/features/artists/components/album-artist-grid-carousel';
 import { IncompleteAlbumBadge } from '/@/renderer/features/lbbot/components/incomplete-album-badge';
 import { LbBotIndexButton } from '/@/renderer/features/lbbot/components/lbbot-index-button';
+import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
 import { MissingAlbumTile } from '/@/renderer/features/lbbot/components/missing-album-tile';
 import {
     gapsByAlbumId,
     unownedReleases,
+    useLbBotArtistMeta,
     useLbBotDiscography,
     withoutOwned,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
@@ -217,13 +219,26 @@ const AlbumArtistMetadataGenres = ({ genres, order }: AlbumArtistMetadataGenresP
     );
 };
 
+/**
+ * Last.fm ends every summary with its own "Read more on Last.fm" anchor, and the
+ * sanitizer deliberately allows `<a href>`, so it survives into the page. When
+ * we have real text this markup is gone with the rest of it; when we are falling
+ * back to Navidrome's Last.fm bio the anchor is the *only* route to the rest of
+ * the text, so removing it needs a better link to have taken its place — which
+ * is why this only runs on the fallback path once lb-bot has answered.
+ */
+const stripLastFmReadMore = (html: string): string =>
+    html.replace(/<a\b[^>]*last\.fm[^>]*>.*?<\/a>/gis, '').replace(/(\s|<br\s*\/?>)+$/i, '');
+
 interface AlbumArtistMetadataBiographyProps {
+    artistMbid?: null | string;
     artistName?: string;
     order?: number;
     routeId: string;
 }
 
 const AlbumArtistMetadataBiography = ({
+    artistMbid,
     artistName,
     order,
     routeId,
@@ -247,10 +262,24 @@ const AlbumArtistMetadataBiography = ({
         enabled: Boolean(server?.id && routeId),
     });
 
-    const biography = artistInfoQuery.data?.biography || detailQuery.data?.biography;
-    const isLoading = !biography && (artistInfoQuery.isLoading || detailQuery.isLoading);
+    // lb-bot's editorial metadata: the full Wikipedia article with its CC BY-SA
+    // attribution, which is what this section should have shown all along. Fails
+    // soft to null (no hub, lb-bot down, nothing written about this artist), and
+    // the Last.fm summary below stays as the fallback.
+    const metaQuery = useLbBotArtistMeta(artistMbid, artistName);
+    const meta = metaQuery.data;
+    const hasMetaText = Boolean(meta?.summary || meta?.paragraphs.length);
 
-    const sanitizedBiography = biography ? sanitize(biography) : '';
+    const biography = artistInfoQuery.data?.biography || detailQuery.data?.biography;
+    const isLoading =
+        !biography && !hasMetaText && (artistInfoQuery.isLoading || detailQuery.isLoading);
+
+    // The Last.fm anchor is only dropped once lb-bot has actually answered.
+    // While that call is in flight, removing it would leave the summary with no
+    // way to reach the rest of the text at all.
+    const sanitizedBiography = biography
+        ? sanitize(metaQuery.isLoading ? biography : stripLastFmReadMore(biography))
+        : '';
 
     if (isLoading) {
         return (
@@ -271,7 +300,7 @@ const AlbumArtistMetadataBiography = ({
         );
     }
 
-    if (!biography) {
+    if (!biography && !hasMetaText && !meta?.wikidataDescription) {
         return null;
     }
 
@@ -283,9 +312,15 @@ const AlbumArtistMetadataBiography = ({
                         artist: artistName,
                     })}
                 </TextTitle>
-                <Spoiler>
-                    <Text dangerouslySetInnerHTML={{ __html: sanitizedBiography }} />
-                </Spoiler>
+                {meta && (hasMetaText || meta.wikidataDescription) ? (
+                    <MetaAbout meta={meta} />
+                ) : (
+                    // The 56px default made a real bio look like a stub, which
+                    // is most of why the old surface felt like a dead end.
+                    <Spoiler maxHeight={180}>
+                        <Text dangerouslySetInnerHTML={{ __html: sanitizedBiography }} />
+                    </Spoiler>
+                )}
             </section>
         </Grid.Col>
     );
@@ -1282,6 +1317,7 @@ export const AlbumArtistDetailContent = ({
                         )}
                     {enabledItem.biography && (
                         <AlbumArtistMetadataBiography
+                            artistMbid={mbzId}
                             artistName={detailQuery.data?.name}
                             order={itemOrder.biography}
                             routeId={routeId}

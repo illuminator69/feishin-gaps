@@ -1,14 +1,17 @@
 import type {
+    LbBotArtistCandidate,
     LbBotDiscography,
     LbBotDownloadResult,
     LbBotFillStatus,
     LbBotGap,
     LbBotGapSource,
     LbBotGapTrackState,
+    LbBotMeta,
     LbBotRelease,
     LbBotReleaseDetail,
     LbBotResolvedEdition,
     LbBotResult,
+    LbBotSimilarAlbums,
     LbBotSourceFiles,
     LbBotTracklist,
 } from '/@/shared/types/lbbot-types';
@@ -301,6 +304,110 @@ export const useLbBotFreshReleases = (days: number) => {
         queryKey: ['lbbot', 'fresh-releases', days],
         refetchOnWindowFocus: false,
         staleTime: 10 * 60 * 1000,
+    });
+};
+
+/**
+ * MusicBrainz artist search — the "Not in your library" half of search.
+ *
+ * Until `/lb/artist/lookup` was whitelisted, a client could only reach an
+ * external artist page if it already held an MBID from a Fresh row, which
+ * blocked every acquisition path that starts with "I want this artist".
+ *
+ * Deliberately not fired on every keystroke: it is a live MusicBrainz search
+ * behind lb-bot's global 1 req/sec lock, so the caller passes the *debounced*
+ * query and short queries are skipped outright.
+ */
+const LOOKUP_MIN_LENGTH = 3;
+
+export const useLbBotArtistLookup = (query: string, enabled = true) => {
+    const available = useLbBotAvailable();
+    const term = query.trim();
+    return useQuery<LbBotArtistCandidate[]>({
+        enabled: !!lbBot && available && enabled && term.length >= LOOKUP_MIN_LENGTH,
+        queryFn: () => lbBot!.artistLookup(term),
+        queryKey: ['lbbot', 'artist-lookup', term],
+        refetchOnWindowFocus: false,
+        // A search ranking, not an entity — but stable enough within a session
+        // that retyping the same term should not cost another MusicBrainz second.
+        staleTime: 10 * 60 * 1000,
+    });
+};
+
+/**
+ * "Similar albums" for an album page.
+ *
+ * lb-bot has answered this route since the Fresh work shipped and no client has
+ * ever called it — step 5 of DESIGN-lbbot-client-integration.md, left unticked.
+ *
+ * It needs the *artist*, not the album: similarity is computed artist-to-artist
+ * (ListenBrainz, cross-checked with Last.fm) and rolled up to one album each.
+ * `rgid` only excludes the album you are on, and lb-bot backfills the slot.
+ *
+ * Empty is the common case on a small or unindexed library, and it is not an
+ * error — the shelf renders nothing.
+ */
+export const useLbBotSimilarAlbums = (args: {
+    artistMbid?: null | string;
+    artistName?: null | string;
+    rgid?: null | string;
+}) => {
+    const available = useLbBotAvailable();
+    const { artistMbid, artistName, rgid } = args;
+    return useQuery<LbBotSimilarAlbums | null>({
+        enabled: !!lbBot && available && !!(artistMbid || artistName),
+        queryFn: () =>
+            lbBot!.albumSimilar({
+                artistMbid: artistMbid ?? undefined,
+                artistName: artistName ?? undefined,
+                rgid: rgid ?? undefined,
+            }),
+        queryKey: ['lbbot', 'album-similar', artistMbid || artistName, rgid],
+        refetchOnWindowFocus: false,
+        // The hub holds this for hours and lb-bot caches the similarity for 24h.
+        staleTime: 60 * 60 * 1000,
+    });
+};
+
+/**
+ * Editorial "About" for an artist: the real, full-length, attributed text this
+ * page has never had — Navidrome's Last.fm agent returns a summary that ends in
+ * a "Read more on Last.fm" anchor and nothing else.
+ *
+ * `mbid` is strongly preferred; passing only a name costs lb-bot a MusicBrainz
+ * search and takes its top hit, which for a generically-named artist is a
+ * coin toss. Both are accepted because Navidrome does not always carry an MBID.
+ *
+ * `staleTime: Infinity` — the text is an encyclopaedia article, lb-bot caches it
+ * for 30 days and the hub for six hours. Asking again within a session is pure
+ * round trip.
+ */
+export const useLbBotArtistMeta = (mbid?: null | string, name?: null | string) => {
+    const available = useLbBotAvailable();
+    return useQuery<LbBotMeta | null>({
+        enabled: !!lbBot && available && !!(mbid || name),
+        queryFn: () =>
+            lbBot!.metaArtist({
+                mbid: mbid ?? undefined,
+                name: mbid ? undefined : (name ?? undefined),
+            }),
+        queryKey: ['lbbot', 'meta-artist', mbid || `name:${name}`],
+        refetchOnWindowFocus: false,
+        staleTime: Infinity,
+    });
+};
+
+/** The same for a release-group, plus release credits. `releaseMbid` is an
+ *  optimisation, not a requirement: it saves lb-bot resolving the canonical
+ *  release at one rate-limited MusicBrainz request per second. */
+export const useLbBotAlbumMeta = (rgid?: null | string, releaseMbid?: null | string) => {
+    const available = useLbBotAvailable();
+    return useQuery<LbBotMeta | null>({
+        enabled: !!lbBot && available && !!rgid,
+        queryFn: () => lbBot!.metaAlbum({ releaseMbid: releaseMbid ?? undefined, rgid: rgid! }),
+        queryKey: ['lbbot', 'meta-album', rgid],
+        refetchOnWindowFocus: false,
+        staleTime: Infinity,
     });
 };
 

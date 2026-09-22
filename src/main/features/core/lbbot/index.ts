@@ -1,4 +1,5 @@
 import type {
+    LbBotArtistCandidate,
     LbBotArtistScan,
     LbBotDiscography,
     LbBotDownloadResult,
@@ -14,10 +15,16 @@ import type {
     LbBotGapTask,
     LbBotGapTrack,
     LbBotGapTrackState,
+    LbBotMeta,
+    LbBotMetaCredit,
+    LbBotMetaLink,
+    LbBotMetaRelation,
     LbBotRelease,
     LbBotReleaseDetail,
     LbBotReleaseStatus,
     LbBotResult,
+    LbBotSimilarAlbum,
+    LbBotSimilarAlbums,
     LbBotSourceCoverage,
     LbBotSourceFile,
     LbBotSourceFiles,
@@ -461,6 +468,120 @@ ipcMain.handle(
 );
 
 // ---------------------------------------------------------------------------
+// Editorial metadata — artist/album "About", credits, relations, links
+// ---------------------------------------------------------------------------
+//
+// lb-bot resolves MusicBrainz url-relations -> Wikidata -> Wikipedia and caches
+// the answer for 30 days; the hub caches it again for six hours. So this is a
+// cheap call in the steady state and a slow one exactly once per entity.
+//
+// Fail-soft twice over, and the distinction matters to the UI: null means we
+// could not ask (no hub, lb-bot down) and the section must not render at all,
+// while a shape with `found: false` means we asked and nobody has written about
+// this — also nothing rendered, but the fallback to Navidrome's Last.fm bio is
+// only correct in the second case... and in practice both end up there, because
+// the fallback is what the page did before this existed.
+
+const toMetaLink = (row: unknown): LbBotMetaLink[] => {
+    if (!row || typeof row !== 'object') return [];
+    const r = row as Json;
+    const url = str(r.url);
+    if (!url) return [];
+    return [{ label: str(r.label), type: str(r.type), url }];
+};
+
+const toMetaRelation = (row: unknown): LbBotMetaRelation[] => {
+    if (!row || typeof row !== 'object') return [];
+    const r = row as Json;
+    const name = str(r.name);
+    if (!name) return [];
+    return [
+        {
+            begin: str(r.begin),
+            direction: str(r.direction),
+            end: str(r.end),
+            ended: r.ended === true,
+            mbid: str(r.mbid),
+            name,
+            type: str(r.type),
+        },
+    ];
+};
+
+const toMetaCredit = (row: unknown): LbBotMetaCredit[] => {
+    if (!row || typeof row !== 'object') return [];
+    const r = row as Json;
+    const name = str(r.name);
+    const roles = Array.isArray(r.roles) ? r.roles.map(str).filter(Boolean) : [];
+    if (!name || roles.length === 0) return [];
+    return [{ mbid: str(r.mbid), name, roles }];
+};
+
+const toMeta = (data: Json): LbBotMeta => {
+    const rawSource = (data.source ?? null) as Json | null;
+    const sourceUrl = rawSource ? str(rawSource.url) : '';
+    const relations = (data.relations ?? {}) as Json;
+    const paragraphs = Array.isArray(data.paragraphs)
+        ? data.paragraphs.map(str).filter(Boolean)
+        : [];
+    return {
+        credits: Array.isArray(data.credits) ? data.credits.flatMap(toMetaCredit) : [],
+        found: data.found === true,
+        imageUrl: str(data.imageUrl),
+        links: Array.isArray(data.links) ? data.links.flatMap(toMetaLink) : [],
+        paragraphs,
+        relations: {
+            members: Array.isArray(relations.members)
+                ? relations.members.flatMap(toMetaRelation)
+                : [],
+            related: Array.isArray(relations.related)
+                ? relations.related.flatMap(toMetaRelation)
+                : [],
+        },
+        // No URL means no attribution to render, which means the text is not
+        // safe to show under CC BY-SA. Normalized to null so the renderer has
+        // one thing to check rather than three.
+        source: sourceUrl
+            ? {
+                  license: str(rawSource?.license),
+                  name: str(rawSource?.name),
+                  title: str(rawSource?.title),
+                  url: sourceUrl,
+              }
+            : null,
+        summary: str(data.summary) || paragraphs[0] || '',
+        wikidataDescription: str(data.wikidataDescription),
+    };
+};
+
+ipcMain.handle(
+    'lbbot-meta-artist',
+    async (_event, args: { mbid?: string; name?: string }): Promise<LbBotMeta | null> => {
+        // `name` costs lb-bot an extra MusicBrainz search and takes the first
+        // hit, so the MBID is always preferred when Navidrome carries one.
+        const params: Record<string, string> = {};
+        if (args.mbid) params.mbid = args.mbid;
+        else if (args.name) params.name = args.name;
+        else return null;
+        const data = await get('/lb/meta/artist', params);
+        return data ? toMeta(data) : null;
+    },
+);
+
+ipcMain.handle(
+    'lbbot-meta-album',
+    async (_event, args: { releaseMbid?: string; rgid: string }): Promise<LbBotMeta | null> => {
+        if (!args.rgid) return null;
+        const params: Record<string, string> = { rgid: args.rgid };
+        // Saves lb-bot the canonical-release resolution — two rate-limited
+        // MusicBrainz seconds — when the caller already knows the release.
+        if (args.releaseMbid) params.release_mbid = args.releaseMbid;
+        const data = await get('/lb/meta/album', params);
+        return data ? toMeta(data) : null;
+    },
+);
+
+// ---------------------------------------------------------------------------
 // Missing-album detail + download
 // ---------------------------------------------------------------------------
 
@@ -543,6 +664,90 @@ ipcMain.handle(
                     },
                 ];
             }),
+        };
+    },
+);
+
+// MusicBrainz artist search, so a client's own search can offer a "Not in your
+// library" section. Until this was whitelisted a remote client could only reach
+// an external artist page if it already held an MBID from a Fresh row — which is
+// what blocked every acquisition path that starts with "I want this artist".
+ipcMain.handle(
+    'lbbot-artist-lookup',
+    async (_event, args: { q: string }): Promise<LbBotArtistCandidate[]> => {
+        const q = (args.q ?? '').trim();
+        if (!q) return [];
+        const data = await get('/lb/artist/lookup', { q });
+        const rows = Array.isArray(data?.candidates) ? data.candidates : [];
+        return rows.flatMap((row): LbBotArtistCandidate[] => {
+            if (!row || typeof row !== 'object') return [];
+            const r = row as Json;
+            const mbid = str(r.mbid);
+            if (!mbid) return [];
+            return [
+                {
+                    country: str(r.country),
+                    disambiguation: str(r.disambiguation),
+                    mbid,
+                    name: str(r.name),
+                    score: num(r.score),
+                    type: str(r.type),
+                },
+            ];
+        });
+    },
+);
+
+// "Similar albums": shipped end to end in lb-bot and the hub and consumed by
+// nobody until now — it was step 5 of DESIGN-lbbot-client-integration.md, left
+// unticked when the Fresh half landed.
+//
+// Every row is an album the library already holds, so this is a rediscovery
+// shelf rather than a shopping list, and `because` names the artist that
+// justifies it. Rows are keyed by release-group only (lb-bot picks them out of
+// its discography index), so the renderer routes through the external album
+// page and lets it redirect to the library album.
+const toSimilarAlbum = (row: unknown): LbBotSimilarAlbum[] => {
+    if (!row || typeof row !== 'object') return [];
+    const r = row as Json;
+    const rgid = str(r.rgid);
+    if (!rgid) return [];
+    return [
+        {
+            artist: str(r.artist),
+            artistId: str(r.artistId),
+            because: str(r.because),
+            coverUrl: str(r.coverUrl),
+            rgid,
+            sources: Array.isArray(r.sources) ? r.sources.map(str).filter(Boolean) : [],
+            status: (str(r.status) || 'missing') as LbBotReleaseStatus,
+            title: str(r.title),
+            year: str(r.year),
+        },
+    ];
+};
+
+ipcMain.handle(
+    'lbbot-album-similar',
+    async (
+        _event,
+        args: { artistMbid?: string; artistName?: string; limit?: number; rgid?: string },
+    ): Promise<LbBotSimilarAlbums | null> => {
+        if (!args.artistMbid && !args.artistName) return null;
+        const params: Record<string, string> = { limit: String(args.limit ?? 6) };
+        if (args.artistMbid) params.artist_mbid = args.artistMbid;
+        if (args.artistName) params.artist_name = args.artistName;
+        // Excluding the album you are looking at is lb-bot's job, not a filter
+        // here: it picks one album per similar artist, so dropping a row
+        // afterwards would silently shorten the shelf instead of backfilling it.
+        if (args.rgid) params.rgid = args.rgid;
+        const data = await get('/lb/album/similar', params);
+        if (!data) return null;
+        const albums = Array.isArray(data.albums) ? data.albums.flatMap(toSimilarAlbum) : [];
+        return {
+            albums,
+            because: str(data.because),
+            sources: Array.isArray(data.sources) ? data.sources.map(str).filter(Boolean) : [],
         };
     },
 );

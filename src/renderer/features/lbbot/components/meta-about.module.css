@@ -1,0 +1,18 @@
+/* The About panel is prose, not a control surface: measure is capped so long
+   lines stay readable on a wide window, and the line height is its own rather
+   than inherited from the metadata grid around it. Paragraph rhythm comes from
+   the Stack's gap, so nothing here fights it. */
+.paragraphs > * {
+    max-width: 78ch;
+    line-height: 1.6;
+}
+
+/* Attribution is a CC BY-SA licence condition, not decoration — it is quiet,
+   but it is never conditional on the panel being expanded. */
+.attribution {
+    margin-top: var(--theme-spacing-sm);
+}
+
+.links {
+    flex-wrap: wrap;
+}

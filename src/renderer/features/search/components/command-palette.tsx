@@ -5,6 +5,7 @@ import { GoToCommands } from '/@/renderer/features/search/components/go-to-comma
 import { HomeCommands } from '/@/renderer/features/search/components/home-commands';
 import { SearchAlbumArtistsSection } from '/@/renderer/features/search/components/search-album-artists-section';
 import { SearchAlbumsSection } from '/@/renderer/features/search/components/search-albums-section';
+import { SearchExternalArtistsSection } from '/@/renderer/features/search/components/search-external-artists-section';
 import { SearchSongsSection } from '/@/renderer/features/search/components/search-songs-section';
 import { ServerCommands } from '/@/renderer/features/search/components/server-commands';
 import { useAppStore } from '/@/renderer/store';
@@ -28,6 +29,8 @@ interface CommandPaletteProps {
 const SEARCH_SECTION_IDS = {
     albums: 'albums',
     artists: 'artists',
+    /** navi-connect: MusicBrainz artists the library does not have. */
+    externalArtists: 'externalArtists',
     tracks: 'tracks',
 } as const;
 
@@ -121,6 +124,26 @@ function CommandPaletteSearch({
                             )
                         }
                         query={query}
+                    />
+                    {/* Last, and collapsed by default: these are artists the
+                        library does NOT have, so they must never push the
+                        library's own results down the list. */}
+                    <SearchExternalArtistsSection
+                        debouncedQuery={deferredSearchQuery}
+                        expanded={
+                            searchSectionsExpanded[SEARCH_SECTION_IDS.externalArtists] ?? false
+                        }
+                        isHome={isHome}
+                        onSelectResult={onSelectResult}
+                        onToggle={() =>
+                            setSearchSectionExpanded(
+                                SEARCH_SECTION_IDS.externalArtists,
+                                !(
+                                    searchSectionsExpanded[SEARCH_SECTION_IDS.externalArtists] ??
+                                    false
+                                ),
+                            )
+                        }
                     />
                 </Stack>
                 {children}
