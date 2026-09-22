@@ -3,7 +3,7 @@ import type {
     ItemListStateItemWithRequiredProperties,
 } from '/@/renderer/components/item-list/helpers/item-list-state';
 
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { ReactNode, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { generatePath, useParams } from 'react-router';
@@ -43,6 +43,7 @@ import { sentenceCase, titleCase } from '/@/renderer/utils';
 import { replaceURLWithHTMLLinks } from '/@/renderer/utils/linkify';
 import { normalizeReleaseTypes } from '/@/renderer/utils/normalize-release-types';
 import { setJsonSearchParam } from '/@/renderer/utils/query-params';
+import { sanitize } from '/@/renderer/utils/sanitize';
 import { sortSongList } from '/@/shared/api/utils';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Checkbox } from '/@/shared/components/checkbox/checkbox';
@@ -518,28 +519,67 @@ export const AlbumDetailContent = () => {
     const mbzId = detailQuery?.data?.mbzId;
     const mbzReleaseGroupId = detailQuery?.data?.mbzReleaseGroupId;
 
-    // The first album description this stack has ever shown. What the page
-    // displayed before is the ID3 `comment` tag, which is not a description and
-    // is usually absent; `getAlbumInfo2.notes` was already being fetched on
-    // every album page and thrown away, with Discord Rich Presence as its only
-    // consumer. Both remain below as fallbacks.
+    // `getAlbumInfo2.notes` — the album's own description, and since the Apple
+    // Music agent joined Navidrome's chain it is real editorial prose rather
+    // than the empty field it used to be. The page never asked for it: the
+    // controller has produced it all along with Discord Rich Presence as its
+    // only consumer, and that reads `imageUrl` alone.
+    const albumInfoQuery = useQuery({
+        ...albumQueries.info({ query: { id: albumId }, serverId: server.id }),
+        enabled: Boolean(server?.id && albumId),
+    });
+    const notes = albumInfoQuery.data?.notes;
+
     const metaQuery = useLbBotAlbumMeta(mbzReleaseGroupId, mbzId);
     const meta = metaQuery.data;
     const hasMetaText = Boolean(meta?.summary || meta?.paragraphs.length);
+    const hasDescription = Boolean(notes || comment || hasMetaText);
 
     return (
         <div className={styles.contentContainer}>
             <div className={styles.detailContainer}>
-                {meta && (hasMetaText || meta.credits.length > 0) && (
-                    <Stack gap="md" pb="md">
-                        {hasMetaText && <MetaAbout maxHeight={120} meta={meta} />}
-                        {meta.credits.length > 0 && <AlbumCredits credits={meta.credits} />}
+                {/* ONE description, and the slot is filled by the response
+                    this page already blocks on. These used to be unconditional
+                    siblings, so an album carrying both `notes` and a `comment`
+                    tag rendered two unlabelled descriptions stacked on top of
+                    each other, and the lb-bot block popped in above whatever
+                    you had started reading.
+
+                    Order is arrival order, which is also preference order:
+                    Navidrome's `notes` and the ID3 `comment` are both part of
+                    the album detail this page waits for anyway, so they are on
+                    screen at once and never move. lb-bot's Wikipedia prose is
+                    last — it arrives a second or more later behind a
+                    MusicBrainz hop, so it may only ever fill a slot that was
+                    EMPTY. It must never replace text already being read. */}
+                {hasDescription && (
+                    <Stack gap="xs" pb="md">
+                        <TextTitle fw={700} order={4}>
+                            About
+                        </TextTitle>
+                        {notes ? (
+                            // Editorial notes are HTML — "<b>100 Best Albums</b>",
+                            // "<i>Dummy</i>" — so they go through the sanitizer
+                            // like the artist biography, not into a plain Text.
+                            <Spoiler maxHeight={120}>
+                                <Text dangerouslySetInnerHTML={{ __html: sanitize(notes) }} />
+                            </Spoiler>
+                        ) : comment ? (
+                            <Spoiler maxHeight={120}>
+                                <Text>{replaceURLWithHTMLLinks(comment)}</Text>
+                            </Spoiler>
+                        ) : (
+                            meta && <MetaAbout maxHeight={120} meta={meta} />
+                        )}
                     </Stack>
                 )}
-                {comment && (
-                    <Spoiler maxHeight={75}>
-                        <Text pb="md">{replaceURLWithHTMLLinks(comment)}</Text>
-                    </Spoiler>
+                {/* Credits are a section of their own, not a sibling inside the
+                    prose stack. They come from lb-bot and so land late, which
+                    is fine: nothing was there before them. */}
+                {meta && meta.credits.length > 0 && (
+                    <Stack gap="md" pb="md">
+                        <AlbumCredits credits={meta.credits} />
+                    </Stack>
                 )}
                 <div className={styles.contentLayout}>
                     <div className={styles.songsColumn}>

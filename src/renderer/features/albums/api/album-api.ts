@@ -20,6 +20,33 @@ export const albumQueries = {
             ...args.options,
         });
     },
+    /**
+     * `getAlbumInfo2` — the editorial album notes, which since the Apple Music
+     * metadata agent went into Navidrome's chain are a real description rather
+     * than an empty field.
+     *
+     * The album page never fetched this: the controller has produced `notes`
+     * all along and the only caller in the repo was Discord Rich Presence,
+     * which reads `imageUrl` and nothing else.
+     *
+     * `getAlbumInfo` is OPTIONAL on the controller — not every backend has an
+     * equivalent — so this resolves to null rather than throwing, exactly as
+     * `artistsQueries.albumArtistInfo` does.
+     */
+    info: (args: QueryHookArgs<AlbumDetailQuery>) => {
+        return queryOptions({
+            queryFn: ({ signal }) => {
+                return (
+                    api.controller.getAlbumInfo?.({
+                        apiClientProps: { serverId: args.serverId, signal },
+                        query: args.query,
+                    }) ?? Promise.resolve(null)
+                );
+            },
+            queryKey: queryKeys.albums.info(args.serverId, args.query),
+            ...args.options,
+        });
+    },
     list: (args: QueryHookArgs<AlbumListQuery>) => {
         return queryOptions({
             queryFn: ({ signal }) => {

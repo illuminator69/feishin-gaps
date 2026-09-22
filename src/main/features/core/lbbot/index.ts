@@ -497,6 +497,9 @@ const toMetaRelation = (row: unknown): LbBotMetaRelation[] => {
     if (!name) return [];
     return [
         {
+            // lb-bot goes to real trouble to compute and merge these; dropping
+            // them here is what left the members list a bare row of names.
+            attributes: Array.isArray(r.attributes) ? r.attributes.map(str).filter(Boolean) : [],
             begin: str(r.begin),
             direction: str(r.direction),
             end: str(r.end),

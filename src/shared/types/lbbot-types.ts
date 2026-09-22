@@ -443,6 +443,14 @@ export interface LbBotMetaLink {
 }
 
 export interface LbBotMetaRelation {
+    /**
+     * The instruments and roles MusicBrainz states for this relation — "guitar",
+     * "lead vocals". lb-bot merges them across the one-row-per-instrument-per-stint
+     * shape MusicBrainz actually returns, so this is the collapsed set for the
+     * person, and it is the difference between "Jonny Greenwood" and "Jonny
+     * Greenwood — guitar, keyboard (1985–)".
+     */
+    attributes: string[];
     /** Years, when MusicBrainz dates the relation. */
     begin: string;
     /** MusicBrainz states a relation from one side only; this says which. */

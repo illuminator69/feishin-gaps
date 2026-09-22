@@ -27,13 +27,22 @@ interface MetaAboutProps {
      *  56px default made a real bio look like a stub. */
     maxHeight?: number;
     meta: LbBotMeta;
+    /**
+     * Render the external-links row. The artist page turns this off because it
+     * shows the links in its own lb-bot section instead — that section renders
+     * whether or not this component does, since on an owned artist the bio slot
+     * belongs to Navidrome, and two copies of the same row is worse than either.
+     */
+    showLinks?: boolean;
 }
 
-export const MetaAbout = ({ maxHeight = 180, meta }: MetaAboutProps) => {
+export const MetaAbout = ({ maxHeight = 180, meta, showLinks = true }: MetaAboutProps) => {
     const paragraphs = meta.paragraphs.length > 0 ? meta.paragraphs : [meta.summary];
     const hasText = paragraphs.some(Boolean);
 
-    if (!hasText && !meta.wikidataDescription && meta.links.length === 0) return null;
+    if (!hasText && !meta.wikidataDescription && (!showLinks || meta.links.length === 0)) {
+        return null;
+    }
 
     return (
         <Stack gap="xs">
@@ -60,7 +69,7 @@ export const MetaAbout = ({ maxHeight = 180, meta }: MetaAboutProps) => {
                     </a>
                 </Text>
             )}
-            {meta.links.length > 0 && (
+            {showLinks && meta.links.length > 0 && (
                 <Group className={styles.links} gap="sm">
                     {meta.links.map((link) => (
                         <Text isMuted key={link.url} size="sm">

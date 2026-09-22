@@ -108,7 +108,7 @@ import {
     SongListSort,
     SortOrder,
 } from '/@/shared/types/domain-types';
-import { LbBotRelease } from '/@/shared/types/lbbot-types';
+import { LbBotMetaRelation, LbBotRelease } from '/@/shared/types/lbbot-types';
 import { ItemListKey, ListDisplayType, Play } from '/@/shared/types/types';
 
 interface AlbumArtistActionButtonsProps {
@@ -221,11 +221,17 @@ const AlbumArtistMetadataGenres = ({ genres, order }: AlbumArtistMetadataGenresP
 
 /**
  * Last.fm ends every summary with its own "Read more on Last.fm" anchor, and the
- * sanitizer deliberately allows `<a href>`, so it survives into the page. When
- * we have real text this markup is gone with the rest of it; when we are falling
- * back to Navidrome's Last.fm bio the anchor is the *only* route to the rest of
- * the text, so removing it needs a better link to have taken its place — which
- * is why this only runs on the fallback path once lb-bot has answered.
+ * sanitizer deliberately allows `<a href>`, so it survives into the page.
+ *
+ * This runs UNCONDITIONALLY. It used to be gated on lb-bot having answered,
+ * the reasoning being that until then the anchor was the only route to the rest
+ * of the text — but the cost of that was a bio which rendered with a link and
+ * then silently lost it a second later, which is the exact defect this whole
+ * pass exists to remove. Text on screen does not change under the reader.
+ *
+ * It also matters much less than it did: with the Apple Music agent ahead of
+ * `lastfm` in Navidrome's chain the biography is usually not Last.fm's at all,
+ * and carries no anchor to strip.
  */
 const stripLastFmReadMore = (html: string): string =>
     html.replace(/<a\b[^>]*last\.fm[^>]*>.*?<\/a>/gis, '').replace(/(\s|<br\s*\/?>)+$/i, '');
@@ -262,24 +268,24 @@ const AlbumArtistMetadataBiography = ({
         enabled: Boolean(server?.id && routeId),
     });
 
-    // lb-bot's editorial metadata: the full Wikipedia article with its CC BY-SA
-    // attribution, which is what this section should have shown all along. Fails
-    // soft to null (no hub, lb-bot down, nothing written about this artist), and
-    // the Last.fm summary below stays as the fallback.
+    // lb-bot's editorial metadata. It is NOT in the running for the bio slot on
+    // an owned artist any more: it resolves behind a MusicBrainz hop that can
+    // queue behind a running discography scan, so preferring it meant Navidrome's
+    // text painted first and was then swapped out from under the reader. It
+    // fills this slot only when Navidrome has nothing at all — a late arrival
+    // into an EMPTY slot changes nothing on screen — and otherwise contributes
+    // the supplementary section below.
     const metaQuery = useLbBotArtistMeta(artistMbid, artistName);
     const meta = metaQuery.data;
     const hasMetaText = Boolean(meta?.summary || meta?.paragraphs.length);
 
     const biography = artistInfoQuery.data?.biography || detailQuery.data?.biography;
-    const isLoading =
-        !biography && !hasMetaText && (artistInfoQuery.isLoading || detailQuery.isLoading);
+    // `metaQuery` is deliberately absent from this: the skeleton belongs to the
+    // request the page blocks on, and waiting on lb-bot here would trade a flash
+    // for a spinner on every artist page.
+    const isLoading = !biography && (artistInfoQuery.isLoading || detailQuery.isLoading);
 
-    // The Last.fm anchor is only dropped once lb-bot has actually answered.
-    // While that call is in flight, removing it would leave the summary with no
-    // way to reach the rest of the text at all.
-    const sanitizedBiography = biography
-        ? sanitize(metaQuery.isLoading ? biography : stripLastFmReadMore(biography))
-        : '';
+    const sanitizedBiography = biography ? sanitize(stripLastFmReadMore(biography)) : '';
 
     if (isLoading) {
         return (
@@ -312,18 +318,110 @@ const AlbumArtistMetadataBiography = ({
                         artist: artistName,
                     })}
                 </TextTitle>
-                {meta && (hasMetaText || meta.wikidataDescription) ? (
-                    <MetaAbout meta={meta} />
-                ) : (
+                {biography ? (
                     // The 56px default made a real bio look like a stub, which
                     // is most of why the old surface felt like a dead end.
                     <Spoiler maxHeight={180}>
                         <Text dangerouslySetInnerHTML={{ __html: sanitizedBiography }} />
                     </Spoiler>
+                ) : (
+                    meta && <MetaAbout meta={meta} showLinks={false} />
                 )}
             </section>
         </Grid.Col>
     );
+};
+
+/**
+ * What lb-bot contributes to an OWNED artist page now that the bio slot belongs
+ * to Navidrome: the band-members / side-projects graph and the external-links
+ * row, neither of which Subsonic has a field for.
+ *
+ * All three were already fetched, normalized and typed, and rendered by nothing.
+ *
+ * This section is allowed to arrive late, which is the whole point of the split:
+ * nothing was in its place, so appearing changes no text the reader had already
+ * started on. It renders nothing at all when lb-bot is absent, unreachable or
+ * simply has nothing on this artist (§7).
+ */
+const AlbumArtistMetadataLbBotExtras = ({
+    artistMbid,
+    artistName,
+    order,
+}: {
+    artistMbid?: null | string;
+    artistName?: string;
+    order?: number;
+}) => {
+    // Same key as the biography's call, so react-query serves both from one
+    // request rather than asking lb-bot twice per page.
+    const metaQuery = useLbBotArtistMeta(artistMbid, artistName);
+    const meta = metaQuery.data;
+    if (!meta) return null;
+
+    const { links, relations } = meta;
+    const groups = [
+        { rows: relations.members, title: 'Members' },
+        { rows: relations.related, title: 'Related' },
+    ].filter((group) => group.rows.length > 0);
+
+    if (groups.length === 0 && links.length === 0) return null;
+
+    return (
+        <Grid.Col order={order} span={12}>
+            <section style={{ maxWidth: '1280px' }}>
+                <Stack gap="md">
+                    {groups.map((group) => (
+                        <Stack gap="xs" key={group.title}>
+                            <TextTitle fw={700} order={4}>
+                                {group.title}
+                            </TextTitle>
+                            <Stack gap={2}>
+                                {group.rows.map((row) => (
+                                    <Text key={row.mbid || row.name} size="sm">
+                                        {row.name}
+                                        {formatRelationDetail(row) && (
+                                            <Text component="span" isMuted size="sm">
+                                                {` — ${formatRelationDetail(row)}`}
+                                            </Text>
+                                        )}
+                                    </Text>
+                                ))}
+                            </Stack>
+                        </Stack>
+                    ))}
+                    {links.length > 0 && (
+                        <Group gap="sm">
+                            {links.map((link) => (
+                                <Text isMuted key={link.url} size="sm">
+                                    <a href={link.url} rel="noreferrer" target="_blank">
+                                        {link.label}
+                                    </a>
+                                </Text>
+                            ))}
+                        </Group>
+                    )}
+                </Stack>
+            </section>
+        </Grid.Col>
+    );
+};
+
+/**
+ * "guitar, lead vocals (1985–1991)" — the part of a relation that is not the
+ * name. `attributes` is what makes a members list worth reading rather than a
+ * column of names; an open stint gets an en dash and no end year, because
+ * lb-bot clears `ended` the moment any one stint is still running.
+ */
+const formatRelationDetail = (row: LbBotMetaRelation): string => {
+    const roles = row.attributes.join(', ');
+    const years = row.begin
+        ? `${row.begin}\u2013${row.ended && row.end ? row.end : ''}`
+        : row.ended && row.end
+          ? `until ${row.end}`
+          : '';
+    if (roles && years) return `${roles} (${years})`;
+    return roles || (years ? `(${years})` : '');
 };
 
 const TABLE_ROW_HEIGHT = {
@@ -1321,6 +1419,13 @@ export const AlbumArtistDetailContent = ({
                             artistName={detailQuery.data?.name}
                             order={itemOrder.biography}
                             routeId={routeId}
+                        />
+                    )}
+                    {enabledItem.biography && (
+                        <AlbumArtistMetadataLbBotExtras
+                            artistMbid={mbzId}
+                            artistName={detailQuery.data?.name}
+                            order={itemOrder.biography}
                         />
                     )}
                     <ArtistAlbums

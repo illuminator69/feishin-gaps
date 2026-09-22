@@ -6,8 +6,13 @@ import styles from './lbbot-fresh-route.module.css';
 import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
 import { useArtistAlbumsGrouped } from '/@/renderer/features/artists/hooks/use-artist-albums-grouped';
 import { LbBotIndexButton } from '/@/renderer/features/lbbot/components/lbbot-index-button';
+import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
 import { MissingAlbumTile } from '/@/renderer/features/lbbot/components/missing-album-tile';
-import { useLbBotAvailable, useLbBotDiscography } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import {
+    useLbBotArtistMeta,
+    useLbBotAvailable,
+    useLbBotDiscography,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
 import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
 import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
@@ -50,6 +55,15 @@ const LbBotExternalArtistRoute = () => {
     // here carries one meanwhile.
     const artistName = discography.data?.artistName || search.get('name') || '';
 
+    // On an unowned artist lb-bot is the ONLY possible source of an About:
+    // there is no Navidrome record to carry a biography, so no metadata agent
+    // can ever answer for this page. That is the reason the editorial layer
+    // lives in lb-bot rather than in a Navidrome plugin, and until now it was
+    // the one page that never showed it.
+    //
+    // Nothing here can flash: there is no competing text to arrive first.
+    const meta = useLbBotArtistMeta(artistMbid, artistName).data;
+
     const { releaseTypeEntries } = useArtistAlbumsGrouped(
         NO_ALBUMS,
         ndId,
@@ -90,6 +104,8 @@ const LbBotExternalArtistRoute = () => {
                                 lb-bot.
                             </Text>
                         </Stack>
+
+                        {meta && <MetaAbout meta={meta} />}
 
                         <LbBotIndexButton
                             artistMbid={artistMbid}

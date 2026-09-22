@@ -2,8 +2,13 @@ import { Suspense, useEffect, useMemo } from 'react';
 import { generatePath, Navigate, useParams, useSearchParams } from 'react-router';
 
 import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
+import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
 import { MissingAlbumPanel } from '/@/renderer/features/lbbot/components/missing-album-modal';
-import { useIndexRelease, useLbBotDiscography } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import {
+    useIndexRelease,
+    useLbBotAlbumMeta,
+    useLbBotDiscography,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { artistLinkPath } from '/@/renderer/features/lbbot/utils/external-paths';
 import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
 import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
@@ -96,6 +101,11 @@ const LbBotExternalAlbumRoute = () => {
         [rgid, search],
     );
 
+    // `release_mbid` is not sent: it is optional on the route (it only saves
+    // lb-bot resolving the canonical release itself), and an lb-bot index row
+    // is a release-GROUP and carries no release mbid to send.
+    const meta = useLbBotAlbumMeta(rgid).data;
+
     if (ownedAlbumId) {
         return (
             <Navigate
@@ -130,6 +140,12 @@ const LbBotExternalAlbumRoute = () => {
                         <Text isMuted size="sm">
                             Not in your library
                         </Text>
+                        {/* lb-bot is the only source that can describe a record
+                            nobody owns — there is no Navidrome album for an
+                            agent to answer about — and this page never showed
+                            it. Nothing competes for the slot, so nothing can
+                            flash. */}
+                        {meta && <MetaAbout maxHeight={120} meta={meta} />}
                         {rgid ? (
                             <MissingAlbumPanel
                                 artistName={artist}
