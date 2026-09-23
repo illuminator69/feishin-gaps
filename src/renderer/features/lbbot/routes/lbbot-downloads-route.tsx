@@ -1,15 +1,18 @@
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { generatePath, Link, useNavigate } from 'react-router';
 
 import styles from './lbbot-downloads-route.module.css';
 
 import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
+import { ResolveLinkBox } from '/@/renderer/features/lbbot/components/resolve-link-box';
+import { describeFill, FillButton } from '/@/renderer/features/lbbot/fill-vocabulary';
 import {
     allowMp3AndRetry,
     caaCoverUrl,
     cancelFill,
     retryFill,
-    useWatchedFill,
-    useWatchedGap,
+    useLbBotWishlist,
+    useWishlistActions,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
     LedgerRow,
@@ -20,9 +23,11 @@ import { AnimatedPage } from '/@/renderer/features/shared/components/animated-pa
 import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
 import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
+import { AppRoute } from '/@/renderer/router/routes';
 import { useWindowSettings } from '/@/renderer/store';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
+import { Progress } from '/@/shared/components/progress/progress';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
@@ -38,90 +43,40 @@ import { Platform } from '/@/shared/types/types';
  * Navigate away and there was no way to see it, no way to know it had failed, and no
  * way to ask again.
  *
- * Rows still in flight are watched from here too. This view used to only read the
- * ledger, trusting the artist pages to poll — so a fill cancelled or failed while no
- * artist page was open read "Downloading" forever, and a row that never settles never
- * offers Retry. Settled rows are never polled.
+ * Nothing here polls. The ledger watcher mounted at the app root reads every
+ * unsettled row in one request whether or not this page is open — this view used
+ * to watch only the rows that passed its filter, so choosing "Didn't land" stopped
+ * the fills in flight from being polled at all. Every word and every button comes
+ * from `describeFill` (PROTOCOL §15.2), the table Navic renders from too.
  */
 
-/** What a row is doing, in the user's terms rather than lb-bot's.
- *
- *  The outcome is checked before the state because a settled row's last state is not
- *  the whole story: a fill given up on still reads `unknown`, and a cancelled one
- *  keeps whatever it was doing when it was cancelled. */
-/** The failure in a few words, before the row is even read closely.
- *
- *  "No peer had it" and "every source was rejected for format" are different
- *  problems with different buttons, and telling them apart used to mean reading
- *  lb-bot's sentence. These come from `failureKind`; the sentence stays below,
- *  verbatim, because it carries the evidence ("103 peers offered 2,047 files,
- *  but none in FLAC, OPUS") that no label can. */
-const FAILURE_LABEL: Record<string, string> = {
-    cancelled: 'Cancelled',
-    format_rejected: 'No copy in an allowed format',
-    mb_unavailable: "Downloaded — MusicBrainz wouldn't answer, so it couldn't be tagged",
-    no_source: 'Nobody is sharing this one',
-    placement_failed: "Downloaded, but couldn't be filed into the library",
-    transfer_failed: 'The download itself failed',
+/** A one-second clock for the countdowns and "last checked Ns ago". */
+const useNow = (): number => {
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const timer = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, []);
+    return now;
 };
 
-const stateLabel = (row: LedgerRow): string => {
-    if (row.settled) {
-        switch (row.outcome) {
-            case 'cancelled':
-                return 'Cancelled';
-            case 'done':
-                return 'In your library';
-            case 'gaveUp':
-                // Ran out of clock, not a failure — the distinction is deliberate.
-                return 'Stopped tracking this one';
-            case 'needsPick':
-                return 'Waiting for you to pick a source';
-            default:
-                if (row.state === 'needs_match') {
-                    return 'Downloaded, but needs sorting out in lb-bot';
-                }
-                return (
-                    (row.failureKind && FAILURE_LABEL[row.failureKind]) || "Couldn't get this one"
-                );
-        }
-    }
-    switch (row.state) {
-        // `downloading`, `searching`, and the ambiguous `unknown` — which on a live row
-        // means lb-bot's worker has not written its first ledger row yet.
-        case 'downloading':
-            return 'Downloading';
-        case 'placed':
-            return 'Added — waiting for the library scan';
-        case 'placing':
-            return 'Adding to the library';
-        case 'queued':
-            return 'Waiting for the peer';
-        default:
-            return 'Looking for a source';
-    }
+const BUTTON_LABEL: Record<FillButton, string> = {
+    allowMp3: 'Allow MP3 and retry',
+    cancel: 'Cancel',
+    dismiss: 'Dismiss',
+    openAlbum: 'Open album',
+    retry: 'Retry',
+    tryAnother: 'Try another source',
+    wishlist: 'Add to wishlist',
 };
 
-/** Keeps an unsettled row's state live. Both hooks are no-ops for a key that names
- *  nothing, which is how one of them sits idle for each row. */
-const RowWatcher = ({ row }: { row: LedgerRow }) => {
-    useWatchedFill(row.isGap ? '' : row.key, '');
-    useWatchedGap(row.isGap ? row.key : '', '');
-    return null;
-};
-
-const FillRow = ({ row }: { row: LedgerRow }) => {
+const FillRow = ({ now, row }: { now: number; row: LedgerRow }) => {
     const { dismiss } = useActiveFillsActions();
+    const { add: addToWishlist } = useWishlistActions();
+    const navigate = useNavigate();
     const [busy, setBusy] = useState(false);
-
+    const view = describeFill(row, now);
     const failed = row.settled && row.outcome !== 'done';
-    // Offer a plain Retry only when lb-bot says one is worth it. It is
-    // deliberately false for a format rejection MP3 would fix — that retry
-    // re-runs the identical search against the identical peers under the
-    // identical format policy, which is the same failure again, not a retry.
-    // A row from before lb-bot carried the field has no `failureKind` at all;
-    // absent means unknown, so keep offering Retry rather than hiding it.
-    const retryable = !row.failureKind || row.retryable !== false;
 
     const run = async (action: () => Promise<boolean>) => {
         setBusy(true);
@@ -130,9 +85,35 @@ const FillRow = ({ row }: { row: LedgerRow }) => {
         if (!ok) toast.error({ message: 'lb-bot would not take that request.' });
     };
 
+    const openAlbum = () => {
+        if (row.rgid) navigate(generatePath(AppRoute.EXTERNAL_ALBUM_DETAIL, { rgid: row.rgid }));
+    };
+
+    const actions: Record<FillButton, () => void> = {
+        allowMp3: () =>
+            run(() => allowMp3AndRetry({ groupId: row.groupId, isGap: row.isGap, key: row.key })),
+        cancel: () => run(() => cancelFill(row)),
+        dismiss: () => dismiss(row.key),
+        openAlbum,
+        retry: () => run(() => retryFill({ isGap: row.isGap, key: row.key })),
+        tryAnother: () => run(() => retryFill(row, { anotherSource: true })),
+        // The row is dismissed once it is on the list: the wishlist page is
+        // where it lives from here, and a live button under it was a second
+        // way to add the same thing.
+        wishlist: () =>
+            run(async () => {
+                const ok = await addToWishlist({
+                    artist: row.artist,
+                    rgid: row.rgid,
+                    title: row.album,
+                });
+                if (ok) dismiss(row.key);
+                return ok;
+            }),
+    };
+
     return (
         <div className={styles.row}>
-            {!row.settled && <RowWatcher row={row} />}
             {row.rgid && (
                 <img
                     alt=""
@@ -149,97 +130,37 @@ const FillRow = ({ row }: { row: LedgerRow }) => {
                 </Text>
                 <Text isMuted={!failed} size="sm">
                     {row.artist && row.album ? `${row.artist} — ` : ''}
-                    {stateLabel(row)}
+                    {view.headline}
                 </Text>
-                {/* lb-bot's own sentence, verbatim. It is the only thing that separates
-                    "no peer had it" from "every source was rejected for format" — and
-                    the second of those is what Allow MP3 is for. */}
-                {failed && row.reason && (
-                    <Text isMuted lineClamp={3} size="sm">
-                        {row.reason}
-                    </Text>
+                {view.progress === 'determinate' && <Progress size="xs" value={view.percent} />}
+                {view.progress === 'indeterminate' && (
+                    <Progress animated size="xs" striped value={100} />
                 )}
-                {/* lb-bot's own count, which includes the automatic re-attempt the
-                    transient failure kinds get — so one failure reads differently
-                    from four without the user having to remember. */}
-                {failed && (row.attempts ?? 0) > 1 && (
-                    <Text isMuted size="sm">
-                        {`Tried ${row.attempts} times`}
+                {/* lb-bot's own sentence, verbatim, is among these: it is the
+                    only thing that separates "no peer had it" from "every
+                    source was rejected for format". */}
+                {view.sublines.map((line, index) => (
+                    <Text isMuted key={index} lineClamp={3} size="sm">
+                        {line}
                     </Text>
-                )}
-                {/* A disabled button explains nothing on its own, and a tooltip on one
-                    never fires. Say why in the row instead. */}
-                {failed && row.mp3WouldHelp && !row.groupId && (
+                ))}
+                {view.explain && (
                     <Text isMuted size="sm">
-                        lb-bot has no review group for this album, so the MP3 option has nothing to
-                        attach to — plain Retry still works.
-                    </Text>
-                )}
-                {/* No Retry offered, so say why rather than leaving a dead row.
-                    A format rejection has Allow MP3 above it; anything else
-                    non-retryable is a problem asking again cannot move. */}
-                {failed && !retryable && !row.mp3WouldHelp && (
-                    <Text isMuted size="sm">
-                        Asking again would hit the same problem — this one needs fixing in lb-bot.
+                        {view.explain}
                     </Text>
                 )}
             </Stack>
             <Group gap="xs">
-                {/* Gated on the review group, not merely on `mp3WouldHelp`: the MP3
-                    opt-in hangs off lb-bot's review group, and an album fill only
-                    learns that id from a status poll. Passing the rgid instead made
-                    the button run a retry that widened nothing. */}
-                {failed && row.mp3WouldHelp && (
+                {view.buttons.map((button) => (
                     <Button
-                        disabled={busy || !row.groupId}
-                        onClick={() =>
-                            run(() =>
-                                allowMp3AndRetry({
-                                    groupId: row.groupId,
-                                    isGap: row.isGap,
-                                    key: row.key,
-                                }),
-                            )
-                        }
+                        disabled={busy && button !== 'dismiss'}
+                        key={button}
+                        onClick={actions[button]}
                         variant="subtle"
                     >
-                        Allow MP3 and retry
+                        {BUTTON_LABEL[button]}
                     </Button>
-                )}
-                {failed && retryable && (
-                    <Button
-                        disabled={busy}
-                        onClick={() => run(() => retryFill({ isGap: row.isGap, key: row.key }))}
-                        variant="subtle"
-                    >
-                        Retry
-                    </Button>
-                )}
-                {/* The peer was the problem (it crawled, or it dropped the transfer):
-                    ask again with it ruled out rather than re-issuing the same request. */}
-                {failed && !row.isGap && row.otherSourceExcludes.length > 0 && (
-                    <Button
-                        disabled={busy}
-                        onClick={() => run(() => retryFill(row, { anotherSource: true }))}
-                        variant="subtle"
-                    >
-                        Try another source
-                    </Button>
-                )}
-                {!row.settled && (
-                    <Button
-                        disabled={busy}
-                        onClick={() => run(() => cancelFill(row))}
-                        variant="subtle"
-                    >
-                        Cancel
-                    </Button>
-                )}
-                {row.settled && (
-                    <Button onClick={() => dismiss(row.key)} variant="subtle">
-                        Dismiss
-                    </Button>
-                )}
+                ))}
             </Group>
         </div>
     );
@@ -280,7 +201,11 @@ const LbBotDownloadsRoute = () => {
     const rows = useFillLedger();
     const [filter, setFilter] = useState<LedgerFilter>('all');
     const { windowBarStyle } = useWindowSettings();
+    // Only to put a count on the link. The wishlist has its own page; a second
+    // list here would compete with the ledger for the same attention.
+    const wishlist = useLbBotWishlist().data?.entries ?? [];
     const shown = rows.filter(MATCHES[filter]);
+    const now = useNow();
 
     return (
         <AnimatedPage>
@@ -302,9 +227,24 @@ const LbBotDownloadsRoute = () => {
                         pt={windowBarStyle === Platform.WEB ? '5rem' : '3rem'}
                         px="2rem"
                     >
-                        <Text size="xl" weight={700}>
-                            Downloads
-                        </Text>
+                        <Group justify="space-between">
+                            <Text size="xl" weight={700}>
+                                Downloads
+                            </Text>
+                            {wishlist.length > 0 && (
+                                <Text isMuted size="sm">
+                                    <Link to={AppRoute.WISHLIST}>
+                                        {`Wishlist (${wishlist.length})`}
+                                    </Link>
+                                </Text>
+                            )}
+                        </Group>
+                        {/* The one entry point into this surface that does not
+                            start from something the library already knows
+                            about. It sits here rather than on Discover because
+                            a pasted link is an acquisition, and this is the
+                            page acquisitions are tracked on. */}
+                        <ResolveLinkBox />
                         {/* Only once there is something to filter. A row of chips
                             over an empty page is four controls that all do the
                             same nothing. */}
@@ -337,7 +277,7 @@ const LbBotDownloadsRoute = () => {
                         ) : (
                             <Stack gap="sm">
                                 {shown.map((row) => (
-                                    <FillRow key={row.key} row={row} />
+                                    <FillRow key={row.key} now={now} row={row} />
                                 ))}
                             </Stack>
                         )}

@@ -18,6 +18,7 @@ import { useFullscreenToggle } from '/@/renderer/hooks/use-fullscreen-toggle';
 import { useNativeMenuSync } from '/@/renderer/hooks/use-native-menu-sync';
 import { useSyncSettingsToMain } from '/@/renderer/hooks/use-sync-settings-to-main';
 import { useFillAnnouncements } from '/@/renderer/features/lbbot/hooks/use-fill-announcements';
+import { useFillLedgerWatcher } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { AppRouter } from '/@/renderer/router/app-router';
 import {
     useCssSettings,
@@ -131,9 +132,11 @@ const AppEffects = () => (
     </>
 );
 
-/** navi-connect: announce an lb-bot fill landing or failing, from one place so a
- *  page and a modal both watching it cannot announce it twice. */
+/** navi-connect: watch every lb-bot fill from the app root — one poll for all of
+ *  them, in the background too — and announce a landing or a failure from one
+ *  place so a page and a modal both watching it cannot announce it twice. */
 const LbBotFillAnnouncementsEffect = () => {
+    useFillLedgerWatcher();
     useFillAnnouncements();
 
     return null;

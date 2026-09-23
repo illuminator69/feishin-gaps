@@ -1,0 +1,17 @@
+/* Deliberately the same grammar as the explicit indicator next to it: a small,
+   muted, inline marker that sits before the title rather than a full-height
+   badge that would change the row's metrics. A queue row is dense, and a
+   preview must be identifiable at a glance without the list looking different
+   when there are none. */
+.root {
+    padding: 0 0.25rem;
+    margin-right: var(--theme-spacing-xs);
+    font-size: var(--theme-font-size-xs);
+    font-weight: 600;
+    vertical-align: middle;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border: 1px solid alpha(var(--theme-colors-foreground), 0.35);
+    border-radius: var(--theme-border-radius-sm, 4px);
+    opacity: 0.75;
+}

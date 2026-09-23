@@ -2,8 +2,22 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
 import { api } from '/@/renderer/api';
+import { isPreviewId } from '/@/renderer/features/preview/preview-track';
 import { TranscodingConfig } from '/@/renderer/store';
 import { QueueSong } from '/@/shared/types/domain-types';
+
+/**
+ * navi-connect: a preview track brings its own URL.
+ *
+ * `ext:<provider>:<id>` names a record the library does not have, played from
+ * the preview sidecar — so there is nothing for `getStreamUrl` to resolve and
+ * asking would be a guaranteed 404 against Navidrome. The signed URL was minted
+ * by the hub when the track was resolved and rides on the queue item itself; see
+ * `features/preview/preview-track.ts` for why every other consumer is left
+ * unaware.
+ */
+const previewUrl = (song: QueueSong | undefined): string | undefined =>
+    song && isPreviewId(song.id) ? (song._previewStreamUrl ?? undefined) : undefined;
 
 export function useSongUrl(
     song: QueueSong | undefined,
@@ -11,12 +25,13 @@ export function useSongUrl(
     transcode: Partial<TranscodingConfig>,
 ): string | undefined {
     const prior = useRef(['', '']);
+    const preview = previewUrl(song);
     const shouldReusePrior = Boolean(
         song?._serverId && current && prior.current[0] === song._uniqueId && prior.current[1],
     );
 
     const { data: queryStreamUrl } = useQuery({
-        enabled: Boolean(song?._serverId) && !shouldReusePrior,
+        enabled: Boolean(song?._serverId) && !preview && !shouldReusePrior,
         queryFn: () =>
             api.controller.getStreamUrl({
                 apiClientProps: { serverId: song!._serverId },
@@ -60,6 +75,7 @@ export function useSongUrl(
         }
     }, [song?._serverId]);
 
+    if (preview) return preview;
     return shouldReusePrior ? prior.current[1] : queryStreamUrl;
 }
 
@@ -70,6 +86,12 @@ export const getSongUrl = async (
     forRenderer?: boolean,
     startTime?: number,
 ) => {
+    // The imperative twin of the hook above, used by the MPV/DLNA paths. Same
+    // rule: a preview has no Navidrome id to resolve. `startTime` is ignored for
+    // one — the sidecar seeks with HTTP Range, not with a URL parameter.
+    const preview = previewUrl(song);
+    if (preview) return preview;
+
     const url = await api.controller.getStreamUrl({
         apiClientProps: { serverId: song._serverId },
         query: {

@@ -1,8 +1,11 @@
 import type {
     LbBotAlbumCandidate,
     LbBotArtistCandidate,
+    LbBotBrowse,
+    LbBotDeezerGenres,
     LbBotDiscography,
     LbBotDownloadResult,
+    LbBotFills,
     LbBotFillStatus,
     LbBotFreshFeed,
     LbBotGap,
@@ -10,12 +13,14 @@ import type {
     LbBotMeta,
     LbBotReleaseDetail,
     LbBotResolvedEdition,
+    LbBotResolvedLink,
     LbBotResult,
     LbBotSimilarAlbums,
     LbBotSimilarArtists,
     LbBotSourceFiles,
     LbBotStatus,
     LbBotTracklist,
+    LbBotWishlist,
 } from '/@/shared/types/lbbot-types';
 
 import { ipcRenderer } from 'electron';
@@ -84,8 +89,10 @@ const downloadAlbum = (
     source?: { folder: string; peer: string },
     edition?: LbBotResolvedEdition,
     excludeUsers?: string[],
+    allowMp3?: boolean,
 ): Promise<LbBotDownloadResult> =>
     ipcRenderer.invoke('lbbot-download-album', {
+        allowMp3,
         artist: edition?.artist,
         excludeUsers,
         quality,
@@ -97,10 +104,16 @@ const downloadAlbum = (
         totalTracks: edition?.totalTracks,
     });
 
-const albumStatus = (releaseMbid?: string, rgid?: string): Promise<LbBotFillStatus> =>
+const albumStatus = (releaseMbid?: string, rgid?: string): Promise<LbBotResult<LbBotFillStatus>> =>
     ipcRenderer.invoke('lbbot-album-status', { releaseMbid, rgid });
 
-const cancelAlbum = (releaseMbid: string): Promise<{ ok: boolean; status: LbBotFillStatus }> =>
+/** Every watched fill in one read — the ledger's poll. */
+const fills = (releaseMbids: string[], groupIds: string[]): Promise<LbBotResult<LbBotFills>> =>
+    ipcRenderer.invoke('lbbot-fills', { groupIds, releaseMbids });
+
+const cancelAlbum = (
+    releaseMbid: string,
+): Promise<{ cancelled: boolean; ok: boolean; status: LbBotFillStatus }> =>
     ipcRenderer.invoke('lbbot-cancel-album', { releaseMbid });
 
 const allowMp3 = (groupId: string, allow = true): Promise<boolean> =>
@@ -176,6 +189,49 @@ const metaAlbum = (args: { releaseMbid?: string; rgid: string }): Promise<LbBotM
 const notify = (title: string, body: string): Promise<void> =>
     ipcRenderer.invoke('lbbot-notify', { body, title });
 
+/** Deezer's own charts, ownership-marked. A browse feed, not a recommendation:
+ *  it names no reason beyond "this is what is popular", which is why the row
+ *  that renders it says exactly that. Null when we could not ask. */
+const deezerChart = (limit?: number, genre?: string): Promise<LbBotBrowse | null> =>
+    ipcRenderer.invoke('lbbot-deezer-chart', { genre, limit });
+
+/** Deezer's editorial selections — the same shape, a different question. */
+const deezerEditorial = (limit?: number, genre?: string): Promise<LbBotBrowse | null> =>
+    ipcRenderer.invoke('lbbot-deezer-editorial', { genre, limit });
+
+/** The genres the two feeds above can be narrowed to. Genre is the ONLY axis
+ *  that exists — Deezer's API has no country parameter, so the chart is
+ *  geolocated by lb-bot's own address and no client can ask for another. */
+const deezerGenres = (): Promise<LbBotDeezerGenres | null> =>
+    ipcRenderer.invoke('lbbot-deezer-genres');
+
+/** Deezer as a third similarity source. Same answer shape as `artistSimilar`
+ *  on purpose — it marks ownership identically, so the two rows share one
+ *  renderer and cannot drift apart. */
+const artistRelated = (args: {
+    limit?: number;
+    mbid?: string;
+    name?: string;
+}): Promise<LbBotSimilarArtists | null> => ipcRenderer.invoke('lbbot-artist-related', args);
+
+/** A pasted streaming URL → MusicBrainz ids. Result-shaped rather than
+ *  fail-soft: the user pasted something and is waiting for a verdict. */
+const resolveLink = (url: string): Promise<LbBotResult<LbBotResolvedLink>> =>
+    ipcRenderer.invoke('lbbot-resolve-link', { url });
+
+/** Albums nobody was sharing, kept for a slow periodic re-search — with the
+ *  sweep's own timings, which are the only honest answer to "when?". */
+const wishlist = (): Promise<LbBotWishlist> => ipcRenderer.invoke('lbbot-wishlist');
+
+const wishlistAdd = (args: {
+    artist: string;
+    rgid: string;
+    title: string;
+}): Promise<LbBotResult<boolean>> => ipcRenderer.invoke('lbbot-wishlist-add', args);
+
+const wishlistRemove = (rgid: string): Promise<LbBotResult<boolean>> =>
+    ipcRenderer.invoke('lbbot-wishlist-remove', { rgid });
+
 export const lbBot = {
     albumLookup,
     albumReleases,
@@ -185,10 +241,15 @@ export const lbBot = {
     albumTracklist,
     allowMp3,
     artistLookup,
+    artistRelated,
     artistSimilar,
     cancelAlbum,
+    deezerChart,
+    deezerEditorial,
+    deezerGenres,
     discography,
     downloadAlbum,
+    fills,
     freshReleases,
     gap,
     gapAuto,
@@ -202,5 +263,9 @@ export const lbBot = {
     metaAlbum,
     metaArtist,
     notify,
+    resolveLink,
     status,
+    wishlist,
+    wishlistAdd,
+    wishlistRemove,
 };

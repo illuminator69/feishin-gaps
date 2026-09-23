@@ -1,4 +1,5 @@
 import { api } from '/@/renderer/api';
+import { isPreviewId } from '/@/renderer/features/preview/preview-track';
 import { LibraryItem, Song } from '/@/shared/types/domain-types';
 
 // navi-connect: shared id → Song resolution for anything that arrives as bare hub track
@@ -13,7 +14,12 @@ export interface HubTrackLike {
     favorite?: boolean;
     id: string;
     imageUrl?: null | string;
+    /** navi-connect: set on an `ext:` preview track. Whitelisted by the hub's
+     *  `SQ_TRACK_FIELDS`, so it survives a saved-queue round trip. */
+    mime?: null | string;
     rating?: null | number;
+    /** navi-connect: the preview's own signed URL — see `streamUrl` below. */
+    streamUrl?: null | string;
     title?: null | string;
 }
 
@@ -38,11 +44,19 @@ export const placeholderSong = (track: HubTrackLike, serverId: string): Song =>
         id: track.id,
         // The song id doubles as the cover-art id across this system; build the cover
         // with our own server creds (imageUrl left unset).
-        imageId: track.id,
+        imageId: isPreviewId(track.id) ? null : track.id,
         imageUrl: track.imageUrl ?? undefined,
         name: track.title ?? '',
         userFavorite: track.favorite ?? false,
         userRating: track.rating ?? null,
+        // navi-connect: an `ext:` track carries its own stream URL and MIME, and
+        // that is the ONLY thing that makes it playable on the receiving side —
+        // there is no Navidrome id behind it to resolve. Dropping them here is
+        // what a transfer of a preview queue would otherwise look like: a
+        // perfectly normal playing bar over silence.
+        ...(isPreviewId(track.id)
+            ? { _previewMime: track.mime ?? undefined, _previewStreamUrl: track.streamUrl ?? '' }
+            : {}),
     }) as unknown as Song;
 
 /**
@@ -65,6 +79,10 @@ export const resolveHubTracks = async (
         tracks.map((track) => {
             const already = known?.get(track.id);
             if (already) return Promise.resolve(already);
+            // A preview has no library row to fetch, and asking is not merely
+            // wasted: `getSongDetail` on an `ext:` id is a 404 per track per
+            // queue edit, on the device that is playing.
+            if (isPreviewId(track.id)) return Promise.resolve(null);
             return api.controller
                 .getSongDetail({ apiClientProps: { serverId }, query: { id: track.id } })
                 .catch(() => null);

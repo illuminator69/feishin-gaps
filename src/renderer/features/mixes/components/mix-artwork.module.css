@@ -1,0 +1,15 @@
+.cover {
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    border-radius: var(--theme-card-default-radius, 4px);
+}
+
+/* The art-less branch. A flat surface would be indistinguishable from a failed
+   image load, so the gradient is what says this square is deliberate; the glyph
+   is what says which kind of recipe it is. */
+.generated {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgb(255 255 255 / 85%);
+}

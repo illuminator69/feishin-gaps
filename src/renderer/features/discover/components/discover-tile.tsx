@@ -32,10 +32,25 @@ interface DiscoverTileProps {
      * dropping the inner one.
      */
     action?: ReactNode;
+    /**
+     * Artwork drawn instead of `ItemImage`, for a card whose picture is not a
+     * library item's — today a mix, whose cover is either its seed's art or a
+     * glyph naming the kind of recipe it is.
+     */
+    cover?: ReactNode;
     /** Navidrome id, for anything the library holds. */
     imageId?: null | string;
     /** A ready-made URL, for release art that lives outside the library. */
     imageUrl?: null | string;
+    /**
+     * A tap on this tile started a request that has not answered yet.
+     *
+     * Only the unmarked Deezer rows use it: their release-group id is looked up
+     * on tap rather than on render, which is a MusicBrainz second. A card that
+     * looks inert for a second gets tapped again, and a second tap is a second
+     * search for the same row.
+     */
+    isBusy?: boolean;
     /** Artists are circles here, exactly as they are on the artist carousels. */
     isRound?: boolean;
     /** Faded and dashed, the same grammar the missing-album tiles use. */
@@ -48,8 +63,10 @@ interface DiscoverTileProps {
 
 export const DiscoverTile = ({
     action,
+    cover,
     imageId,
     imageUrl,
+    isBusy,
     isRound,
     isUnowned,
     itemType,
@@ -58,18 +75,26 @@ export const DiscoverTile = ({
     title,
 }: DiscoverTileProps) => (
     <div className={styles.wrapper}>
-        <button className={styles.tile} onClick={onClick} type="button">
-            <ItemImage
-                className={styles.image}
-                containerClassName={clsx(styles.cover, {
-                    [styles.round]: isRound,
-                    [styles.unowned]: isUnowned,
-                })}
-                id={imageId}
-                itemType={itemType}
-                src={imageUrl}
-                type="itemCard"
-            />
+        <button
+            aria-busy={isBusy || undefined}
+            className={styles.tile}
+            disabled={isBusy}
+            onClick={onClick}
+            type="button"
+        >
+            {cover ?? (
+                <ItemImage
+                    className={styles.image}
+                    containerClassName={clsx(styles.cover, {
+                        [styles.round]: isRound,
+                        [styles.unowned]: isUnowned,
+                    })}
+                    id={imageId}
+                    itemType={itemType}
+                    src={imageUrl}
+                    type="itemCard"
+                />
+            )}
             <Text className={styles.name} size="sm">
                 {title}
             </Text>

@@ -2,10 +2,16 @@ import type {
     LbBotAlbumCandidate,
     LbBotArtistCandidate,
     LbBotArtistScan,
+    LbBotBrowse,
+    LbBotBrowseAlbum,
+    LbBotBrowseArtist,
+    LbBotDeezerGenre,
+    LbBotDeezerGenres,
     LbBotDiscography,
     LbBotDownloadResult,
     LbBotEdition,
     LbBotFailureKind,
+    LbBotFills,
     LbBotFillState,
     LbBotFillStatus,
     LbBotFreshFeed,
@@ -16,6 +22,7 @@ import type {
     LbBotGapTask,
     LbBotGapTrack,
     LbBotGapTrackState,
+    LbBotLinkKind,
     LbBotMeta,
     LbBotMetaCredit,
     LbBotMetaLink,
@@ -23,6 +30,7 @@ import type {
     LbBotRelease,
     LbBotReleaseDetail,
     LbBotReleaseStatus,
+    LbBotResolvedLink,
     LbBotResult,
     LbBotSimilarAlbum,
     LbBotSimilarAlbums,
@@ -35,6 +43,8 @@ import type {
     LbBotTrack,
     LbBotTracklist,
     LbBotVariant,
+    LbBotWishlist,
+    LbBotWishlistEntry,
 } from '/@/shared/types/lbbot-types';
 
 import { BrowserWindow, ipcMain, Notification } from 'electron';
@@ -634,6 +644,11 @@ ipcMain.handle(
         const releases = Array.isArray(data.releases) ? data.releases : [];
         return {
             artist: str(data.artist),
+            // The one field on this route that is not about the release. It is
+            // here because it is the only place an album page reached from a
+            // Deezer row can learn its artist's identity at all — see the field
+            // doc in `lbbot-types.ts`.
+            artistMbid: str(data.artistMbid),
             coverUrl: str(data.coverUrl),
             title: str(data.title),
             variants: releases.flatMap(toVariant),
@@ -843,7 +858,6 @@ ipcMain.handle(
  *  rather than passed through: the renderer switches on this to choose a label
  *  and a button, and an unknown string would silently fall through both. */
 const FAILURE_KINDS = new Set<LbBotFailureKind>([
-    'cancelled',
     'format_rejected',
     'mb_unavailable',
     'no_source',
@@ -857,9 +871,14 @@ const toFailureKind = (value: unknown): LbBotFailureKind => {
 };
 
 const UNKNOWN_STATUS: LbBotFillStatus = {
+    activeFiles: 0,
     album: '',
+    allowMp3: false,
     artist: '',
     attempts: 0,
+    bytesDone: 0,
+    bytesTotal: 0,
+    cancellable: false,
     done: 0,
     failed: 0,
     failureKind: '',
@@ -870,21 +889,59 @@ const UNKNOWN_STATUS: LbBotFillStatus = {
     reason: '',
     releaseMbid: '',
     retryable: false,
+    retryAt: 0,
     rgid: '',
+    serverTime: 0,
     source: '',
+    speedBps: 0,
     state: 'unknown',
     total: 0,
+    updatedAt: 0,
+    verifyGaveUp: false,
 };
 
-const toFillStatus = (data: Json | null): LbBotFillStatus => {
+const FILL_STATES = new Set<LbBotFillState>([
+    'cancelled',
+    'downloading',
+    'failed',
+    'needs_match',
+    'placed',
+    'placing',
+    'queued',
+    'searching',
+    'unknown',
+    'verified',
+]);
+
+/** Normalize one status body — also the `fill` frame's album shape, which the
+ *  renderer runs through the same rules (see `fillFrameToStatus`). */
+export const toFillStatus = (data: Json | null): LbBotFillStatus => {
     if (!data) return UNKNOWN_STATUS;
+    // An lb-bot from before `cancelled` was a state of its own wrote a cancel
+    // as `failed` + `failureKind: 'cancelled'`; read both for one cycle.
+    const rawState = str(data.state) || 'unknown';
+    const legacyCancel = rawState === 'failed' && str(data.failureKind) === 'cancelled';
+    const state = legacyCancel
+        ? 'cancelled'
+        : ((FILL_STATES.has(rawState as LbBotFillState) ? rawState : 'unknown') as LbBotFillState);
+    // The Cancel rule: from the server when it states one, else the states it
+    // would state for an older lb-bot.
+    const cancellable =
+        typeof data.cancellable === 'boolean'
+            ? data.cancellable
+            : state === 'searching' || state === 'queued' || state === 'downloading';
     return {
+        activeFiles: num(data.activeFiles),
         album: str(data.album),
+        allowMp3: data.allowMp3 === true,
         artist: str(data.artist),
         attempts: num(data.attempts),
+        bytesDone: num(data.bytesDone),
+        bytesTotal: num(data.bytesTotal),
+        cancellable,
         done: num(data.done),
         failed: num(data.failed),
-        failureKind: toFailureKind(data.failureKind),
+        failureKind: legacyCancel ? '' : toFailureKind(data.failureKind),
         groupId: str(data.groupId),
         mp3WouldHelp: data.mp3WouldHelp === true,
         percent: num(data.percent),
@@ -894,11 +951,16 @@ const toFillStatus = (data: Json | null): LbBotFillStatus => {
         // An lb-bot that predates the field sends nothing, which reads as false —
         // and the renderer treats "no failureKind" as unknown-so-offer-Retry, so
         // an older service does not lose the button.
-        retryable: data.retryable === true,
+        retryable: legacyCancel ? false : data.retryable === true,
+        retryAt: num(data.retryAt),
         rgid: str(data.rgid),
+        serverTime: num(data.serverTime),
         source: str(data.source),
-        state: (str(data.state) || 'unknown') as LbBotFillState,
+        speedBps: num(data.speedBps),
+        state,
         total: num(data.total),
+        updatedAt: num(data.updatedAt),
+        verifyGaveUp: data.verifyGaveUp === true,
     };
 };
 
@@ -910,6 +972,9 @@ ipcMain.handle(
     async (
         _event,
         args: {
+            /** Widen this one album's search to MP3 — the whole-album counterpart
+             *  of a gap group's opt-in, for a `format_rejected` fill with no group. */
+            allowMp3?: boolean;
             artist?: string;
             /** Peers that already failed or crawled for this album — "try another source". */
             excludeUsers?: string[];
@@ -948,6 +1013,7 @@ ipcMain.handle(
                 ...(args.sourceUsername ? { sourceUsername: args.sourceUsername } : {}),
                 ...(args.sourceFolder ? { sourceFolder: args.sourceFolder } : {}),
                 ...(args.excludeUsers?.length ? { excludeUsers: args.excludeUsers } : {}),
+                ...(args.allowMp3 ? { allowMp3: true } : {}),
             },
         });
         const data = result.data;
@@ -969,21 +1035,71 @@ ipcMain.handle(
 // task completes the moment slskd accepts the enqueue, roughly a minute before
 // anything reaches the library. Poll only while a relevant view is open, and no
 // faster than the hub's cache TTL.
+//
+// A *result*, not a bare status: this used to collapse every failure — hub down,
+// 502, timeout — into `unknown`, which is a real lb-bot answer meaning "nothing
+// is filling this". The renderer then could not tell "can't reach lb-bot" from
+// "lb-bot forgot this fill", and showed the last state forever for both.
 ipcMain.handle(
     'lbbot-album-status',
-    async (_event, args: { releaseMbid?: string; rgid?: string }): Promise<LbBotFillStatus> => {
-        if (!args.releaseMbid && !args.rgid) return UNKNOWN_STATUS;
-        return toFillStatus(
-            (
-                await request('GET', '/lb/album/status', {
-                    params: {
-                        release_mbid: args.releaseMbid ?? '',
-                        rgid: args.rgid ?? '',
-                    },
-                    timeoutMs: POLL_TIMEOUT_MS,
-                })
-            ).data,
-        );
+    async (
+        _event,
+        args: { releaseMbid?: string; rgid?: string },
+    ): Promise<LbBotResult<LbBotFillStatus>> => {
+        if (!args.releaseMbid && !args.rgid) return failed(0, 'No release');
+        const result = await request('GET', '/lb/album/status', {
+            params: {
+                release_mbid: args.releaseMbid ?? '',
+                rgid: args.rgid ?? '',
+            },
+            timeoutMs: POLL_TIMEOUT_MS,
+        });
+        if (!result.ok) return failed(result.status, result.error);
+        return { data: toFillStatus(result.data), error: '', ok: true, status: result.status };
+    },
+);
+
+// Every watched fill in one read. A downloads view with eight rows used to
+// poll eight times per tick through the hub's four proxy slots; this is one
+// request, on the hub's fast pool, that never queues behind a source search.
+ipcMain.handle(
+    'lbbot-fills',
+    async (
+        _event,
+        args: { groupIds: string[]; releaseMbids: string[] },
+    ): Promise<LbBotResult<LbBotFills>> => {
+        const releaseMbids = (args.releaseMbids ?? []).filter(Boolean).slice(0, 32);
+        const groupIds = (args.groupIds ?? []).filter(Boolean).slice(0, 32);
+        if (releaseMbids.length === 0 && groupIds.length === 0) {
+            return {
+                data: { albums: {}, gaps: {}, serverTime: 0 },
+                error: '',
+                ok: true,
+                status: 200,
+            };
+        }
+        const result = await request('GET', '/lb/fills', {
+            params: { group_ids: groupIds.join(','), release_mbids: releaseMbids.join(',') },
+            timeoutMs: POLL_TIMEOUT_MS,
+        });
+        if (!result.ok) return failed(result.status, result.error);
+        const d = result.data ?? {};
+        const albums: Record<string, LbBotFillStatus> = {};
+        const rawAlbums = (d.albums ?? {}) as Record<string, Json>;
+        for (const [mbid, body] of Object.entries(rawAlbums)) {
+            if (body && typeof body === 'object') albums[mbid] = toFillStatus(body);
+        }
+        const gaps: Record<string, LbBotGap> = {};
+        const rawGaps = (d.gaps ?? {}) as Record<string, Json>;
+        for (const [gid, body] of Object.entries(rawGaps)) {
+            if (body && typeof body === 'object') gaps[gid] = toGap(body, gid);
+        }
+        return {
+            data: { albums, gaps, serverTime: num(d.serverTime) },
+            error: '',
+            ok: true,
+            status: result.status,
+        };
     },
 );
 
@@ -996,13 +1112,16 @@ ipcMain.handle(
     async (
         _event,
         args: { releaseMbid: string },
-    ): Promise<{ ok: boolean; status: LbBotFillStatus }> => {
-        if (!args.releaseMbid) return { ok: false, status: UNKNOWN_STATUS };
+    ): Promise<{ cancelled: boolean; ok: boolean; status: LbBotFillStatus }> => {
+        if (!args.releaseMbid) return { cancelled: false, ok: false, status: UNKNOWN_STATUS };
         const result = await request('POST', '/lb/album/cancel', {
             body: { release_mbid: args.releaseMbid },
         });
         const data = result.data;
         return {
+            // `false` with `ok` is lb-bot saying "too late" — the files are
+            // being placed — or "nothing was running". The status says which.
+            cancelled: data?.cancelled === true,
             ok: result.ok && data?.ok === true,
             status: toFillStatus((data?.status ?? null) as Json | null),
         };
@@ -1186,6 +1305,31 @@ const toGapTask = (value: unknown): LbBotGapTask | null => {
 // Deliberately NOT /api/tasks or /api/gaps: both deep-copy lb-bot's entire
 // multi-MB review state under its process-wide lock, and neither is whitelisted.
 // Everything a client needs about a running search is `sourceTask` here.
+const toGap = (d: Json, groupId: string): LbBotGap => ({
+    album: str(d.album),
+    albumId: str(d.albumId),
+    allowMp3: d.allowMp3 === true,
+    artist: str(d.artist),
+    canonicalMbid: str(d.canonicalMbid),
+    extra: num(d.extra),
+    failDetail: str(d.failDetail),
+    failReason: str(d.failReason),
+    id: str(d.id) || groupId,
+    missingCount: num(d.missingCount),
+    mp3WouldHelp: d.mp3WouldHelp === true,
+    noSourceReason: str(d.noSourceReason),
+    present: num(d.present),
+    sources: Array.isArray(d.sources) ? d.sources.flatMap(toSource) : [],
+    sourcesFoundAt: num(d.sourcesFoundAt),
+    sourcesPage: num(d.sourcesPage),
+    sourcesPages: num(d.sourcesPages),
+    sourcesTotal: num(d.sourcesTotal),
+    sourceTask: toGapTask(d.sourceTask),
+    status: (str(d.status) || 'ready') as LbBotGapStatus,
+    total: num(d.total),
+    tracks: Array.isArray(d.tracks) ? d.tracks.flatMap(toGapTrack) : [],
+});
+
 ipcMain.handle(
     'lbbot-gap',
     async (_event, args: { groupId: string }): Promise<LbBotResult<LbBotGap>> => {
@@ -1195,32 +1339,8 @@ ipcMain.handle(
             timeoutMs: POLL_TIMEOUT_MS,
         });
         if (!result.ok) return failed(result.status, result.error);
-        const d = result.data ?? {};
         return {
-            data: {
-                album: str(d.album),
-                albumId: str(d.albumId),
-                allowMp3: d.allowMp3 === true,
-                artist: str(d.artist),
-                canonicalMbid: str(d.canonicalMbid),
-                extra: num(d.extra),
-                failDetail: str(d.failDetail),
-                failReason: str(d.failReason),
-                id: str(d.id) || args.groupId,
-                missingCount: num(d.missingCount),
-                mp3WouldHelp: d.mp3WouldHelp === true,
-                noSourceReason: str(d.noSourceReason),
-                present: num(d.present),
-                sources: Array.isArray(d.sources) ? d.sources.flatMap(toSource) : [],
-                sourcesFoundAt: num(d.sourcesFoundAt),
-                sourcesPage: num(d.sourcesPage),
-                sourcesPages: num(d.sourcesPages),
-                sourcesTotal: num(d.sourcesTotal),
-                sourceTask: toGapTask(d.sourceTask),
-                status: (str(d.status) || 'ready') as LbBotGapStatus,
-                total: num(d.total),
-                tracks: Array.isArray(d.tracks) ? d.tracks.flatMap(toGapTrack) : [],
-            },
+            data: toGap(result.data ?? {}, args.groupId),
             error: '',
             ok: true,
             status: result.status,
@@ -1342,3 +1462,236 @@ ipcMain.handle('lbbot-notify', (event, args: { body: string; title: string }) =>
         console.error(`[lbbot] could not post notification — ${String(error)}`);
     }
 });
+
+// ---------------------------------------------------------------------------
+// Deezer browse — charts and editorial
+// ---------------------------------------------------------------------------
+
+// Free and unauthenticated upstream, and the first source on this surface with
+// no MusicBrainz ids of its own: lb-bot resolves every row by NAME. That is why
+// the marking rule below is stricter than elsewhere — an unresolved row is
+// `owned: false` with no id, never a guess — and why a row with no `rgid` is
+// rendered as information rather than as something to open or acquire.
+const toBrowseAlbum = (row: unknown): LbBotBrowseAlbum[] => {
+    if (!row || typeof row !== 'object') return [];
+    const r = row as Json;
+    const title = str(r.title);
+    if (!title) return [];
+    return [
+        {
+            artist: str(r.artist),
+            coverUrl: str(r.coverUrl),
+            releaseAlbumId: str(r.releaseAlbumId),
+            releaseOwned: r.releaseOwned === true,
+            rgid: str(r.rgid),
+            title,
+        },
+    ];
+};
+
+const toBrowseArtist = (row: unknown): LbBotBrowseArtist[] => {
+    if (!row || typeof row !== 'object') return [];
+    const r = row as Json;
+    const name = str(r.name);
+    if (!name) return [];
+    return [
+        {
+            artistId: str(r.artistId),
+            imageUrl: str(r.imageUrl),
+            indexed: r.indexed === true,
+            mbid: str(r.mbid),
+            name,
+            owned: r.owned === true,
+        },
+    ];
+};
+
+const toBrowse = (data: Json | null): LbBotBrowse | null => {
+    if (!data) return null;
+    return {
+        albums: Array.isArray(data.albums) ? data.albums.flatMap(toBrowseAlbum) : [],
+        artists: Array.isArray(data.artists) ? data.artists.flatMap(toBrowseArtist) : [],
+    };
+};
+
+// `genre` defaults to "0" — Deezer's "All", which is exactly what a bare `chart`
+// already resolved to. So the default request is byte-for-byte the old one, and
+// a hub too old to whitelist the parameter drops it silently and answers the
+// global chart, which is also what this client would have asked for.
+//
+// There is deliberately no country axis. Deezer's open API has none: the chart
+// is geolocated by lb-bot's own egress address, so a country picker would be a
+// control that silently did nothing. (Measured from this network, the "global"
+// chart comes back French.)
+ipcMain.handle(
+    'lbbot-deezer-chart',
+    async (_event, args: { genre?: string; limit?: number }): Promise<LbBotBrowse | null> =>
+        toBrowse(
+            await get('/lb/deezer/chart', {
+                genre: args?.genre || '0',
+                limit: String(args?.limit ?? 20),
+            }),
+        ),
+);
+
+ipcMain.handle(
+    'lbbot-deezer-editorial',
+    async (_event, args: { genre?: string; limit?: number }): Promise<LbBotBrowse | null> =>
+        toBrowse(
+            await get('/lb/deezer/editorial', {
+                genre: args?.genre || '0',
+                limit: String(args?.limit ?? 20),
+            }),
+        ),
+);
+
+// The genre ids the two feeds above accept. Its own route rather than a table
+// compiled into each client, because the ids are Deezer's and this project has
+// already paid once for a list maintained by hand in two repos.
+ipcMain.handle('lbbot-deezer-genres', async (): Promise<LbBotDeezerGenres | null> => {
+    const data = await get('/lb/deezer/genres');
+    if (!data) return null;
+    const rows = Array.isArray(data.genres) ? data.genres : [];
+    return {
+        genres: rows.flatMap((row): LbBotDeezerGenre[] => {
+            if (!row || typeof row !== 'object') return [];
+            const r = row as Json;
+            const id = str(r.id);
+            const name = str(r.name);
+            // Both are load-bearing: the id is interpolated into the upstream
+            // path and the name is the whole of the chip.
+            return id && name ? [{ id, imageUrl: str(r.imageUrl), name }] : [];
+        }),
+    };
+});
+
+// Deezer as a THIRD similarity source, beside ListenBrainz and Last.fm. It marks
+// ownership exactly as `/lb/artist/similar` does, so the answer is reused rather
+// than reshaped — a separate row type here would be a second vocabulary for the
+// same fact.
+ipcMain.handle(
+    'lbbot-artist-related',
+    async (
+        _event,
+        args: { limit?: number; mbid?: string; name?: string },
+    ): Promise<LbBotSimilarArtists | null> => {
+        if (!args.mbid && !args.name) return null;
+        const params: Record<string, string> = { limit: String(args.limit ?? 20) };
+        if (args.mbid) params.mbid = args.mbid;
+        if (args.name) params.name = args.name;
+        const data = await get('/lb/artist/related', params);
+        if (!data) return null;
+        return {
+            artists: Array.isArray(data.artists) ? data.artists.flatMap(toSimilarArtist) : [],
+            because: str(data.because),
+            sources: Array.isArray(data.sources) ? data.sources.map(str).filter(Boolean) : [],
+        };
+    },
+);
+
+// ---------------------------------------------------------------------------
+// Paste a link
+// ---------------------------------------------------------------------------
+
+// A user-initiated write-shaped read: it answers an `LbBotResult` rather than
+// failing soft, because a paste box that swallows a bad URL silently is worse
+// than one that says "that is not a link I can read".
+//
+// `kind: 'unknown'` is NOT such a failure — it is lb-bot's honest answer for a
+// provider it does not parse, and the caller says so in those terms.
+ipcMain.handle(
+    'lbbot-resolve-link',
+    async (_event, args: { url: string }): Promise<LbBotResult<LbBotResolvedLink>> => {
+        const url = (args.url ?? '').trim();
+        if (!url) return failed(0, 'Paste a link first.');
+        const result = await request<Json>('POST', '/lb/resolve-link', { body: { url } });
+        if (!result.ok || !result.data) {
+            return failed(result.status, result.error || 'lb-bot could not read that link.');
+        }
+        const d = result.data;
+        const kind = str(d.kind);
+        return {
+            data: {
+                artist: str(d.artist),
+                confidence: num(d.confidence),
+                kind: (['album', 'artist', 'track'].includes(kind)
+                    ? kind
+                    : 'unknown') as LbBotLinkKind,
+                mbid: str(d.mbid),
+                provider: str(d.provider),
+                reason: str(d.reason),
+                rgid: str(d.rgid),
+                title: str(d.title),
+            },
+            error: '',
+            ok: true,
+            status: result.status,
+        };
+    },
+);
+
+// ---------------------------------------------------------------------------
+// Wishlist
+// ---------------------------------------------------------------------------
+
+// The one place `retryable: false` becomes an action instead of a dead end.
+// lb-bot never auto-retries `no_source` — it already walked its entire ranked
+// source list, so asking again immediately is the same failure — but the
+// Soulseek swarm changes over hours, which is what a slow periodic re-search
+// against a persisted list is for.
+const toWishlistEntry = (row: unknown): LbBotWishlistEntry[] => {
+    if (!row || typeof row !== 'object') return [];
+    const r = row as Json;
+    const rgid = str(r.rgid);
+    if (!rgid) return [];
+    return [
+        {
+            addedAt: num(r.addedAt),
+            artist: str(r.artist),
+            attempts: num(r.attempts),
+            lastReason: str(r.lastReason),
+            lastTriedAt: num(r.lastTriedAt),
+            rgid,
+            title: str(r.title),
+        },
+    ];
+};
+
+// NOTE the envelope key is `wishlist`, not `entries`. Worth naming, because
+// reading the wrong one is not an error anywhere: it yields an empty array, and
+// an empty wishlist is a perfectly ordinary state, so the page would simply have
+// said "nothing on the wishlist" forever.
+const EMPTY_WISHLIST: LbBotWishlist = { cooldownSeconds: 0, entries: [], intervalSeconds: 0 };
+
+ipcMain.handle('lbbot-wishlist', async (): Promise<LbBotWishlist> => {
+    const data = await get('/lb/wishlist');
+    if (!data) return EMPTY_WISHLIST;
+    return {
+        cooldownSeconds: num(data.cooldownSeconds),
+        entries: Array.isArray(data.wishlist) ? data.wishlist.flatMap(toWishlistEntry) : [],
+        intervalSeconds: num(data.intervalSeconds),
+    };
+});
+
+ipcMain.handle(
+    'lbbot-wishlist-add',
+    async (
+        _event,
+        args: { artist: string; rgid: string; title: string },
+    ): Promise<LbBotResult<boolean>> => {
+        if (!args.rgid) return failed(0, 'That album has no MusicBrainz release-group id.');
+        const result = await request('POST', '/lb/wishlist', {
+            body: { artist: args.artist, rgid: args.rgid, title: args.title },
+        });
+        return { ...result, data: result.ok };
+    },
+);
+
+ipcMain.handle(
+    'lbbot-wishlist-remove',
+    async (_event, args: { rgid: string }): Promise<LbBotResult<boolean>> => {
+        if (!args.rgid) return failed(0, 'No album to remove.');
+        const result = await request('POST', '/lb/wishlist/remove', { body: { rgid: args.rgid } });
+        return { ...result, data: result.ok };
+    },
+);

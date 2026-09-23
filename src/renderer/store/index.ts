@@ -2,6 +2,7 @@ export * from './app.store';
 export * from './auth.store';
 export * from './full-screen-player.store';
 export * from './hub.store';
+export * from './mixes.store';
 export * from './player.store';
 export * from './saved-queues.store';
 export * from './scrobble-debug.store';

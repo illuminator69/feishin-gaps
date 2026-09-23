@@ -151,6 +151,82 @@ export interface LbBotArtistCandidate {
     type: string;
 }
 
+export interface LbBotBrowse {
+    albums: LbBotBrowseAlbum[];
+    artists: LbBotBrowseArtist[];
+}
+
+/**
+ * One row of a Deezer browse feed — a chart or an editorial selection.
+ *
+ * Deezer has no MusicBrainz ids, so lb-bot resolves each row **by name**, and
+ * that is exactly the case where ownership marking has to be conservative: an
+ * unresolved row is `owned: false` with no id, never a guess. A wrong "in your
+ * library" badge sends the user to an album page that does not exist; a wrong
+ * "not in your library" one costs a duplicate download.
+ *
+ * The two halves reuse the vocabulary the rest of the lb-bot surface already
+ * speaks (`_similar_artists_marked` for artists, `_album_lookup_marked` for
+ * releases) rather than inventing a third set of field names.
+ */
+export interface LbBotBrowseAlbum {
+    artist: string;
+    /** Cover Art Archive URL, or Deezer's own — the row carries whichever lb-bot
+     *  could name, because a release with no MBID has no Archive entry. */
+    coverUrl: string;
+    /** Navidrome album id, when the library holds this release-group. */
+    releaseAlbumId: string;
+    releaseOwned: boolean;
+    /** MusicBrainz release-group id, empty when the name did not resolve. An
+     *  empty rgid means the row cannot be acquired and cannot be opened — it is
+     *  rendered as plain information. */
+    rgid: string;
+    title: string;
+}
+
+// There is deliberately no `year`: Deezer's chart and editorial rows carry
+// `record_type` and a position, and no release date at all. A field that is
+// structurally always empty would later read as a bug in the marking rather
+// than as an absence in the source.
+
+export interface LbBotBrowseArtist {
+    /** Navidrome artist id, when owned. */
+    artistId: string;
+    /** Deezer's own artist picture. The only artwork an unowned chart artist
+     *  has — there is no Navidrome id to draw one from and no Cover Art Archive
+     *  entry for a person — so without it every unowned row is the empty-artist
+     *  icon. */
+    imageUrl: string;
+    /** lb-bot has walked their discography. Separate from `owned`, as everywhere
+     *  else on this surface. */
+    indexed: boolean;
+    mbid: string;
+    name: string;
+    owned: boolean;
+}
+
+/**
+ * One of Deezer's own genres, as `GET /lb/deezer/genres` serves them.
+ *
+ * Served by lb-bot rather than hardcoded in each client, and that is the point
+ * of the route existing at all: the ids are Deezer's to change, there are two
+ * clients to keep in step, and `MoodCharacter` is this project's standing proof
+ * that a list written twice by hand drifts.
+ *
+ * `"0"` is "All" — the global chart, i.e. byte-for-byte what a bare `chart`
+ * already answered, so it is a safe default and an older hub that drops the
+ * parameter degrades to exactly the previous behaviour.
+ */
+export interface LbBotDeezerGenre {
+    id: string;
+    imageUrl: string;
+    name: string;
+}
+
+export interface LbBotDeezerGenres {
+    genres: LbBotDeezerGenre[];
+}
+
 export interface LbBotEdition {
     coverUrl: string;
     format: string;
@@ -171,12 +247,31 @@ export interface LbBotEdition {
  */
 export type LbBotFailureKind =
     | ''
-    | 'cancelled'
     | 'format_rejected'
     | 'mb_unavailable'
     | 'no_source'
     | 'placement_failed'
     | 'transfer_failed';
+
+/**
+ * The hub's `fill` frame: lb-bot pushed a fill's state or progress. Same
+ * fields as `LbBotFillStatus` for `kind: 'album'`, keyed by release-group id;
+ * a gap summary for `kind: 'gap'`, keyed by review-group id; a landing for
+ * `kind: 'wishlist'`. Push accelerates the poll and never replaces it: nothing
+ * is replayed to a client that connects late.
+ */
+export interface LbBotFillFrame {
+    [field: string]: unknown;
+    key: string;
+    kind: 'album' | 'gap' | 'wishlist';
+}
+
+/** `GET /lb/fills` — every fill this client watches, in one read. */
+export interface LbBotFills {
+    albums: Record<string, LbBotFillStatus>;
+    gaps: Record<string, LbBotGap>;
+    serverTime: number;
+}
 
 /**
  * unknown → searching → queued → downloading → placing → placed → verified,
@@ -188,6 +283,7 @@ export type LbBotFailureKind =
  * really answers "is it in my library".
  */
 export type LbBotFillState =
+    | 'cancelled'
     | 'downloading'
     | 'failed'
     | 'needs_match'
@@ -199,11 +295,23 @@ export type LbBotFillState =
     | 'verified';
 
 export interface LbBotFillStatus {
+    /** Transfers slskd reports as in progress right now. */
+    activeFiles: number;
     album: string;
+    /** This fill was started with the MP3 opt-in (whole-album counterpart of a
+     *  gap group's `allowMp3`). */
+    allowMp3: boolean;
     artist: string;
-    /** How many fills this release has had. Cumulative, and it survives an
-     *  lb-bot restart, so it tells one failure from four. */
+    /** How many fills this release has STARTED (the user's and lb-bot's own
+     *  automatic retries). Survives an lb-bot restart with the row. */
     attempts: number;
+    /** Bytes landed so far across the album's transfers; 0 when unknown. */
+    bytesDone: number;
+    bytesTotal: number;
+    /** The one Cancel rule, stated by the server: searching, queued or
+     *  downloading — or a failed fill whose automatic retry is still pending. */
+    cancellable: boolean;
+    /** Files COMPLETED — never completed+failed. `failed` is beside it. */
     done: number;
     failed: number;
     /** Empty on anything that has not failed — read it unconditionally. */
@@ -225,14 +333,24 @@ export interface LbBotFillStatus {
      * again — `mp3WouldHelp` names the action that would actually change it.
      */
     retryable: boolean;
+    /** Epoch seconds when lb-bot's own automatic retry will fire, or 0. */
+    retryAt: number;
     /** The release-group the fill was started from — the handle the artist page
      *  needs to match a status back to the tile that started it. */
     rgid: string;
+    /** lb-bot's clock when it answered — "last checked Ns ago" without trusting ours. */
+    serverTime: number;
     /** The Soulseek peer the transfer was queued from, auto-picked or chosen.
      *  "Try another source" excludes it. Empty before the fill is queued. */
     source: string;
+    /** Bytes per second across the transfers in progress. */
+    speedBps: number;
     state: LbBotFillState;
     total: number;
+    /** Epoch seconds of the last state change OR transfer progress. */
+    updatedAt: number;
+    /** `placed` past the verifier's deadline: on disk, not (yet) in Navidrome. */
+    verifyGaveUp: boolean;
 }
 
 /**
@@ -423,6 +541,21 @@ export type LbBotGapTrackState =
     | 'skipped';
 
 /**
+ * What a pasted streaming link resolved to.
+ *
+ * `confidence` is on the wire because half the providers cannot be resolved
+ * exactly: a Spotify or Deezer id maps through that service's own API, but an
+ * Apple Music / YouTube Music / Tidal / Qobuz URL is resolved by *searching
+ * MusicBrainz for the artist and title scraped out of the URL or its page
+ * title*, which is a guess with a score. The client says so rather than
+ * presenting a match as a fact.
+ *
+ * `kind: 'unknown'` is the honest answer for a URL from a service lb-bot does
+ * not parse, and is not an error.
+ */
+export type LbBotLinkKind = 'album' | 'artist' | 'track' | 'unknown';
+
+/**
  * Editorial metadata for an artist or an album: real, attributed, full-length
  * text instead of the Last.fm summary that dead-ends in a "Read more on
  * Last.fm" anchor.
@@ -538,6 +671,21 @@ export interface LbBotRelease {
 
 export interface LbBotReleaseDetail {
     artist: string;
+    /**
+     * The **lead** credited artist's MusicBrainz id, when the release-group
+     * names one.
+     *
+     * Additive and free — lb-bot already fetched `inc=artist-credits` to build
+     * the display string above and was throwing this away. It matters because a
+     * page reached from a Deezer browse row has no artist handle of any kind
+     * (Deezer carries no MBIDs, which is the whole reason those rows arrive
+     * unresolved), so the artist credit rendered as dead text and took the only
+     * route to the discography scan with it.
+     *
+     * The lead credit rather than a merge: a tap has to land on somebody, and
+     * for a collaboration that is the only defensible answer.
+     */
+    artistMbid: string;
     coverUrl: string;
     title: string;
     /** A variant changes the tracklist (Original / Remaster / Deluxe). */
@@ -562,6 +710,27 @@ export interface LbBotResolvedEdition {
     releaseMbid: string;
     title: string;
     totalTracks: number;
+}
+
+export interface LbBotResolvedLink {
+    artist: string;
+    confidence: number;
+    kind: LbBotLinkKind;
+    mbid: string;
+    provider: string;
+    /**
+     * Why the link did not resolve, in lb-bot's words — "Not a music link we
+     * recognise", "Couldn't read the Tidal page", "No MusicBrainz artist
+     * matched". Additive and outside the frozen §1.2 contract, and empty on a
+     * clean hit.
+     *
+     * Worth rendering rather than guessing: those three failures have three
+     * different answers, and a client-written sentence would have to pick one
+     * of them blind.
+     */
+    reason: string;
+    rgid: string;
+    title: string;
 }
 
 export interface LbBotSimilarAlbum {
@@ -681,4 +850,46 @@ export interface LbBotVariant {
     title: string;
     trackCount: number;
     year: string;
+}
+
+/**
+ * The wishlist, plus the sweep's own timings.
+ *
+ * The intervals are on the wire because they are the only honest answer to
+ * "when will this happen?" — the entire mechanism is waiting, and a page that
+ * cannot say how long it waits reads as broken rather than patient.
+ *
+ * **A landed row is removed, not flagged.** `_wishlist_landed` deletes it and
+ * fires `/lb/notify`, so there is no "found it" state to render: the album
+ * appears in the library and leaves this list.
+ */
+export interface LbBotWishlist {
+    cooldownSeconds: number;
+    entries: LbBotWishlistEntry[];
+    intervalSeconds: number;
+}
+
+/**
+ * One album on the wishlist.
+ *
+ * The wishlist exists for exactly one failure: `no_source`. lb-bot never
+ * auto-retries that one, and correctly so — it already walked its entire ranked
+ * source list, so re-running the identical search against the identical peers is
+ * the same failure again, not a retry. What *does* change is the Soulseek swarm,
+ * over hours. So the retry belongs on a slow periodic re-search against a
+ * persisted list, which is what this is.
+ */
+export interface LbBotWishlistEntry {
+    /** Unix **seconds**, not milliseconds — lb-bot writes `time.time()`. */
+    addedAt: number;
+    artist: string;
+    /** How many slow re-searches have run for this row. */
+    attempts: number;
+    /** Why the last re-search did not land it, in lb-bot's own words. Empty
+     *  before the first one has run. */
+    lastReason: string;
+    /** Unix seconds of the last re-search; 0 before the first. */
+    lastTriedAt: number;
+    rgid: string;
+    title: string;
 }

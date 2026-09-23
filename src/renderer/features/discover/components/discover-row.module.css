@@ -94,3 +94,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* A tile whose tap started a request — the unmarked Deezer rows look one MBID
+   up on tap, which is a MusicBrainz second. Without this the tile looks inert
+   and gets tapped again, which is a second search for the same row. The
+   `aria-busy` on the button carries the same fact to a screen reader. */
+.tile[aria-busy='true'] {
+    cursor: progress;
+    opacity: 0.6;
+}

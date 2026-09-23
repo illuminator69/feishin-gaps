@@ -2,6 +2,7 @@ import isElectron from 'is-electron';
 
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
+import { isPreviewId, previewHubTrack } from '/@/renderer/features/preview/preview-track';
 import { useHubStore, useSettingsStore } from '/@/renderer/store';
 import { AddToQueueType } from '/@/renderer/store';
 import { LibraryItem, Song } from '/@/shared/types/domain-types';
@@ -42,6 +43,10 @@ export const buildHubTracksForSongs = async (
     const base = (publicServerUrl || '').trim().replace(/\/$/, '');
     return Promise.all(
         songs.map(async (song) => {
+            // A preview publishes its own signed URL verbatim — see
+            // `previewHubTrack`. Falling through would ask Navidrome for a
+            // stream URL for an `ext:` id and publish the failure as `undefined`.
+            if (isPreviewId(song.id)) return previewHubTrack(song);
             let streamUrl: string | undefined;
             try {
                 streamUrl = (await api.controller.getStreamUrl({

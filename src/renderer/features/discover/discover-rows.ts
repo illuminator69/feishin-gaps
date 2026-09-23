@@ -35,18 +35,43 @@ export interface DiscoverRowDefinition {
     title: string;
 }
 
-export type DiscoverRowId = 'fresh' | 'listenbrainz' | 'mood' | 'rediscovery' | 'similar-artists';
+export type DiscoverRowId =
+    | 'charts'
+    | 'editorial'
+    | 'fresh'
+    | 'listenbrainz'
+    | 'mixes'
+    | 'mood'
+    | 'rediscovery'
+    | 'similar-artists';
 
 /**
- * Render order. Leverage first: what is new, then who you are missing, then
- * what was picked for you, then what you already own and forgot, then a way to
- * ask a question of your own.
+ * Render order. Your own things first, then what is new, then who you are
+ * missing, then what the wider world is playing, then what was picked for you,
+ * then what you already own and forgot, then a way to ask a question of your
+ * own.
+ *
+ * `mixes` leads deliberately: it is the only row showing something the user
+ * made, and everything below it is a proposal from somewhere else. The two
+ * Deezer rows sit *below* `similar-artists` for the matching reason — a chart
+ * is the weakest claim on this screen and must not outrank a row that can name
+ * why it is there.
  *
  * `stations` is deliberately absent rather than disabled. Persistent named
- * stations were scoped and deferred to a hub-side implementation next to saved
- * queues, and a placeholder entry here would be a row that can never render.
+ * stations were the placeholder for what became `mixes`, and the word is spent
+ * twice over: `Screen.RadioList` and Feishin's create/edit-station forms are
+ * Subsonic internet radio, and `SavedQueueSource.RADIO` is the ephemeral
+ * similarity mix. Hence "Mixed for You", and `mix` as the noun in code.
  */
 export const DISCOVER_ROWS: DiscoverRowDefinition[] = [
+    {
+        // `library`, not `lbbot`: the recipes are hub state, so this row is
+        // answerable with no lb-bot and no AudioMuse at all. It hides itself
+        // when there are no mixes, like every other row.
+        capability: { kind: 'library' },
+        id: 'mixes',
+        title: 'Mixed for You',
+    },
     {
         capability: { kind: 'lbbot', route: 'GET /lb/fresh-releases' },
         id: 'fresh',
@@ -56,6 +81,16 @@ export const DISCOVER_ROWS: DiscoverRowDefinition[] = [
         capability: { kind: 'lbbot', route: 'GET /lb/artist/similar' },
         id: 'similar-artists',
         title: 'Fans also like',
+    },
+    {
+        capability: { kind: 'lbbot', route: 'GET /lb/deezer/chart' },
+        id: 'charts',
+        title: 'Charts',
+    },
+    {
+        capability: { kind: 'lbbot', route: 'GET /lb/deezer/editorial' },
+        id: 'editorial',
+        title: 'Editorial picks',
     },
     {
         // Navidrome only: the `listenbrainz-daily-playlist` plugin writes these

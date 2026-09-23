@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { placeholderSong, resolveHubTracks } from '/@/renderer/features/hub/utils/resolve-songs';
-import { useLbBotLibraryRefresh } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { applyFillFrame, useLbBotLibraryRefresh } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
 import {
     consumeQueueSession,
@@ -13,12 +13,15 @@ import {
     onQueueSessionReset,
     resolveQueueSource,
 } from '/@/renderer/features/player/utils/saved-queue-source';
+import { isPreviewId, previewHubTrack } from '/@/renderer/features/preview/preview-track';
 import {
+    mixesFromHub,
     SavedQueue,
     SavedQueueKind,
     useCurrentServerId,
     useHubSettings,
     useHubStore,
+    useMixesStore,
     usePlayerActions,
     usePlayerStore,
     usePlayerStoreBase,
@@ -83,6 +86,12 @@ const savedQueueToHubRecord = (q: SavedQueue): Record<string, unknown> => ({
         durationMs: s.duration ?? undefined,
         id: s.id,
         imageUrl: s.imageUrl ?? undefined,
+        // navi-connect: a preview's stream URL and MIME are the only thing that
+        // makes it playable anywhere else, and `SQ_TRACK_FIELDS` whitelists
+        // both — so a saved queue holding one restores and transfers intact
+        // rather than becoming a row that plays nothing.
+        mime: s._previewMime,
+        streamUrl: s._previewStreamUrl,
         title: s.name,
     })),
     sourceKind: q.sourceKind,
@@ -264,6 +273,11 @@ export const useHub = () => {
             const sid = serverIdRef.current;
             return Promise.all(
                 items.map(async (item) => {
+                    // A preview carries its own signed, absolute URL. It is
+                    // published verbatim: rewriting its host to the public
+                    // Navidrome base (which every library track needs) would
+                    // point it at a server that has never heard of the file.
+                    if (isPreviewId(item.id)) return previewHubTrack(item);
                     let streamUrl: string | undefined;
                     if (sid) {
                         const cache = streamUrlCache.current;
@@ -1051,6 +1065,11 @@ export const useHub = () => {
                         });
                     }
                 }
+                // navi-connect: "Mixed for You". A plain replace, unlike the
+                // saved queues above — a mix is created by hand on one device
+                // and never published concurrently, so the hub's list IS the
+                // list and there is nothing local to merge back up.
+                useMixesStore.getState().actions.setMixes(mixesFromHub(msg.mixes));
                 // Hub is authoritative: adopt its session rather than pushing ours.
                 void adoptIfNoLiveReceiver(msg.session);
             } else if (msg.t === 'session') {
@@ -1088,6 +1107,8 @@ export const useHub = () => {
                             mapHubSavedQueue(r, serverIdRef.current),
                         ),
                     );
+            } else if (msg.t === 'mixes') {
+                useMixesStore.getState().actions.setMixes(mixesFromHub(msg.mixes));
             } else if (msg.t === 'library') {
                 // lb-bot placed an album somewhere on the network. Whichever
                 // device did the asking, every device's idea of what the library
@@ -1097,6 +1118,14 @@ export const useHub = () => {
                     ndAlbumIds: Array.isArray(msg.ndAlbumIds) ? msg.ndAlbumIds : undefined,
                     ndArtistId: typeof msg.ndArtistId === 'string' ? msg.ndArtistId : undefined,
                 });
+            } else if (msg.t === 'fill') {
+                // A fill moved: lb-bot pushed its state or progress through the
+                // hub. Nothing in the library changed, so nothing is refetched —
+                // the ledger row is updated, through the same function the poll
+                // uses (PROTOCOL §15.1).
+                if (typeof msg.key === 'string' && typeof msg.kind === 'string') {
+                    applyFillFrame(msg);
+                }
             } else if (msg.t === 'do') {
                 void runDirective(msg);
             } else if (msg.t === 'disconnected') {
@@ -1107,6 +1136,10 @@ export const useHub = () => {
                 activeId.current = null;
                 hubDrivenUntil.current = 0;
                 lastQueueSig.current = '';
+                // Mixes live on the hub and are not cached locally, so a lost
+                // socket means there are none — the alternative is a list of
+                // cards whose every button silently does nothing.
+                useMixesStore.getState().actions.reset();
                 // savedQueueId is deliberately KEPT: we're still listening to the same
                 // thing, so a reconnect must refresh that record rather than fork a
                 // near-duplicate of the queue we never stopped playing.

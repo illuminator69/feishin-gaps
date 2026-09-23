@@ -38,6 +38,10 @@ export enum AppRoute {
     LIBRARY_GENRES_DETAIL = '/library/genres/:genreId',
     LIBRARY_SONGS = '/library/songs',
     LOGIN = '/login',
+    /** navi-connect: "Mixed for You" — the hub's stored generator recipes. Each
+     *  one regenerates on play rather than replaying a frozen tracklist, which
+     *  is what separates it from SAVED_QUEUES. */
+    MIXES = '/mixes',
     NO_NETWORK = '/no-network',
     NOW_PLAYING = '/now-playing',
     PLAYING = '/playing',
@@ -48,4 +52,8 @@ export enum AppRoute {
     SEARCH = '/search/:itemType',
     SERVERS = '/servers',
     SETTINGS = '/settings',
+    /** navi-connect: albums nobody was sharing, kept for lb-bot's slow
+     *  periodic re-search. Reached from Downloads, where the failure that puts
+     *  an album here is reported. */
+    WISHLIST = '/wishlist',
 }

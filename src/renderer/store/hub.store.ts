@@ -54,6 +54,28 @@ export interface HubTrack {
 
 interface HubSlice extends HubState {
     actions: {
+        /**
+         * Apply a local rating/favorite edit to the mirrored remote queue.
+         *
+         * **Why this exists.** While playback is on another device every
+         * user-visible field of the playing song is read off `remoteQueue` /
+         * `remoteNowPlaying` here, not off `player.store`. The rating and
+         * favorite mutations publish their optimistic update as a `USER_RATING`
+         * / `USER_FAVORITE` event, and the only listener for those calls
+         * `updateQueueRatings` on the **player** store — which nothing is
+         * reading while remote is active. So the write succeeded, the server
+         * took it, and the stars did not move until the remote device happened
+         * to republish its queue. That delay is the whole of "the rating does
+         * show up eventually".
+         *
+         * The hub is still the authority: the next `session` frame overwrites
+         * this wholesale, exactly as an optimistic cache update is meant to be
+         * overwritten by the real answer.
+         */
+        patchRemoteTracks: (
+            ids: string[],
+            patch: Partial<Pick<HubTrack, 'favorite' | 'rating'>>,
+        ) => void;
         reset: () => void;
         setStore: (data: Partial<HubState>) => void;
     };
@@ -96,6 +118,20 @@ const initialState: HubState = {
 
 export const useHubStore = createWithEqualityFn<HubSlice>()((set) => ({
     actions: {
+        patchRemoteTracks: (ids, patch) =>
+            set((state) => {
+                const wanted = new Set(ids);
+                // Returning the same object when nothing matched keeps this from
+                // re-rendering every remote-aware subscriber on an edit to a
+                // song that is not in this queue at all.
+                if (!state.remoteQueue.some((track) => wanted.has(track.id))) return state;
+                return {
+                    ...state,
+                    remoteQueue: state.remoteQueue.map((track) =>
+                        wanted.has(track.id) ? { ...track, ...patch } : track,
+                    ),
+                };
+            }),
         reset: () => set({ ...initialState }),
         setStore: (data) => set((state) => ({ ...state, ...data })),
     },

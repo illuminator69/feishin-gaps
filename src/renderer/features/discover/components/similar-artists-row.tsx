@@ -5,7 +5,10 @@ import { useDiscoverSeedArtist } from '../use-discover-seed';
 import { DiscoverRow } from './discover-row';
 import { DiscoverTile } from './discover-tile';
 
-import { useLbBotSimilarArtists } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import {
+    useLbBotRelatedArtists,
+    useLbBotSimilarArtists,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { artistLinkPath } from '/@/renderer/features/lbbot/utils/external-paths';
 import { LibraryItem } from '/@/shared/types/domain-types';
 
@@ -37,13 +40,32 @@ export const SimilarArtistsRow = ({ title }: { title: string }) => {
         mbid: seed?.mbid,
         name: seed?.name,
     });
+    // Deezer, as a THIRD similarity source beside ListenBrainz and Last.fm. It
+    // is appended rather than merged into the ranking: the two routes compute
+    // different things and their scores are not comparable, so interleaving
+    // them would be arithmetic on two different scales. lb-bot already marks
+    // ownership identically on both, which is what lets one renderer take both.
+    const related = useLbBotRelatedArtists({
+        mbid: seed?.mbid,
+        name: seed?.name,
+    });
 
     // Someone with neither an id nor an MBID has nowhere to go, so they are not
     // a row — they are a name with no page behind it.
-    const artists = useMemo(
-        () => (data?.artists ?? []).filter((a) => artistLinkPath(a.artistId, a.mbid)).slice(0, 20),
-        [data],
-    );
+    const artists = useMemo(() => {
+        const rows = (data?.artists ?? []).filter((a) => artistLinkPath(a.artistId, a.mbid));
+        // Dedupe by MBID where there is one and by lower-cased name otherwise.
+        // The two sources agree about popular artists often enough that without
+        // this the tail of the row is a repeat of its head.
+        const seen = new Set(rows.map((a) => a.mbid || a.name.toLowerCase()));
+        for (const artist of related.data?.artists ?? []) {
+            const key = artist.mbid || artist.name.toLowerCase();
+            if (seen.has(key) || !artistLinkPath(artist.artistId, artist.mbid)) continue;
+            seen.add(key);
+            rows.push(artist);
+        }
+        return rows.slice(0, 20);
+    }, [data, related.data]);
 
     const cards = useMemo(
         () =>

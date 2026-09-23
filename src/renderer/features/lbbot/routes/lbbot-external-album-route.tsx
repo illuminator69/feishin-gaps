@@ -5,11 +5,12 @@ import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/nati
 import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
 import { MissingAlbumPanel } from '/@/renderer/features/lbbot/components/missing-album-modal';
 import {
+    useArtistTarget,
     useIndexRelease,
     useLbBotAlbumMeta,
+    useLbBotAlbumReleases,
     useLbBotDiscography,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
-import { artistLinkPath } from '/@/renderer/features/lbbot/utils/external-paths';
 import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
 import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
 import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
@@ -47,10 +48,24 @@ const LbBotExternalAlbumRoute = () => {
 
     const artist = search.get('artist') ?? '';
     const artistMbid = search.get('artistMbid') ?? '';
-    // Present when the row we came from knew the artist is in the library. The
-    // artist name was bare text here while being a link on the tile that opened
-    // this page; `artistLinkPath` is the one rule both now use.
-    const artistTo = artistLinkPath(search.get('artistId') ?? '', artistMbid);
+
+    // Editions of this release-group. Read here as well as inside the panel —
+    // react-query dedupes on the key, so this costs no extra round trip — because
+    // it is the one place this page can learn its artist's MBID when it was
+    // opened from a Deezer row, which carries none.
+    const releases = useLbBotAlbumReleases(rgid).data;
+
+    // Where the artist credit goes. `artistId` is present when the row we came
+    // from knew the library has them; otherwise the hook checks the library by
+    // name and falls back to an MBID — the page's own, else the lead credit
+    // `/lb/album/releases` answers. Without that last fallback a page reached
+    // from a Deezer tile rendered the artist as dead text and there was no route
+    // to their page or to the discography scan behind it.
+    const artistTo = useArtistTarget({
+        artistId: search.get('artistId') ?? '',
+        artistMbid: artistMbid || releases?.artistMbid || '',
+        name: artist || releases?.artist || '',
+    });
 
     // Purely to answer "does the library already have this?" — an instant SQLite
     // read on lb-bot's side, and skipped entirely without an artist MBID.

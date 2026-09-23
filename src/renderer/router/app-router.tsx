@@ -88,6 +88,12 @@ const LbBotDownloadsRoute = lazy(
     () => import('/@/renderer/features/lbbot/routes/lbbot-downloads-route'),
 );
 
+const MixesRoute = lazy(() => import('/@/renderer/features/mixes/routes/mixes-route'));
+
+const LbBotWishlistRoute = lazy(
+    () => import('/@/renderer/features/lbbot/routes/lbbot-wishlist-route'),
+);
+
 const DiscoverRoute = lazy(() => import('/@/renderer/features/discover/routes/discover-route'));
 
 const LbBotFreshRoute = lazy(() => import('/@/renderer/features/lbbot/routes/lbbot-fresh-route'));
@@ -328,6 +334,11 @@ export const AppRouter = () => {
                                         <Route
                                             element={<LbBotDownloadsRoute />}
                                             path={AppRoute.DOWNLOADS}
+                                        />
+                                        <Route element={<MixesRoute />} path={AppRoute.MIXES} />
+                                        <Route
+                                            element={<LbBotWishlistRoute />}
+                                            path={AppRoute.WISHLIST}
                                         />
                                         <Route
                                             element={<DiscoverRoute />}

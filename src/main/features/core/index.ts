@@ -8,6 +8,7 @@ import './hub';
 import './lbbot';
 import './lyrics';
 import './player';
+import './preview';
 import './remote';
 import './settings';
 import './discord-rpc';

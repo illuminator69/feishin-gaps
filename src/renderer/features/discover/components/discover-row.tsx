@@ -33,6 +33,15 @@ import { Text } from '/@/shared/components/text/text';
  * deliberately empty, exactly as `AlbumArtistGridCarousel` does it.
  */
 interface DiscoverRowProps {
+    /**
+     * A control that scopes the row, drawn under the reason line and above the
+     * shelf it applies to — today the Deezer genre chips.
+     *
+     * A slot rather than something each row lays out, so a scoped row keeps the
+     * same header, the same reason line and the same empty rule as an unscoped
+     * one.
+     */
+    aside?: ReactNode;
     /** The "why am I seeing this" line. Required, deliberately. */
     because: string;
     /** Cards to page through. Rows that are not cards pass `children`. */
@@ -48,6 +57,7 @@ interface DiscoverRowProps {
 const noop = () => {};
 
 export const DiscoverRow = ({
+    aside,
     because,
     cards,
     children,
@@ -72,6 +82,11 @@ export const DiscoverRow = ({
             <Text isMuted size="sm">
                 {because}
             </Text>
+            {/* Inside the header rather than wrapped around the carousel: the
+                header occupies GridCarousel's own title slot, so this is the
+                one place a control can sit under the reason line and above the
+                shelf it scopes without moving every other row's spacing. */}
+            {aside}
         </div>
     );
 

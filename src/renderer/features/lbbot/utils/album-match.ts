@@ -1,0 +1,159 @@
+/**
+ * Deciding whether two records that *look* alike are the same album.
+ *
+ * This exists because of one measured failure. `/lb/album/lookup` passes
+ * MusicBrainz's own **text score** straight through, and that score rewards a
+ * release-group whose *title* contains both search words over one where the
+ * artist match lives in a different field. Measured 2026-09-23 against the
+ * deployed service, `q=Daft Punk Discovery`:
+ *
+ *     1  Pignickel   Daft Punk's Discovery but it's in the SM64 Soundfont
+ *     2  verymilkee  Daft Punk's Discovery, but with the SM64 soundfont […]
+ *     3  Daft Punk   Discovery
+ *
+ * So taking the first hit opened a parody's download page for an album the user
+ * owned in full. A fielded query fixes the ranking (`q` reaches MusicBrainz
+ * verbatim, so it costs nothing and asks a different question), but a text score
+ * can still be wrong — which is why the answer is additionally **validated
+ * against what was asked** rather than trusted for being first.
+ *
+ * Declining is a correct outcome here. Opening the wrong album reads as the
+ * feature being broken; "couldn't match that" reads as a near miss, which is
+ * what it is.
+ */
+
+/**
+ * Drop the edition suffix and everything that is punctuation rather than a word.
+ *
+ * The suffix matters in both directions: Deezer ships "Discovery (Remastered)"
+ * where MusicBrainz and the library both say "Discovery", and a parenthetical
+ * defeats an exact comparison and a fielded search alike.
+ *
+ * Only bracketed runs are stripped, never a separator — "Homework / Discovery"
+ * is a different record from "Discovery" and must stay one. The survivors of
+ * the real case are the proof this is tight enough: of `Discovery`,
+ * `Re-Discovery`, `Discovery Remixed` and `Homework / Discovery`, exactly one
+ * normalises to `discovery`.
+ */
+export const normalizeAlbumTitle = (value: string): string =>
+    (value || '')
+        .toLowerCase()
+        .replace(/[([{][^)\]}]*[)\]}]/g, ' ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+
+/** Artists take the same treatment minus the suffix rule — an artist name has no
+ *  edition. `&`, `feat.` and the rest collapse to spaces, so the comparison below
+ *  is over words rather than over punctuation two catalogues spell differently. */
+export const normalizeArtistName = (value: string): string =>
+    (value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+
+/**
+ * Split a credit string into the acts it names.
+ *
+ * Deezer credits a collaboration to one artist where MusicBrainz writes the
+ * whole thing ("Daft Punk" vs "Daft Punk & Julian Casablancas"), so comparing
+ * the strings whole would decline every such record. Splitting first means each
+ * side becomes a set of acts and the comparison is exact within it.
+ *
+ * Done **before** normalisation, because the separators are punctuation and
+ * `normalizeArtistName` removes it.
+ *
+ * `/` is deliberately **not** a separator, though MusicBrainz does sometimes use
+ * it as one: AC/DC is the counterexample, and splitting on it would let "AC"
+ * match them. Declining to split an "A / B" credit only costs a match; splitting
+ * AC/DC would hand back a wrong album, which is the failure this file exists to
+ * stop.
+ */
+const creditedActs = (value: string): string[] => {
+    const whole = normalizeArtistName(value);
+    if (!whole) return [];
+    const parts = (value || '')
+        .split(/\s*(?:&|\+|,|;|\bfeat\.?\b|\bfeaturing\b|\bwith\b|\bvs\.?\b|\bx\b)\s*/i)
+        .map(normalizeArtistName)
+        .filter(Boolean);
+    // A credit that is ENTIRELY separator tokens splits to nothing - an act
+    // actually named "X" is the real case. Falling back to the whole string
+    // keeps that artist matchable instead of silently never matching.
+    return parts.length > 0 ? parts : [whole];
+};
+
+/**
+ * Whether two artist credits name the same act.
+ *
+ * Each side is split into the acts it credits and compared **exactly** within
+ * that set. Exact per act rather than substring or token containment, and that
+ * distinction is load-bearing: a containment rule reads as harmless and is not.
+ * Measured while writing this - `sameArtist("Pink Floyd", "Pink")` came back
+ * TRUE under whole-token containment, because "pink" really is a token of "pink
+ * floyd". That is the same class of wrong answer this whole file exists to
+ * prevent, arriving through the check meant to prevent it.
+ *
+ * Splitting handles the collaboration case that containment was reaching for,
+ * and handles it better: a one-word act ("Madonna" in "Madonna & Justin
+ * Timberlake") matches, which a "the shorter side must have two tokens" guard
+ * would have refused.
+ */
+export const sameArtist = (a: string, b: string): boolean => {
+    const left = creditedActs(a);
+    const right = creditedActs(b);
+    if (left.length === 0 || right.length === 0) return false;
+    const rightSet = new Set(right);
+    return left.some((act) => rightSet.has(act));
+};
+
+/** Titles are compared exactly once normalised — unlike artists, a title that is
+ *  merely *contained* in another is a different record ("Discovery" inside
+ *  "Discovery Remixed"), which is the half of the bug a ranking fix alone left
+ *  standing. */
+export const sameAlbumTitle = (a: string, b: string): boolean => {
+    const left = normalizeAlbumTitle(a);
+    const right = normalizeAlbumTitle(b);
+    return Boolean(left) && left === right;
+};
+
+/**
+ * The fielded MusicBrainz query, built from what was actually asked.
+ *
+ * `q` reaches MusicBrainz verbatim through lb-bot, so naming the fields costs
+ * nothing and is a different question from the free-text one. Measured on the
+ * case above it returns the right record first and no parodies at all.
+ *
+ * Quotes inside a value would close the phrase early and turn the rest into
+ * loose terms, so they are dropped rather than escaped — Lucene's escaping rules
+ * differ enough between versions that dropping is the predictable option, and a
+ * quotation mark carries no matching signal.
+ */
+export const fieldedAlbumQuery = (artist: string, title: string): string => {
+    const clean = (value: string) => (value || '').replace(/["\\]/g, ' ').trim();
+    const artistTerm = clean(artist);
+    // The bare title, so an edition suffix in the browse row's spelling does not
+    // have to exist in MusicBrainz's.
+    const titleTerm = clean(title)
+        .replace(/[([{][^)\]}]*[)\]}]/g, ' ')
+        .trim();
+    if (!titleTerm) return '';
+    if (!artistTerm) return `releasegroup:"${titleTerm}"`;
+    return `artist:"${artistTerm}" AND releasegroup:"${titleTerm}"`;
+};
+
+/**
+ * Does this title carry a bracketed qualifier?
+ *
+ * The suffix strip in {@link normalizeAlbumTitle} is necessary - Deezer ships
+ * "Discovery (Remastered)" where MusicBrainz and the library both say
+ * "Discovery" - but it is blunt, and measuring it against the deployed service
+ * showed how blunt. The real fielded query for Daft Punk's *Discovery* returns
+ * eight candidates, and **three** survive title-and-artist validation:
+ * `Discovery`, `Discovery (Beta Version)` and `Discovery (Sample Bandit
+ * Bootlegs)` - because all three strip to the same thing.
+ *
+ * Validation alone therefore narrows the field without deciding it, and leaving
+ * the decision to MusicBrainz's text score would put a bootleg one rank away
+ * from winning. A candidate with no qualifier at all is the better answer for a
+ * request that named none, so this is what breaks that tie.
+ */
+export const hasEditionSuffix = (value: string): boolean => /[([{][^)\]}]*[)\]}]/.test(value || '');

@@ -4,9 +4,11 @@ import { Link } from 'react-router';
 import styles from './missing-album-modal.module.css';
 
 import { SourceList } from '/@/renderer/features/lbbot/components/source-list';
+import { SHORT_STATE } from '/@/renderer/features/lbbot/fill-vocabulary';
 import {
     allowMp3ForAlbum,
     caaCoverUrl,
+    cancelFill,
     startAlbumDownload,
     useLbBotAlbumReleases,
     useLbBotAlbumSources,
@@ -18,6 +20,7 @@ import {
     useActiveFillsActions,
     usePreferredQuality,
 } from '/@/renderer/features/lbbot/stores/active-fills.store';
+import { PreviewButton } from '/@/renderer/features/preview/components/preview-button';
 import { Badge } from '/@/shared/components/badge/badge';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
@@ -62,15 +65,18 @@ interface MissingAlbumPanelProps {
     release: LbBotRelease;
 }
 
-/** Human wording for each fill state. `unknown` is "nothing has happened yet". */
+/** Human wording for each fill state, from the shared vocabulary (PROTOCOL
+ *  §15.2) so this modal and the downloads view never disagree. `unknown` is
+ *  "nothing has happened yet". */
 const STATE_LABEL: Record<LbBotFillState, string> = {
-    downloading: 'Downloading',
-    failed: 'Failed',
+    cancelled: SHORT_STATE.cancelled!,
+    downloading: SHORT_STATE.downloading!,
+    failed: SHORT_STATE.failed!,
     needs_match: 'Needs review in lb-bot',
-    placed: 'Placed — waiting for Navidrome',
-    placing: 'Placing into your library',
-    queued: 'Queued on Soulseek',
-    searching: 'Searching Soulseek',
+    placed: 'Added — waiting for the library scan',
+    placing: 'Adding to the library',
+    queued: 'Waiting for the peer',
+    searching: 'Looking for a source',
     unknown: '',
     verified: 'In your library',
 };
@@ -83,8 +89,12 @@ const QUALITY_DATA = [
     ...LB_BOT_QUALITY_OPTIONS.map((option) => ({ label: option.label, value: option.value })),
 ];
 
+// `placed` is in flight too: the files are in the library folder and Navidrome
+// is indexing them, and "Download again" over that ran a second fill into the
+// same folder. Navic's sheet already refused it.
 const IN_FLIGHT: ReadonlySet<LbBotFillState> = new Set<LbBotFillState>([
     'downloading',
+    'placed',
     'placing',
     'queued',
     'searching',
@@ -150,7 +160,7 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
     // The persisted store is what remembers it.
     const activeFill = useActiveFill(release.rgid);
     const fillMbid = watchedMbid ?? activeFill?.releaseMbid ?? null;
-    const status = useLbBotFillStatus(fillMbid, !!fillMbid);
+    const status = useLbBotFillStatus(fillMbid, !!fillMbid, release.rgid);
 
     // What we already know about the chosen pressing, handed to lb-bot so it
     // doesn't re-resolve the release-group. That resolve picks "official,
@@ -210,15 +220,22 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
         [openFiles],
     );
 
-    const handleDownload = async () => {
-        if (busy) return;
+    const handleDownload = async (options: { allowMp3?: boolean } = {}) => {
+        // A source is required — the picker is the whole point of the review
+        // step, and "Download" with none selected posted a blind fill that
+        // lb-bot ranked on its own. The one-tap acquire is the deliberate
+        // shortcut for the unambiguous case; this is not it.
+        if (busy || !selected) return;
         setStarting(true);
         try {
             const result = await startAlbumDownload(
                 release.rgid,
                 preferredQuality,
-                selected ? { folder: selected.folder, peer: selected.peer } : undefined,
+                { folder: selected.folder, peer: selected.peer },
                 resolvedEdition,
+                undefined,
+                undefined,
+                options.allowMp3 === true,
             );
             if (!result.ok) {
                 // lb-bot writes its errors for humans, so this is its own
@@ -239,15 +256,28 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
         }
     };
 
+    // With a review group the opt-in is set on the group; without one the retry
+    // itself carries `allowMp3` — lb-bot takes it on `album/download` now, so a
+    // `format_rejected` fill with no group is no longer a dead end.
     const handleAllowMp3 = async () => {
         const groupId = status.data?.groupId;
-        if (!groupId) return;
-        const ok = await allowMp3ForAlbum(groupId);
-        toast.show({
-            message: ok
-                ? 'MP3 allowed for this album — try the download again'
-                : 'Could not set the MP3 option',
+        if (groupId) {
+            const ok = await allowMp3ForAlbum(groupId);
+            if (!ok) {
+                toast.error({ message: 'Could not set the MP3 option' });
+                return;
+            }
+        }
+        await handleDownload({ allowMp3: true });
+    };
+
+    const handleCancel = async () => {
+        const ok = await cancelFill({
+            isGap: false,
+            key: release.rgid,
+            releaseMbid: fillMbid ?? '',
         });
+        if (!ok) toast.error({ message: 'lb-bot would not take that request.' });
     };
 
     return (
@@ -363,6 +393,25 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
                                             {track.position}
                                         </Text>
                                         <Text size="sm">{track.title}</Text>
+                                        {/* The one place a preview is minted.
+                                            This is the only screen in the app
+                                            that lists the tracks of a record
+                                            nobody owns, so it is the only screen
+                                            where "what does it sound like"
+                                            has anywhere to go. The `.track` grid
+                                            already carries a third column. */}
+                                        <PreviewButton
+                                            album={variant?.title || release.title}
+                                            artist={releasesQuery.data?.artist || artistName}
+                                            // The sleeve, not the sidecar's
+                                            // video still — this page already
+                                            // holds the release-group's
+                                            // Cover Art Archive URL.
+                                            coverUrl={
+                                                variant?.coverUrl || caaCoverUrl(release.rgid)
+                                            }
+                                            title={track.title}
+                                        />
                                     </div>
                                 ))}
                                 {tracklistQuery.data?.tracks.length === 0 && (
@@ -406,8 +455,7 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
                                     </Button>
                                 </Group>
                                 <Text isMuted size="xs">
-                                    You can still download without reviewing sources — lb-bot picks
-                                    its own top-ranked folder.
+                                    A download needs a source to pick from — try the search again.
                                 </Text>
                             </Stack>
                         )}
@@ -473,13 +521,27 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
                                 {status.data.reason}
                             </Text>
                         ) : null}
-                        {status.data?.mp3WouldHelp && status.data?.groupId ? (
+                        {status.data?.mp3WouldHelp && selected ? (
                             <Button onClick={handleAllowMp3} size="compact-sm" variant="default">
-                                Allow MP3 for this album
+                                Allow MP3 and retry
+                            </Button>
+                        ) : null}
+                        {/* The server's own Cancel rule: searching, queued or
+                            downloading, or a failed fill whose automatic retry
+                            is still pending. Never on `placing` — the files are
+                            on their way in. */}
+                        {status.data?.cancellable ? (
+                            <Button onClick={handleCancel} size="compact-sm" variant="subtle">
+                                Cancel download
                             </Button>
                         ) : null}
                     </Stack>
                 )}
+                {status.isError && !status.data ? (
+                    <Text isMuted size="sm">
+                        Can&apos;t reach lb-bot right now.
+                    </Text>
+                ) : null}
 
                 <Group gap="sm" justify="end">
                     {step === 'review' && (
@@ -510,9 +572,9 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
                         </Button>
                     ) : (
                         <Button
-                            disabled={busy || !release.rgid}
+                            disabled={busy || !release.rgid || !selected}
                             loading={starting}
-                            onClick={handleDownload}
+                            onClick={() => void handleDownload()}
                             variant="filled"
                         >
                             {state === 'verified' ? 'Download again' : 'Download'}

@@ -7,7 +7,7 @@ import { SourceList } from '/@/renderer/features/lbbot/components/source-list';
 import {
     allowMp3ForAlbum,
     autoFillGap,
-    cancelGapFill,
+    cancelFill,
     fetchGapSource,
     gapIsBusy,
     gapProgress,
@@ -124,8 +124,15 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
         }
     };
 
-    const handleSearch = () =>
-        run('search', () => searchGapSources(groupId, gap ? gap.sources.length > 0 : false));
+    // A search creates the ledger row too, as Navic's does: "waiting for you to
+    // pick a source" is a state worth listing, and a search that ends with no
+    // candidates is a failure worth announcing.
+    const handleSearch = async () => {
+        const ok = await run('search', () =>
+            searchGapSources(groupId, gap ? gap.sources.length > 0 : false),
+        );
+        if (ok) startGap(groupId, { album: gap?.album, artist: gap?.artist });
+    };
 
     const handleFetch = async () => {
         if (!selected) return;
@@ -318,11 +325,22 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                             Pick the best source for me
                         </Button>
                     )}
-                    {gap.status === 'downloading' && (
+                    {/* Through `cancelFill`, which settles the ledger row: a cancel
+                        that only told lb-bot left the row to the next poll, which
+                        then announced "Couldn't get X" for something the user did. */}
+                    {(gap.status === 'downloading' ||
+                        gap.tracks.some(
+                            (t) => t.state === 'downloading' || t.state === 'queued',
+                        )) && (
                         <Button
                             disabled={!!pending}
                             loading={pending === 'cancel'}
-                            onClick={() => void run('cancel', () => cancelGapFill(groupId))}
+                            onClick={() =>
+                                void run('cancel', async () => ({
+                                    error: 'lb-bot would not take that request.',
+                                    ok: await cancelFill({ isGap: true, key: groupId }),
+                                }))
+                            }
                             size="compact-sm"
                             variant="subtle"
                         >

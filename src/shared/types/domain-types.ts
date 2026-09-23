@@ -393,6 +393,22 @@ export type RelatedArtist = {
 
 export type Song = {
     _itemType: LibraryItem.SONG;
+    /**
+     * navi-connect: the MIME type of {@link _previewStreamUrl}. Cast's
+     * `MediaItemConverter` refuses a media item without one, so it travels with
+     * the URL rather than being guessed from the extension.
+     */
+    _previewMime?: string;
+    /**
+     * navi-connect: a preview track's own signed stream URL.
+     *
+     * Set only on a synthesized `ext:<provider>:<id>` track — a record the
+     * library does not have, played from the preview sidecar. `useSongUrl`
+     * short-circuits to this instead of asking Navidrome for a stream URL it
+     * could never answer. Underscore-prefixed like `_serverId` because it is
+     * client-side state rather than anything a server returned.
+     */
+    _previewStreamUrl?: string;
     _serverId: string;
     _serverType: ServerType;
     album: null | string;

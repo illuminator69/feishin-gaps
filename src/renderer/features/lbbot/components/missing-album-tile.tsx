@@ -4,6 +4,7 @@ import styles from './missing-album-tile.module.css';
 
 import { AcquireButton } from '/@/renderer/features/lbbot/components/acquire-button';
 import { openMissingAlbumModal } from '/@/renderer/features/lbbot/components/missing-album-modal';
+import { SHORT_STATE } from '/@/renderer/features/lbbot/fill-vocabulary';
 import {
     caaCoverUrl,
     isAwaitingLibrary,
@@ -20,16 +21,6 @@ interface MissingAlbumTileProps {
     ndArtistId: string;
     release: LbBotRelease;
 }
-
-const SHORT_STATE: Partial<Record<LbBotFillState, string>> = {
-    downloading: 'Downloading',
-    failed: 'Failed',
-    needs_match: 'Needs review',
-    placed: 'Placed',
-    placing: 'Placing',
-    queued: 'Queued',
-    searching: 'Searching',
-};
 
 /**
  * One release lb-bot knows about that the library doesn't hold, rendered inside
@@ -54,9 +45,13 @@ export const MissingAlbumTile = ({ artistName, ndArtistId, release }: MissingAlb
     // before Navidrome has indexed anything — so a row that is no longer
     // `missing` but still has no album here is a download that worked, and must
     // not be captioned as absent.
+    // From the ledger, which the app-root watcher keeps live — so a fill that
+    // failed while this page was closed still shows its badge, and a settled
+    // one keeps it until dismissed. Same words as the downloads view.
     const label =
-        (fill ? SHORT_STATE[fill.state] : undefined) ??
+        (fill ? SHORT_STATE[(fill.state || 'searching') as LbBotFillState] : undefined) ??
         (isAwaitingLibrary(release) ? 'Added — waiting for library' : undefined);
+    const percent = fill?.percent ?? 0;
 
     return (
         // A div wrapping a button rather than one button: the acquire control is
@@ -91,8 +86,8 @@ export const MissingAlbumTile = ({ artistName, ndArtistId, release }: MissingAlb
                     <Badge className={styles.badge} size="xs">
                         {label ?? 'Not in library'}
                     </Badge>
-                    {fill && fill.percent > 0 && fill.percent < 100 && (
-                        <Progress className={styles.progress} size="xs" value={fill.percent} />
+                    {fill && !fill.settled && percent > 0 && percent < 100 && (
+                        <Progress className={styles.progress} size="xs" value={percent} />
                     )}
                 </div>
                 <Text className={styles.name} size="sm">
@@ -106,7 +101,7 @@ export const MissingAlbumTile = ({ artistName, ndArtistId, release }: MissingAlb
                 the library album, and offering to fetch a record already on disk
                 is the trap this whole tile exists to avoid. A fill already in
                 flight has its own progress below. */}
-            {!ownedAlbumId && !fill && (
+            {!ownedAlbumId && (!fill || fill.settled) && (
                 <AcquireButton
                     artist={artistName}
                     className={styles.acquire}

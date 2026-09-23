@@ -1,6 +1,7 @@
 import isElectron from 'is-electron';
 import { useState } from 'react';
 
+import { usePreviewCastBlocked } from '/@/renderer/features/preview/hooks/use-preview-cast-guard';
 import {
     HubDevice,
     isHubDeviceTransferable,
@@ -14,6 +15,7 @@ import {
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
 import { Text } from '/@/shared/components/text/text';
+import { toast } from '/@/shared/components/toast/toast';
 
 const hub = isElectron() ? window.api.hub : null;
 
@@ -53,10 +55,16 @@ export const HubDevicePicker = () => {
     const remoteIsPlaying = useHubRemoteIsPlaying();
     const { setSettings } = useSettingsStoreActions();
     const [showExtra, setShowExtra] = useState(false);
+    // navi-connect: non-null while the queue holds a preview the speaker could
+    // not fetch. Cast rows are then shown, disabled, with the reason — the same
+    // grammar an unreachable device already uses.
+    const previewBlocked = usePreviewCastBlocked();
 
     if (!hub || !settings.enabled) return null;
 
     const hidden = new Set(settings.hiddenDeviceIds ?? []);
+
+    const isCastTarget = (device: HubDevice) => device.platform === 'chromecast';
 
     // No `play` flag: the hub preserves the current play/pause state.
     const transfer = (id: string) => {
@@ -82,6 +90,7 @@ export const HubDevicePicker = () => {
         // the active receiver while paused, and claiming otherwise made a paused
         // session look live in every picker.
         const unreachable = device.online && device.reachable === false;
+        const castBlocked = Boolean(previewBlocked) && isCastTarget(device);
         const statusText =
             device.id === activeId
                 ? remoteIsPlaying
@@ -91,9 +100,11 @@ export const HubDevicePicker = () => {
                   ? 'this device'
                   : unreachable
                     ? 'not responding'
-                    : device.online
-                      ? 'available'
-                      : 'offline';
+                    : castBlocked
+                      ? 'no preview support'
+                      : device.online
+                        ? 'available'
+                        : 'offline';
         const isHidden = hidden.has(device.id);
         return (
             // The hide/unhide control is a SIBLING of the menu item, not its child: a
@@ -105,7 +116,9 @@ export const HubDevicePicker = () => {
             >
                 <DropdownMenu.Item
                     closeMenuOnClick={false}
-                    disabled={!isHubDeviceTransferable(device) || device.id === activeId}
+                    disabled={
+                        !isHubDeviceTransferable(device) || device.id === activeId || castBlocked
+                    }
                     onClick={() => transfer(device.id)}
                     rightSection={
                         <Text isMuted size="xs">
@@ -151,6 +164,19 @@ export const HubDevicePicker = () => {
                     <DropdownMenu.Item disabled>No devices found</DropdownMenu.Item>
                 )}
                 {visible.map(renderRow)}
+                {/* A disabled row explains nothing on its own and a tooltip on
+                    one never fires, so the reason goes in the menu itself —
+                    once, not per row. */}
+                {previewBlocked && visible.some(isCastTarget) && (
+                    <DropdownMenu.Item
+                        closeMenuOnClick={false}
+                        onClick={() => toast.show({ message: previewBlocked })}
+                    >
+                        <Text isMuted size="xs">
+                            {previewBlocked}
+                        </Text>
+                    </DropdownMenu.Item>
+                )}
                 {extra.length > 0 && (
                     <>
                         <DropdownMenu.Divider />

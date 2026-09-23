@@ -26,10 +26,6 @@ import { LbBotFailureKind, LbBotResolvedEdition } from '/@/shared/types/lbbot-ty
  * what the downloads view lists and what a retry re-issues from.
  */
 
-/** How long a *running* fill is watched before we stop believing in it — see
- *  WATCH_TIMEOUT_MS in use-lbbot. A finished one is history and outlives this. */
-const FILL_MAX_AGE_MS = 20 * 60 * 1000;
-
 /** How long a finished row stays readable, and how many are kept at all. */
 const LEDGER_RETAIN_MS = 7 * 24 * 60 * 60 * 1000;
 const LEDGER_MAX = 50;
@@ -39,10 +35,19 @@ export interface ActiveFill {
      *  later, on a page with no artist behind it, and by then lb-bot may have
      *  forgotten the fill entirely — its own record of these is in memory. */
     album?: string;
+    /** Started with the MP3 opt-in, so a Retry re-sends it. */
+    allowMp3?: boolean;
     artist?: string;
     /** How many fills lb-bot has recorded for this release. Its count, not ours —
      *  it survives an lb-bot restart and includes its own automatic retries. */
     attempts?: number;
+    /** Live progress, as the last poll or push reported it. Kept on the row so
+     *  the downloads view renders a bar without a read of its own. */
+    bytesDone?: number;
+    bytesTotal?: number;
+    /** The server's Cancel rule for this fill (PROTOCOL §15). */
+    cancellable?: boolean;
+    done?: number;
     /** The pressing the user actually chose. Kept so a Retry re-sends it instead of
      *  letting lb-bot re-resolve the release-group to "official, earliest" — which
      *  silently overrules the choice *and* re-enters its five-minute MusicBrainz
@@ -51,6 +56,7 @@ export interface ActiveFill {
     /** Peers "Try another source" has already ruled out for this album, so a
      *  second go does not hand the fill back to the first slow peer. */
     excludedPeers?: string[];
+    failedFiles?: number;
     /** What kind of failure this was, from lb-bot rather than inferred from the
      *  wording of `reason`. Empty on anything that has not failed. */
     failureKind?: LbBotFailureKind;
@@ -58,12 +64,22 @@ export interface ActiveFill {
     /** lb-bot's *review group* id, learned from a status poll. Not the rgid: Allow
      *  MP3 is keyed on this, and sending the rgid instead silently no-ops. */
     groupId?: string;
+    /** When a poll last reached lb-bot for this row, and what the last failed
+     *  poll said. A failed poll is NOT `unknown`: it leaves the state alone and
+     *  says "can't reach" — see `applyFillStatus`. */
+    lastCheckedAt?: number;
+    lastError?: string;
+    lastErrorTicks?: number;
+    /** When the row last MOVED — state, files or bytes. Expiry is measured from
+     *  here, not from the tap: a slow peer is not a dead fill. */
+    lastProgressAt?: number;
     /** The peer lb-bot actually queued from, learned from a status poll — the one
      *  to exclude when the user asks for another source. */
     lastSource?: string;
     /** The search rejected mp3s and would have found something with them. */
     mp3WouldHelp?: boolean;
     outcome?: FillOutcome;
+    percent?: number;
     /** The quality override the download was started with; '' = lb-bot's default. */
     quality: string;
     /** lb-bot's own sentence for a failure. Shown verbatim — it names the cause. */
@@ -73,15 +89,24 @@ export interface ActiveFill {
     /** Whether a plain Retry is worth offering, per lb-bot. False for a format
      *  rejection MP3 would fix: that retry re-runs the same rejected search. */
     retryable?: boolean;
+    /** Epoch ms when lb-bot's own automatic retry fires; 0 when none is pending. */
+    retryAt?: number;
     rgid: string;
     /** Set once the fill reached a terminal state, so the page can stop polling. */
     settled: boolean;
     /** The peer the user picked, if any, so a retry re-issues the same request. */
     sourceFolder?: string;
     sourcePeer?: string;
+    speedBps?: number;
     startedAt: number;
     /** Last state lb-bot reported, kept so a settled row can explain itself. */
     state?: string;
+    total?: number;
+    /** Since when lb-bot has answered `unknown` for a fill we think is running,
+     *  or 0. Bounded patience: see `applyFillStatus`. */
+    unknownSince?: number;
+    /** `placed` past lb-bot's verify deadline — on disk, not in Navidrome. */
+    verifyGaveUp?: boolean;
 }
 
 /** A gap fill, keyed by lb-bot review group id. Same reasoning as ActiveFill: a
@@ -90,14 +115,23 @@ export interface ActiveFill {
 export interface ActiveGap {
     album?: string;
     artist?: string;
+    cancellable?: boolean;
+    done?: number;
+    failedFiles?: number;
     finishedAt?: number;
     groupId: string;
+    lastCheckedAt?: number;
+    lastError?: string;
+    lastErrorTicks?: number;
+    lastProgressAt?: number;
     mp3WouldHelp?: boolean;
     outcome?: FillOutcome;
+    percent?: number;
     reason?: string;
     settled: boolean;
     startedAt: number;
     state?: string;
+    total?: number;
 }
 
 /**
@@ -112,12 +146,15 @@ export type FillOutcome = 'cancelled' | 'done' | 'failed' | 'gaveUp' | 'needsPic
  *  outcome and nothing else, while a poll knows the state and the reason too. */
 export interface SettleInfo {
     attempts?: number;
+    cancellable?: boolean;
     failureKind?: LbBotFailureKind;
     mp3WouldHelp?: boolean;
     outcome: FillOutcome;
     reason?: string;
     retryable?: boolean;
+    retryAt?: number;
     state?: string;
+    verifyGaveUp?: boolean;
 }
 
 interface ActiveFillsState {
@@ -125,6 +162,10 @@ interface ActiveFillsState {
         clear: () => void;
         describe: (key: string, info: Partial<ActiveFill & ActiveGap>) => void;
         dismiss: (key: string) => void;
+        /** A poll reached (error '') or failed to reach (error set) lb-bot for
+         *  this row. Separate from `describe`, which ignores empty strings —
+         *  clearing an error IS the news here. */
+        noteCheck: (key: string, error: string) => void;
         reopen: (rgid: string, releaseMbid: string) => void;
         setQuality: (quality: string) => void;
         settle: (rgid: string, info?: SettleInfo) => void;
@@ -144,19 +185,21 @@ interface ActiveFillsState {
 }
 
 /**
- * Two retention rules, because a running row and a finished one answer different
- * questions. Running rows still expire at the twenty-minute watch window; finished
- * ones are history, kept a week and capped so a heavy week can't grow the store
- * without bound.
+ * Finished rows are history, kept a week and capped so a heavy week can't grow
+ * the store without bound. A RUNNING row is never pruned here: this used to
+ * delete unsettled rows older than twenty minutes outright, so a fill still
+ * running at a slow peer — or one lb-bot had forgotten — vanished from the
+ * downloads view with no outcome and no announcement. Expiry is a *settle*
+ * (`gaveUp`), decided by the watcher against the row's last progress, and a
+ * settled row is what gets pruned.
  */
 const prune = <T extends { finishedAt?: number; settled: boolean; startedAt: number }>(
     entries: Record<string, T>,
 ): Record<string, T> => {
     const now = Date.now();
-    const kept = Object.entries(entries ?? {}).filter(([, entry]) =>
-        entry.settled
-            ? now - (entry.finishedAt ?? entry.startedAt) < LEDGER_RETAIN_MS
-            : now - entry.startedAt < FILL_MAX_AGE_MS,
+    const kept = Object.entries(entries ?? {}).filter(
+        ([, entry]) =>
+            !entry.settled || now - (entry.finishedAt ?? entry.startedAt) < LEDGER_RETAIN_MS,
     );
     if (kept.length <= LEDGER_MAX) return Object.fromEntries(kept);
     return Object.fromEntries(
@@ -208,6 +251,39 @@ export const useActiveFillsStore = create<ActiveFillsState>()(
                         const { [key]: droppedGap, ...gaps } = state.gaps;
                         return droppedFill || droppedGap ? { fills, gaps } : state;
                     }),
+                noteCheck: (key, error) =>
+                    set((state) => {
+                        const target = state.fills[key] ? 'fills' : state.gaps[key] ? 'gaps' : null;
+                        if (!target) return state;
+                        const current = state[target][key] as unknown as ActiveFill & ActiveGap;
+                        const ticks = error ? (current.lastErrorTicks ?? 0) + 1 : 0;
+                        if (
+                            current.lastError === error &&
+                            current.lastErrorTicks === ticks &&
+                            (error || current.lastCheckedAt)
+                        ) {
+                            // Nothing new but the clock — see `describe` on why an
+                            // identical row must not be replaced.
+                            if (
+                                !error &&
+                                current.lastCheckedAt &&
+                                Date.now() - current.lastCheckedAt < 1000
+                            ) {
+                                return state;
+                            }
+                        }
+                        return {
+                            [target]: {
+                                ...state[target],
+                                [key]: {
+                                    ...current,
+                                    lastCheckedAt: error ? current.lastCheckedAt : Date.now(),
+                                    lastError: error,
+                                    lastErrorTicks: ticks,
+                                },
+                            },
+                        } as Partial<ActiveFillsState>;
+                    }),
                 /** Re-open a settled row for another attempt, keeping its display fields
                  *  so the history stays one line per album rather than one per attempt. */
                 reopen: (rgid, releaseMbid) =>
@@ -218,14 +294,26 @@ export const useActiveFillsStore = create<ActiveFillsState>()(
                                       ...state.fills,
                                       [rgid]: {
                                           ...state.fills[rgid],
+                                          bytesDone: 0,
+                                          bytesTotal: 0,
+                                          cancellable: true,
+                                          done: 0,
+                                          failedFiles: 0,
                                           failureKind: undefined,
                                           finishedAt: undefined,
+                                          lastError: '',
+                                          lastErrorTicks: 0,
+                                          lastProgressAt: Date.now(),
                                           outcome: 'running',
+                                          percent: 0,
                                           reason: undefined,
                                           releaseMbid: releaseMbid || state.fills[rgid].releaseMbid,
+                                          retryAt: 0,
                                           settled: false,
                                           startedAt: Date.now(),
                                           state: undefined,
+                                          unknownSince: 0,
+                                          verifyGaveUp: false,
                                       },
                                   },
                               }
@@ -241,8 +329,12 @@ export const useActiveFillsStore = create<ActiveFillsState>()(
                                       [rgid]: {
                                           ...state.fills[rgid],
                                           ...info,
+                                          cancellable: info?.cancellable ?? false,
                                           finishedAt: Date.now(),
+                                          lastError: '',
+                                          lastErrorTicks: 0,
                                           outcome: info?.outcome ?? 'gaveUp',
+                                          retryAt: info?.retryAt ?? 0,
                                           settled: true,
                                       },
                                   },
@@ -258,7 +350,10 @@ export const useActiveFillsStore = create<ActiveFillsState>()(
                                       [groupId]: {
                                           ...state.gaps[groupId],
                                           ...info,
+                                          cancellable: false,
                                           finishedAt: Date.now(),
+                                          lastError: '',
+                                          lastErrorTicks: 0,
                                           outcome: info?.outcome ?? 'gaveUp',
                                           settled: true,
                                       },
@@ -276,14 +371,28 @@ export const useActiveFillsStore = create<ActiveFillsState>()(
                                 // is displayed under.
                                 ...state.fills[rgid],
                                 ...meta,
+                                bytesDone: 0,
+                                bytesTotal: 0,
+                                cancellable: true,
+                                done: 0,
+                                failedFiles: 0,
+                                failureKind: undefined,
                                 finishedAt: undefined,
+                                lastError: '',
+                                lastErrorTicks: 0,
+                                lastProgressAt: Date.now(),
                                 outcome: 'running',
+                                percent: 0,
                                 quality,
                                 reason: undefined,
                                 releaseMbid,
+                                retryAt: 0,
                                 rgid,
                                 settled: false,
                                 startedAt: Date.now(),
+                                state: undefined,
+                                unknownSince: 0,
+                                verifyGaveUp: false,
                             },
                         },
                     })),
@@ -294,12 +403,17 @@ export const useActiveFillsStore = create<ActiveFillsState>()(
                             [groupId]: {
                                 ...state.gaps[groupId],
                                 ...meta,
+                                cancellable: false,
                                 finishedAt: undefined,
                                 groupId,
+                                lastError: '',
+                                lastErrorTicks: 0,
+                                lastProgressAt: Date.now(),
                                 outcome: 'running',
                                 reason: undefined,
                                 settled: false,
                                 startedAt: Date.now(),
+                                state: undefined,
                             },
                         },
                     })),
@@ -318,10 +432,10 @@ export const useActiveFillsStore = create<ActiveFillsState>()(
                     preferredQuality: saved.preferredQuality ?? '',
                 };
             },
-            // Every field added in v3 is optional and every old row was, by
-            // definition, unsettled — so v2 data is readable as-is. Without an explicit
-            // migrate zustand discards mismatched state outright, which would silently
-            // drop a download in flight across the update.
+            // Every field added in v3 and v4 is optional, so older data is readable
+            // as-is. Without an explicit migrate zustand discards mismatched state
+            // outright, which would silently drop a download in flight across the
+            // update.
             migrate: (persisted) => persisted as ActiveFillsState,
             name: 'store_lbbot_fills',
             // Never the action closures. Settled rows now DO persist — they are the
@@ -331,7 +445,7 @@ export const useActiveFillsStore = create<ActiveFillsState>()(
                 gaps: prune(state.gaps),
                 preferredQuality: state.preferredQuality,
             }),
-            version: 3,
+            version: 4,
         },
     ),
 );
@@ -355,6 +469,12 @@ export interface LedgerRow {
     /** lb-bot's own attempt count, including its automatic retries. 0 when it
      *  predates the field, which is why the view only shows it above 1. */
     attempts: number;
+    bytesDone: number;
+    bytesTotal: number;
+    cancellable: boolean;
+    done: number;
+    /** Files that failed inside a fill that is otherwise progressing. */
+    failed: number;
     /** What kind of failure, from lb-bot rather than inferred from `reason`'s
      *  wording. Empty on a gap fill, which has no equivalent, and on any row
      *  recorded before lb-bot carried the field. */
@@ -365,30 +485,55 @@ export interface LedgerRow {
     groupId: string;
     isGap: boolean;
     key: string;
+    lastCheckedAt: number;
+    lastError: string;
+    lastErrorTicks: number;
+    /** The peer the current transfer is from, for the sub-line. */
+    lastSourcePeer: string;
     mp3WouldHelp: boolean;
     /** Peers a "Try another source" would exclude: the one lb-bot queued from and
      *  any ruled out before. Empty when no peer is known yet, or for a gap. */
     otherSourceExcludes: string[];
     outcome: FillOutcome;
+    percent: number;
     reason: string;
     /** Whether a plain Retry is worth offering. True for a gap fill and for any
      *  row predating the field — absent means unknown, and hiding the only
      *  action on a guess is worse than offering one that may not help. */
     retryable: boolean;
+    retryAt: number;
     rgid: string;
     settled: boolean;
     sortAt: number;
+    speedBps: number;
     state: string;
+    total: number;
+    verifyGaveUp: boolean;
 }
 
 const toRow = (entry: ActiveFill | ActiveGap, isGap: boolean): LedgerRow => ({
     album: entry.album ?? '',
     artist: entry.artist ?? '',
     attempts: isGap ? 0 : ((entry as ActiveFill).attempts ?? 0),
+    bytesDone: isGap ? 0 : ((entry as ActiveFill).bytesDone ?? 0),
+    bytesTotal: isGap ? 0 : ((entry as ActiveFill).bytesTotal ?? 0),
+    // Absent means an older row: fall back to the states the server would say.
+    cancellable:
+        entry.cancellable ??
+        (!entry.settled &&
+            (isGap
+                ? entry.state === 'downloading'
+                : ['', 'downloading', 'queued', 'searching', undefined].includes(entry.state))),
+    done: entry.done ?? 0,
+    failed: entry.failedFiles ?? 0,
     failureKind: isGap ? '' : ((entry as ActiveFill).failureKind ?? ''),
     groupId: isGap ? (entry as ActiveGap).groupId : ((entry as ActiveFill).groupId ?? ''),
     isGap,
     key: isGap ? (entry as ActiveGap).groupId : (entry as ActiveFill).rgid,
+    lastCheckedAt: entry.lastCheckedAt ?? 0,
+    lastError: entry.lastError ?? '',
+    lastErrorTicks: entry.lastErrorTicks ?? 0,
+    lastSourcePeer: isGap ? '' : ((entry as ActiveFill).lastSource ?? ''),
     mp3WouldHelp: entry.mp3WouldHelp ?? false,
     otherSourceExcludes: isGap
         ? []
@@ -402,12 +547,17 @@ const toRow = (entry: ActiveFill | ActiveGap, isGap: boolean): LedgerRow => ({
               ),
           ],
     outcome: entry.outcome ?? (entry.settled ? 'gaveUp' : 'running'),
+    percent: entry.percent ?? 0,
     reason: entry.reason ?? '',
     retryable: isGap ? true : ((entry as ActiveFill).retryable ?? true),
+    retryAt: isGap ? 0 : ((entry as ActiveFill).retryAt ?? 0),
     rgid: isGap ? '' : (entry as ActiveFill).rgid,
     settled: entry.settled,
     sortAt: entry.finishedAt ?? entry.startedAt,
+    speedBps: isGap ? 0 : ((entry as ActiveFill).speedBps ?? 0),
     state: entry.state ?? '',
+    total: entry.total ?? 0,
+    verifyGaveUp: isGap ? false : ((entry as ActiveFill).verifyGaveUp ?? false),
 });
 
 /**

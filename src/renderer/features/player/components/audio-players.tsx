@@ -46,6 +46,7 @@ import {
     updateQueueFavorites,
     updateQueueRatings,
     useCurrentServerId,
+    useHubActions,
     usePlaybackSettings,
     usePlaybackType,
     useSettingsStoreActions,
@@ -352,6 +353,11 @@ const AudioPlayersContent = ({
     }, [audioContext, audioDeviceId, playbackType]);
 
     // Listen to favorite and rating events to update queue songs
+    // navi-connect: the mirrored remote queue is the playerbar's source while
+    // another device is active, so a local rating/favorite edit has to reach it
+    // too. See `patchRemoteTracks`'s doc in `hub.store`.
+    const { patchRemoteTracks } = useHubActions();
+
     useEffect(() => {
         const handleFavorite = (payload: UserFavoriteEventPayload) => {
             if (payload.itemType !== LibraryItem.SONG || payload.serverId !== serverId) {
@@ -359,6 +365,12 @@ const AudioPlayersContent = ({
             }
 
             updateQueueFavorites(payload.id, payload.favorite);
+            // navi-connect: and the mirrored remote queue, which is what the
+            // playerbar reads from while playback is on another device. Without
+            // this the optimistic update lands only in the player store, which
+            // nothing is reading then — so the control did not move until the
+            // remote device next republished its queue.
+            patchRemoteTracks(payload.id, { favorite: payload.favorite });
         };
 
         const handleRating = (payload: UserRatingEventPayload) => {
@@ -367,6 +379,7 @@ const AudioPlayersContent = ({
             }
 
             updateQueueRatings(payload.id, payload.rating);
+            patchRemoteTracks(payload.id, { rating: payload.rating });
         };
 
         eventEmitter.on('USER_FAVORITE', handleFavorite);
@@ -376,7 +389,7 @@ const AudioPlayersContent = ({
             eventEmitter.off('USER_FAVORITE', handleFavorite);
             eventEmitter.off('USER_RATING', handleRating);
         };
-    }, [serverId]);
+    }, [serverId, patchRemoteTracks]);
 
     if (playbackType === PlayerType.LOCAL) {
         return <MpvPlayer />;

@@ -1,6 +1,7 @@
 import { useDiscoverCapabilities } from '/@/renderer/features/discover/use-discover-capabilities';
 import { useLbBotAvailable } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { AppRoute } from '/@/renderer/router/routes';
+import { useHubConnected } from '/@/renderer/store/hub.store';
 import { SidebarItemType } from '/@/renderer/store/settings.store';
 
 /**
@@ -19,6 +20,7 @@ import { SidebarItemType } from '/@/renderer/store/settings.store';
  */
 export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
     const lbBotAvailable = useLbBotAvailable();
+    const hubConnected = useHubConnected();
     const { hasSources } = useDiscoverCapabilities();
 
     const items: SidebarItemType[] = [];
@@ -26,6 +28,17 @@ export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
     // the rediscovery set, so its gate is "is anything feeding this screen".
     if (hasSources) {
         items.push({ disabled: false, id: 'Discover', label: 'Discover', route: AppRoute.EXPLORE });
+    }
+    // Mixes are hub state, so the gate is the hub itself rather than any
+    // service behind it — and a hub that is down means there are genuinely no
+    // mixes to show, not a page that could explain itself.
+    if (hubConnected) {
+        items.push({
+            disabled: false,
+            id: 'Mixes',
+            label: 'Mixed for You',
+            route: AppRoute.MIXES,
+        });
     }
     if (lbBotAvailable) {
         items.push(

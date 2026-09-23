@@ -5,6 +5,7 @@ import { useCallback } from 'react';
 import { api } from '/@/renderer/api';
 import { queryKeys } from '/@/renderer/api/query-keys';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
+import { isPreviewId } from '/@/renderer/features/preview/preview-track';
 import {
     uniqueSeekToTimestamp,
     updateQueueSong,
@@ -23,6 +24,14 @@ export const useUpdateCurrentSong = () => {
             const currentSong = properties.song;
 
             if (!currentSong?.id || !currentSong?._serverId) {
+                return;
+            }
+
+            // navi-connect: a preview has no library row behind it. Asking is an
+            // error log per track, and an answer — if the server ever gave one
+            // for a coincidentally-matching id — would replace the track with a
+            // Song carrying no `_previewStreamUrl`, i.e. silence.
+            if (isPreviewId(currentSong.id)) {
                 return;
             }
 
