@@ -10,6 +10,8 @@ import type {
     LbBotFreshFeed,
     LbBotGap,
     LbBotGapSource,
+    LbBotIndexKeys,
+    LbBotIndexPage,
     LbBotMeta,
     LbBotReleaseDetail,
     LbBotResolvedEdition,
@@ -40,6 +42,16 @@ const status = (): Promise<LbBotStatus> => ipcRenderer.invoke('lbbot-status');
 
 const discography = (ndId: string, mbid?: string): Promise<LbBotDiscography | null> =>
     ipcRenderer.invoke('lbbot-discography', { mbid, ndId });
+
+/** One page of lb-bot's index change feed: everything with a seq above
+ *  `since`, or `resync` when `epoch` is not the server's. Result-shaped so the
+ *  mirror's sync can tell the hub's 503 "busy" from a failure. */
+const indexChanges = (since: number, epoch: string): Promise<LbBotResult<LbBotIndexPage>> =>
+    ipcRenderer.invoke('lbbot-index-changes', { epoch, since });
+
+/** Every indexed artist's `{key, seq}` — the drift check's reference list. */
+const indexKeys = (): Promise<LbBotResult<LbBotIndexKeys>> =>
+    ipcRenderer.invoke('lbbot-index-keys');
 
 const indexArtist = (ndId: string, mbid: string, name: string): Promise<null | string> =>
     ipcRenderer.invoke('lbbot-index-artist', { mbid, name, ndId });
@@ -259,6 +271,8 @@ export const lbBot = {
     gapSearch,
     gapSourceFiles,
     indexArtist,
+    indexChanges,
+    indexKeys,
     indexRelease,
     metaAlbum,
     metaArtist,

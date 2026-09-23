@@ -22,6 +22,9 @@ import type {
     LbBotGapTask,
     LbBotGapTrack,
     LbBotGapTrackState,
+    LbBotIndexItem,
+    LbBotIndexKeys,
+    LbBotIndexPage,
     LbBotLinkKind,
     LbBotMeta,
     LbBotMetaCredit,
@@ -410,6 +413,132 @@ ipcMain.handle(
         };
     },
 );
+
+// ---------------------------------------------------------------------------
+// Index change feed — the renderer's local mirror pulls these
+// ---------------------------------------------------------------------------
+
+// PLAN-lbbot-index-mirror-2026-09-23, contract §1a. The renderer keeps a full
+// copy of lb-bot's library index in IndexedDB and advances it through this
+// feed; these two handlers only fetch and normalize. Everything that decides
+// what to *do* with a page (apply, resync, drift) lives in the renderer's
+// `features/lbbot/index-mirror`, next to the store it changes.
+//
+// `LbBotResult`, not the fail-soft `get()`: the sync has to tell a 503 — the
+// hub's one-slot sync pool is taken, back off and keep the cursor — from a 404
+// (a hub too old to proxy the feed, stop asking) from a malformed answer.
+//
+// A page is capped at ~2 MB upstream and can take lb-bot a while to assemble on
+// a first pull, but the sync runs one request at a time and a hung one would
+// stall every later trigger behind it — so it gets a ceiling of its own.
+const INDEX_SYNC_TIMEOUT_MS = 60_000;
+
+/** A non-negative integer, or null — a sequence value that is anything else is
+ *  a malformed answer, not a zero. */
+const seqOf = (value: unknown): null | number =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+
+const toIndexEnvelope = (d: Json) => ({
+    epoch: str(d.epoch),
+    headSeq: seqOf(d.headSeq) ?? 0,
+    scanVersion: num(d.scanVersion),
+    ttlDays: num(d.ttlDays),
+});
+
+const toIndexItem = (raw: unknown): LbBotIndexItem[] => {
+    if (!raw || typeof raw !== 'object') return [];
+    const r = raw as Json;
+    const key = str(r.key);
+    const seq = seqOf(r.seq);
+    // Without a key and a seq an item cannot be applied or ordered; dropping it
+    // is safe, because the drift check at the end of the pull will notice the
+    // artist is missing and fetch it again.
+    if (!key || seq === null) return [];
+    if (r.type === 'tombstone') return [{ key, seq, type: 'tombstone' }];
+    if (r.type !== 'artist') return [];
+    return [
+        {
+            key,
+            mbid: str(r.mbid),
+            name: str(r.name),
+            ndArtistId: str(r.ndArtistId),
+            rows: Array.isArray(r.rows) ? r.rows.flatMap(toRelease) : [],
+            scannedAt: num(r.scannedAt),
+            scanVersion: num(r.scanVersion),
+            seq,
+            type: 'artist',
+        },
+    ];
+};
+
+ipcMain.handle(
+    'lbbot-index-changes',
+    async (
+        _event,
+        args: { epoch: string; since: number },
+    ): Promise<LbBotResult<LbBotIndexPage>> => {
+        const since = seqOf(args.since) ?? 0;
+        const result = await request('GET', '/lb/index/changes', {
+            // `request` drops empty params, so an empty epoch — a mirror that has
+            // never synced — is simply not sent, which lb-bot reads as "no check".
+            params: { epoch: args.epoch ?? '', since: String(since) },
+            timeoutMs: INDEX_SYNC_TIMEOUT_MS,
+        });
+        if (!result.ok) return failed(result.status, result.error);
+        const d = result.data ?? {};
+        const envelope = toIndexEnvelope(d);
+        if (!envelope.epoch)
+            return failed(result.status, 'lb-bot answered without an index epoch.');
+        if (d.resync === true) {
+            return {
+                data: { ...envelope, resync: true },
+                error: '',
+                ok: true,
+                status: result.status,
+            };
+        }
+        const nextSince = seqOf(d.nextSince);
+        if (!Array.isArray(d.items) || nextSince === null) {
+            return failed(result.status, 'lb-bot answered a malformed index page.');
+        }
+        return {
+            data: {
+                ...envelope,
+                artistCount: seqOf(d.artistCount) ?? 0,
+                items: d.items.flatMap(toIndexItem),
+                more: d.more === true,
+                nextSince,
+                resync: false,
+                seqSum: seqOf(d.seqSum) ?? 0,
+            },
+            error: '',
+            ok: true,
+            status: result.status,
+        };
+    },
+);
+
+ipcMain.handle('lbbot-index-keys', async (): Promise<LbBotResult<LbBotIndexKeys>> => {
+    const result = await request('GET', '/lb/index/keys', { timeoutMs: INDEX_SYNC_TIMEOUT_MS });
+    if (!result.ok) return failed(result.status, result.error);
+    const d = result.data ?? {};
+    const epoch = str(d.epoch);
+    if (!epoch || !Array.isArray(d.keys)) {
+        return failed(result.status, 'lb-bot answered a malformed index key list.');
+    }
+    const keys = d.keys.flatMap((raw: unknown) => {
+        if (!raw || typeof raw !== 'object') return [];
+        const key = str((raw as Json).key);
+        const seq = seqOf((raw as Json).seq);
+        return key && seq !== null ? [{ key, seq }] : [];
+    });
+    return {
+        data: { epoch, headSeq: seqOf(d.headSeq) ?? 0, keys },
+        error: '',
+        ok: true,
+        status: result.status,
+    };
+});
 
 // ---------------------------------------------------------------------------
 // Fresh releases

@@ -4,7 +4,7 @@ import { DISCOVER_ROWS, DiscoverCapability, DiscoverRowDefinition } from './disc
 
 import {
     useLbBotAvailable,
-    useLbBotStatusRoutes,
+    useLbBotRouteSupport,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { fetchClapAvailable } from '/@/renderer/features/player/auto-dj/audio-muse-source';
 import { useAudioMuseSettings } from '/@/renderer/store/settings.store';
@@ -13,8 +13,9 @@ import { useAudioMuseSettings } from '/@/renderer/store/settings.store';
  * One answer for every Discover row, instead of six.
  *
  * Nothing here is a new mechanism — both probes already exist and are already
- * the right shape. `/lb/status` returns the list of routes the hub actually
- * serves, built for the permanent "my client is newer than its hub" condition;
+ * the right shape. The hub states the routes it actually serves — in its
+ * `welcome` (`welcome.lb`), or through `/lb/status` for a hub older than that —
+ * built for the permanent "my client is newer than its hub" condition;
  * `/sonic/clap/stats` always answers 200 with a `configured` flag so a caller
  * learns the feature is off rather than reading an error. What was missing is
  * that the two are unrelated systems — one react-query, one an imperative
@@ -26,7 +27,7 @@ import { useAudioMuseSettings } from '/@/renderer/store/settings.store';
  */
 export const useDiscoverCapabilities = () => {
     const lbBotAvailable = useLbBotAvailable();
-    const routes = useLbBotStatusRoutes();
+    const supportsRoute = useLbBotRouteSupport();
     const audioMuse = useAudioMuseSettings();
 
     const clap = useQuery<boolean>({
@@ -44,13 +45,9 @@ export const useDiscoverCapabilities = () => {
             case 'clap':
                 return clap.data === true;
             case 'lbbot':
-                // An empty route list is an older hub that does not advertise at
-                // all: assume supported rather than hiding a feature that
-                // probably works. Matches `useHubSupports`.
-                return (
-                    lbBotAvailable &&
-                    (!routes || routes.length === 0 || routes.includes(capability.route))
-                );
+                // The same route reading as `useHubSupports`, including its "an
+                // empty list is an older hub that does not advertise" rule.
+                return lbBotAvailable && supportsRoute(capability.route);
             case 'library':
                 return true;
             default:

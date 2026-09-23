@@ -20,6 +20,7 @@ import type {
     LbBotSimilarAlbums,
     LbBotSimilarArtists,
     LbBotSourceFiles,
+    LbBotStatus,
     LbBotTracklist,
     LbBotWishlist,
 } from '/@/shared/types/lbbot-types';
@@ -43,8 +44,9 @@ import {
     sameArtist,
 } from '/@/renderer/features/lbbot/utils/album-match';
 import { artistLinkPath } from '/@/renderer/features/lbbot/utils/external-paths';
+import { queryClient } from '/@/renderer/lib/react-query';
 import { useCurrentServerId } from '/@/renderer/store';
-import { useHubConnected } from '/@/renderer/store/hub.store';
+import { useHubConnected, useHubStore } from '/@/renderer/store/hub.store';
 import { toast } from '/@/shared/components/toast/toast';
 import { AlbumArtistListSort, AlbumListSort, SortOrder } from '/@/shared/types/domain-types';
 
@@ -149,9 +151,20 @@ export const withoutOwned = (releases: LbBotRelease[], ownedTitles: string[]): L
     });
 };
 
-const useLbBotStatus = () =>
-    useQuery({
-        enabled: !!lbBot,
+/**
+ * What the hub says about lb-bot: whether it is reachable, and which routes the
+ * hub proxies.
+ *
+ * **`welcome.lb` first.** A hub new enough to mirror lb-bot's index states both
+ * in every `welcome` (`adoptLbBotWelcome`), so no page waits on a `/lb/status`
+ * round trip before its first lb-bot read — the probe used to gate every one.
+ * An older hub sends no `lb`, and then the probe below answers exactly as it
+ * always has; it is disabled, not removed, while the welcome's answer stands.
+ */
+const useLbBotStatus = (): LbBotStatus | undefined => {
+    const advertised = useHubStore((state) => state.lbStatus);
+    const probe = useQuery({
+        enabled: !!lbBot && !advertised,
         gcTime: Infinity,
         queryFn: () => lbBot!.status(),
         queryKey: ['lbbot', 'status'],
@@ -159,9 +172,42 @@ const useLbBotStatus = () =>
         // "off" forever — but don't re-probe on every artist page either.
         staleTime: 10 * 60 * 1000,
     });
+    return advertised ?? probe.data;
+};
 
-/** Whether the lb-bot layer is reachable at all. One probe per session. */
-export const useLbBotAvailable = (): boolean => useLbBotStatus().data?.available === true;
+/**
+ * Take the hub's `welcome.lb` — or its absence — as the lb-bot status for this
+ * connection, and invalidate the probe.
+ *
+ * Called on EVERY welcome, i.e. on every (re)connect: a hub that restarted may
+ * have gained or lost LBBOT_URL, been upgraded, or been swapped for an older one
+ * at the same address. A welcome with no `lb` clears the stored answer, which
+ * re-enables the probe; the invalidation makes that probe ask again rather than
+ * serve its answer from the previous connection.
+ */
+export const adoptLbBotWelcome = (lb: unknown): void => {
+    const raw = lb && typeof lb === 'object' ? (lb as Record<string, unknown>) : null;
+    const lbStatus: LbBotStatus | null =
+        raw && typeof raw.available === 'boolean'
+            ? {
+                  available: raw.available,
+                  routes: Array.isArray(raw.routes)
+                      ? raw.routes.filter((route): route is string => typeof route === 'string')
+                      : [],
+              }
+            : null;
+    useHubStore.getState().actions.setStore({ lbStatus });
+    void queryClient.invalidateQueries({ queryKey: ['lbbot', 'status'] });
+};
+
+/** Whether the lb-bot layer is reachable at all. */
+export const useLbBotAvailable = (): boolean => useLbBotStatus()?.available === true;
+
+/** The one reading of an advertised route list. An **empty** list is an older
+ *  hub that doesn't advertise at all: assume supported rather than hiding a
+ *  feature that probably works. */
+const routeAdvertised = (routes: string[] | undefined, route: string): boolean =>
+    !routes || routes.length === 0 || routes.includes(route);
 
 /**
  * Whether the hub in front of lb-bot proxies a given route.
@@ -169,23 +215,20 @@ export const useLbBotAvailable = (): boolean => useLbBotStatus().data?.available
  * This app ships independently of the hub, and the hub is a long-running process
  * that only picks up an edit when it restarts — so "my client is newer than my
  * hub" is a permanent condition, not an edge case, and without asking it shows
- * up as a button that silently 404s. An **empty** list is an older hub that
- * doesn't advertise at all: assume supported rather than hiding a feature that
- * probably works.
+ * up as a button that silently 404s.
  */
-export const useHubSupports = (route: string): boolean => {
-    const routes = useLbBotStatus().data?.routes;
-    return !routes || routes.length === 0 || routes.includes(route);
-};
+export const useHubSupports = (route: string): boolean =>
+    routeAdvertised(useLbBotStatus()?.routes, route);
 
 /**
- * The raw advertised route list, for a caller checking several routes at once.
- *
- * `useHubSupports` is the right shape for one route at a call site; the Discover
- * catalogue asks about a different route per row and would otherwise have to
- * call a hook in a loop.
+ * The same question as a predicate, for a caller checking several routes at
+ * once — the Discover catalogue asks about a different route per row and would
+ * otherwise have to call a hook in a loop.
  */
-export const useLbBotStatusRoutes = (): string[] | undefined => useLbBotStatus().data?.routes;
+export const useLbBotRouteSupport = (): ((route: string) => boolean) => {
+    const routes = useLbBotStatus()?.routes;
+    return useCallback((route: string) => routeAdvertised(routes, route), [routes]);
+};
 
 /**
  * An artist's full MusicBrainz discography as lb-bot indexed it.

@@ -46,6 +46,80 @@ export interface LbBotDownloadResult {
 }
 
 /**
+ * One artist of lb-bot's library index as the change feed ships it — the whole
+ * artist, every row, because a client only ever replaces an artist wholesale
+ * (PLAN-lbbot-index-mirror-2026-09-23 §1: "artist-level replace"). `rows` are
+ * the discography route's own wire rows, normalized once by the main process
+ * into the same `LbBotRelease` the network discography read produces, and kept
+ * in lb-bot's `year, title` order.
+ *
+ * `scannedAt`/`scanVersion` are shipped raw on purpose: `stale` is computed by
+ * the client against the envelope's `scanVersion`/`ttlDays`, so it cannot
+ * drift while nothing writes.
+ */
+export interface LbBotIndexArtist {
+    /** lb-bot's `artist_key`: the artist MBID, or `nd:<navidrome id>` for an
+     *  artist it has no MBID for. The mirror's primary key. */
+    key: string;
+    /** Empty for an artist lb-bot knows only by its Navidrome id. */
+    mbid: string;
+    name: string;
+    /** Empty for an external (`mb:`-only) artist the library does not hold. */
+    ndArtistId: string;
+    rows: LbBotRelease[];
+    /** Epoch seconds. 0 on a stub that was never scanned. */
+    scannedAt: number;
+    scanVersion: number;
+    /** The index sequence value that last touched this artist. */
+    seq: number;
+}
+
+/** The part of a change-feed answer that describes the index as a whole. */
+export interface LbBotIndexEnvelope {
+    epoch: string;
+    headSeq: number;
+    /** lb-bot's `INDEX_SCAN_VERSION`: an artist scanned by any other version is stale. */
+    scanVersion: number;
+    /** lb-bot's `LB_BOT_INDEX_TTL_DAYS`. */
+    ttlDays: number;
+}
+
+export type LbBotIndexItem =
+    | (LbBotIndexArtist & { type: 'artist' })
+    | (LbBotIndexTombstone & { type: 'tombstone' });
+
+/** `GET /lb/index/keys` — every artist's `{key, seq}`, for the drift check. */
+export interface LbBotIndexKeys {
+    epoch: string;
+    headSeq: number;
+    keys: { key: string; seq: number }[];
+}
+
+/**
+ * `GET /lb/index/changes?since&epoch` (contract §1a).
+ *
+ * `resync: true` carries the envelope and nothing else: the client's epoch is
+ * not the server's, or its cursor is past the server's head. It means "drop
+ * everything and pull again from 0" — the only answer that ever wipes a mirror.
+ */
+export type LbBotIndexPage =
+    | (LbBotIndexEnvelope & {
+          artistCount: number;
+          items: LbBotIndexItem[];
+          more: boolean;
+          nextSince: number;
+          resync: false;
+          seqSum: number;
+      })
+    | (LbBotIndexEnvelope & { resync: true });
+
+/** An artist key lb-bot deleted — only ever an `nd:` key superseded by its MBID. */
+export interface LbBotIndexTombstone {
+    key: string;
+    seq: number;
+}
+
+/**
  * Which copy of an album to prefer when several are on offer.
  *
  * Mirrors lb-bot's `QUALITY_PREFERENCES`. Held here rather than fetched because

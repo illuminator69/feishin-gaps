@@ -1,3 +1,5 @@
+import type { LbBotStatus } from '/@/shared/types/lbbot-types';
+
 import { shallow } from 'zustand/shallow';
 import { createWithEqualityFn } from 'zustand/traditional';
 
@@ -85,6 +87,14 @@ interface HubState {
     activeDeviceId: null | string;
     connected: boolean;
     devices: HubDevice[];
+    /**
+     * lb-bot's availability and the hub's proxied routes, as the hub stated them
+     * in its last `welcome` (`welcome.lb`). Null until a welcome carries one —
+     * which an older hub never does, and then the `/lb/status` probe answers
+     * instead (`useLbBotStatus`). Kept across a disconnect, like the probe's
+     * cached answer was: the next welcome replaces it.
+     */
+    lbStatus: LbBotStatus | null;
     myDeviceId: null | string;
     /** Whether the remote session is currently playing. */
     remoteIsPlaying: boolean;
@@ -105,6 +115,7 @@ const initialState: HubState = {
     activeDeviceId: null,
     connected: false,
     devices: [],
+    lbStatus: null,
     myDeviceId: null,
     remoteIsPlaying: false,
     remotePositionAt: 0,

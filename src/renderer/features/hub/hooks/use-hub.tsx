@@ -4,7 +4,16 @@ import { useCallback, useEffect, useRef } from 'react';
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { placeholderSong, resolveHubTracks } from '/@/renderer/features/hub/utils/resolve-songs';
-import { applyFillFrame, useLbBotLibraryRefresh } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import {
+    adoptLbBotWelcome,
+    applyFillFrame,
+    useLbBotLibraryRefresh,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import {
+    onIndexFrame,
+    requestIndexSync,
+    useLbBotIndexSync,
+} from '/@/renderer/features/lbbot/index-mirror/index-mirror';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
 import {
     consumeQueueSession,
@@ -1006,6 +1015,9 @@ export const useHub = () => {
     // Held in a ref so the long-lived message handler below can call it without
     // the socket effect having to re-subscribe when the query client changes.
     const refreshLibrary = useLbBotLibraryRefresh();
+    // The lb-bot index mirror: loaded from IndexedDB at startup, plus its
+    // 15-minute backstop pull. The welcome/index triggers are below.
+    useLbBotIndexSync();
     const libraryRefresh = useRef(refreshLibrary);
     libraryRefresh.current = refreshLibrary;
 
@@ -1070,6 +1082,14 @@ export const useHub = () => {
                 // and never published concurrently, so the hub's list IS the
                 // list and there is nothing local to merge back up.
                 useMixesStore.getState().actions.setMixes(mixesFromHub(msg.mixes));
+                // navi-connect: lb-bot. `lb` states availability and the proxied
+                // routes for this connection (absent from an older hub, which
+                // falls back to the /lb/status probe). Then pull the index
+                // mirror — on EVERY welcome, whatever `lbIndex` says: it is only
+                // a hint, an up-to-date pull costs ~100 bytes, and a notify
+                // missed while the hub was down would leave the hint stale.
+                adoptLbBotWelcome(msg.lb);
+                requestIndexSync('welcome');
                 // Hub is authoritative: adopt its session rather than pushing ours.
                 void adoptIfNoLiveReceiver(msg.session);
             } else if (msg.t === 'session') {
@@ -1125,6 +1145,13 @@ export const useHub = () => {
                 // uses (PROTOCOL §15.1).
                 if (typeof msg.key === 'string' && typeof msg.kind === 'string') {
                     applyFillFrame(msg);
+                }
+            } else if (msg.t === 'index') {
+                // lb-bot's library index moved. Like `fill`, NOT a library
+                // event: nothing is refetched and no cache is cleared — the
+                // local mirror pulls the delta and re-renders what reads it.
+                if (typeof msg.seq === 'number' && typeof msg.epoch === 'string') {
+                    onIndexFrame(msg.seq, msg.epoch);
                 }
             } else if (msg.t === 'do') {
                 void runDirective(msg);
