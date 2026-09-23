@@ -18,6 +18,7 @@ import {
 } from '/@/renderer/features/lbbot/index-mirror/mirror-logic';
 import { queryClient } from '/@/renderer/lib/react-query';
 import { useHubStore } from '/@/renderer/store/hub.store';
+import { useSettingsStore } from '/@/renderer/store/settings.store';
 
 /**
  * A local copy of lb-bot's library index, kept current through the hub.
@@ -41,6 +42,9 @@ import { useHubStore } from '/@/renderer/store/hub.store';
  *   interval (all wired in `use-hub.tsx`); one sync in flight, a trigger during
  *   one queues exactly one more. The rules — seq-gated artist replace, resync,
  *   drift — are the pure functions in `mirror-logic.ts`.
+ * - **Shown only while the hub is configured** (Ruling R21). Every read below
+ *   answers nothing while the hub is switched off in settings or lacks a URL
+ *   or a token — see {@link mirrorShown}. The store itself is kept.
  */
 
 const lbBot = isElectron() ? window.api.lbBot : null;
@@ -261,17 +265,32 @@ let feedMissing = false;
  * construction, taken immediately before the pull it exists for (Ruling R17).
  */
 let pendingWelcomeReset = false;
+/**
+ * lb-bot came up (an `lb` frame, R22) while a sync was running. The same
+ * deferral as {@link pendingWelcomeReset}, for the back-off alone: the run in
+ * flight started before lb-bot was up and may well end by scheduling a retry,
+ * which would then hold off the very pull the frame asked for. Applied once
+ * that run has settled, immediately before its queued follow-up.
+ */
+let pendingBackoffReset = false;
+
+/** Forget the back-off: no retry pending, and the next failure starts the
+ *  ladder again from its first step. */
+const resetBackoff = () => {
+    pendingBackoffReset = false;
+    retryAttempt = 0;
+    if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+        retryTimer = undefined;
+    }
+};
 
 /** A `welcome` is new information about the hub: forget what the previous
  *  connection taught (a 404, a back-off) and pull from scratch. */
 const applyWelcomeReset = () => {
     pendingWelcomeReset = false;
     feedMissing = false;
-    retryAttempt = 0;
-    if (retryTimer !== undefined) {
-        window.clearTimeout(retryTimer);
-        retryTimer = undefined;
-    }
+    resetBackoff();
 };
 
 /** The routes the hub advertises: `welcome.lb` when this hub sends it, else the
@@ -468,8 +487,34 @@ export const requestIndexSync = (trigger: IndexSyncTrigger): void => {
         running = null;
         const next = queued;
         queued = null;
+        // Owed by an `lb` frame that arrived during the run (see
+        // onLbBotAvailable): cleared before the replay, which a retry the run
+        // just scheduled would otherwise swallow.
+        if (pendingBackoffReset) resetBackoff();
         if (next) requestIndexSync(next);
     });
+};
+
+/**
+ * The hub says lb-bot is available again (an `lb` frame with `available: true`,
+ * Ruling R22): pull now, whatever back-off the sync was in.
+ *
+ * `requestIndexSync('index')` alone would be dropped while a retry is pending —
+ * right for a burst of `index` frames against a busy hub, wrong here: the
+ * back-off was almost certainly earned while lb-bot was down, and the frame is
+ * the news that ends it. So the ladder is reset first (deferred to the end of a
+ * run in flight, as a welcome's reset is), then the pull is asked for.
+ */
+export const onLbBotAvailable = (): void => {
+    if (!lbBot) return;
+    if (running) {
+        pendingBackoffReset = true;
+        // A queued welcome already resets everything and pulls.
+        if (queued !== 'welcome') queued = 'index';
+        return;
+    }
+    resetBackoff();
+    requestIndexSync('index');
 };
 
 /**
@@ -501,10 +546,45 @@ export const useLbBotIndexSync = (): void => {
 // Reading the mirror — the API artist and `mb:` pages consume
 // ---------------------------------------------------------------------------
 
+/** The predicate behind {@link mirrorShown}, over a given hub setting. */
+const hubConfigured = (hub?: { enabled: boolean; token: string; url: string }): boolean =>
+    Boolean(hub?.enabled && hub.url && hub.token);
+
+/**
+ * Whether the mirror is shown at all: the hub is switched on in settings and
+ * has a URL and a token (Ruling R21) — the same definition as Navic's
+ * `LbBotManager.isConfigured`, and as `hubRouteConfigured` in the AudioMuse
+ * client here. A preference read, not a probe.
+ *
+ * A hub the user switched off, or never set up, means "forget what the hub
+ * said" — the same principle that clears `lbStatus` on disable (R17b) — so
+ * every surface falls back to exactly what it shows with no hub. What this
+ * deliberately does NOT follow is `available`: lb-bot being down, or this
+ * machine being offline, is the case the mirror exists for, and it still
+ * renders then. Nothing is deleted either; the stored mirror stays in memory
+ * and on disk, so switching the hub back on shows it again at once.
+ */
+export const mirrorShown = (): boolean => hubConfigured(useSettingsStore.getState().hub);
+
+let watchingHubSetting = false;
+
+/** Re-render every reader when {@link mirrorShown} flips. The setting lives in
+ *  another store, so nothing else here would notice; one subscription for the
+ *  module, set up by the first reader, fired only on a flip. */
+const watchHubSetting = () => {
+    if (watchingHubSetting) return;
+    watchingHubSetting = true;
+    useSettingsStore.subscribe(
+        (state) => hubConfigured(state.hub),
+        () => notify(),
+    );
+};
+
 /** Called on every change that could alter a lookup. Subscribing starts the
  *  load if nothing has yet. */
 export const subscribeIndexMirror = (listener: () => void): (() => void) => {
     listeners.add(listener);
+    watchHubSetting();
     void loadIndexMirror();
     return () => {
         listeners.delete(listener);
@@ -514,14 +594,18 @@ export const subscribeIndexMirror = (listener: () => void): (() => void) => {
 export const getIndexMirrorSnapshot = (): IndexMirrorSnapshot => snapshot;
 
 /** Synchronous lookup by Navidrome artist id, in lb-bot's own order (see
- *  `lookupByNdId`). Pass the artist's MBID when the page has one. */
+ *  `lookupByNdId`). Pass the artist's MBID when the page has one. Nothing while
+ *  the hub is not configured ({@link mirrorShown}). */
 export const getMirrorArtistByNdId = (
     ndId: string,
     mbid?: null | string,
-): LbBotIndexArtist | undefined => lookupByNdId(byKey, keysByNdId, ndId, mbid);
+): LbBotIndexArtist | undefined =>
+    mirrorShown() ? lookupByNdId(byKey, keysByNdId, ndId, mbid) : undefined;
 
-/** Synchronous lookup by lb-bot artist key — an MBID for the `mb:` pages. */
-export const getMirrorArtist = (key: string): LbBotIndexArtist | undefined => byKey.get(key);
+/** Synchronous lookup by lb-bot artist key — an MBID for the `mb:` pages.
+ *  Nothing while the hub is not configured ({@link mirrorShown}). */
+export const getMirrorArtist = (key: string): LbBotIndexArtist | undefined =>
+    key && mirrorShown() ? byKey.get(key) : undefined;
 
 /** Whether a mirrored artist is due a rescan, against the envelope the mirror
  *  last saw. */
@@ -540,8 +624,10 @@ export const useIndexMirror = (): IndexMirrorSnapshot =>
 /**
  * The mirrored artist a Navidrome artist page shows, re-rendering only when that
  * answer changes (a stored artist object is replaced, never mutated, so identity
- * is the change signal). Undefined while the mirror loads and for an artist
- * lb-bot has not indexed — check `useIndexMirror().loaded` to tell them apart.
+ * is the change signal). Undefined while the mirror loads, for an artist
+ * lb-bot has not indexed, and for every artist while the hub is not configured
+ * ({@link mirrorShown}) — check `useIndexMirror().loaded` to tell the first
+ * apart from the second.
  */
 export const useMirrorArtistByNdId = (
     ndId: string,
@@ -551,4 +637,4 @@ export const useMirrorArtistByNdId = (
 
 /** The same, by artist key (an MBID on the `mb:` pages). */
 export const useMirrorArtist = (key: string): LbBotIndexArtist | undefined =>
-    useSyncExternalStore(subscribeIndexMirror, () => (key ? byKey.get(key) : undefined));
+    useSyncExternalStore(subscribeIndexMirror, () => getMirrorArtist(key));

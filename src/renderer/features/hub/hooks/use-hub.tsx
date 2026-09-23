@@ -13,6 +13,7 @@ import {
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
     onIndexFrame,
+    onLbBotAvailable,
     requestIndexSync,
     useLbBotIndexSync,
 } from '/@/renderer/features/lbbot/index-mirror/index-mirror';
@@ -1164,8 +1165,11 @@ export const useHub = () => {
                 // The hub's own probe changed its verdict on lb-bot (R18) —
                 // the same object as `welcome.lb`, applied the same way. Coming
                 // up is also a reason to pull the index: any trigger missed
-                // while it was down would otherwise wait for the interval.
-                if (adoptLbBotFrame(msg)) requestIndexSync('index');
+                // while it was down would otherwise wait for the interval. And
+                // it ends the sync's back-off (R22) — a plain 'index' trigger
+                // is dropped while a retry is pending, and that retry was most
+                // likely earned against the lb-bot that has just come back.
+                if (adoptLbBotFrame(msg)) onLbBotAvailable();
             } else if (msg.t === 'index') {
                 // lb-bot's library index moved. Like `fill`, NOT a library
                 // event: nothing is refetched and no cache is cleared — the

@@ -1720,9 +1720,13 @@ const ArtistAlbums = ({ albumsQuery, artistMbid, artistName, order }: ArtistAlbu
 
     const controls = useDefaultItemListControls();
 
-    // Fail-soft to invisibility: no hub, no LBBOT_URL or an unindexed artist all
-    // leave this empty, and the page is then exactly the page it was before
-    // lb-bot existed.
+    // Fail-soft to invisibility: a hub switched off in settings (or with no URL
+    // or token), a hub with no LBBOT_URL that this machine never mirrored from,
+    // or an unindexed artist all leave this empty, and the page is then exactly
+    // the page it was before lb-bot existed. lb-bot being DOWN, or this machine
+    // being offline, does not: an artist already in the local mirror still
+    // shows its missing tiles then (Ruling R21 gates the mirror on the hub
+    // setting, not on reachability).
     //
     // For an artist lb-bot has indexed this is a synchronous read of the local
     // index mirror, already loaded before this component first renders (the

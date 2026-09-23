@@ -43,6 +43,7 @@ import {
     getMirrorArtistByNdId,
     loadIndexMirror,
     mirrorDiscography,
+    requestIndexSync,
     subscribeIndexMirror,
     useMirrorArtistByNdId,
 } from '/@/renderer/features/lbbot/index-mirror/index-mirror';
@@ -330,7 +331,10 @@ const getMirrorEnvelopeKey = () => {
  * already on this machine, and an lb-bot that is down (or a laptop with no
  * network) does not make the discography it indexed yesterday any less true.
  * Acting on it — a scan, a download — still goes through the hub and fails soft
- * there, exactly as it did before.
+ * there, exactly as it did before. What it does follow is the hub SETTING
+ * (Ruling R21): with the hub switched off, or missing its URL or token, the
+ * mirror answers nothing (`mirrorShown`), the fallback query is disabled by
+ * `available`, and every caller renders exactly what it renders with no hub.
  */
 export const useLbBotDiscography = (ndId: string, mbid?: null | string): LbBotDiscographyRead => {
     const available = useLbBotAvailable();
@@ -453,6 +457,13 @@ export const useIndexArtist = (ndId: string) => {
                 if ((data?.indexed && rescanned) || failed || attempts >= 60) {
                     window.clearInterval(tick);
                     setPending(false);
+                    // The page reads this artist from the mirror, which the
+                    // poll above does not touch: without a pull of its own the
+                    // new tiles would wait for the `index` frame, landing 1–3 s
+                    // after the spinner stopped — or never, if that frame is
+                    // lost (Ruling R23). A pull that finds nothing new costs
+                    // ~100 bytes.
+                    if (data?.indexed && rescanned) requestIndexSync('index');
                 }
             }, 5000);
             return true;
