@@ -1,4 +1,4 @@
-import { useSuspenseQueries } from '@tanstack/react-query';
+import { useQuery, useSuspenseQueries } from '@tanstack/react-query';
 import { Suspense, useRef } from 'react';
 import { useParams } from 'react-router';
 
@@ -9,6 +9,10 @@ import { albumQueries } from '/@/renderer/features/albums/api/album-api';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
 import { AlbumArtistDetailContent } from '/@/renderer/features/artists/components/album-artist-detail-content';
 import { AlbumArtistDetailHeader } from '/@/renderer/features/artists/components/album-artist-detail-header';
+import {
+    useIndexMirrorReady,
+    useLbBotDiscography,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
 import {
     LibraryBackgroundImage,
@@ -53,6 +57,13 @@ const AlbumArtistDetailRouteContent = () => {
             }),
         ],
     });
+    // navi-connect: and for lb-bot's index mirror to have been read from disk,
+    // which it almost always already has. Waiting for it here, beside the
+    // Navidrome queries this page suspends on anyway, is what lets the album
+    // grid below paint its owned and missing tiles in one pass: a lookup
+    // against a mirror not yet loaded would miss, and the missing tiles would
+    // then splice in a moment later and shift everything under them.
+    useIndexMirrorReady();
 
     const imageUrl = useItemImageUrl({
         id: detailQuery.data?.imageId || undefined,
@@ -127,6 +138,36 @@ const AlbumArtistDetailRouteContent = () => {
     );
 };
 
+/**
+ * navi-connect: start lb-bot's discography read for this artist OUTSIDE the
+ * Suspense boundary below.
+ *
+ * Inside it, the read could not begin until both Navidrome queries had answered
+ * — the album list is `limit: -1`, so for a large artist that is the slow one —
+ * because a component that suspends never commits, and react-query starts a
+ * plain query's fetch on commit. For an artist in the local index mirror none
+ * of this matters (the read is synchronous and never touches the network); this
+ * is the fallback, for an artist the mirror does not hold.
+ *
+ * It waits for the artist's MBID before asking, because lb-bot looks an artist
+ * up by MBID first and the query key does not carry it: a read without it can
+ * answer `{indexed: false}` for an artist indexed under its MBID alone, and the
+ * page would then serve that answer from the cache. The artist detail it reads
+ * the MBID from is the same query the page suspends on, so it costs no request.
+ * Renders nothing.
+ */
+const LbBotDiscographyPrefetch = ({ routeId }: { routeId: string }) => {
+    const server = useCurrentServer();
+    const mbid = useQuery({
+        ...artistsQueries.albumArtistDetail({ query: { id: routeId }, serverId: server?.id }),
+        select: (detail) => detail?.mbz ?? null,
+        // The page's own boundary reports a failure; this is only a trigger.
+        throwOnError: false,
+    }).data;
+    useLbBotDiscography(mbid === undefined ? '' : routeId, mbid);
+    return null;
+};
+
 const AlbumArtistDetailRoute = () => {
     const { albumArtistId, artistId } = useParams() as {
         albumArtistId?: string;
@@ -135,9 +176,15 @@ const AlbumArtistDetailRoute = () => {
     const routeId = (artistId || albumArtistId) as string;
 
     return (
-        <Suspense fallback={<Spinner container />} key={`album-artist-detail-suspense-${routeId}`}>
-            <AlbumArtistDetailRouteContent />
-        </Suspense>
+        <>
+            <LbBotDiscographyPrefetch routeId={routeId} />
+            <Suspense
+                fallback={<Spinner container />}
+                key={`album-artist-detail-suspense-${routeId}`}
+            >
+                <AlbumArtistDetailRouteContent />
+            </Suspense>
+        </>
     );
 };
 

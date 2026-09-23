@@ -103,3 +103,11 @@
     cursor: progress;
     opacity: 0.6;
 }
+
+/* One text line of a skeleton tile: the height of a `size="sm"` line, so the
+   skeleton and the tile it stands in for are the same height. The skeleton
+   fills its container, which is why the height lives here. */
+.skeleton-line {
+    height: 1.35rem;
+    padding: 0.2rem 0;
+}

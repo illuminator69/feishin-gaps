@@ -29,7 +29,7 @@ export const RediscoveryRow = ({ title }: { title: string }) => {
     const navigate = useNavigate();
     const serverId = useCurrentServerId();
 
-    const { data } = useQuery(
+    const { data, isLoading } = useQuery(
         playlistsQueries.list({
             options: { staleTime: 1000 * 60 * 5 },
             query: {
@@ -79,6 +79,7 @@ export const RediscoveryRow = ({ title }: { title: string }) => {
             because="Already in your library, and you have not played it in a long time"
             cards={cards}
             isEmpty={cards.length === 0}
+            isLoading={isLoading}
             title={title}
         />
     );

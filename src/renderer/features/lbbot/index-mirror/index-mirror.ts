@@ -248,6 +248,31 @@ let retryAttempt = 0;
 /** The hub answered 404: it is older than the feed. Cleared on the next
  *  `welcome`, which is the only way a hub gets newer. */
 let feedMissing = false;
+/**
+ * A `welcome` arrived while a sync was running, and its reset (above, and the
+ * back-off) is owed to the run it queued — not applied on arrival.
+ *
+ * Applied on arrival, the reset landed on the wrong run: the sync already in
+ * flight still ended by writing its own verdict over it — a 404 set
+ * `feedMissing` again, a failure scheduled a retry from the back-off the
+ * welcome had just zeroed — and the queued welcome pulled only because its
+ * replay happened to pass through the reset a second time. Deferred, the old
+ * connection's sync settles first and the welcome's reset is the last word by
+ * construction, taken immediately before the pull it exists for (Ruling R17).
+ */
+let pendingWelcomeReset = false;
+
+/** A `welcome` is new information about the hub: forget what the previous
+ *  connection taught (a 404, a back-off) and pull from scratch. */
+const applyWelcomeReset = () => {
+    pendingWelcomeReset = false;
+    feedMissing = false;
+    retryAttempt = 0;
+    if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+        retryTimer = undefined;
+    }
+};
 
 /** The routes the hub advertises: `welcome.lb` when this hub sends it, else the
  *  `/lb/status` probe's answer for an older one. */
@@ -391,6 +416,7 @@ const pull = async (): Promise<null | number> => {
 };
 
 const runSync = async (): Promise<void> => {
+    if (pendingWelcomeReset) applyWelcomeReset();
     await loadIndexMirror();
     if (!lbBot || !useHubStore.getState().connected || feedMissing || !feedAdvertised()) return;
     let status: null | number;
@@ -423,17 +449,18 @@ const runSync = async (): Promise<void> => {
 export const requestIndexSync = (trigger: IndexSyncTrigger): void => {
     if (!lbBot) return;
     if (trigger === 'welcome') {
-        feedMissing = false;
-        retryAttempt = 0;
-        if (retryTimer !== undefined) {
-            window.clearTimeout(retryTimer);
-            retryTimer = undefined;
+        if (running) {
+            // Owed to the queued run, not applied now (see pendingWelcomeReset).
+            // A welcome outranks whatever was queued, since it resets the back-off.
+            pendingWelcomeReset = true;
+            queued = 'welcome';
+            return;
         }
+        applyWelcomeReset();
     } else if (trigger !== 'retry' && retryTimer !== undefined) {
         return;
     }
     if (running) {
-        // A welcome outranks whatever was queued, since it resets the back-off.
         if (queued !== 'welcome') queued = trigger;
         return;
     }

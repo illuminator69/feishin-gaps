@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import styles from './discover-row.module.css';
 
 import { GridCarousel } from '/@/renderer/components/grid-carousel/grid-carousel-v2';
+import { Skeleton } from '/@/shared/components/skeleton/skeleton';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { Text } from '/@/shared/components/text/text';
@@ -17,7 +18,10 @@ import { Text } from '/@/shared/components/text/text';
  * 1. **A row with nothing to show renders nothing** — not a heading with an
  *    empty shelf under it, not a spinner that never resolves. Fresh, the
  *    similar-albums shelf and the CLAP entry each invented their own version of
- *    this and they do not agree.
+ *    this and they do not agree. **A row still waiting for its first answer is
+ *    not "nothing to show", though:** it reserves its height with skeleton
+ *    tiles. Rendering nothing until the data arrived made every row below it
+ *    jump down by a row's height, once per row, as each one answered.
  * 2. **`because` is not optional.** The attribution rule this stack follows is
  *    that a recommendation names the thing that justifies it; an unattributed
  *    shelf is indistinguishable from a popularity chart. Making it a required
@@ -49,6 +53,14 @@ interface DiscoverRowProps {
     children?: ReactNode;
     /** Render nothing at all when there is nothing to show. */
     isEmpty: boolean;
+    /**
+     * The row's first answer is on its way. Wins over `isEmpty` (a row that has
+     * not answered yet is not an empty one): the header and a shelf of skeleton
+     * tiles hold the row's height until it resolves to cards — or, when it
+     * answers with nothing, to nothing. Only a row that is actually fetching
+     * should pass it; a disabled query must not, or it holds a skeleton forever.
+     */
+    isLoading?: boolean;
     /** Optional "see all" target, e.g. the full Fresh feed. */
     seeAll?: { label: string; to: string };
     title: string;
@@ -56,16 +68,46 @@ interface DiscoverRowProps {
 
 const noop = () => {};
 
+/** Enough to fill the widest carousel page; `GridCarousel` shows as many as fit. */
+const SKELETON_COUNT = 8;
+
+/**
+ * A `DiscoverTile`'s silhouette — same surface, padding, square cover and two
+ * text lines — so swapping it for the real tile moves nothing.
+ */
+const DiscoverTileSkeleton = () => (
+    <div className={styles.wrapper}>
+        <div aria-hidden className={styles.tile}>
+            <div className={styles.cover}>
+                <Skeleton />
+            </div>
+            <div className={styles.skeletonLine}>
+                <Skeleton width="80%" />
+            </div>
+            <div className={styles.skeletonLine}>
+                <Skeleton width="55%" />
+            </div>
+        </div>
+    </div>
+);
+
+const SKELETON_CARDS = Array.from({ length: SKELETON_COUNT }, (_, index) => ({
+    content: <DiscoverTileSkeleton />,
+    id: `skeleton-${index}`,
+}));
+
 export const DiscoverRow = ({
     aside,
     because,
     cards,
     children,
     isEmpty,
+    isLoading,
     seeAll,
     title,
 }: DiscoverRowProps) => {
-    if (isEmpty) return null;
+    const waiting = !!isLoading && (!cards || cards.length === 0);
+    if (isEmpty && !waiting) return null;
 
     const header = (
         <div className={styles.header}>
@@ -89,6 +131,17 @@ export const DiscoverRow = ({
             {aside}
         </div>
     );
+
+    if (waiting) {
+        return (
+            <GridCarousel
+                cards={SKELETON_CARDS}
+                onNextPage={noop}
+                onPrevPage={noop}
+                title={header}
+            />
+        );
+    }
 
     if (!cards) {
         return (

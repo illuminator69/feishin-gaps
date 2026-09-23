@@ -91,7 +91,7 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
     // row creates.
     const chart = useLbBotDeezerChart(20, genre);
     const editorial = useLbBotDeezerEditorial(20, genre);
-    const { data } = feed === 'chart' ? chart : editorial;
+    const { data, isLoading } = feed === 'chart' ? chart : editorial;
 
     /**
      * Where a tile goes. Every branch of that decision lives in
@@ -229,7 +229,9 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
     // hiding them would strand the user on a dead genre with no control on
     // screen to change it. So this is a row with something to say, not an empty
     // shelf: the chips stay, the carousel does not.
-    if (cards.length === 0 && genreChips) {
+    // Not while the genre's first answer is still on its way: that is the
+    // skeleton row below, chips included, not a genre known to be empty.
+    if (cards.length === 0 && genreChips && !isLoading) {
         return (
             <DiscoverRow because={BECAUSE[feed]} isEmpty={false} title={title}>
                 {/* One child: the chip-style slot is a wrapping flex row, so two
@@ -250,6 +252,10 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
             because={BECAUSE[feed]}
             cards={cards}
             isEmpty={cards.length === 0}
+            // Only the first answer: a genre switch keeps the previous genre's
+            // tiles on screen (`keepPreviousData`) rather than dropping back to
+            // skeletons.
+            isLoading={isLoading}
             title={title}
         />
     );

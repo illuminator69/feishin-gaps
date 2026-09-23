@@ -23,7 +23,7 @@ import { LibraryItem } from '/@/shared/types/domain-types';
  *  route docstring. */
 export const FreshRow = ({ title }: { title: string }) => {
     const navigate = useNavigate();
-    const { data } = useLbBotFreshReleases(30);
+    const { data, isLoading } = useLbBotFreshReleases(30);
 
     const releases = useMemo(
         () => (data?.releases ?? []).filter((r) => r.artistOwned).slice(0, 20),
@@ -80,6 +80,7 @@ export const FreshRow = ({ title }: { title: string }) => {
             because="New releases from artists already in your library"
             cards={cards}
             isEmpty={cards.length === 0}
+            isLoading={isLoading}
             seeAll={{ label: 'See all', to: AppRoute.FRESH }}
             title={title}
         />

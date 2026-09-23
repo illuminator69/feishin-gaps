@@ -67,8 +67,11 @@ const LbBotExternalAlbumRoute = () => {
         name: artist || releases?.artist || '',
     });
 
-    // Purely to answer "does the library already have this?" — an instant SQLite
-    // read on lb-bot's side, and skipped entirely without an artist MBID.
+    // Purely to answer "does the library already have this?" — from the local
+    // index mirror when lb-bot has indexed the artist, which makes the redirect
+    // to an owned album happen on the first render instead of after a round
+    // trip; otherwise an instant SQLite read on lb-bot's side. Skipped entirely
+    // without an artist MBID.
     const discography = useLbBotDiscography(artistMbid ? `mb:${artistMbid}` : '', artistMbid);
     const indexedRow = useMemo(
         () => (discography.data?.releases ?? []).find((row) => row.rgid === rgid),

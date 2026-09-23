@@ -1720,9 +1720,16 @@ const ArtistAlbums = ({ albumsQuery, artistMbid, artistName, order }: ArtistAlbu
 
     const controls = useDefaultItemListControls();
 
-    // Fail-soft to invisibility: no hub, no LBBOT_URL, lb-bot down or an
-    // unindexed artist all leave this empty, and the page is then exactly the
-    // page it was before lb-bot existed.
+    // Fail-soft to invisibility: no hub, no LBBOT_URL or an unindexed artist all
+    // leave this empty, and the page is then exactly the page it was before
+    // lb-bot existed.
+    //
+    // For an artist lb-bot has indexed this is a synchronous read of the local
+    // index mirror, already loaded before this component first renders (the
+    // route waits for it beside its Navidrome queries), so the missing tiles
+    // are in the SAME render as the owned albums — no splice, no shift. Only an
+    // artist the mirror lacks goes to the network, and that read was started
+    // outside the route's Suspense boundary rather than from here.
     const discographyQuery = useLbBotDiscography(routeId, artistMbid);
     const missing = useMemo(() => {
         // Reconciled against the *unfiltered* album list, not the searched one:

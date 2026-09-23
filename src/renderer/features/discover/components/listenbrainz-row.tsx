@@ -42,7 +42,7 @@ export const ListenBrainzRow = ({ title }: { title: string }) => {
     const navigate = useNavigate();
     const serverId = useCurrentServerId();
 
-    const { data } = useQuery(
+    const { data, isLoading } = useQuery(
         playlistsQueries.list({
             options: { staleTime: 1000 * 60 * 5 },
             query: {
@@ -91,6 +91,7 @@ export const ListenBrainzRow = ({ title }: { title: string }) => {
             because="Built for you from what you listen to, and refreshed by ListenBrainz"
             cards={cards}
             isEmpty={cards.length === 0}
+            isLoading={isLoading}
             title={title}
         />
     );

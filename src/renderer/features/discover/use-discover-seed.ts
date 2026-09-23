@@ -29,7 +29,7 @@ const SEED_POOL = 12;
 export const useDiscoverSeedArtist = () => {
     const serverId = useCurrentServerId();
 
-    const { data } = useQuery(
+    const { data, isLoading } = useQuery(
         artistsQueries.albumArtistList({
             options: {
                 // A cheap top-N read, not the artist list: the library home
@@ -58,11 +58,16 @@ export const useDiscoverSeedArtist = () => {
         setHour(Math.floor(Date.now() / (60 * 60 * 1000)));
     }, []);
 
-    return useMemo(() => {
+    const seed = useMemo(() => {
         if (hour === null) return null;
         const artists = (data?.items ?? []).filter((a) => a.name);
         if (artists.length === 0) return null;
         const picked = artists[hour % artists.length];
         return { mbid: picked.mbz ?? null, name: picked.name };
     }, [data, hour]);
+
+    // `pending` tells "no seed yet" from "no seed at all" (a library with no
+    // plays): the row reserves its height for the first and renders nothing for
+    // the second.
+    return { pending: hour === null || isLoading, seed };
 };

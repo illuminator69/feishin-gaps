@@ -7,6 +7,7 @@ import { del, get, set } from 'idb-keyval';
 import { createRoot } from 'react-dom/client';
 
 import { App } from '/@/renderer/app';
+import { shouldPersistLbBotQuery } from '/@/renderer/features/lbbot/utils/persisted-queries';
 import { queryClient } from '/@/renderer/lib/react-query';
 
 function createIDBPersister(idbValidKey: IDBValidKey = 'reactQuery') {
@@ -38,7 +39,9 @@ createRoot(document.getElementById('root')!).render(
                         query.queryKey.includes('lyrics') &&
                         query.queryKey.includes('select');
 
-                    return isSuccess && isLyricsQueryKey;
+                    // navi-connect: lb-bot's slow-moving reads (meta, editions,
+                    // tracklists, Fresh, Deezer) too, each bounded by age.
+                    return (isSuccess && isLyricsQueryKey) || shouldPersistLbBotQuery(query);
                 },
             },
             hydrateOptions: {

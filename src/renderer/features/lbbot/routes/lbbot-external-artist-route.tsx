@@ -47,6 +47,10 @@ const LbBotExternalArtistRoute = () => {
 
     const ndId = `mb:${artistMbid}`;
     const available = useLbBotAvailable();
+    // From the local index mirror when lb-bot has indexed this artist — looked up
+    // by the MBID first, exactly as lb-bot's own read does for an `mb:` id — so
+    // an artist scanned once renders at once, offline included. The network
+    // read is the fallback for one it has not.
     const discography = useLbBotDiscography(artistMbid ? ndId : '', artistMbid);
     // A disabled react-query stays `pending`, so gate the spinner on lb-bot actually
     // being there — otherwise this page spins forever with the feature switched off.
@@ -114,7 +118,10 @@ const LbBotExternalArtistRoute = () => {
                             ndId={ndId}
                         />
 
-                        {!available && (
+                        {/* Not while the mirror is answering: a discography
+                            already on screen is the one thing this sentence
+                            would contradict. */}
+                        {!available && !discography.data && (
                             <Text isMuted>
                                 lb-bot is not configured on your hub, so there is nothing to read
                                 this discography from.

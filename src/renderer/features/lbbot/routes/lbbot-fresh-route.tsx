@@ -326,7 +326,14 @@ const LbBotFreshRoute = () => {
                         )}
 
                         {buckets.map((bucket) => (
-                            <Stack gap="md" key={bucket.label || 'all'}>
+                            <Stack
+                                gap="md"
+                                key={bucket.label || 'all'}
+                                // The previous window's rows, held on screen by
+                                // `keepPreviousData` while the new window loads:
+                                // dimmed, so they do not read as its answer.
+                                style={query.isPlaceholderData ? { opacity: 0.5 } : undefined}
+                            >
                                 {bucket.label && (
                                     <div className={styles.bucket}>
                                         <Text isNoSelect weight={600}>

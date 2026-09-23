@@ -35,8 +35,8 @@ import { LibraryItem } from '/@/shared/types/domain-types';
  */
 export const SimilarArtistsRow = ({ title }: { title: string }) => {
     const navigate = useNavigate();
-    const seed = useDiscoverSeedArtist();
-    const { data } = useLbBotSimilarArtists({
+    const { pending: seedPending, seed } = useDiscoverSeedArtist();
+    const { data, isLoading } = useLbBotSimilarArtists({
         mbid: seed?.mbid,
         name: seed?.name,
     });
@@ -98,6 +98,10 @@ export const SimilarArtistsRow = ({ title }: { title: string }) => {
             }
             cards={cards}
             isEmpty={cards.length === 0}
+            // Waiting on the seed (a local library read) or on the similar-artists
+            // answer. Deezer's related list is appended afterwards and is never
+            // waited for: it only lengthens a row that already has cards.
+            isLoading={seedPending || isLoading}
             title={title}
         />
     );

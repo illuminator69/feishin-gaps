@@ -5,8 +5,10 @@ import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { placeholderSong, resolveHubTracks } from '/@/renderer/features/hub/utils/resolve-songs';
 import {
+    adoptLbBotFrame,
     adoptLbBotWelcome,
     applyFillFrame,
+    clearLbBotStatus,
     useLbBotLibraryRefresh,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
@@ -1035,6 +1037,18 @@ export const useHub = () => {
         );
     }, [settings.enabled, settings.name, settings.token, settings.url]);
 
+    // navi-connect: what the hub said about lb-bot (`welcome.lb`) is an answer
+    // about THAT hub. Switched off, or pointed somewhere else, it no longer
+    // describes anything this app talks to — forget it rather than let it stand
+    // for the rest of the session (R17). A token or name change reconnects to
+    // the same hub, whose next welcome restates it, so those keep it.
+    const lbStatusHub = useRef(settings.url);
+    useEffect(() => {
+        const moved = lbStatusHub.current !== settings.url;
+        lbStatusHub.current = settings.url;
+        if (!settings.enabled || moved) clearLbBotStatus();
+    }, [settings.enabled, settings.url]);
+
     // Wire the inbound hub stream.
     useEffect(() => {
         if (!hub) return undefined;
@@ -1146,6 +1160,12 @@ export const useHub = () => {
                 if (typeof msg.key === 'string' && typeof msg.kind === 'string') {
                     applyFillFrame(msg);
                 }
+            } else if (msg.t === 'lb') {
+                // The hub's own probe changed its verdict on lb-bot (R18) —
+                // the same object as `welcome.lb`, applied the same way. Coming
+                // up is also a reason to pull the index: any trigger missed
+                // while it was down would otherwise wait for the interval.
+                if (adoptLbBotFrame(msg)) requestIndexSync('index');
             } else if (msg.t === 'index') {
                 // lb-bot's library index moved. Like `fill`, NOT a library
                 // event: nothing is refetched and no cache is cleared — the

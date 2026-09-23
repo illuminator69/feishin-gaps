@@ -27,9 +27,25 @@ import type {
 
 import { keepPreviousData, QueryClient, useQuery, useQueryClient } from '@tanstack/react-query';
 import isElectron from 'is-electron';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    use,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    useSyncExternalStore,
+} from 'react';
 
 import { api } from '/@/renderer/api';
+import {
+    getIndexMirrorSnapshot,
+    getMirrorArtistByNdId,
+    loadIndexMirror,
+    mirrorDiscography,
+    subscribeIndexMirror,
+    useMirrorArtistByNdId,
+} from '/@/renderer/features/lbbot/index-mirror/index-mirror';
 import {
     ActiveFill,
     useActiveFill,
@@ -200,6 +216,42 @@ export const adoptLbBotWelcome = (lb: unknown): void => {
     void queryClient.invalidateQueries({ queryKey: ['lbbot', 'status'] });
 };
 
+/**
+ * The hub's `{t: "lb", available, routes}` frame (Ruling R18): its own lb-bot
+ * probe changed its verdict mid-connection. The same object as `welcome.lb`,
+ * applied the same way — the welcome's answer is a connect-time snapshot, and
+ * with the `/lb/status` probe disabled while it stands, this frame is the only
+ * way a connected client learns that lb-bot came up or went down.
+ *
+ * A malformed frame is ignored rather than adopted: unlike a welcome with no
+ * `lb` (an older hub, which must fall back to the probe), a frame that says
+ * nothing parseable is not a statement that lb-bot is gone.
+ */
+export const adoptLbBotFrame = (frame: unknown): boolean => {
+    const raw = frame && typeof frame === 'object' ? (frame as Record<string, unknown>) : null;
+    if (!raw || typeof raw.available !== 'boolean') return false;
+    adoptLbBotWelcome(raw);
+    return raw.available;
+};
+
+/**
+ * Forget what the hub said about lb-bot — for the hub being switched off in
+ * settings, or pointed at a different address (R17). Either way the stored
+ * answer describes a hub this app is no longer talking to, and it would
+ * otherwise stand for the rest of the session: every lb-bot surface still
+ * "available", failing soft on each use until a restart. Cleared, the
+ * `/lb/status` probe takes over again (asked afresh, not served from the old
+ * hub's cached answer) until the next welcome states it.
+ */
+export const clearLbBotStatus = (): void => {
+    if (useHubStore.getState().lbStatus !== null) {
+        useHubStore.getState().actions.setStore({ lbStatus: null });
+    }
+    // Even with nothing stored: behind an older hub the probe's own cached
+    // answer (kept indefinitely, re-asked every ten minutes) is the stale one.
+    void queryClient.invalidateQueries({ queryKey: ['lbbot', 'status'] });
+};
+
 /** Whether the lb-bot layer is reachable at all. */
 export const useLbBotAvailable = (): boolean => useLbBotStatus()?.available === true;
 
@@ -230,17 +282,76 @@ export const useLbBotRouteSupport = (): ((route: string) => boolean) => {
     return useCallback((route: string) => routeAdvertised(routes, route), [routes]);
 };
 
+/** What {@link useLbBotDiscography} answers: the discography, wherever it came
+ *  from, and whether a first read is still outstanding. */
+export interface LbBotDiscographyRead {
+    /** Undefined until something has answered; `{indexed: false}` from the
+     *  network for an artist lb-bot has never scanned. */
+    data: LbBotDiscography | null | undefined;
+    /** Read from the local index mirror rather than from lb-bot. The mirror
+     *  carries no `scan` record — see `toDiscography`. */
+    fromMirror: boolean;
+    /** Neither source has answered yet and one of them is on its way. */
+    isLoading: boolean;
+}
+
+/** `loaded` alone, as a boolean snapshot, so a page re-renders once when the
+ *  stored mirror has been read rather than on every change to any artist. */
+const getMirrorLoaded = () => getIndexMirrorSnapshot().loaded;
+/** The envelope `stale` is computed against, as one primitive for the same
+ *  reason: a mirror moving under a bulk build must not re-render every page. */
+const getMirrorEnvelopeKey = () => {
+    const { meta } = getIndexMirrorSnapshot();
+    return `${meta.scanVersion}:${meta.ttlDays}`;
+};
+
 /**
  * An artist's full MusicBrainz discography as lb-bot indexed it.
  *
- * The GET is an instant SQLite read on lb-bot's side keyed by the same Navidrome
- * artist id this page already holds, so it is safe to fire on every page open —
- * the expensive MusicBrainz walk is only ever the explicit POST below.
+ * **The local mirror first, synchronously** (PLAN-lbbot-index-mirror §5). The
+ * mirror holds lb-bot's whole index in memory, kept current by the change feed,
+ * so for any artist lb-bot has indexed the answer is here on the render that
+ * first asks — which is what lets an artist page paint its owned and missing
+ * tiles in one pass, in the same frame as Navidrome's own data, instead of
+ * splicing lb-bot's rows in a second later and shifting everything below them.
+ * The lookup is lb-bot's own (`_index_get_artist`: the MBID key first, then
+ * the Navidrome id), so the mirror and the network read name the same artist.
+ *
+ * **The network as the fallback,** only for an artist the mirror does not hold:
+ * one lb-bot has never scanned (which answers `{indexed: false}` and is what
+ * offers the scan), a mirror still on its first pull, or a hub too old to serve
+ * the feed at all. It waits for the stored mirror to be read before deciding
+ * the artist is absent, so a page opened during startup does not ask lb-bot for
+ * something it already has on disk. The GET is an instant SQLite read on
+ * lb-bot's side; the expensive MusicBrainz walk is only ever the explicit POST
+ * below.
+ *
+ * The mirror is shown whatever `welcome.lb` says about reachability: it is data
+ * already on this machine, and an lb-bot that is down (or a laptop with no
+ * network) does not make the discography it indexed yesterday any less true.
+ * Acting on it — a scan, a download — still goes through the hub and fails soft
+ * there, exactly as it did before.
  */
-export const useLbBotDiscography = (ndId: string, mbid?: null | string) => {
+export const useLbBotDiscography = (ndId: string, mbid?: null | string): LbBotDiscographyRead => {
     const available = useLbBotAvailable();
-    return useQuery({
-        enabled: !!lbBot && available && !!ndId,
+    const loaded = useSyncExternalStore(subscribeIndexMirror, getMirrorLoaded);
+    const envelope = useSyncExternalStore(subscribeIndexMirror, getMirrorEnvelopeKey);
+    const mirrored = useMirrorArtistByNdId(ndId, mbid);
+    // Derived outside the store's snapshot: a snapshot that built a new object
+    // on every read would never compare equal and would render forever.
+    const fromMirror = useMemo(
+        () => (mirrored ? mirrorDiscography(mirrored) : undefined),
+        // `envelope` is what `stale` is computed against; the memo must follow it.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [mirrored, envelope],
+    );
+
+    const query = useQuery({
+        enabled: !!lbBot && available && !!ndId && loaded && !mirrored,
+        // The fallback only. Long enough to outlive a trip into an album and
+        // back, and never shorter than `staleTime`, which the 20 s default
+        // would otherwise silently cancel.
+        gcTime: 5 * 60 * 1000,
         queryFn: () => lbBot!.discography(ndId, mbid ?? undefined),
         queryKey: ['lbbot', 'discography', ndId],
         // The hub caches this for 60s; asking more often than that only costs
@@ -248,6 +359,40 @@ export const useLbBotDiscography = (ndId: string, mbid?: null | string) => {
         refetchOnWindowFocus: false,
         staleTime: 60 * 1000,
     });
+
+    if (fromMirror) return { data: fromMirror, fromMirror: true, isLoading: false };
+    return {
+        data: query.data,
+        fromMirror: false,
+        // A disabled query stays `pending` forever, so this is `isLoading`
+        // (pending AND fetching), plus the short window before the stored
+        // mirror has been read — during which the answer may well be local.
+        isLoading: !!ndId && (!loaded || query.isLoading),
+    };
+};
+
+/**
+ * Hold a page until the stored mirror has been read into memory — at most
+ * {@link MIRROR_READY_TIMEOUT_MS}, so an IndexedDB that never answers costs a
+ * pause rather than a page that never opens.
+ *
+ * For a page that renders under a Suspense boundary it is already waiting on,
+ * i.e. the artist page's Navidrome queries: waiting there is what makes "owned
+ * and missing in the same pass" hold even when the app has just started, where
+ * a lookup against a mirror not read yet would miss and the tiles would splice
+ * in a moment later. The mirror starts loading at app start (`useHub`), so in
+ * practice this has nothing left to wait for by the time anyone opens a page.
+ */
+const MIRROR_READY_TIMEOUT_MS = 1500;
+let mirrorReady: null | Promise<void> = null;
+
+export const useIndexMirrorReady = (): void => {
+    if (!lbBot || getIndexMirrorSnapshot().loaded) return;
+    mirrorReady ??= Promise.race([
+        loadIndexMirror(),
+        new Promise<void>((resolve) => window.setTimeout(resolve, MIRROR_READY_TIMEOUT_MS)),
+    ]);
+    use(mirrorReady);
 };
 
 /** Trigger the (slow, rate-limited) MusicBrainz scan for one artist. */
@@ -271,7 +416,14 @@ export const useIndexArtist = (ndId: string) => {
                 'discography',
                 ndId,
             ]);
-            const previousScan = before?.scannedAt ?? 0;
+            // The page now reads an indexed artist from the mirror and never
+            // fetches it, so the query cache is usually empty here — and a
+            // baseline of 0 would read the first poll's (old) `scannedAt` as
+            // the rescan having finished and drop the spinner at once.
+            const previousScan = Math.max(
+                before?.scannedAt ?? 0,
+                getMirrorArtistByNdId(ndId, mbid)?.scannedAt ?? 0,
+            );
             const taskId = await lbBot.indexArtist(ndId, mbid, name);
             if (!taskId) {
                 setPending(false);
@@ -373,6 +525,15 @@ export const useLbBotFreshReleases = (days: number) => {
     const available = useLbBotAvailable();
     return useQuery({
         enabled: !!lbBot && available,
+        // Every lb-bot hook sets its own `gcTime`, never below its `staleTime`:
+        // the app default is 20 s, which drops an unwatched entry long before a
+        // ten-minute staleness could ever matter and makes every re-entry a
+        // fresh round trip. Persisted across restarts too (`main.tsx`).
+        gcTime: 30 * 60 * 1000,
+        // Switching the window keeps the previous window's rows on screen until
+        // the new one answers, instead of blanking the page to a spinner and
+        // back — the rows are the same shape, and most of them are the same rows.
+        placeholderData: keepPreviousData,
         queryFn: () => lbBot!.freshReleases(days),
         queryKey: ['lbbot', 'fresh-releases', days],
         refetchOnWindowFocus: false,
@@ -398,6 +559,7 @@ export const useLbBotArtistLookup = (query: string, enabled = true) => {
     const term = query.trim();
     return useQuery<LbBotArtistCandidate[]>({
         enabled: !!lbBot && available && enabled && term.length >= LOOKUP_MIN_LENGTH,
+        gcTime: 10 * 60 * 1000,
         queryFn: () => lbBot!.artistLookup(term),
         queryKey: ['lbbot', 'artist-lookup', term],
         refetchOnWindowFocus: false,
@@ -423,6 +585,7 @@ export const useLbBotAlbumLookup = (query: string, enabled = true) => {
     const term = query.trim();
     return useQuery<LbBotAlbumCandidate[]>({
         enabled: !!lbBot && available && enabled && term.length >= LOOKUP_MIN_LENGTH,
+        gcTime: 10 * 60 * 1000,
         queryFn: () => lbBot!.albumLookup(term),
         queryKey: ['lbbot', 'album-lookup', term],
         refetchOnWindowFocus: false,
@@ -452,6 +615,7 @@ export const useLbBotSimilarAlbums = (args: {
     const { artistMbid, artistName, rgid } = args;
     return useQuery<LbBotSimilarAlbums | null>({
         enabled: !!lbBot && available && !!(artistMbid || artistName),
+        gcTime: 60 * 60 * 1000,
         queryFn: () =>
             lbBot!.albumSimilar({
                 artistMbid: artistMbid ?? undefined,
@@ -489,6 +653,7 @@ export const useLbBotSimilarArtists = (args: {
     const { limit, mbid, name } = args;
     return useQuery<LbBotSimilarArtists | null>({
         enabled: !!lbBot && available && supported && !!(mbid || name),
+        gcTime: 60 * 60 * 1000,
         queryFn: () =>
             lbBot!.artistSimilar({
                 limit,
@@ -522,6 +687,11 @@ export const useLbBotArtistMeta = (mbid?: null | string, name?: null | string) =
     const available = useLbBotAvailable();
     return useQuery<LbBotMeta | null>({
         enabled: !!lbBot && available && !!(mbid || name),
+        // Matched to `staleTime`: an answer that never goes stale must not be
+        // dropped 20 s after the page closes. Persisted across restarts as
+        // well (`main.tsx`), so an artist opened yesterday paints its About
+        // from disk.
+        gcTime: Infinity,
         queryFn: () =>
             lbBot!.metaArtist({
                 mbid: mbid ?? undefined,
@@ -540,6 +710,7 @@ export const useLbBotAlbumMeta = (rgid?: null | string, releaseMbid?: null | str
     const available = useLbBotAvailable();
     return useQuery<LbBotMeta | null>({
         enabled: !!lbBot && available && !!rgid,
+        gcTime: Infinity,
         queryFn: () => lbBot!.metaAlbum({ releaseMbid: releaseMbid ?? undefined, rgid: rgid! }),
         queryKey: ['lbbot', 'meta-album', rgid],
         refetchOnWindowFocus: false,
@@ -551,6 +722,7 @@ export const useLbBotAlbumMeta = (rgid?: null | string, releaseMbid?: null | str
 export const useLbBotAlbumReleases = (rgid: null | string) =>
     useQuery<LbBotReleaseDetail | null>({
         enabled: !!lbBot && !!rgid,
+        gcTime: Infinity,
         queryFn: () => lbBot!.albumReleases(rgid!),
         queryKey: ['lbbot', 'album-releases', rgid],
         // Which editions a release-group has does not change; the hub holds this
@@ -562,6 +734,7 @@ export const useLbBotAlbumReleases = (rgid: null | string) =>
 export const useLbBotTracklist = (releaseMbid: null | string) =>
     useQuery<LbBotTracklist | null>({
         enabled: !!lbBot && !!releaseMbid,
+        gcTime: Infinity,
         queryFn: () => lbBot!.albumTracklist(releaseMbid!),
         queryKey: ['lbbot', 'tracklist', releaseMbid],
         staleTime: Infinity,
@@ -1136,6 +1309,10 @@ export const useAcquireAlbum = () => {
             if (!lbBot || !release.rgid) return { kind: 'review', reason: 'unavailable' };
 
             const answer = await queryClient.fetchQuery<LbBotResult<LbBotGapSource[]>>({
+                // `useLbBotAlbumSources`' own, so a "review" answer's picker
+                // finds this 30-90 s slskd search still cached rather than
+                // repeating it once the 20 s default has dropped it.
+                gcTime: 5 * 60 * 1000,
                 queryFn: () => lbBot!.albumSources(release.rgid),
                 queryKey: ['lbbot', 'album-sources', release.rgid, ''],
                 staleTime: 60 * 1000,
@@ -1680,6 +1857,12 @@ const useLbBotBrowse = (feed: 'chart' | 'editorial', limit = 20, genre = '0') =>
     const supported = useHubSupports(`GET /lb/deezer/${feed}`);
     return useQuery<LbBotBrowse | null>({
         enabled: !!lbBot && available && supported,
+        gcTime: 60 * 60 * 1000,
+        // A genre chip switches the key. Keep the previous genre's tiles in
+        // place until the new chart answers, so the row neither collapses to
+        // nothing (a row with no cards renders nothing) nor pushes every row
+        // below it up and then back down.
+        placeholderData: keepPreviousData,
         queryFn: () =>
             feed === 'chart'
                 ? lbBot!.deezerChart(limit, genre)
@@ -1715,6 +1898,7 @@ export const useLbBotDeezerGenres = () => {
     const supported = useHubSupports('GET /lb/deezer/genres');
     return useQuery<LbBotDeezerGenres | null>({
         enabled: !!lbBot && available && supported,
+        gcTime: Infinity,
         queryFn: () => lbBot!.deezerGenres(),
         queryKey: ['lbbot', 'deezer', 'genres'],
         refetchOnWindowFocus: false,
@@ -1793,6 +1977,7 @@ export const useArtistTarget = (args: {
 
     const local = useQuery<null | string>({
         enabled: Boolean(serverId) && !artistId && Boolean(name),
+        gcTime: 5 * 60 * 1000,
         queryFn: async () => {
             const found = await api.controller
                 .getAlbumArtistList({
@@ -1952,6 +2137,7 @@ export const useLbBotRelatedArtists = (args: {
     const { limit, mbid, name } = args;
     return useQuery<LbBotSimilarArtists | null>({
         enabled: !!lbBot && available && supported && !!(mbid || name),
+        gcTime: 60 * 60 * 1000,
         queryFn: () =>
             lbBot!.artistRelated({ limit, mbid: mbid ?? undefined, name: name ?? undefined }),
         queryKey: ['lbbot', 'artist-related', mbid || name, limit],
@@ -2002,6 +2188,7 @@ export const useLbBotWishlist = () => {
     const supported = useHubSupports('GET /lb/wishlist');
     return useQuery<LbBotWishlist>({
         enabled: !!lbBot && available && supported,
+        gcTime: 5 * 60 * 1000,
         queryFn: () => lbBot!.wishlist(),
         queryKey: ['lbbot', 'wishlist'],
         refetchOnWindowFocus: true,
