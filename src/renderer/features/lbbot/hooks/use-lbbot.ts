@@ -218,6 +218,10 @@ export const adoptLbBotWelcome = (lb: unknown): void => {
                   routes: Array.isArray(raw.routes)
                       ? raw.routes.filter((route): route is string => typeof route === 'string')
                       : [],
+                  webUrl:
+                      typeof raw.webUrl === 'string' && /^https?:\/\//.test(raw.webUrl)
+                          ? raw.webUrl.replace(/\/+$/, '')
+                          : '',
               }
             : null;
     useHubStore.getState().actions.setStore({ lbStatus });
@@ -302,6 +306,13 @@ export const invalidateLbBotOwnership = (): void => {
 
 /** Whether the lb-bot layer is reachable at all. */
 export const useLbBotAvailable = (): boolean => useLbBotStatus()?.available === true;
+
+/**
+ * lb-bot's own web UI, when the hub says where it is ("" otherwise) — for the
+ * screens that have to hand the user over to lb-bot's workspace. `#/gaps/<id>`
+ * opens one album's Fill-gaps page there.
+ */
+export const useLbBotWebUrl = (): string => useLbBotStatus()?.webUrl ?? '';
 
 /**
  * Ruling R21 for the lb-bot answers react-query keeps on disk

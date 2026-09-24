@@ -15,6 +15,7 @@ import {
     searchGapSources,
     useGapSourceFiles,
     useLbBotGap,
+    useLbBotWebUrl,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { useActiveFillsActions } from '/@/renderer/features/lbbot/stores/active-fills.store';
 import { Badge } from '/@/shared/components/badge/badge';
@@ -77,6 +78,14 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
     const searching = gap?.sourceTask?.status === 'queued' || gap?.sourceTask?.status === 'running';
     const sources = gap?.sources ?? [];
     const progress = gapProgress(gap);
+    // lb-bot's own Fill-gaps page for this album, when the hub says where lb-bot
+    // is. Its SPA routes on the hash, and `#/gaps/<groupId>` opens exactly this
+    // group — the same handle this modal is reading.
+    const webUrl = useLbBotWebUrl();
+    const workspaceUrl = webUrl ? `${webUrl}/#/gaps/${encodeURIComponent(groupId)}` : '';
+    // Tracks already picked, and nothing to fetch them from: the search that
+    // picked them has results no longer, so searching again is the remedy.
+    const needsFreshSearch = !searching && gap?.status === 'picking' && sources.length === 0;
 
     // Rank 1 pre-selected, an explicit pick always winning.
     const selected =
@@ -263,12 +272,16 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                     </Text>
                 )}
 
-                {/* `picking` means two different things and the difference is the
-                whole point of having a picker: with sources it is "your move";
-                with none it is the real hand-off to lb-bot's own workspace. */}
-                {!searching && gap.status === 'picking' && sources.length === 0 && (
+                {/* `picking` with no sources is NOT a decision waiting in lb-bot's
+                workspace, though this used to say so. The tracks were picked by a
+                search whose results lb-bot no longer holds — they age out, and
+                until 2026-09-24 a background rescan could wipe them seconds after
+                they landed — so the next step is a search, which the button below
+                runs. lb-bot's own page stays one click away for anything this
+                modal can't do. */}
+                {needsFreshSearch && (
                     <Text isMuted size="sm">
-                        lb-bot needs a decision in its own match workspace for this album.
+                        The sources found for this album are gone. Search again to get a fresh list.
                     </Text>
                 )}
 
@@ -314,6 +327,19 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                     >
                         Re-check album
                     </Button>
+                    {/* Opens in the browser: Electron's window-open handler hands any
+                    http(s) URL to the OS. Only shown when the hub advertises
+                    lb-bot's address — an older hub doesn't, and a guessed one
+                    would be a button that leads nowhere. */}
+                    {workspaceUrl && (
+                        <Button
+                            onClick={() => window.open(workspaceUrl, '_blank')}
+                            size="compact-sm"
+                            variant="subtle"
+                        >
+                            Open in lb-bot
+                        </Button>
+                    )}
                     {sources.length > 0 && (
                         <Button
                             disabled={busy || settling || !!pending}
@@ -361,7 +387,7 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                         onClick={handleSearch}
                         variant={sources.length > 0 ? 'default' : 'filled'}
                     >
-                        {sources.length > 0 ? 'Search again' : 'Find sources'}
+                        {sources.length > 0 || needsFreshSearch ? 'Search again' : 'Find sources'}
                     </Button>
                     {sources.length > 0 && (
                         <Button

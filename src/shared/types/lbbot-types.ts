@@ -156,6 +156,9 @@ export interface LbBotResult<T> {
 export interface LbBotStatus {
     available: boolean;
     routes: string[];
+    /** lb-bot's own web UI, for sending the user to its workspace — "" when the
+     *  hub doesn't say (an older hub, or the proxy is off). Only ever http(s). */
+    webUrl: string;
 }
 
 export const LB_BOT_QUALITY_OPTIONS: { label: string; value: LbBotQuality }[] = [
