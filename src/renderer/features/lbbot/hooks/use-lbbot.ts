@@ -25,7 +25,13 @@ import type {
     LbBotWishlist,
 } from '/@/shared/types/lbbot-types';
 
-import { keepPreviousData, QueryClient, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+    keepPreviousData,
+    QueryClient,
+    useQuery,
+    useQueryClient,
+    UseQueryResult,
+} from '@tanstack/react-query';
 import isElectron from 'is-electron';
 import {
     use,
@@ -43,9 +49,10 @@ import {
     getMirrorArtistByNdId,
     loadIndexMirror,
     mirrorDiscography,
-    requestIndexSync,
+    onLbBotAvailable,
     subscribeIndexMirror,
     useMirrorArtistByNdId,
+    useMirrorShown,
 } from '/@/renderer/features/lbbot/index-mirror/index-mirror';
 import {
     ActiveFill,
@@ -253,8 +260,65 @@ export const clearLbBotStatus = (): void => {
     void queryClient.invalidateQueries({ queryKey: ['lbbot', 'status'] });
 };
 
+/**
+ * The lb-bot answers whose ownership marking a missed `library` frame leaves
+ * wrong — the routes the hub itself drops on every library event
+ * (`LB_LIBRARY_ROUTES`), as this app caches them. `status` is not here:
+ * {@link adoptLbBotWelcome} re-asks it on its own.
+ */
+const LB_OWNERSHIP_KINDS = new Set([
+    'album-lookup',
+    'artist-related',
+    'artist-similar',
+    'discography',
+    'fresh-releases',
+    'wishlist',
+]);
+
+/**
+ * Mark every cached lb-bot answer that carries ownership stale — for a new hub
+ * connection. A `library` frame sent while the socket was down is lost, and
+ * with it the one signal that a Fresh row, a Deezer tile or a similar artist
+ * now says "owned"; the hub dropped its own copies when it happened, but these
+ * (Fresh and the Deezer rows restored from disk among them) would stand until
+ * their `staleTime` ran out, an hour or more. Navic does the same on every
+ * welcome (Ruling R28).
+ *
+ * Not a library event: nothing in Navidrome's cache is touched. Only what is on
+ * screen refetches now, and it keeps painting its answer until the new one
+ * lands; the rest asks again on its next mount.
+ */
+export const invalidateLbBotOwnership = (): void => {
+    void queryClient.invalidateQueries({
+        predicate: (query) => {
+            const [scope, kind, feed] = query.queryKey as unknown[];
+            if (scope !== 'lbbot' || typeof kind !== 'string') return false;
+            // The Deezer chart and editorial rows, not the genre list.
+            if (kind === 'deezer') return feed === 'chart' || feed === 'editorial';
+            return LB_OWNERSHIP_KINDS.has(kind);
+        },
+    });
+};
+
 /** Whether the lb-bot layer is reachable at all. */
 export const useLbBotAvailable = (): boolean => useLbBotStatus()?.available === true;
+
+/**
+ * Ruling R21 for the lb-bot answers react-query keeps on disk
+ * (`persisted-queries.ts`): with the hub switched off in settings, or never set
+ * up, they are not shown. `enabled: false` is not enough on its own — a
+ * disabled query still returns whatever `main.tsx` hydrated, so About, Fresh
+ * and the Deezer rows went on rendering the last hub's answers with no hub.
+ * The same predicate as the index mirror ({@link useMirrorShown}), and the same
+ * reading of it: lb-bot merely down still shows them, and nothing is deleted,
+ * so switching the hub back on paints them again at once.
+ */
+const useShownWithHub = <TData>(query: UseQueryResult<TData>): UseQueryResult<TData> => {
+    const shown = useMirrorShown();
+    // Spread only when hidden: it reads every tracked property of the result,
+    // which is harmless for a query that cannot fetch.
+    return shown ? query : ({ ...query, data: undefined } as UseQueryResult<TData>);
+};
 
 /** The one reading of an advertised route list. An **empty** list is an older
  *  hub that doesn't advertise at all: assume supported rather than hiding a
@@ -463,7 +527,12 @@ export const useIndexArtist = (ndId: string) => {
                     // after the spinner stopped — or never, if that frame is
                     // lost (Ruling R23). A pull that finds nothing new costs
                     // ~100 bytes.
-                    if (data?.indexed && rescanned) requestIndexSync('index');
+                    //
+                    // `onLbBotAvailable`, not `requestIndexSync('index')`: the
+                    // latter is dropped while a retry is pending, and this poll
+                    // has just had lb-bot answer — whatever back-off the sync
+                    // earned is over, so it is reset and the pull goes now.
+                    if (data?.indexed && rescanned) onLbBotAvailable();
                 }
             }, 5000);
             return true;
@@ -534,7 +603,7 @@ export const useIndexRelease = (ndId: string, artistMbid: string) => {
  */
 export const useLbBotFreshReleases = (days: number) => {
     const available = useLbBotAvailable();
-    return useQuery({
+    const query = useQuery({
         enabled: !!lbBot && available,
         // Every lb-bot hook sets its own `gcTime`, never below its `staleTime`:
         // the app default is 20 s, which drops an unwatched entry long before a
@@ -550,6 +619,7 @@ export const useLbBotFreshReleases = (days: number) => {
         refetchOnWindowFocus: false,
         staleTime: 10 * 60 * 1000,
     });
+    return useShownWithHub(query);
 };
 
 /**
@@ -696,7 +766,7 @@ export const useLbBotSimilarArtists = (args: {
  */
 export const useLbBotArtistMeta = (mbid?: null | string, name?: null | string) => {
     const available = useLbBotAvailable();
-    return useQuery<LbBotMeta | null>({
+    const query = useQuery<LbBotMeta | null>({
         enabled: !!lbBot && available && !!(mbid || name),
         // Matched to `staleTime`: an answer that never goes stale must not be
         // dropped 20 s after the page closes. Persisted across restarts as
@@ -712,6 +782,7 @@ export const useLbBotArtistMeta = (mbid?: null | string, name?: null | string) =
         refetchOnWindowFocus: false,
         staleTime: Infinity,
     });
+    return useShownWithHub(query);
 };
 
 /** The same for a release-group, plus release credits. `releaseMbid` is an
@@ -719,7 +790,7 @@ export const useLbBotArtistMeta = (mbid?: null | string, name?: null | string) =
  *  release at one rate-limited MusicBrainz request per second. */
 export const useLbBotAlbumMeta = (rgid?: null | string, releaseMbid?: null | string) => {
     const available = useLbBotAvailable();
-    return useQuery<LbBotMeta | null>({
+    const query = useQuery<LbBotMeta | null>({
         enabled: !!lbBot && available && !!rgid,
         gcTime: Infinity,
         queryFn: () => lbBot!.metaAlbum({ releaseMbid: releaseMbid ?? undefined, rgid: rgid! }),
@@ -727,29 +798,34 @@ export const useLbBotAlbumMeta = (rgid?: null | string, releaseMbid?: null | str
         refetchOnWindowFocus: false,
         staleTime: Infinity,
     });
+    return useShownWithHub(query);
 };
 
 /** Editions of one release-group. Sits on MusicBrainz upstream — show a skeleton. */
 export const useLbBotAlbumReleases = (rgid: null | string) =>
-    useQuery<LbBotReleaseDetail | null>({
-        enabled: !!lbBot && !!rgid,
-        gcTime: Infinity,
-        queryFn: () => lbBot!.albumReleases(rgid!),
-        queryKey: ['lbbot', 'album-releases', rgid],
-        // Which editions a release-group has does not change; the hub holds this
-        // for hours and there is no reason for the renderer to ask again.
-        staleTime: Infinity,
-    });
+    useShownWithHub(
+        useQuery<LbBotReleaseDetail | null>({
+            enabled: !!lbBot && !!rgid,
+            gcTime: Infinity,
+            queryFn: () => lbBot!.albumReleases(rgid!),
+            queryKey: ['lbbot', 'album-releases', rgid],
+            // Which editions a release-group has does not change; the hub holds
+            // this for hours and there is no reason for the renderer to ask again.
+            staleTime: Infinity,
+        }),
+    );
 
 /** Canonical tracklist for one release. */
 export const useLbBotTracklist = (releaseMbid: null | string) =>
-    useQuery<LbBotTracklist | null>({
-        enabled: !!lbBot && !!releaseMbid,
-        gcTime: Infinity,
-        queryFn: () => lbBot!.albumTracklist(releaseMbid!),
-        queryKey: ['lbbot', 'tracklist', releaseMbid],
-        staleTime: Infinity,
-    });
+    useShownWithHub(
+        useQuery<LbBotTracklist | null>({
+            enabled: !!lbBot && !!releaseMbid,
+            gcTime: Infinity,
+            queryFn: () => lbBot!.albumTracklist(releaseMbid!),
+            queryKey: ['lbbot', 'tracklist', releaseMbid],
+            staleTime: Infinity,
+        }),
+    );
 
 /** States nothing further will happen from. `placed` is deliberately absent:
  *  the interesting transition is placed → verified, which is Navidrome
@@ -1866,7 +1942,7 @@ export const allowMp3AndRetry = async (row: {
 const useLbBotBrowse = (feed: 'chart' | 'editorial', limit = 20, genre = '0') => {
     const available = useLbBotAvailable();
     const supported = useHubSupports(`GET /lb/deezer/${feed}`);
-    return useQuery<LbBotBrowse | null>({
+    const query = useQuery<LbBotBrowse | null>({
         enabled: !!lbBot && available && supported,
         gcTime: 60 * 60 * 1000,
         // A genre chip switches the key. Keep the previous genre's tiles in
@@ -1885,6 +1961,7 @@ const useLbBotBrowse = (feed: 'chart' | 'editorial', limit = 20, genre = '0') =>
         refetchOnWindowFocus: false,
         staleTime: 60 * 60 * 1000,
     });
+    return useShownWithHub(query);
 };
 
 export const useLbBotDeezerChart = (limit = 20, genre = '0') =>
@@ -1907,7 +1984,7 @@ export const useLbBotDeezerEditorial = (limit = 20, genre = '0') =>
 export const useLbBotDeezerGenres = () => {
     const available = useLbBotAvailable();
     const supported = useHubSupports('GET /lb/deezer/genres');
-    return useQuery<LbBotDeezerGenres | null>({
+    const query = useQuery<LbBotDeezerGenres | null>({
         enabled: !!lbBot && available && supported,
         gcTime: Infinity,
         queryFn: () => lbBot!.deezerGenres(),
@@ -1917,6 +1994,7 @@ export const useLbBotDeezerGenres = () => {
         // not a table — but not within a session.
         staleTime: Infinity,
     });
+    return useShownWithHub(query);
 };
 
 /**

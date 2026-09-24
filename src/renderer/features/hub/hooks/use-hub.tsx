@@ -9,6 +9,7 @@ import {
     adoptLbBotWelcome,
     applyFillFrame,
     clearLbBotStatus,
+    invalidateLbBotOwnership,
     useLbBotLibraryRefresh,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
@@ -1105,6 +1106,11 @@ export const useHub = () => {
                 // missed while the hub was down would leave the hint stale.
                 adoptLbBotWelcome(msg.lb);
                 requestIndexSync('welcome');
+                // A `library` frame sent while this socket was down is lost, so
+                // every cached lb-bot answer that marks ownership (Fresh, the
+                // Deezer rows, similar artists) is re-asked — as Navic does on
+                // every welcome (R28). Not a library event: no library refetch.
+                invalidateLbBotOwnership();
                 // Hub is authoritative: adopt its session rather than pushing ours.
                 void adoptIfNoLiveReceiver(msg.session);
             } else if (msg.t === 'session') {

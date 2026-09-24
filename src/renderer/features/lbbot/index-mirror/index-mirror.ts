@@ -566,6 +566,11 @@ const hubConfigured = (hub?: { enabled: boolean; token: string; url: string }): 
  */
 export const mirrorShown = (): boolean => hubConfigured(useSettingsStore.getState().hub);
 
+/** {@link mirrorShown} as a hook, re-rendering when it flips — for the lb-bot
+ *  answers kept outside the mirror (react-query's persisted reads), which the
+ *  same rule governs. */
+export const useMirrorShown = (): boolean => useSettingsStore((state) => hubConfigured(state.hub));
+
 let watchingHubSetting = false;
 
 /** Re-render every reader when {@link mirrorShown} flips. The setting lives in
