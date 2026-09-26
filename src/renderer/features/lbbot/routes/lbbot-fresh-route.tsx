@@ -194,12 +194,19 @@ const LbBotFreshRoute = () => {
 
     const available = useLbBotAvailable();
     const query = useLbBotFreshReleases(days);
+    // `keepPreviousData` holds the previous window's answer while the new one
+    // loads. It is not this window's answer, so nothing below may describe it as
+    // one (an empty window, a truncation count) — and with lb-bot unavailable the
+    // new window will never load, so it is dropped rather than dimmed forever.
+    const switching = query.isPlaceholderData;
+    const data = switching && !available ? undefined : query.data;
     // A disabled react-query is `pending` forever, so `isLoading` alone would spin
-    // indefinitely on a page reached by URL with lb-bot switched off.
-    const loading = available && query.isLoading;
+    // indefinitely on a page reached by URL with lb-bot switched off. Placeholder
+    // data leaves `isLoading` false, which is why switching counts separately.
+    const loading = available && (query.isLoading || switching);
 
     const buckets = useMemo(() => {
-        const rows = (query.data?.releases ?? []).filter(
+        const rows = (data?.releases ?? []).filter(
             (release) =>
                 (scope === 'all' || release.artistOwned) &&
                 (type === 'all' || typeBucket(release) === type),
@@ -237,7 +244,7 @@ const LbBotFreshRoute = () => {
             const releases = byBucket.get(label);
             return releases?.length ? [{ label, releases }] : [];
         });
-    }, [query.data, scope, sort, type]);
+    }, [data, scope, sort, type]);
 
     const total = buckets.reduce((sum, bucket) => sum + bucket.releases.length, 0);
 
@@ -287,26 +294,31 @@ const LbBotFreshRoute = () => {
                             />
                         </div>
 
-                        {loading && <Spinner container />}
+                        {/* The previous window's rows, dimmed, already say "loading"
+                            — unless there are none. */}
+                        {loading && total === 0 && <Spinner container />}
 
                         {/* Fail-soft, like every other lb-bot read: an absent lb-bot and
                             an unhappy ListenBrainz are both a sentence, not an error
                             page — and they are different sentences. */}
-                        {!available && (
+                        {/* Not over a feed on screen: a persisted or cached answer is
+                            shown while lb-bot is unreachable, and this sentence is the
+                            one thing it would contradict. */}
+                        {!available && !data && (
                             <Text isMuted>
                                 lb-bot is not configured on your hub, so there is no fresh-releases
                                 feed to read.
                             </Text>
                         )}
 
-                        {available && !loading && !query.data && (
+                        {available && !loading && !data && (
                             <Text isMuted>
                                 lb-bot could not reach the fresh-releases feed. It caches the feed
                                 for an hour, so try again shortly.
                             </Text>
                         )}
 
-                        {!loading && query.data && total === 0 && (
+                        {!loading && data && total === 0 && (
                             <Text isMuted>
                                 {scope === 'mine'
                                     ? 'Nothing new from artists in your library in this window. Try All, or a longer window.'
@@ -319,9 +331,9 @@ const LbBotFreshRoute = () => {
                             in your library survives that cut whatever its size,
                             so this only ever means "there are more releases by
                             artists you don't have". */}
-                        {!loading && query.data?.truncated && total > 0 && (
+                        {!loading && data?.truncated && total > 0 && (
                             <Text isMuted size="sm">
-                                {`Showing the ${query.data.releases.length} most-listened of ${query.data.total} releases, plus everything by artists in your library.`}
+                                {`Showing the ${data.releases.length} most-listened of ${data.total} releases, plus everything by artists in your library.`}
                             </Text>
                         )}
 
@@ -332,7 +344,7 @@ const LbBotFreshRoute = () => {
                                 // The previous window's rows, held on screen by
                                 // `keepPreviousData` while the new window loads:
                                 // dimmed, so they do not read as its answer.
-                                style={query.isPlaceholderData ? { opacity: 0.5 } : undefined}
+                                style={switching ? { opacity: 0.5 } : undefined}
                             >
                                 {bucket.label && (
                                     <div className={styles.bucket}>

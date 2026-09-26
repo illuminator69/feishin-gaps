@@ -111,6 +111,9 @@ const IN_FLIGHT: ReadonlySet<LbBotFillState> = new Set<LbBotFillState>([
  */
 export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbumPanelProps) => {
     const releasesQuery = useLbBotAlbumReleases(release.rgid);
+    // Opens on the first variant's first edition — `defaultEdition` in
+    // use-lbbot.ts says the same, so a one-tap acquire that fell through to this
+    // picker finds its source search already cached. Change them together.
     const [variantIndex, setVariantIndex] = useState(0);
     const [editionIndex, setEditionIndex] = useState(0);
     const [starting, setStarting] = useState(false);

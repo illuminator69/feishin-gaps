@@ -9,6 +9,7 @@ import {
     useIndexRelease,
     useLbBotAlbumMeta,
     useLbBotAlbumReleases,
+    useLbBotAvailable,
     useLbBotDiscography,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
@@ -88,8 +89,13 @@ const LbBotExternalAlbumRoute = () => {
     // knows which Navidrome album a release-group resolves to, so an album the
     // library actually holds keeps rendering as a download until the next scan.
     const indexRelease = useIndexRelease(artistMbid ? `mb:${artistMbid}` : '', artistMbid);
+    // Only while lb-bot is up. The discography can come from the local mirror
+    // with lb-bot down, and `useIndexRelease` fires once per rgid, failures
+    // included — so a call made then was never made again on this page. Gated,
+    // it waits, and runs when lb-bot comes back.
+    const available = useLbBotAvailable();
     useEffect(() => {
-        if (!discography.data?.indexed || indexedRow) return;
+        if (!available || !discography.data?.indexed || indexedRow) return;
         // The link that got here carries the release's own metadata, which is
         // lb-bot's escape hatch when MusicBrainz is inside its five-minute
         // failure cooldown for this release-group.
@@ -101,7 +107,7 @@ const LbBotExternalAlbumRoute = () => {
             type: search.get('type') ?? '',
             year: search.get('year') ?? '',
         });
-    }, [discography.data, indexedRow, indexRelease, rgid, artist, search]);
+    }, [available, discography.data, indexedRow, indexRelease, rgid, artist, search]);
 
     // A synthetic index row: the panel reads only these four fields off it, and
     // everything real about the release comes from lb-bot inside the panel.

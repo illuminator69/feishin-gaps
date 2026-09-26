@@ -7,7 +7,10 @@ import { del, get, set } from 'idb-keyval';
 import { createRoot } from 'react-dom/client';
 
 import { App } from '/@/renderer/app';
-import { shouldPersistLbBotQuery } from '/@/renderer/features/lbbot/utils/persisted-queries';
+import {
+    isLbBotQueryKey,
+    shouldPersistLbBotQuery,
+} from '/@/renderer/features/lbbot/utils/persisted-queries';
 import { queryClient } from '/@/renderer/lib/react-query';
 
 function createIDBPersister(idbValidKey: IDBValidKey = 'reactQuery') {
@@ -19,7 +22,16 @@ function createIDBPersister(idbValidKey: IDBValidKey = 'reactQuery') {
             await del(idbValidKey);
         },
         restoreClient: async () => {
-            return await get<PersistedClient>(idbValidKey);
+            const client = await get<PersistedClient>(idbValidKey);
+            // navi-connect: lb-bot entries are bounded by age on the way back in
+            // too — `maxAge` below is Infinity, and the snapshot's own filter
+            // only ran when it was written.
+            if (client?.clientState?.queries) {
+                client.clientState.queries = client.clientState.queries.filter(
+                    (query) => !isLbBotQueryKey(query.queryKey) || shouldPersistLbBotQuery(query),
+                );
+            }
+            return client;
         },
     } as Persister;
 }

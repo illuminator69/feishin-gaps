@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 
 import styles from './discover-row.module.css';
@@ -18,10 +18,13 @@ import { Text } from '/@/shared/components/text/text';
  * 1. **A row with nothing to show renders nothing** — not a heading with an
  *    empty shelf under it, not a spinner that never resolves. Fresh, the
  *    similar-albums shelf and the CLAP entry each invented their own version of
- *    this and they do not agree. **A row still waiting for its first answer is
- *    not "nothing to show", though:** it reserves its height with skeleton
- *    tiles. Rendering nothing until the data arrived made every row below it
- *    jump down by a row's height, once per row, as each one answered.
+ *    this and they do not agree. **A row that showed cards last time and is
+ *    waiting for its answer is not "nothing to show", though:** it reserves its
+ *    height with skeleton tiles, for a bounded time. Rendering nothing until the
+ *    data arrived made every row below it jump down by a row's height, once per
+ *    row, as each one answered. A row with no such history still renders
+ *    nothing until it answers — a skeleton that then collapses is the same jump
+ *    twice.
  * 2. **`because` is not optional.** The attribution rule this stack follows is
  *    that a recommendation names the thing that justifies it; an unattributed
  *    shelf is indistinguishable from a popularity chart. Making it a required
@@ -54,11 +57,11 @@ interface DiscoverRowProps {
     /** Render nothing at all when there is nothing to show. */
     isEmpty: boolean;
     /**
-     * The row's first answer is on its way. Wins over `isEmpty` (a row that has
-     * not answered yet is not an empty one): the header and a shelf of skeleton
-     * tiles hold the row's height until it resolves to cards — or, when it
-     * answers with nothing, to nothing. Only a row that is actually fetching
-     * should pass it; a disabled query must not, or it holds a skeleton forever.
+     * The row's answer is on its way. A row that showed cards the last time it
+     * answered holds its height meanwhile with a shelf of skeleton tiles, for
+     * at most {@link SKELETON_MAX_MS}; any other row renders nothing until it
+     * answers, as rule 1 says. Only a row that is actually fetching should pass
+     * it; a disabled query must not.
      */
     isLoading?: boolean;
     /** Optional "see all" target, e.g. the full Fresh feed. */
@@ -70,6 +73,50 @@ const noop = () => {};
 
 /** Enough to fill the widest carousel page; `GridCarousel` shows as many as fit. */
 const SKELETON_COUNT = 8;
+
+/**
+ * How long a skeleton may stand in for a row. react-query retries a failing
+ * read indefinitely while reporting it as still loading, and a skeleton that
+ * never resolves is the "spinner that never resolves" rule 1 forbids.
+ */
+const SKELETON_MAX_MS = 10_000;
+
+/**
+ * Titles of the rows that showed cards the last time they answered — the only
+ * rows that get a skeleton. A skeleton is a promise that a shelf is coming: made
+ * by a row that then answers empty (a user with no Rediscovery set, say), it
+ * paints a shelf and collapses it, moving every row below twice instead of
+ * once. Remembering the last answer confines that to a row's first visit, and
+ * to a row whose content has genuinely gone. A per-viewer convenience, so
+ * browser storage: an unreadable one just means no skeletons.
+ */
+const ROWS_WITH_CARDS_KEY = 'discover-rows-with-cards';
+let rowsWithCards: null | Set<string> = null;
+
+const rowsWithCardsSet = (): Set<string> => {
+    if (rowsWithCards) return rowsWithCards;
+    try {
+        const stored: unknown = JSON.parse(localStorage.getItem(ROWS_WITH_CARDS_KEY) ?? '[]');
+        rowsWithCards = new Set(
+            Array.isArray(stored) ? stored.filter((t): t is string => typeof t === 'string') : [],
+        );
+    } catch {
+        rowsWithCards = new Set();
+    }
+    return rowsWithCards;
+};
+
+const rememberRow = (title: string, hadCards: boolean) => {
+    const set = rowsWithCardsSet();
+    if (set.has(title) === hadCards) return;
+    if (hadCards) set.add(title);
+    else set.delete(title);
+    try {
+        localStorage.setItem(ROWS_WITH_CARDS_KEY, JSON.stringify([...set]));
+    } catch {
+        // Remembered for this session only.
+    }
+};
 
 /**
  * A `DiscoverTile`'s silhouette — same surface, padding, square cover and two
@@ -106,7 +153,28 @@ export const DiscoverRow = ({
     seeAll,
     title,
 }: DiscoverRowProps) => {
-    const waiting = !!isLoading && (!cards || cards.length === 0);
+    const hasCards = !!cards && cards.length > 0;
+    const wantsSkeleton = !!isLoading && !hasCards && rowsWithCardsSet().has(title);
+    // Reset whenever the row starts or stops waiting (React's "adjust state on a
+    // prop change" pattern), so each wait gets its own allowance.
+    const [expired, setExpired] = useState(false);
+    const [wasWanting, setWasWanting] = useState(wantsSkeleton);
+    if (wasWanting !== wantsSkeleton) {
+        setWasWanting(wantsSkeleton);
+        setExpired(false);
+    }
+    useEffect(() => {
+        if (!wantsSkeleton) return undefined;
+        const timer = window.setTimeout(() => setExpired(true), SKELETON_MAX_MS);
+        return () => window.clearTimeout(timer);
+    }, [wantsSkeleton]);
+    // Only a carousel row's settled answer is remembered; a chip row has none.
+    const settled = !isLoading && !!cards;
+    useEffect(() => {
+        if (settled) rememberRow(title, hasCards);
+    }, [settled, hasCards, title]);
+
+    const waiting = wantsSkeleton && !expired;
     if (isEmpty && !waiting) return null;
 
     const header = (
@@ -133,9 +201,12 @@ export const DiscoverRow = ({
     );
 
     if (waiting) {
+        // Keyed apart from the real shelf so it does not inherit the page the
+        // user paged the skeletons to.
         return (
             <GridCarousel
                 cards={SKELETON_CARDS}
+                key="skeleton"
                 onNextPage={noop}
                 onPrevPage={noop}
                 title={header}
@@ -152,5 +223,13 @@ export const DiscoverRow = ({
         );
     }
 
-    return <GridCarousel cards={cards} onNextPage={noop} onPrevPage={noop} title={header} />;
+    return (
+        <GridCarousel
+            cards={cards}
+            key="cards"
+            onNextPage={noop}
+            onPrevPage={noop}
+            title={header}
+        />
+    );
 };

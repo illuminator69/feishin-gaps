@@ -10,6 +10,7 @@ import {
     applyFillFrame,
     clearLbBotStatus,
     invalidateLbBotOwnership,
+    markLbBotUnreachable,
     useLbBotLibraryRefresh,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
@@ -1105,12 +1106,15 @@ export const useHub = () => {
                 // a hint, an up-to-date pull costs ~100 bytes, and a notify
                 // missed while the hub was down would leave the hint stale.
                 adoptLbBotWelcome(msg.lb);
-                requestIndexSync('welcome');
                 // A `library` frame sent while this socket was down is lost, so
                 // every cached lb-bot answer that marks ownership (Fresh, the
                 // Deezer rows, similar artists) is re-asked — as Navic does on
                 // every welcome (R28). Not a library event: no library refetch.
-                invalidateLbBotOwnership();
+                // After the adopt: it reads the new verdict, and with lb-bot down
+                // only marks stale. `lbIndex` lets it skip a reconnect across
+                // which lb-bot's index did not move.
+                invalidateLbBotOwnership(msg.lbIndex);
+                requestIndexSync('welcome');
                 // Hub is authoritative: adopt its session rather than pushing ours.
                 void adoptIfNoLiveReceiver(msg.session);
             } else if (msg.t === 'session') {
@@ -1197,6 +1201,9 @@ export const useHub = () => {
                 // socket means there are none — the alternative is a list of
                 // cards whose every button silently does nothing.
                 useMixesStore.getState().actions.reset();
+                // lb-bot is reached through the hub, so with the socket gone it
+                // is unreachable until the next welcome says otherwise.
+                markLbBotUnreachable();
                 // savedQueueId is deliberately KEPT: we're still listening to the same
                 // thing, so a reconnect must refresh that record rather than fork a
                 // near-duplicate of the queue we never stopped playing.

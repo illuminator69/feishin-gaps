@@ -249,8 +249,10 @@ let running: null | Promise<void> = null;
 let queued: IndexSyncTrigger | null = null;
 let retryTimer: number | undefined;
 let retryAttempt = 0;
-/** The hub answered 404: it is older than the feed. Cleared on the next
- *  `welcome`, which is the only way a hub gets newer. */
+/** The hub answered 404: it, or the lb-bot behind it, is older than the feed.
+ *  Cleared on the next `welcome` (a hub can only get newer by reconnecting),
+ *  and by lb-bot coming up or an `index` frame (a relayed 404 was lb-bot's own,
+ *  and an upgraded lb-bot restarts without the hub socket noticing). */
 let feedMissing = false;
 /**
  * A `welcome` arrived while a sync was running, and its reset (above, and the
@@ -265,19 +267,10 @@ let feedMissing = false;
  * construction, taken immediately before the pull it exists for (Ruling R17).
  */
 let pendingWelcomeReset = false;
-/**
- * lb-bot came up (an `lb` frame, R22) while a sync was running. The same
- * deferral as {@link pendingWelcomeReset}, for the back-off alone: the run in
- * flight started before lb-bot was up and may well end by scheduling a retry,
- * which would then hold off the very pull the frame asked for. Applied once
- * that run has settled, immediately before its queued follow-up.
- */
-let pendingBackoffReset = false;
 
 /** Forget the back-off: no retry pending, and the next failure starts the
  *  ladder again from its first step. */
 const resetBackoff = () => {
-    pendingBackoffReset = false;
     retryAttempt = 0;
     if (retryTimer !== undefined) {
         window.clearTimeout(retryTimer);
@@ -328,18 +321,6 @@ const scheduleRetry = (status: number) => {
         retryTimer = undefined;
         requestIndexSync('retry');
     }, delay);
-};
-
-/**
- * A pull that succeeded proves lb-bot is up, whatever `welcome.lb` said when
- * this socket connected — the hub only states availability at connect, and a
- * hub that had just restarted may not have probed lb-bot yet.
- */
-const markReachable = () => {
-    const { actions, lbStatus } = useHubStore.getState();
-    if (lbStatus && !lbStatus.available) {
-        actions.setStore({ lbStatus: { ...lbStatus, available: true } });
-    }
 };
 
 /**
@@ -447,9 +428,12 @@ const runSync = async (): Promise<void> => {
         console.error('[lbbot-index] sync failed', error);
         status = 0;
     }
+    // A pull that succeeded does NOT mark lb-bot available: that verdict is the
+    // hub's alone (`welcome.lb` and the `lb` frame). Set here, it could stand
+    // against a hub that still says down — and since the hub only broadcasts a
+    // CHANGE of verdict, nothing would ever correct it once lb-bot really died.
     if (status === null) {
         retryAttempt = 0;
-        markReachable();
     } else {
         scheduleRetry(status);
     }
@@ -487,48 +471,40 @@ export const requestIndexSync = (trigger: IndexSyncTrigger): void => {
         running = null;
         const next = queued;
         queued = null;
-        // Owed by an `lb` frame that arrived during the run (see
-        // onLbBotAvailable): cleared before the replay, which a retry the run
-        // just scheduled would otherwise swallow.
-        if (pendingBackoffReset) resetBackoff();
         if (next) requestIndexSync(next);
     });
 };
 
 /**
- * The hub says lb-bot is available again (an `lb` frame with `available: true`,
- * Ruling R22): pull now, whatever back-off the sync was in.
+ * lb-bot is known to be up (an `lb` frame with `available: true`, Ruling R22,
+ * or an lb-bot call that just succeeded): pull now, whatever the sync learned
+ * while it was down.
  *
  * `requestIndexSync('index')` alone would be dropped while a retry is pending —
  * right for a burst of `index` frames against a busy hub, wrong here: the
- * back-off was almost certainly earned while lb-bot was down, and the frame is
- * the news that ends it. So the ladder is reset first (deferred to the end of a
- * run in flight, as a welcome's reset is), then the pull is asked for.
+ * back-off was almost certainly earned while lb-bot was down, and this is the
+ * news that ends it. Likewise a 404: behind a current hub it was lb-bot's own,
+ * and the lb-bot that has just come up may be a newer one. So this is a
+ * welcome's reset and pull exactly — deferred past a run in flight, as a
+ * welcome's is, so that run cannot write its stale verdict over it.
  */
-export const onLbBotAvailable = (): void => {
-    if (!lbBot) return;
-    if (running) {
-        pendingBackoffReset = true;
-        // A queued welcome already resets everything and pulls.
-        if (queued !== 'welcome') queued = 'index';
-        return;
-    }
-    resetBackoff();
-    requestIndexSync('index');
-};
+export const onLbBotAvailable = (): void => requestIndexSync('welcome');
 
 /**
  * The hub's `{t: "index", seq, epoch}` frame: lb-bot's head moved.
  *
  * It is a hint to pull, and one this mirror may already have acted on — a page
  * that committed up to `seq` under the same epoch has everything the frame
- * announces, so that case is skipped. Anything else pulls. It is also proof
- * lb-bot is alive, which the connect-time `welcome.lb` cannot be.
+ * announces, so that case is skipped. Anything else pulls. (It says lb-bot is
+ * alive, but that verdict is the hub's to state: the inbound push that caused
+ * this frame also flips the hub's own, which arrives as an `lb` frame.)
  */
 export const onIndexFrame = (seq: number, epoch: string): void => {
-    markReachable();
     if (loaded && epoch === meta.epoch && seq <= meta.cursor) return;
-    requestIndexSync('index');
+    // Only an lb-bot serving the feed pushes its head, so the frame disproves an
+    // earlier 404 — typically lb-bot upgraded behind a hub that stayed up.
+    if (feedMissing) onLbBotAvailable();
+    else requestIndexSync('index');
 };
 
 /** Mount once (from `useHub`): reads the stored mirror at startup and runs the

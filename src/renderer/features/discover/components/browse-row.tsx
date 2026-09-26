@@ -91,7 +91,11 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
     // row creates.
     const chart = useLbBotDeezerChart(20, genre);
     const editorial = useLbBotDeezerEditorial(20, genre);
-    const { data, isLoading } = feed === 'chart' ? chart : editorial;
+    const { data, isLoading, isPlaceholderData } = feed === 'chart' ? chart : editorial;
+    // A genre switch in flight: `keepPreviousData` holds the previous genre's
+    // answer, which leaves `isLoading` false. Those tiles are not this genre's,
+    // so they are shown dimmed and inert, and nothing may call the genre empty.
+    const switching = isPlaceholderData;
 
     /**
      * Where a tile goes. Every branch of that decision lives in
@@ -181,7 +185,7 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
                     imageUrl={album.coverUrl}
                     // The row the search is running for, so the tile it was
                     // started from is the one that looks busy.
-                    isBusy={pending === `${album.artist}-${album.title}`}
+                    isBusy={switching || pending === `${album.artist}-${album.title}`}
                     isUnowned={!album.releaseOwned}
                     itemType={LibraryItem.ALBUM}
                     onClick={() => void openAlbum(album)}
@@ -209,6 +213,7 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
                             // from, and a chart of unnamed silhouettes is not a
                             // chart anybody reads.
                             imageUrl={artist.owned ? null : artist.imageUrl}
+                            isBusy={switching}
                             isRound
                             isUnowned={!artist.owned}
                             itemType={LibraryItem.ALBUM_ARTIST}
@@ -222,7 +227,7 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
             });
 
         return [...albums, ...artists];
-    }, [data, navigate, openAlbum, pending]);
+    }, [data, navigate, openAlbum, pending, switching]);
 
     // A genre the feed answered nothing for. The row would normally render
     // nothing at all, but the chips are the only way back to one that works —
@@ -231,7 +236,7 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
     // shelf: the chips stay, the carousel does not.
     // Not while the genre's first answer is still on its way: that is the
     // skeleton row below, chips included, not a genre known to be empty.
-    if (cards.length === 0 && genreChips && !isLoading) {
+    if (cards.length === 0 && genreChips && !isLoading && !switching) {
         return (
             <DiscoverRow because={BECAUSE[feed]} isEmpty={false} title={title}>
                 {/* One child: the chip-style slot is a wrapping flex row, so two
@@ -252,10 +257,9 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
             because={BECAUSE[feed]}
             cards={cards}
             isEmpty={cards.length === 0}
-            // Only the first answer: a genre switch keeps the previous genre's
-            // tiles on screen (`keepPreviousData`) rather than dropping back to
-            // skeletons.
-            isLoading={isLoading}
+            // A genre switch keeps the previous genre's tiles on screen, dimmed;
+            // counted as loading too for the case with none to keep.
+            isLoading={isLoading || switching}
             title={title}
         />
     );

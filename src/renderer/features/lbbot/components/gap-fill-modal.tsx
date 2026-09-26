@@ -83,9 +83,24 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
     // group — the same handle this modal is reading.
     const webUrl = useLbBotWebUrl();
     const workspaceUrl = webUrl ? `${webUrl}/#/gaps/${encodeURIComponent(groupId)}` : '';
-    // Tracks already picked, and nothing to fetch them from: the search that
-    // picked them has results no longer, so searching again is the remedy.
-    const needsFreshSearch = !searching && gap?.status === 'picking' && sources.length === 0;
+    // lb-bot reports `picking` for two buckets. `needs_match` is files already
+    // downloaded and waiting for a manual match — its tracks read `downloaded` —
+    // and that is a decision only lb-bot's own workspace can take; a search
+    // cannot resolve it.
+    const awaitingMatch =
+        !searching &&
+        gap?.status === 'picking' &&
+        gap.tracks.some((track) => track.state === 'downloaded');
+    // The other, `source_pending`: tracks picked and nothing to fetch them from.
+    // With lb-bot's own no-source reason, the search ran and found nothing (that
+    // reason is shown below); without one, the search that picked them has
+    // results no longer, so searching again is the remedy.
+    const needsFreshSearch =
+        !searching &&
+        !awaitingMatch &&
+        gap?.status === 'picking' &&
+        sources.length === 0 &&
+        !gap.noSourceReason;
 
     // Rank 1 pre-selected, an explicit pick always winning.
     const selected =
@@ -272,11 +287,17 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                     </Text>
                 )}
 
-                {/* `picking` with no sources is NOT a decision waiting in lb-bot's
-                workspace, though this used to say so. The tracks were picked by a
-                search whose results lb-bot no longer holds — they age out, and
-                until 2026-09-24 a background rescan could wipe them seconds after
-                they landed — so the next step is a search, which the button below
+                {awaitingMatch && (
+                    <Text isMuted size="sm">
+                        lb-bot needs a decision in its own match workspace for this album.
+                    </Text>
+                )}
+
+                {/* `picking` with no sources and no match pending is NOT a decision
+                waiting in lb-bot's workspace. The tracks were picked by a search
+                whose results lb-bot no longer holds — they age out, and until
+                2026-09-24 a background rescan could wipe them seconds after they
+                landed — so the next step is a search, which the button below
                 runs. lb-bot's own page stays one click away for anything this
                 modal can't do. */}
                 {needsFreshSearch && (
@@ -335,7 +356,8 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                         <Button
                             onClick={() => window.open(workspaceUrl, '_blank')}
                             size="compact-sm"
-                            variant="subtle"
+                            // The only way forward for a pending match.
+                            variant={awaitingMatch ? 'filled' : 'subtle'}
                         >
                             Open in lb-bot
                         </Button>
@@ -385,9 +407,11 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                         disabled={searching || !!pending}
                         loading={pending === 'search' || searching}
                         onClick={handleSearch}
-                        variant={sources.length > 0 ? 'default' : 'filled'}
+                        variant={sources.length > 0 || awaitingMatch ? 'default' : 'filled'}
                     >
-                        {sources.length > 0 || needsFreshSearch ? 'Search again' : 'Find sources'}
+                        {sources.length > 0 || needsFreshSearch || gap.noSourceReason
+                            ? 'Search again'
+                            : 'Find sources'}
                     </Button>
                     {sources.length > 0 && (
                         <Button
