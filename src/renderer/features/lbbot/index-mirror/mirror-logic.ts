@@ -102,6 +102,27 @@ export const planPage = (
     return { deletes: [...deletes], puts: [...puts.values()] };
 };
 
+/**
+ * Which `localSeq` lookup {@link planPage} should use for one changes page.
+ *
+ * A resync's first REAL page (`pendingWipe`) must plan as though nothing were
+ * held locally — the OLD epoch's records are still sitting in memory at that
+ * point (the wipe is deferred into the same commit as this page, not applied
+ * earlier, so tiles don't flicker to empty between the two round trips), and
+ * a new epoch's whole reason for existing is that its seq values no longer
+ * mean what the old cursor assumed: SQLite's rowid can restart from a fresh
+ * database, or move backwards after a restore. Comparing a fresh item's seq
+ * against an unrelated epoch's held seq silently drops it as a false
+ * no-op — the exact mechanism behind the review's Critical 2 (2026-09-27,
+ * `C-review.md`): before this function existed, `pull()` planned every page
+ * against `byKey` unconditionally, wipe or not.
+ */
+export const pageSeqLookup = (
+    byKey: ReadonlyMap<string, Pick<LbBotIndexArtist, 'seq'>>,
+    pendingWipe: boolean,
+): ((key: string) => number | undefined) =>
+    pendingWipe ? () => undefined : (key) => byKey.get(key)?.seq;
+
 /** The mirror's side of the drift check: what the final page's `artistCount`
  *  and `seqSum` are compared against. */
 export const mirrorTotals = (

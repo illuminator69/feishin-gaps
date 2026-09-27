@@ -9,6 +9,7 @@ import {
     lookupByNdId,
     mirrorTotals,
     ndIdsOf,
+    pageSeqLookup,
     planDrift,
     planPage,
     toDiscography,
@@ -155,6 +156,48 @@ void test('planPage: a mixed page keeps an artist put and a tombstone delete ind
 });
 
 // ---------------------------------------------------------------------------
+// pageSeqLookup — fix-round-1 review, Critical 2
+//
+// `pull()` in index-mirror.ts used to plan EVERY page — a resync's first
+// real page included — against `byKey`, which still holds the OLD epoch at
+// that point (the wipe is deferred into the same commit as the first new
+// page, so tiles don't flicker empty for a round trip). A new epoch's whole
+// reason for existing is that its seq values no longer mean what the old
+// cursor assumed: reset to a fresh database, or moved backwards after a
+// restore. So a new epoch's first page, planned against the old epoch's
+// held seqs, silently dropped every item whose new (often much lower) seq
+// read at or below what the old epoch held for that same key.
+// ---------------------------------------------------------------------------
+
+void test('pageSeqLookup: pendingWipe ignores byKey entirely, regardless of what it holds', () => {
+    const byKey = new Map([['a', artist({ key: 'a', seq: 100 })]]);
+    assert.equal(pageSeqLookup(byKey, true)('a'), undefined);
+    assert.equal(pageSeqLookup(byKey, false)('a'), 100);
+});
+
+void test('pageSeqLookup + planPage: reproduces Critical 2 — an epoch change with a LOWER seq', () => {
+    // The mirror is mid-way through an OLD epoch, holding artist 'a' at a
+    // high seq (100). The server mints a NEW epoch and restarts counting:
+    // the same artist's first item in the new epoch's first page carries
+    // seq 3 — far lower than what the OLD epoch held.
+    const oldEpochByKey = new Map([['a', artist({ key: 'a', scannedAt: 1, seq: 100 })]]);
+    const newEpochFirstPage = [artistItem({ key: 'a', name: 'A (new epoch)', seq: 3 })];
+
+    // THE BUG (what `pull()` did before this fix): planning the new epoch's
+    // page against the OLD epoch's held seq. 3 <= 100, so the item is
+    // dropped as a false no-op — the artist silently disappears.
+    const buggy = planPage((key) => oldEpochByKey.get(key)?.seq, newEpochFirstPage);
+    assert.deepEqual(buggy.puts, [], 'documents the bug: the item is wrongly dropped');
+
+    // THE FIX: `pageSeqLookup(byKey, pendingWipe=true)` ignores `byKey`
+    // entirely for a resync's first real page, so the item applies.
+    const fixed = planPage(pageSeqLookup(oldEpochByKey, true), newEpochFirstPage);
+    assert.equal(fixed.puts.length, 1);
+    assert.equal(fixed.puts[0].key, 'a');
+    assert.equal(fixed.puts[0].seq, 3);
+});
+
+// ---------------------------------------------------------------------------
 // mirrorTotals
 // ---------------------------------------------------------------------------
 
@@ -229,6 +272,70 @@ void test('planDrift: the lowest differing seq wins across several mismatched ke
     ];
     const plan = planDrift(local, server);
     assert.equal(plan.rewindTo, 3);
+});
+
+// ---------------------------------------------------------------------------
+// A drift rewind followed by a page — fix-round-1 review, Critical 3
+//
+// The bug itself was NOT in these pure functions: `planDrift`'s `rewindTo`
+// was always computed correctly, and the commit that persists it was always
+// correct too. It was in `pull()`'s own loop, which read its local `cursor`
+// variable (not `meta.cursor`) at the top of every iteration and never
+// reassigned it after the drift commit — so the rewound value landed on
+// disk but the very next request went out at the OLD, un-rewound cursor,
+// silently undoing the rewind before it could do anything (that page's own
+// `Math.max(cursor, nextSince)` then pushed `meta.cursor` straight back up).
+// That is a control-flow defect — a loop variable failing to follow the
+// state it just wrote — which has no meaningful expression as a pure
+// function distinct from what `planDrift` already proves above: there is no
+// "wrong value" to catch, only a value that was computed correctly and then
+// not used. The fix (`index-mirror.ts`, in the drift branch) now reads
+// `cursor = meta.cursor; epoch = meta.epoch;` from what `commit()` actually
+// persisted, rather than recomputing or trusting stale locals — verified by
+// reading the code, not by a test, per this round's own instructions where
+// "the logic lives in index-mirror.ts rather than mirror-logic.ts."
+//
+// What IS a pure-function contract, and IS covered here: once a rewind
+// takes effect and the loop re-pulls from the rewound cursor, the page that
+// comes back must apply correctly against the mirror's CURRENT state (which
+// the drift's own deletes may just have changed) — i.e. `planPage`'s
+// ordinary seq gate, not a special case. This is the scenario named in the
+// review ("a drift rewind followed by a page"), worked end to end.
+// ---------------------------------------------------------------------------
+
+void test('drift rewind followed by a page: the deletes apply, then the re-pulled page applies over the (now smaller) local state', () => {
+    // The mirror holds three artists. The server's key listing (from
+    // `/lb/index/keys`) says: 'a' matches, 'b' is a key the server no
+    // longer has at all (deleted upstream), 'c' differs (the mirror missed
+    // an update — held at 5, server is at 9).
+    const byKey = new Map([
+        ['a', artist({ key: 'a', seq: 20 })],
+        ['b', artist({ key: 'b', seq: 7 })],
+        ['c', artist({ key: 'c', seq: 5 })],
+    ]);
+    const localSeqs = new Map([...byKey].map(([key, a]) => [key, a.seq]));
+    const server = [
+        { key: 'a', seq: 20 },
+        { key: 'c', seq: 9 },
+    ];
+    const plan = planDrift(localSeqs, server);
+    assert.deepEqual(plan.deletes, ['b']);
+    // rewindTo = the one differing key's server seq (9), minus one.
+    assert.equal(plan.rewindTo, 8);
+
+    // Apply the drift's OWN delta first, exactly as `commit()` does — 'b'
+    // leaves `byKey`, matching the fixed loop's next iteration.
+    for (const key of plan.deletes) byKey.delete(key);
+    assert.deepEqual([...byKey.keys()].sort(), ['a', 'c']);
+
+    // The re-pulled page, fetched from the rewound cursor (8), carries the
+    // update the mirror missed: 'c' at the server's real seq (9).
+    const rewoundPage = [artistItem({ key: 'c', name: 'C (repaired)', seq: 9 })];
+    const delta = planPage((key) => byKey.get(key)?.seq, rewoundPage);
+    assert.equal(delta.puts.length, 1);
+    assert.equal(delta.puts[0].key, 'c');
+    assert.equal(delta.puts[0].seq, 9);
+    assert.equal(delta.puts[0].name, 'C (repaired)');
 });
 
 // ---------------------------------------------------------------------------

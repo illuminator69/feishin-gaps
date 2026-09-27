@@ -11,6 +11,7 @@ import {
     mirrorTotals,
     ndIdsOf,
     PageDelta,
+    pageSeqLookup,
     planDrift,
     planPage,
     toDiscography,
@@ -387,6 +388,15 @@ const pull = async (): Promise<null | number> => {
     let cursor = meta.cursor;
     let epoch = meta.epoch;
     let pendingWipe = false;
+    // B-014 (review Important 1): the hub this pull is FOR, captured once —
+    // never re-read as `currentHubUrl()` at commit time, which stamped
+    // whatever hub happened to be configured when the response landed, not
+    // the one that answered it. If the user repoints the hub mid-flight,
+    // `clearIndexMirrorForHubChange` already wipes for the move; a page from
+    // the OLD hub committing afterward with the NEW hub's URL would defeat
+    // that wipe's own mismatch check forever. Guarded below, every time a
+    // response lands.
+    const hubUrl = currentHubUrl();
     for (;;) {
         const since = cursor;
         const result = await lbBot.indexChanges(since, epoch);
@@ -409,6 +419,12 @@ const pull = async (): Promise<null | number> => {
         }
         const page = result.data;
 
+        // B-014 (review Important 1): the response just landed for `hubUrl`,
+        // not necessarily the hub configured NOW. Abort without committing —
+        // the new hub (if any) gets its own correctly-stamped pull from its
+        // own welcome/interval trigger; there is nothing here worth keeping.
+        if (currentHubUrl() !== hubUrl) return null;
+
         // `resync`, or a normal answer under an epoch that is not ours (which
         // lb-bot would itself have answered with resync, so this is defence
         // only): the only case that wipes. Adopt the new epoch, cursor 0, and
@@ -429,11 +445,16 @@ const pull = async (): Promise<null | number> => {
         }
 
         await commit(
-            planPage((key) => byKey.get(key)?.seq, page.items),
+            // Review Critical 2: `pageSeqLookup` (mirror-logic.ts, harness-
+            // tested) — while `pendingWipe` is true, `byKey` still holds the
+            // OLD epoch's rows (the wipe is deferred into this same commit,
+            // not applied yet), and planning a new epoch's page against an
+            // unrelated epoch's held seqs silently drops it as a false no-op.
+            planPage(pageSeqLookup(byKey, pendingWipe), page.items),
             {
                 cursor: Math.max(cursor, page.nextSince),
                 epoch: page.epoch,
-                hubUrl: currentHubUrl(),
+                hubUrl,
                 scanVersion: page.scanVersion,
                 ttlDays: page.ttlDays,
             },
@@ -469,6 +490,8 @@ const pull = async (): Promise<null | number> => {
 
         const keys = await lbBot.indexKeys();
         if (!keys.ok || !keys.data) return keys.status;
+        // B-014: same guard as above — this response also crossed an await.
+        if (currentHubUrl() !== hubUrl) return null;
         // A different epoch: the next changes read answers resync; loop to it.
         if (keys.data.epoch !== meta.epoch) continue;
 
@@ -485,6 +508,18 @@ const pull = async (): Promise<null | number> => {
             },
         );
         if (plan.rewindTo === null) return null;
+        // Review Critical 3: the loop reads its OWN `cursor`/`epoch`, not
+        // `meta`, at the top of the next iteration (`const since = cursor`).
+        // Without this, the rewind above landed in `meta` and on disk but the
+        // next request still went out at the old, high cursor — and that
+        // page's own `Math.max(cursor, page.nextSince)` (above) then pushed
+        // `meta.cursor` straight back up, so a missed update was never
+        // actually re-pulled. Read back from `meta` rather than recomputing
+        // the rewound value a second time: `commit()` above is the one place
+        // that decides what was actually persisted, so it is the only source
+        // the loop should trust for what to continue from.
+        cursor = meta.cursor;
+        epoch = meta.epoch;
     }
 };
 
