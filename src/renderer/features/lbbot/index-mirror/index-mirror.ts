@@ -51,8 +51,11 @@ import { logger } from '/@/renderer/utils/logger';
 const lbBot = isElectron() ? window.api.lbBot : null;
 
 /** Bump when the stored record shape changes; a mismatched store is discarded
- *  and pulled again from 0, which costs one full sync and nothing else. */
-const MIRROR_SCHEMA = 1;
+ *  and pulled again from 0, which costs one full sync and nothing else.
+ *  2 (B-014): `$meta` gained `hubUrl`, so a store from before this fix is
+ *  correctly treated as "no hub identity recorded" and discarded rather than
+ *  read with an absent field. */
+const MIRROR_SCHEMA = 2;
 /** Artist keys are MBIDs or `nd:<id>`; neither can begin with `$`. */
 const META_KEY = '$meta';
 
@@ -73,6 +76,12 @@ const RETRYABLE_STATUSES = new Set([0, 502, 503, 504]);
 /** A resync is answered by pulling from 0 under the new epoch; one that answers
  *  resync again at once means something is wrong upstream, not here. */
 const MAX_RESYNCS_PER_SYNC = 2;
+
+/** The hub URL setting, exactly as `use-hub.tsx` tracks it for R17 (raw
+ *  string equality — a move is a move, not a normalised comparison). B-014's
+ *  hub identity check is the same value for the same reason: the mirror and
+ *  `lbStatus` both describe "the hub this app is currently pointed at". */
+const currentHubUrl = (): string => useSettingsStore.getState().hub?.url ?? '';
 
 // ---------------------------------------------------------------------------
 // State
@@ -153,6 +162,7 @@ const isStoredMeta = (value: unknown): value is StoredMeta => {
         v.schema === MIRROR_SCHEMA &&
         typeof v.cursor === 'number' &&
         typeof v.epoch === 'string' &&
+        typeof v.hubUrl === 'string' &&
         typeof v.scanVersion === 'number' &&
         typeof v.ttlDays === 'number'
     );
@@ -186,10 +196,23 @@ export const loadIndexMirror = (): Promise<void> => {
         try {
             const rows = await entries<IDBValidKey, unknown>(store());
             const storedMeta = rows.find(([key]) => key === META_KEY)?.[1];
-            if (isStoredMeta(storedMeta)) {
+            // B-014: a store built under a DIFFERENT hub URL is not this hub's
+            // mirror, whatever its shape — reading it in would show the old
+            // hub's library (and let the external-album route redirect into
+            // it) under a hub that never built it. Empty `hubUrl` is a store
+            // from before a page ever committed, or a genuinely unconfigured
+            // hub; either way there is nothing to conflict with yet.
+            if (
+                isStoredMeta(storedMeta) &&
+                storedMeta.hubUrl &&
+                storedMeta.hubUrl !== currentHubUrl()
+            ) {
+                await clear(store());
+            } else if (isStoredMeta(storedMeta)) {
                 meta = {
                     cursor: storedMeta.cursor,
                     epoch: storedMeta.epoch,
+                    hubUrl: storedMeta.hubUrl,
                     scanVersion: storedMeta.scanVersion,
                     ttlDays: storedMeta.ttlDays,
                 };
@@ -238,6 +261,31 @@ const commit = async (delta: PageDelta, next: MirrorMeta, wipe = false): Promise
     meta = next;
     // The cursor alone moving changes nothing anyone renders.
     if (wipe || envelopeChanged || delta.puts.length > 0 || delta.deletes.length > 0) notify();
+};
+
+/**
+ * B-014: repointing the hub URL must not leave the OLD hub's mirror standing —
+ * `mirrorShown` only asks whether *a* hub is configured, which is still true
+ * after a move, so nothing else would ever notice.
+ *
+ * Called from `use-hub.tsx` on the same URL-change effect that clears
+ * `lbStatus` (R17), but only on an actual move: switching the hub off is a
+ * DIFFERENT fact from switching to a different hub (R21 already hides the
+ * mirror then, without deleting it, so it reappears at once when re-enabled).
+ * A no-op until the stored mirror has been read — nothing to compare yet —
+ * and then a no-op again if `meta.hubUrl` already agrees, which is the
+ * common case: `pull()` stamps the current hub URL on every commit, so a
+ * move that happens while this app is closed is instead caught by
+ * `loadIndexMirror` reading the mismatch back in at the next launch.
+ */
+export const clearIndexMirrorForHubChange = (): void => {
+    void loadIndexMirror().then(() => {
+        if (!meta.hubUrl || meta.hubUrl === currentHubUrl()) return;
+        // Reset to the empty sentinel, not stamped with the new URL: no page
+        // has been pulled under it yet, and `pull()` stamps it on the first
+        // one that lands.
+        void commit({ deletes: [], puts: [] }, EMPTY_MIRROR_META, true);
+    });
 };
 
 // ---------------------------------------------------------------------------
@@ -371,6 +419,7 @@ const pull = async (): Promise<null | number> => {
                 {
                     cursor: 0,
                     epoch: page.epoch,
+                    hubUrl: currentHubUrl(),
                     scanVersion: page.scanVersion,
                     ttlDays: page.ttlDays,
                 },
@@ -384,6 +433,7 @@ const pull = async (): Promise<null | number> => {
             {
                 cursor: Math.max(meta.cursor, page.nextSince),
                 epoch: page.epoch,
+                hubUrl: currentHubUrl(),
                 scanVersion: page.scanVersion,
                 ttlDays: page.ttlDays,
             },

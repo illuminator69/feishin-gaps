@@ -347,5 +347,11 @@ void test('toDiscography: carries the rows through with scan null and stale comp
 });
 
 void test('EMPTY_MIRROR_META: the sentinel a fresh mirror starts from', () => {
-    assert.deepEqual(EMPTY_MIRROR_META, { cursor: 0, epoch: '', scanVersion: 0, ttlDays: 0 });
+    assert.deepEqual(EMPTY_MIRROR_META, {
+        cursor: 0,
+        epoch: '',
+        hubUrl: '',
+        scanVersion: 0,
+        ttlDays: 0,
+    });
 });

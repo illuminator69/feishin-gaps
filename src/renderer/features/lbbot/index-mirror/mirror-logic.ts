@@ -25,11 +25,23 @@ export interface MirrorMeta {
     cursor: number;
     /** lb-bot's index epoch this mirror was built under; empty before the first pull. */
     epoch: string;
+    /** The hub URL (`settings.hub.url`, unnormalised — compared the same way
+     *  the hub client itself tracks a move) this mirror was pulled through;
+     *  empty before the first committed page. B-014: a hub identity is not
+     *  the same fact as "a hub is configured" — repointing the URL must not
+     *  leave the OLD hub's library rendering under the new one. */
+    hubUrl: string;
     scanVersion: number;
     ttlDays: number;
 }
 
-export const EMPTY_MIRROR_META: MirrorMeta = { cursor: 0, epoch: '', scanVersion: 0, ttlDays: 0 };
+export const EMPTY_MIRROR_META: MirrorMeta = {
+    cursor: 0,
+    epoch: '',
+    hubUrl: '',
+    scanVersion: 0,
+    ttlDays: 0,
+};
 
 /** The writes one change-feed page makes, computed before any of them happen. */
 export interface PageDelta {

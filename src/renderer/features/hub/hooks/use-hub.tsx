@@ -14,6 +14,7 @@ import {
     useLbBotLibraryRefresh,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
+    clearIndexMirrorForHubChange,
     onIndexFrame,
     onLbBotAvailable,
     requestIndexSync,
@@ -1050,6 +1051,11 @@ export const useHub = () => {
         const moved = lbStatusHub.current !== settings.url;
         lbStatusHub.current = settings.url;
         if (!settings.enabled || moved) clearLbBotStatus();
+        // B-014: a MOVE only, unlike lbStatus above — switching the hub off is
+        // not a different hub identity (R21 already hides the mirror then
+        // without deleting it), but pointing at a different one is, and the
+        // old hub's mirror otherwise keeps rendering under the new one.
+        if (moved) clearIndexMirrorForHubChange();
     }, [settings.enabled, settings.url]);
 
     // Wire the inbound hub stream.
