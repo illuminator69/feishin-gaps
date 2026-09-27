@@ -1,7 +1,7 @@
+import type { LbBotIndexArtist, LbBotIndexItem } from '/@/shared/types/lbbot-types';
+
 import assert from 'node:assert/strict';
 import test from 'node:test';
-
-import type { LbBotIndexArtist, LbBotIndexItem } from '/@/shared/types/lbbot-types';
 
 import {
     EMPTY_MIRROR_META,
@@ -31,7 +31,9 @@ import {
  * added just for this file; it does not affect the exit code.)
  */
 
-const artist = (over: Partial<LbBotIndexArtist> & { key: string; seq: number }): LbBotIndexArtist => ({
+const artist = (
+    over: Partial<LbBotIndexArtist> & { key: string; seq: number },
+): LbBotIndexArtist => ({
     mbid: '',
     name: over.key,
     ndArtistId: '',
@@ -65,14 +67,11 @@ void test('planPage: fresh epoch, no local seq — every artist item is a put', 
     const delta = planPage(() => undefined, items);
     assert.equal(delta.puts.length, 2);
     assert.deepEqual(delta.deletes, []);
-    assert.deepEqual(
-        delta.puts.map((p) => p.key).sort(),
-        ['a', 'b'],
-    );
+    assert.deepEqual(delta.puts.map((p) => p.key).sort(), ['a', 'b']);
 });
 
 void test('planPage: page continuation — a higher seq over an existing local seq applies', () => {
-    const items = [artistItem({ key: 'a', seq: 6, name: 'A v6' })];
+    const items = [artistItem({ key: 'a', name: 'A v6', seq: 6 })];
     const delta = planPage((key) => (key === 'a' ? 5 : undefined), items);
     assert.equal(delta.puts.length, 1);
     assert.equal(delta.puts[0].seq, 6);
@@ -96,8 +95,8 @@ void test('planPage: the same key twice in one page is resolved against the runn
     // the real assertion is that the FINAL value wins and there is exactly
     // one entry for the key.
     const items = [
-        artistItem({ key: 'a', seq: 1, name: 'first' }),
-        artistItem({ key: 'a', seq: 2, name: 'second' }),
+        artistItem({ key: 'a', name: 'first', seq: 1 }),
+        artistItem({ key: 'a', name: 'second', seq: 2 }),
     ];
     const delta = planPage(() => undefined, items);
     assert.equal(delta.puts.length, 1);
@@ -109,8 +108,8 @@ void test('planPage: the overlay blocks a stale duplicate arriving after a fresh
     // Out-of-order WITHIN one page: seq 3 first, then seq 2 for the same key.
     // Without the overlay this would incorrectly overwrite with the older item.
     const items = [
-        artistItem({ key: 'a', seq: 3, name: 'newer' }),
-        artistItem({ key: 'a', seq: 2, name: 'older' }),
+        artistItem({ key: 'a', name: 'newer', seq: 3 }),
+        artistItem({ key: 'a', name: 'older', seq: 2 }),
     ];
     const delta = planPage(() => undefined, items);
     assert.equal(delta.puts.length, 1);
@@ -238,7 +237,7 @@ void test('planDrift: the lowest differing seq wins across several mismatched ke
 
 void test('ndIdsOf: an ndArtistId and a matching nd: key collapse via the Set, still both present when they differ', () => {
     const both = ndIdsOf(artist({ key: 'nd:42', ndArtistId: '99', seq: 1 }));
-    assert.deepEqual(new Set(both), new Set(['99', '42']));
+    assert.deepEqual(new Set(both), new Set(['42', '99']));
 });
 
 void test('ndIdsOf: neither field present is empty — an id is never indexed unset', () => {
@@ -251,10 +250,7 @@ void test('ndIdsOf: an `nd:` key of length 3 (empty id) contributes nothing', ()
 });
 
 void test('ndIdsOf: a bare mbid key with no ndArtistId is empty', () => {
-    assert.deepEqual(
-        ndIdsOf(artist({ key: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', seq: 1 })),
-        [],
-    );
+    assert.deepEqual(ndIdsOf(artist({ key: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', seq: 1 })), []);
 });
 
 // ---------------------------------------------------------------------------
@@ -298,10 +294,10 @@ void test('lookupByNdId: a scannedAt tie breaks on the key, BINARY order (not lo
     const zArtist = artist({ key: 'z', ndArtistId: '5', scannedAt: 100, seq: 1 });
     const aArtist = artist({ key: 'a', ndArtistId: '5', scannedAt: 100, seq: 1 });
     const byKey = new Map([
-        ['z', zArtist],
         ['a', aArtist],
+        ['z', zArtist],
     ]);
-    const keysByNdId = new Map([['5', new Set(['z', 'a'])]]);
+    const keysByNdId = new Map([['5', new Set(['a', 'z'])]]);
     // 'a' < 'z' in byte order, so 'a' wins the tie.
     assert.equal(lookupByNdId(byKey, keysByNdId, '5'), aArtist);
 });
@@ -311,7 +307,11 @@ void test('lookupByNdId: a scannedAt tie breaks on the key, BINARY order (not lo
 // ---------------------------------------------------------------------------
 
 void test('isArtistStale: within the TTL and same scanVersion is fresh', () => {
-    const stale = isArtistStale({ scannedAt: 1000, scanVersion: 3 }, { scanVersion: 3, ttlDays: 7 }, 1000 + 86400);
+    const stale = isArtistStale(
+        { scannedAt: 1000, scanVersion: 3 },
+        { scanVersion: 3, ttlDays: 7 },
+        1000 + 86400,
+    );
     assert.equal(stale, false);
 });
 
@@ -325,7 +325,11 @@ void test('isArtistStale: past the TTL window is stale', () => {
 });
 
 void test('isArtistStale: a scanVersion mismatch is stale even with no time elapsed', () => {
-    const stale = isArtistStale({ scannedAt: 1000, scanVersion: 2 }, { scanVersion: 3, ttlDays: 30 }, 1000);
+    const stale = isArtistStale(
+        { scannedAt: 1000, scanVersion: 2 },
+        { scanVersion: 3, ttlDays: 30 },
+        1000,
+    );
     assert.equal(stale, true);
 });
 

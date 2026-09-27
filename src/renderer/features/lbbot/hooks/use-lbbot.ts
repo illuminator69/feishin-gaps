@@ -74,6 +74,7 @@ import { useCurrentServerId } from '/@/renderer/store';
 import { useHubConnected, useHubStore } from '/@/renderer/store/hub.store';
 import { toast } from '/@/shared/components/toast/toast';
 import { AlbumArtistListSort, AlbumListSort, SortOrder } from '/@/shared/types/domain-types';
+import { normalizeLbBotWebUrl, routeAdvertised } from '/@/shared/utils/lbbot-wire';
 
 /**
  * lb-bot surfaces for the renderer.
@@ -219,10 +220,7 @@ export const adoptLbBotWelcome = (lb: unknown): void => {
                   routes: Array.isArray(raw.routes)
                       ? raw.routes.filter((route): route is string => typeof route === 'string')
                       : [],
-                  webUrl:
-                      typeof raw.webUrl === 'string' && /^https?:\/\//.test(raw.webUrl)
-                          ? raw.webUrl.replace(/\/+$/, '')
-                          : '',
+                  webUrl: normalizeLbBotWebUrl(raw.webUrl),
               }
             : null;
     useHubStore.getState().actions.setStore({ lbStatus });
@@ -378,12 +376,6 @@ const useShownWithHub = <TData>(query: UseQueryResult<TData>): UseQueryResult<TD
     // which is harmless for a query that cannot fetch.
     return shown ? query : ({ ...query, data: undefined } as UseQueryResult<TData>);
 };
-
-/** The one reading of an advertised route list. An **empty** list is an older
- *  hub that doesn't advertise at all: assume supported rather than hiding a
- *  feature that probably works. */
-const routeAdvertised = (routes: string[] | undefined, route: string): boolean =>
-    !routes || routes.length === 0 || routes.includes(route);
 
 /**
  * Whether the hub in front of lb-bot proxies a given route.

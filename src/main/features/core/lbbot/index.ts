@@ -54,6 +54,8 @@ import { BrowserWindow, ipcMain, Notification } from 'electron';
 
 import { getHubConfig } from '../hub';
 
+import { normalizeLbBotWebUrl } from '/@/shared/utils/lbbot-wire';
+
 /**
  * navi-connect lb-bot client (main process).
  *
@@ -226,10 +228,6 @@ const num = (value: unknown): number => {
 // the list on lets the UI say "this hub can't do gap filling yet — restart it"
 // instead of offering a button that 404s. An *empty* list is an older hub that
 // doesn't advertise: assume supported rather than hiding working features.
-/** The hub's `webUrl`, kept only if it is something a browser should open. */
-const lbBotWebUrl = (value: unknown): string =>
-    typeof value === 'string' && /^https?:\/\//.test(value) ? value.replace(/\/+$/, '') : '';
-
 ipcMain.handle('lbbot-status', async (): Promise<LbBotStatus> => {
     const data = await get('/lb/status');
     return {
@@ -237,7 +235,7 @@ ipcMain.handle('lbbot-status', async (): Promise<LbBotStatus> => {
         routes: Array.isArray(data?.routes)
             ? data.routes.filter((route): route is string => typeof route === 'string')
             : [],
-        webUrl: lbBotWebUrl(data?.webUrl),
+        webUrl: normalizeLbBotWebUrl(data?.webUrl),
     };
 });
 

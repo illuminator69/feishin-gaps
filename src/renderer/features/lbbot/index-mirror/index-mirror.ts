@@ -6,7 +6,6 @@ import { useEffect, useSyncExternalStore } from 'react';
 
 import {
     EMPTY_MIRROR_META,
-    isArtistStale,
     lookupByNdId,
     MirrorMeta,
     mirrorTotals,
@@ -20,6 +19,7 @@ import { queryClient } from '/@/renderer/lib/react-query';
 import { useHubStore } from '/@/renderer/store/hub.store';
 import { useSettingsStore } from '/@/renderer/store/settings.store';
 import { logger } from '/@/renderer/utils/logger';
+import { routeAdvertised } from '/@/shared/utils/lbbot-wire';
 
 /**
  * A local copy of lb-bot's library index, kept current through the hub.
@@ -343,10 +343,7 @@ const advertisedRoutes = (): string[] | undefined =>
 
 /** An empty or unknown list is an older hub that does not advertise: try, and
  *  let a 404 answer the question. Matches `useHubSupports`. */
-const feedAdvertised = (): boolean => {
-    const routes = advertisedRoutes();
-    return !routes || routes.length === 0 || routes.includes(INDEX_CHANGES_ROUTE);
-};
+const feedAdvertised = (): boolean => routeAdvertised(advertisedRoutes(), INDEX_CHANGES_ROUTE);
 
 const scheduleRetry = (status: number) => {
     if (status === 404) {
@@ -380,9 +377,19 @@ const pull = async (): Promise<null | number> => {
     if (!lbBot) return null;
     let resyncs = 0;
     let driftChecked = false;
+    // Q-010 (2): a resync is announced by an EARLIER round trip than the one
+    // that actually carries the new epoch's first page. Committing the wipe
+    // there — as this used to — blanked every tile for the gap between the
+    // two requests. `cursor`/`epoch` track what this pull has adopted
+    // LOCALLY; `meta` (and disk, and every reader) keeps showing the OLD
+    // epoch's full data until a page with real content is ready to replace
+    // it in the same transaction (`pendingWipe` below).
+    let cursor = meta.cursor;
+    let epoch = meta.epoch;
+    let pendingWipe = false;
     for (;;) {
-        const since = meta.cursor;
-        const result = await lbBot.indexChanges(since, meta.epoch);
+        const since = cursor;
+        const result = await lbBot.indexChanges(since, epoch);
         if (!result.ok || !result.data) {
             // The hub's own oversize-body 502 (B-013), not lb-bot being busy:
             // one artist's page is past PROXY_MAX_RESPONSE, every retry gets
@@ -394,7 +401,7 @@ const pull = async (): Promise<null | number> => {
             if (result.tooLarge) {
                 logger.warn(
                     '[lbbot-index] lb-bot answered 502 tooLarge for the page at this cursor; the mirror will not advance past it until lb-bot trims that artist',
-                    { epoch: meta.epoch, since },
+                    { epoch, since },
                 );
                 return null;
             }
@@ -405,8 +412,9 @@ const pull = async (): Promise<null | number> => {
         // `resync`, or a normal answer under an epoch that is not ours (which
         // lb-bot would itself have answered with resync, so this is defence
         // only): the only case that wipes. Adopt the new epoch, cursor 0, and
-        // pull everything again.
-        if (page.resync || (meta.epoch && page.epoch !== meta.epoch)) {
+        // pull everything again — nothing committed yet, so the mirror still
+        // shows the old epoch's data while this happens.
+        if (page.resync || (epoch && page.epoch !== epoch)) {
             resyncs += 1;
             if (resyncs > MAX_RESYNCS_PER_SYNC) {
                 logger.warn(
@@ -414,30 +422,28 @@ const pull = async (): Promise<null | number> => {
                 );
                 return null;
             }
-            await commit(
-                { deletes: [], puts: [] },
-                {
-                    cursor: 0,
-                    epoch: page.epoch,
-                    hubUrl: currentHubUrl(),
-                    scanVersion: page.scanVersion,
-                    ttlDays: page.ttlDays,
-                },
-                true,
-            );
+            cursor = 0;
+            epoch = page.epoch;
+            pendingWipe = true;
             continue;
         }
 
         await commit(
             planPage((key) => byKey.get(key)?.seq, page.items),
             {
-                cursor: Math.max(meta.cursor, page.nextSince),
+                cursor: Math.max(cursor, page.nextSince),
                 epoch: page.epoch,
                 hubUrl: currentHubUrl(),
                 scanVersion: page.scanVersion,
                 ttlDays: page.ttlDays,
             },
+            pendingWipe,
         );
+        // Only the resync's FIRST real page wipes; the old data is gone the
+        // moment this commit lands, together with (never before) its replacement.
+        pendingWipe = false;
+        cursor = Math.max(cursor, page.nextSince);
+        epoch = page.epoch;
 
         if (page.more) {
             // `more` with a nextSince that did not move would loop forever.
@@ -485,7 +491,26 @@ const pull = async (): Promise<null | number> => {
 const runSync = async (): Promise<void> => {
     if (pendingWelcomeReset) applyWelcomeReset();
     await loadIndexMirror();
-    if (!lbBot || !useHubStore.getState().connected || feedMissing || !feedAdvertised()) return;
+    // Q-010 (3): two cases this used to attempt a doomed round trip for
+    // rather than skip outright. `mirrorShown()` is R21 — the hub switched
+    // off in settings, same as every read already refuses. The `available`
+    // check is the hub's own verdict (`welcome.lb` / the `lb` frame) — an
+    // unset LBBOT_URL and an unreachable lb-bot both answer `available:
+    // false`, and `scheduleRetry` already suppresses a retry ladder against
+    // it (`hubSaysDown`); this just stops the ONE request that would have
+    // failed from firing at all. `undefined` (an older hub, or no welcome
+    // yet) is NOT "down" — same "absence isn't evidence" rule as
+    // `feedAdvertised` — so this only ever skips a hub that said so.
+    if (
+        !lbBot ||
+        !useHubStore.getState().connected ||
+        feedMissing ||
+        !feedAdvertised() ||
+        !mirrorShown() ||
+        useHubStore.getState().lbStatus?.available === false
+    ) {
+        return;
+    }
     let status: null | number;
     try {
         status = await pull();
@@ -650,39 +675,21 @@ export const getMirrorArtistByNdId = (
 ): LbBotIndexArtist | undefined =>
     mirrorShown() ? lookupByNdId(byKey, keysByNdId, ndId, mbid) : undefined;
 
-/** Synchronous lookup by lb-bot artist key — an MBID for the `mb:` pages.
- *  Nothing while the hub is not configured ({@link mirrorShown}). */
-export const getMirrorArtist = (key: string): LbBotIndexArtist | undefined =>
-    key && mirrorShown() ? byKey.get(key) : undefined;
-
-/** Whether a mirrored artist is due a rescan, against the envelope the mirror
- *  last saw. */
-export const isMirrorArtistStale = (artist: LbBotIndexArtist, nowMs = Date.now()): boolean =>
-    isArtistStale(artist, meta, nowMs / 1000);
-
 /** A mirrored artist in the network discography read's shape (`scan: null`),
  *  with `stale` computed against the envelope the mirror last saw. */
 export const mirrorDiscography = (artist: LbBotIndexArtist, nowMs = Date.now()): LbBotDiscography =>
     toDiscography(artist, meta, nowMs / 1000);
-
-/** The mirror's state as a whole; re-renders on every change. */
-export const useIndexMirror = (): IndexMirrorSnapshot =>
-    useSyncExternalStore(subscribeIndexMirror, getIndexMirrorSnapshot);
 
 /**
  * The mirrored artist a Navidrome artist page shows, re-rendering only when that
  * answer changes (a stored artist object is replaced, never mutated, so identity
  * is the change signal). Undefined while the mirror loads, for an artist
  * lb-bot has not indexed, and for every artist while the hub is not configured
- * ({@link mirrorShown}) — check `useIndexMirror().loaded` to tell the first
- * apart from the second.
+ * ({@link mirrorShown}) — check `getIndexMirrorSnapshot().loaded` to tell the
+ * first apart from the second.
  */
 export const useMirrorArtistByNdId = (
     ndId: string,
     mbid?: null | string,
 ): LbBotIndexArtist | undefined =>
     useSyncExternalStore(subscribeIndexMirror, () => getMirrorArtistByNdId(ndId, mbid));
-
-/** The same, by artist key (an MBID on the `mb:` pages). */
-export const useMirrorArtist = (key: string): LbBotIndexArtist | undefined =>
-    useSyncExternalStore(subscribeIndexMirror, () => getMirrorArtist(key));
