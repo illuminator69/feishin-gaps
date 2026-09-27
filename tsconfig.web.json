@@ -11,6 +11,9 @@
     "src/remote/**/*",
     "package.json"
   ],
+  "exclude": [
+    "src/renderer/**/*.harness.ts"
+  ],
   "compilerOptions": {
     "composite": true,
     "jsx": "react-jsx",
