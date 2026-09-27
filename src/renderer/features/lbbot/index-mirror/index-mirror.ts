@@ -19,6 +19,7 @@ import {
 import { queryClient } from '/@/renderer/lib/react-query';
 import { useHubStore } from '/@/renderer/store/hub.store';
 import { useSettingsStore } from '/@/renderer/store/settings.store';
+import { logger } from '/@/renderer/utils/logger';
 
 /**
  * A local copy of lb-bot's library index, kept current through the hub.
@@ -201,7 +202,7 @@ export const loadIndexMirror = (): Promise<void> => {
                 await clear(store());
             }
         } catch (error) {
-            console.error('[lbbot-index] could not read the stored mirror', error);
+            logger.error('[lbbot-index] could not read the stored mirror', { error });
         }
         loaded = true;
         notify();
@@ -334,7 +335,23 @@ const pull = async (): Promise<null | number> => {
     for (;;) {
         const since = meta.cursor;
         const result = await lbBot.indexChanges(since, meta.epoch);
-        if (!result.ok || !result.data) return result.status;
+        if (!result.ok || !result.data) {
+            // The hub's own oversize-body 502 (B-013), not lb-bot being busy:
+            // one artist's page is past PROXY_MAX_RESPONSE, every retry gets
+            // the same answer, and RETRYABLE_STATUSES would otherwise back off
+            // and try forever without ever saying why the mirror stopped
+            // moving. Give up on THIS trigger the same way the resync and
+            // drift loops below do — logged, and no retry scheduled — rather
+            // than feed it to `scheduleRetry`.
+            if (result.tooLarge) {
+                logger.warn(
+                    '[lbbot-index] lb-bot answered 502 tooLarge for the page at this cursor; the mirror will not advance past it until lb-bot trims that artist',
+                    { epoch: meta.epoch, since },
+                );
+                return null;
+            }
+            return result.status;
+        }
         const page = result.data;
 
         // `resync`, or a normal answer under an epoch that is not ours (which
@@ -344,7 +361,7 @@ const pull = async (): Promise<null | number> => {
         if (page.resync || (meta.epoch && page.epoch !== meta.epoch)) {
             resyncs += 1;
             if (resyncs > MAX_RESYNCS_PER_SYNC) {
-                console.warn(
+                logger.warn(
                     '[lbbot-index] lb-bot keeps answering resync; giving up until the next trigger',
                 );
                 return null;
@@ -375,7 +392,7 @@ const pull = async (): Promise<null | number> => {
         if (page.more) {
             // `more` with a nextSince that did not move would loop forever.
             if (page.nextSince <= since) {
-                console.warn('[lbbot-index] a page said "more" without advancing; stopping');
+                logger.warn('[lbbot-index] a page said "more" without advancing; stopping');
                 return null;
             }
             continue;
@@ -387,7 +404,7 @@ const pull = async (): Promise<null | number> => {
         const totals = mirrorTotals(byKey.values());
         if (totals.artistCount === page.artistCount && totals.seqSum === page.seqSum) return null;
         if (driftChecked) {
-            console.warn(
+            logger.warn(
                 `[lbbot-index] still differs after one reconcile (local ${totals.artistCount}/${totals.seqSum}, lb-bot ${page.artistCount}/${page.seqSum}); the next sync will try again`,
             );
             return null;
@@ -425,7 +442,7 @@ const runSync = async (): Promise<void> => {
     } catch (error) {
         // An IPC rejection or an IndexedDB write failure. Nothing was applied
         // past the last committed page, so this is a retry, not a repair.
-        console.error('[lbbot-index] sync failed', error);
+        logger.error('[lbbot-index] sync failed', { error });
         status = 0;
     }
     // A pull that succeeded does NOT mark lb-bot available: that verdict is the

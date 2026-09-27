@@ -149,6 +149,13 @@ export interface LbBotResult<T> {
     ok: boolean;
     /** HTTP status, or 0 when the request never left this process. */
     status: number;
+    /** A 502 the hub minted itself, not lb-bot's: one item in the answer was
+     *  over `PROXY_MAX_RESPONSE`. `describeFailure` folds it into the same
+     *  "busy or unreachable" sentence as an ordinary 502, which is right for a
+     *  one-shot button — retrying makes sense there — and wrong for a caller
+     *  that retries on a timer, where this is deterministic and retrying it
+     *  forever never helps (B-013). False/absent on every other failure. */
+    tooLarge?: boolean;
 }
 
 /** What the hub says it can proxy. An empty list means an older hub that doesn't

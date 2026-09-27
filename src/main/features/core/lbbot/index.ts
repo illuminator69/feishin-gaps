@@ -121,11 +121,12 @@ const describeFailure = (status: number, body: Json | null): string => {
     return upstream || `Request failed (${status})`;
 };
 
-const failed = <T>(status: number, error: string): LbBotResult<T> => ({
+const failed = <T>(status: number, error: string, tooLarge = false): LbBotResult<T> => ({
     data: null,
     error,
     ok: false,
     status,
+    ...(tooLarge ? { tooLarge: true } : {}),
 });
 
 /**
@@ -193,7 +194,8 @@ const request = async <T = Json>(
         // Logged unconditionally: a button that does nothing, with nothing in the
         // console either, is the bug this whole result type exists to prevent.
         console.error(`[lbbot] ${method} ${path} → ${res.status}`);
-        return failed(res.status, describeFailure(res.status, body));
+        // The hub's own oversize-body 502 (B-013), not lb-bot's — see LbBotResult.tooLarge.
+        return failed(res.status, describeFailure(res.status, body), body?.tooLarge === true);
     }
     return { data: (body ?? {}) as T, error: '', ok: true, status: res.status };
 };
@@ -489,7 +491,7 @@ ipcMain.handle(
             params: { epoch: args.epoch ?? '', since: String(since) },
             timeoutMs: INDEX_SYNC_TIMEOUT_MS,
         });
-        if (!result.ok) return failed(result.status, result.error);
+        if (!result.ok) return failed(result.status, result.error, result.tooLarge);
         const d = result.data ?? {};
         const envelope = toIndexEnvelope(d);
         if (!envelope.epoch)
