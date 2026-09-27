@@ -548,6 +548,15 @@ export interface LbBotGapSource {
     /** The "is this even the right record" verdict — the one that catches a
      *  self-titled album, where every candidate folder's name looks plausible. */
     albumMatchOk: boolean;
+    /**
+     * B-019 (ruling R4): whether the folder's uploader is a MusicBrainz-
+     * credited artist for this release, or lb-bot's guarded fallback found no
+     * evidence either way. A missing field is the server's own `True`
+     * default — treat it as verified. `recommended` is already false on an
+     * unverified row; this is what lets the row SAY so, and what the picker
+     * below refuses to preselect.
+     */
+    artistVerified?: boolean;
     bitrate: string;
     /** "9/12 tracks" | "full" | "partial" | "unknown". */
     coverage: string;

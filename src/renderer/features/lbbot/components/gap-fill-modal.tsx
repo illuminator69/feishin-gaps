@@ -3,7 +3,10 @@ import { useCallback, useEffect, useState } from 'react';
 
 import styles from './gap-fill-modal.module.css';
 
-import { SourceList } from '/@/renderer/features/lbbot/components/source-list';
+import {
+    defaultSelectedSource,
+    SourceList,
+} from '/@/renderer/features/lbbot/components/source-list';
 import {
     allowMp3ForAlbum,
     autoFillGap,
@@ -102,11 +105,10 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
         sources.length === 0 &&
         !gap.noSourceReason;
 
-    // Rank 1 pre-selected, an explicit pick always winning.
-    const selected =
-        pickedManually && chosen
-            ? chosen
-            : (sources.find((source) => source.recommended) ?? sources[0] ?? null);
+    // Rank 1 pre-selected, an explicit pick always winning — never an
+    // artist-unverified row, even as the fallback (B-019, ruling R4; see
+    // `defaultSelectedSource`).
+    const selected = pickedManually && chosen ? chosen : defaultSelectedSource(sources);
 
     // Released as soon as lb-bot admits to being busy, and on a timer if it
     // never does — a fetch that quietly didn't take must give the button back

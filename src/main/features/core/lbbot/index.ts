@@ -1331,6 +1331,8 @@ const toSource = (row: unknown): LbBotGapSource[] => {
         {
             albumMatch: num(r.albumMatch),
             albumMatchOk: r.albumMatchOk === true,
+            // B-019: a missing field is lb-bot's own `True` default — verified.
+            artistVerified: r.artistVerified !== false,
             bitrate: str(r.bitrate),
             coverage: str(r.coverage),
             coverageDetail: toCoverage(r.coverageDetail),

@@ -3,7 +3,10 @@ import { Link } from 'react-router';
 
 import styles from './missing-album-modal.module.css';
 
-import { SourceList } from '/@/renderer/features/lbbot/components/source-list';
+import {
+    defaultSelectedSource,
+    SourceList,
+} from '/@/renderer/features/lbbot/components/source-list';
 import { SHORT_STATE } from '/@/renderer/features/lbbot/fill-vocabulary';
 import {
     allowMp3ForAlbum,
@@ -188,13 +191,11 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
     const busy = starting || IN_FLIGHT.has(state);
 
     // Rank 1 is pre-selected so the confident case stays one extra tap rather
-    // than becoming research, but an explicit pick always wins over a re-rank.
+    // than becoming research, but an explicit pick always wins over a
+    // re-rank, and B-019 (ruling R4) refuses to preselect an artist-
+    // unverified row even as the fallback — see `defaultSelectedSource`.
     const selected =
-        pickedManually && chosen
-            ? chosen
-            : (sourcesQuery.sources?.find((source) => source.recommended) ??
-              sourcesQuery.sources?.[0] ??
-              null);
+        pickedManually && chosen ? chosen : defaultSelectedSource(sourcesQuery.sources ?? []);
 
     const coverUrl = useMemo(
         () => edition?.coverUrl || variant?.coverUrl || caaCoverUrl(release.rgid),

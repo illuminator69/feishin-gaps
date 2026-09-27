@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 import styles from './source-list.module.css';
 
@@ -46,6 +47,22 @@ const FLAG_LABEL: Record<string, string> = {
     live: 'Live',
     risk: 'Risky',
 };
+
+/** B-019 (ruling R4): a missing field is the server's own `True` default. */
+export const isSourceVerified = (source: LbBotGapSource): boolean =>
+    source.artistVerified !== false;
+
+/**
+ * Rank 1, but never an unverified one — the shared rule for both the
+ * whole-album download picker and the gap-fill picker. `recommended` is
+ * already false on an unverified row (server-side, B-019), so it alone
+ * would refuse to preselect one; the bug was the FALLBACK, which used to be
+ * unconditionally `sources[0]` and could still land on that same unverified
+ * rank 1. Falls through to the first verified row instead, and to nothing
+ * at all when every row is unverified — the user must choose.
+ */
+export const defaultSelectedSource = (sources: LbBotGapSource[]): LbBotGapSource | null =>
+    sources.find((source) => source.recommended) ?? sources.find(isSourceVerified) ?? null;
 
 const coverageText = (source: LbBotGapSource): string => {
     const { haveTracks, totalTracks } = source.coverageDetail;
@@ -152,85 +169,104 @@ export const SourceList = ({
     onToggleFiles,
     selectedId,
     sources,
-}: SourceListProps) => (
-    <div className={styles.list}>
-        {sources.map((source) => {
-            const view = filesFor(source);
-            return (
-                <div
-                    className={clsx(styles.source, {
-                        [styles.selected]: selectedId === source.id,
-                    })}
-                    key={`${source.peer}-${source.folder}-${source.id}`}
-                >
-                    <button className={styles.head} onClick={() => onSelect(source)} type="button">
-                        <Text fw={600} size="sm">
-                            {source.rank || source.id + 1}
-                        </Text>
-                        <Stack gap="xs">
-                            <Group gap="xs">
-                                {/* First, and worded as a question when it fails:
+}: SourceListProps) => {
+    const { t } = useTranslation();
+
+    return (
+        <div className={styles.list}>
+            {sources.map((source) => {
+                const view = filesFor(source);
+                return (
+                    <div
+                        className={clsx(styles.source, {
+                            [styles.selected]: selectedId === source.id,
+                        })}
+                        key={`${source.peer}-${source.folder}-${source.id}`}
+                    >
+                        <button
+                            className={styles.head}
+                            onClick={() => onSelect(source)}
+                            type="button"
+                        >
+                            <Text fw={600} size="sm">
+                                {source.rank || source.id + 1}
+                            </Text>
+                            <Stack gap="xs">
+                                <Group gap="xs">
+                                    {/* First, and worded as a question when it fails:
                                     lb-bot's verdict is a heuristic over the
                                     folder name, so it flags a suspicion rather
                                     than stating a fact. */}
-                                <Badge
-                                    size="xs"
-                                    variant={source.albumMatchOk ? 'default' : 'filled'}
-                                >
-                                    {source.albumMatchOk
-                                        ? 'Matches album title'
-                                        : 'Different album?'}
-                                </Badge>
-                                <Badge
-                                    size="xs"
-                                    variant={source.coverageFull ? 'default' : 'outline'}
-                                >
-                                    {coverageText(source)}
-                                </Badge>
-                                {source.recommended && (
-                                    <Badge size="xs" variant="outline">
-                                        Top ranked
+                                    <Badge
+                                        size="xs"
+                                        variant={source.albumMatchOk ? 'default' : 'filled'}
+                                    >
+                                        {source.albumMatchOk
+                                            ? 'Matches album title'
+                                            : 'Different album?'}
                                     </Badge>
-                                )}
-                                {source.flags.map((flag) => (
-                                    <Badge key={flag} size="xs" variant="outline">
-                                        {FLAG_LABEL[flag] ?? flag}
+                                    {/* B-019 (ruling R4): the uploader isn't a
+                                    MusicBrainz-credited artist for this release
+                                    (or lb-bot's fallback found no evidence
+                                    either way) — the picker below refuses to
+                                    preselect this row, so the label is what
+                                    tells the user a tap here is their own call. */}
+                                    {!isSourceVerified(source) && (
+                                        <Badge size="xs" variant="filled">
+                                            {t('common.artistUnverified', 'Artist unverified')}
+                                        </Badge>
+                                    )}
+                                    <Badge
+                                        size="xs"
+                                        variant={source.coverageFull ? 'default' : 'outline'}
+                                    >
+                                        {coverageText(source)}
                                     </Badge>
-                                ))}
-                            </Group>
-                            <Text className={styles.folder} size="sm">
-                                {source.folder}
-                            </Text>
-                            <Text isMuted size="xs">
-                                {qualityText(source) || 'format unknown'}
-                            </Text>
-                            <Text isMuted size="xs">
-                                {peerText(source)}
-                            </Text>
-                            {source.recommendation && (
-                                <Text isMuted size="xs">
-                                    {source.recommendation}
+                                    {source.recommended && (
+                                        <Badge size="xs" variant="outline">
+                                            Top ranked
+                                        </Badge>
+                                    )}
+                                    {source.flags.map((flag) => (
+                                        <Badge key={flag} size="xs" variant="outline">
+                                            {FLAG_LABEL[flag] ?? flag}
+                                        </Badge>
+                                    ))}
+                                </Group>
+                                <Text className={styles.folder} size="sm">
+                                    {source.folder}
                                 </Text>
-                            )}
-                        </Stack>
-                    </button>
+                                <Text isMuted size="xs">
+                                    {qualityText(source) || 'format unknown'}
+                                </Text>
+                                <Text isMuted size="xs">
+                                    {peerText(source)}
+                                </Text>
+                                {source.recommendation && (
+                                    <Text isMuted size="xs">
+                                        {source.recommendation}
+                                    </Text>
+                                )}
+                            </Stack>
+                        </button>
 
-                    <button
-                        className={styles.head}
-                        onClick={() => onToggleFiles(source)}
-                        type="button"
-                    >
-                        <Text isMuted size="xs">
-                            {view ? '▾' : '▸'}
-                        </Text>
-                        <Text isMuted size="xs">
-                            {view ? 'Hide files' : `Show files (${source.fileCount})`}
-                        </Text>
-                    </button>
+                        <button
+                            className={styles.head}
+                            onClick={() => onToggleFiles(source)}
+                            type="button"
+                        >
+                            <Text isMuted size="xs">
+                                {view ? '▾' : '▸'}
+                            </Text>
+                            <Text isMuted size="xs">
+                                {view ? 'Hide files' : `Show files (${source.fileCount})`}
+                            </Text>
+                        </button>
 
-                    {view && <SourceFiles view={view} />}
-                </div>
-            );
-        })}
-    </div>
-);
+                        {view && <SourceFiles view={view} />}
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
