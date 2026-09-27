@@ -632,6 +632,10 @@ export interface LbBotGapTrack {
  *  failed to be) filled. A backwards transition is normal — lb-bot reports
  *  `downloading` for as long as a transfer group is pending. */
 export type LbBotGapTrackState =
+    /** B-004 (Feishin): the track's own fetch was cancelled — terminal, but
+     *  neither a success nor a failure. See `SETTLED_TRACK_STATES` in
+     *  use-lbbot.ts and `TRACK_LABEL` in gap-fill-modal.tsx. */
+    | 'cancelled'
     | 'done'
     | 'downloaded'
     | 'downloading'

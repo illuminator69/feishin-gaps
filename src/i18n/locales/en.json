@@ -66,6 +66,7 @@
         "bitrate": "Bitrate",
         "bpm": "BPM",
         "cancel": "Cancel",
+        "cancelled": "Cancelled",
         "center": "Center",
         "channel_one": "Channel",
         "channel_other": "Channels",

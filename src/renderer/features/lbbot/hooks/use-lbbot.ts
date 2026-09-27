@@ -1702,8 +1702,13 @@ export const useLbBotAlbumSources = (
     };
 };
 
-/** Track states that mean "nothing further is coming for this slot". */
+/** Track states that mean "nothing further is coming for this slot".
+ *  B-004: `cancelled` belongs here too — it counts toward completion (the
+ *  fill can still reach 100%) without counting as a success (`done`, below,
+ *  doubles as the label; a cancelled track was never in doubt about landing)
+ *  or a failure (kept out of `gapProgress`'s separate `failed` count). */
 const SETTLED_TRACK_STATES: ReadonlySet<LbBotGapTrackState> = new Set<LbBotGapTrackState>([
+    'cancelled',
     'done',
     'downloaded',
     'skipped',

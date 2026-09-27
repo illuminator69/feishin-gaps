@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import styles from './gap-fill-modal.module.css';
 
@@ -50,6 +51,8 @@ interface GapFillModalProps {
     groupId: string;
 }
 
+// `cancelled` is deliberately NOT here (B-004): it is the one label in this
+// table that goes through i18n (`common.cancelled`) — see the render below.
 const TRACK_LABEL: Partial<Record<LbBotGapTrackState, string>> = {
     done: 'Added',
     downloaded: 'Downloaded',
@@ -62,6 +65,7 @@ const TRACK_LABEL: Partial<Record<LbBotGapTrackState, string>> = {
 };
 
 const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
+    const { t } = useTranslation();
     const { error, gap, isLoading, refetch } = useLbBotGap(groupId, true);
     const [chosen, setChosen] = useState<LbBotGapSource | null>(null);
     const [pickedManually, setPickedManually] = useState(false);
@@ -260,7 +264,11 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                             <Text isMuted size="xs">
                                 {track.state === 'present'
                                     ? ''
-                                    : (TRACK_LABEL[track.state] ?? track.state)}
+                                    : // B-004: the one i18n'd label in this table — added
+                                      // after the rest, so only this one goes through `t()`.
+                                      track.state === 'cancelled'
+                                      ? t('common.cancelled', 'Cancelled')
+                                      : (TRACK_LABEL[track.state] ?? track.state)}
                             </Text>
                         </div>
                     ))}
