@@ -391,7 +391,12 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                             Open in lb-bot
                         </Button>
                     )}
-                    {sources.length > 0 && (
+                    {/* Ruling R17: hidden for a stalled placement, same as
+                    "Fill N tracks" and "Search again" — R15 covers every
+                    fetch/fill action for this case, and Auto is one of them:
+                    it still ends by posting a fetch from a ranked source for
+                    files that already downloaded. */}
+                    {sources.length > 0 && !stalledPlacement && (
                         <Button
                             disabled={busy || settling || !!pending}
                             loading={pending === 'auto'}
