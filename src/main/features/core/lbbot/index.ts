@@ -1461,6 +1461,8 @@ const toGap = (d: Json, groupId: string): LbBotGap => ({
     sourcesPages: num(d.sourcesPages),
     sourcesTotal: num(d.sourcesTotal),
     sourceTask: toGapTask(d.sourceTask),
+    // B-011: files already downloaded but never filed — see LbBotGap.stalledPlacement.
+    stalledPlacement: d.stalledPlacement === true,
     status: (str(d.status) || 'ready') as LbBotGapStatus,
     total: num(d.total),
     tracks: Array.isArray(d.tracks) ? d.tracks.flatMap(toGapTrack) : [],

@@ -94,6 +94,13 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
         !searching &&
         gap?.status === 'picking' &&
         gap.tracks.some((track) => track.state === 'downloaded');
+    // B-011 / ruling R10: the SAME situation as `awaitingMatch` — files
+    // downloaded and waiting on lb-bot's own match workspace — reached
+    // through `status: 'failed'` instead of `picking`, because a stalled
+    // placement is discovered after the group has already been marked
+    // failed. A fresh source search cannot fix it, so this is never treated
+    // as an ordinary failure with a Retry.
+    const stalledPlacement = gap?.status === 'failed' && gap.stalledPlacement === true;
     // The other, `source_pending`: tracks picked and nothing to fetch them from.
     // With lb-bot's own no-source reason, the search ran and found nothing (that
     // reason is shown below); without one, the search that picked them has
@@ -295,6 +302,17 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                     </Text>
                 )}
 
+                {/* B-011 / ruling R10: lb-bot's own sentence, never the raw
+                `stalled_placement` token — and never alongside a "no sources"
+                line below, since sources have nothing to do with why this is
+                stuck. */}
+                {stalledPlacement && (
+                    <Text isMuted size="sm">
+                        {gap.failDetail ||
+                            'Some tracks downloaded but were never filed into the album — reconcile them in lb-bot’s own workspace, or rescan if they are already there.'}
+                    </Text>
+                )}
+
                 {/* `picking` with no sources and no match pending is NOT a decision
                 waiting in lb-bot's workspace. The tracks were picked by a search
                 whose results lb-bot no longer holds — they age out, and until
@@ -308,13 +326,13 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                     </Text>
                 )}
 
-                {!searching && sources.length === 0 && gap.noSourceReason && (
+                {!searching && !stalledPlacement && sources.length === 0 && gap.noSourceReason && (
                     <Text isMuted size="sm">
                         {gap.noSourceReason}
                     </Text>
                 )}
 
-                {gap.failReason && (
+                {!stalledPlacement && gap.failReason && (
                     <Text isMuted size="sm">
                         {[gap.failReason, gap.failDetail].filter(Boolean).join(' — ')}
                     </Text>
@@ -358,8 +376,9 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                         <Button
                             onClick={() => window.open(workspaceUrl, '_blank')}
                             size="compact-sm"
-                            // The only way forward for a pending match.
-                            variant={awaitingMatch ? 'filled' : 'subtle'}
+                            // The only way forward for a pending match, or for
+                            // a stalled placement (B-011) — same reason.
+                            variant={awaitingMatch || stalledPlacement ? 'filled' : 'subtle'}
                         >
                             Open in lb-bot
                         </Button>
@@ -404,17 +423,22 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                     POST flips the group to `picking` before it has found
                     anything, so a second press reads as "nothing happened" and
                     starts another search that blocks on lb-bot's process-wide
-                    lock. Press once and leave it. */}
-                    <Button
-                        disabled={searching || !!pending}
-                        loading={pending === 'search' || searching}
-                        onClick={handleSearch}
-                        variant={sources.length > 0 || awaitingMatch ? 'default' : 'filled'}
-                    >
-                        {sources.length > 0 || needsFreshSearch || gap.noSourceReason
-                            ? 'Search again'
-                            : 'Find sources'}
-                    </Button>
+                    lock. Press once and leave it. Hidden entirely for a
+                    stalled placement (B-011, ruling R10): a fresh search
+                    cannot place a file that already downloaded, so this is
+                    never offered as a Retry for that case. */}
+                    {!stalledPlacement && (
+                        <Button
+                            disabled={searching || !!pending}
+                            loading={pending === 'search' || searching}
+                            onClick={handleSearch}
+                            variant={sources.length > 0 || awaitingMatch ? 'default' : 'filled'}
+                        >
+                            {sources.length > 0 || needsFreshSearch || gap.noSourceReason
+                                ? 'Search again'
+                                : 'Find sources'}
+                        </Button>
+                    )}
                     {sources.length > 0 && (
                         <Button
                             disabled={!selected || busy || settling || !!pending}

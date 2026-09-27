@@ -160,7 +160,15 @@ export const describeFill = (row: LedgerRow, now: number = Date.now()): FillPres
             explain = 'Open the album to pick a source.';
             break;
         default:
-            if (row.state === 'needs_match') {
+            // B-011 / ruling R10: a gap's own `stalledPlacement` — files
+            // already DOWNLOADED but never filed — is the same situation an
+            // album fill's `needs_match` state names, reached a different
+            // way (lb-bot flips the GROUP to `failed`, since a gap has no
+            // `needs_match` status of its own). Same row: no Retry (a fresh
+            // source search cannot help), `reason` carries lb-bot's
+            // `failDetail` sentence (set in `applyGapSummary`), never the
+            // raw `stalled_placement` token.
+            if (row.state === 'needs_match' || (row.isGap && row.stalledPlacement)) {
                 headline = 'Downloaded, but needs sorting out in lb-bot';
                 if (row.reason) sublines.push(row.reason);
                 break;

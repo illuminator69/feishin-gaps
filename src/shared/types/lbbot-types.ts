@@ -533,6 +533,15 @@ export interface LbBotGap {
      * about itself is final.
      */
     sourceTask: LbBotGapTask | null;
+    /**
+     * B-011 / ruling R10: `status === 'failed'` because tracks already
+     * DOWNLOADED were never filed into the album (see
+     * `DOWNLOADED_STALE_SECS`) — a search cannot fix this, only lb-bot's own
+     * match workspace can. `failDetail` carries the human sentence; render
+     * this as PROTOCOL §15.2's `needs_match` row (headline, `failDetail`,
+     * Dismiss — no Retry), the same as Navic.
+     */
+    stalledPlacement: boolean;
     status: LbBotGapStatus;
     total: number;
     tracks: LbBotGapTrack[];

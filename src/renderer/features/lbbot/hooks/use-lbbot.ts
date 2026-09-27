@@ -1165,6 +1165,7 @@ export const applyGapSummary = (groupId: string, gap: LbBotGap, now = Date.now()
         failedFiles: progress.failed,
         mp3WouldHelp: gap.mp3WouldHelp,
         percent: progress.percent,
+        stalledPlacement: gap.stalledPlacement,
         state: gap.status,
         total: progress.wanted,
         ...(moved ? { lastProgressAt: now } : {}),
@@ -1187,7 +1188,9 @@ export const applyGapSummary = (groupId: string, gap: LbBotGap, now = Date.now()
         // and waiting on the user — a "your move", not a failure.
         outcome:
             gap.status === 'complete' ? 'done' : gap.status === 'picking' ? 'needsPick' : 'failed',
-        reason: gap.failReason || gap.noSourceReason || gap.sourceTask?.error,
+        // B-011: lb-bot's human sentence, not the machine `failReason` token
+        // ("stalled_placement") it used to show verbatim.
+        reason: gap.failDetail || gap.failReason || gap.noSourceReason || gap.sourceTask?.error,
         state: gap.status,
     });
 };

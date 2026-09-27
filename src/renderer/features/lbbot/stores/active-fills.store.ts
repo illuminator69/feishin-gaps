@@ -129,6 +129,10 @@ export interface ActiveGap {
     percent?: number;
     reason?: string;
     settled: boolean;
+    /** B-011: tracks already downloaded but never filed — see
+     *  `LbBotGap.stalledPlacement`. Routes this row through the ledger's
+     *  `needs_match` presentation instead of a generic failure with Retry. */
+    stalledPlacement?: boolean;
     startedAt: number;
     state?: string;
     total?: number;
@@ -506,6 +510,9 @@ export interface LedgerRow {
     settled: boolean;
     sortAt: number;
     speedBps: number;
+    /** True only for a gap: see `ActiveGap.stalledPlacement`. False (never
+     *  absent) for an album fill, which has no equivalent. */
+    stalledPlacement: boolean;
     state: string;
     total: number;
     verifyGaveUp: boolean;
@@ -555,6 +562,7 @@ const toRow = (entry: ActiveFill | ActiveGap, isGap: boolean): LedgerRow => ({
     settled: entry.settled,
     sortAt: entry.finishedAt ?? entry.startedAt,
     speedBps: isGap ? 0 : ((entry as ActiveFill).speedBps ?? 0),
+    stalledPlacement: isGap ? (entry as ActiveGap).stalledPlacement === true : false,
     state: entry.state ?? '',
     total: entry.total ?? 0,
     verifyGaveUp: isGap ? false : ((entry as ActiveFill).verifyGaveUp ?? false),
