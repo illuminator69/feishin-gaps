@@ -44,6 +44,7 @@ import {
 } from 'react';
 
 import { api } from '/@/renderer/api';
+import { isSourceVerified } from '/@/renderer/features/lbbot/components/source-list';
 import {
     getIndexMirrorSnapshot,
     getMirrorArtistByNdId,
@@ -1427,7 +1428,13 @@ export type AcquireOutcome =
     | { format: string; kind: 'started'; peer: string; result: LbBotDownloadResult }
     | {
           kind: 'review';
-          reason: 'incomplete' | 'noSources' | 'unavailable' | 'uncertainMatch' | 'wrongFormat';
+          reason:
+              | 'incomplete'
+              | 'noSources'
+              | 'unavailable'
+              | 'uncertainMatch'
+              | 'unverifiedArtist'
+              | 'wrongFormat';
       };
 
 /** Formats a lossless preference is actually satisfied by. */
@@ -1437,10 +1444,13 @@ const LOSSLESS = /^(flac|alac|wav|aiff|ape|wv)$/i;
  * Acquire an unowned album in one gesture — reviewed, not blind.
  *
  * Reads the ranked sources first and only posts the download when lb-bot's own
- * top-ranked folder leaves nothing to decide: `recommended`, `albumMatchOk`,
- * and coverage complete against the canonical MusicBrainz tracklist. Anything
- * else opens the picker it would have bypassed — the one-tap version existed
- * once and fetched the wrong record for a self-titled album.
+ * top-ranked folder leaves nothing to decide: `albumMatchOk`, the artist
+ * VERIFIED (checked directly, not by trusting the server's `recommended` flag
+ * — B-019/R4; a self-titled or common-title album whose top folder comes from
+ * an uncredited uploader must not go straight through), and coverage complete
+ * against the canonical MusicBrainz tracklist. Anything else opens the picker
+ * it would have bypassed — the one-tap version existed once and fetched the
+ * wrong record for a self-titled album.
  *
  *  * `wrongFormat`: `quality` is a *ranking* term upstream, not a filter, so the
  *    folder can legitimately be MP3 when the preference is FLAC. The preference
@@ -1512,6 +1522,12 @@ export const useAcquireAlbum = () => {
             const top = sources[0];
             if (!top) return { kind: 'review', reason: 'noSources' };
             if (!top.albumMatchOk) return { kind: 'review', reason: 'uncertainMatch' };
+            // B-019 (ruling R4): the server already refuses to mark an
+            // unverified row `recommended`, but this path never READ
+            // `recommended` either — it went straight from `sources[0]` to
+            // posting the download. Checked directly (not via `recommended`)
+            // so this holds even if the server's own guard ever slips.
+            if (!isSourceVerified(top)) return { kind: 'review', reason: 'unverifiedArtist' };
             if (!top.coverageFull || top.coverageDetail.totalTracks <= 0) {
                 return { kind: 'review', reason: 'incomplete' };
             }

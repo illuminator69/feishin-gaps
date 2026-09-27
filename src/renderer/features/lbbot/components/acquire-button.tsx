@@ -27,6 +27,7 @@ const REVIEW_MESSAGE: Record<Extract<AcquireOutcome, { kind: 'review' }>['reason
     noSources: 'Nobody is sharing this one right now.',
     unavailable: 'lb-bot would not answer.',
     uncertainMatch: "lb-bot isn't sure the best source is the right record — have a look.",
+    unverifiedArtist: "lb-bot couldn't verify the artist on the best source — have a look.",
     wrongFormat: "The best source isn't lossless — here's what is on offer.",
 };
 
