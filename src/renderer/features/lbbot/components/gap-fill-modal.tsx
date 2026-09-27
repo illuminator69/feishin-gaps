@@ -447,7 +447,11 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                                 : 'Find sources'}
                         </Button>
                     )}
-                    {sources.length > 0 && (
+                    {/* Ruling R15: hidden for a stalled placement, same as
+                    "Search again" above — the files already arrived, so a
+                    fetch (of files already on disk) is no more a remedy than
+                    a fresh search is. */}
+                    {sources.length > 0 && !stalledPlacement && (
                         <Button
                             disabled={!selected || busy || settling || !!pending}
                             loading={pending === 'fetch' || settling}
