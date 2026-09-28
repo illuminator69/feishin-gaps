@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { announcementKindFor, announcementLinkPathFor } from './fill-announce-logic.ts';
+import {
+    announcementKindFor,
+    announcementLinkPathFor,
+    gapAwaitingMatch,
+    gapSettleOutcome,
+} from './fill-announce-logic.ts';
 
 /**
  * B-026 (Feishin half): pure-function coverage for the settled-row decision, run
@@ -83,4 +88,122 @@ test('a gap with no groupId yet gets no link', () => {
 
 test('a groupId with characters that need escaping is encoded', () => {
     assert.equal(announcementLinkPathFor({ groupId: 'a b/c', isGap: true }), '#/gaps/a%20b%2Fc');
+});
+
+// --- gapAwaitingMatch --------------------------------------------------------
+//
+// Q-031: `picking` with a `downloaded` track is lb-bot's needs_match bucket
+// (files already downloaded, waiting on a manual match lb-bot's own workspace
+// does), not "your move" — the shared predicate behind both the settle and the
+// gap modal's "Open in lb-bot" prominence.
+
+test('picking with a downloaded track is awaiting a match', () => {
+    assert.equal(
+        gapAwaitingMatch({
+            sourceTask: null,
+            status: 'picking',
+            tracks: [{ downloadError: '', position: 1, state: 'downloaded', title: 'A' }],
+        }),
+        true,
+    );
+});
+
+test('picking with no downloaded track is not awaiting a match (the ordinary picker)', () => {
+    assert.equal(
+        gapAwaitingMatch({
+            sourceTask: null,
+            status: 'picking',
+            tracks: [{ downloadError: '', position: 1, state: 'picked', title: 'A' }],
+        }),
+        false,
+    );
+});
+
+test('a running search is never read as awaiting a match, even with a downloaded track', () => {
+    assert.equal(
+        gapAwaitingMatch({
+            sourceTask: {
+                current: '',
+                error: '',
+                id: 't1',
+                label: '',
+                status: 'running',
+                summary: '',
+            },
+            status: 'picking',
+            tracks: [{ downloadError: '', position: 1, state: 'downloaded', title: 'A' }],
+        }),
+        false,
+    );
+    assert.equal(
+        gapAwaitingMatch({
+            sourceTask: {
+                current: '',
+                error: '',
+                id: 't1',
+                label: '',
+                status: 'queued',
+                summary: '',
+            },
+            status: 'picking',
+            tracks: [{ downloadError: '', position: 1, state: 'downloaded', title: 'A' }],
+        }),
+        false,
+    );
+});
+
+test('a non-picking status is never awaiting a match', () => {
+    assert.equal(
+        gapAwaitingMatch({
+            sourceTask: null,
+            status: 'failed',
+            tracks: [{ downloadError: '', position: 1, state: 'downloaded', title: 'A' }],
+        }),
+        false,
+    );
+});
+
+// --- gapSettleOutcome --------------------------------------------------------
+//
+// Q-031: the settle mapping `applyGapSummary` writes for a gap that just
+// stopped being busy.
+
+test('a picking gap with a downloaded track settles failed/needs_match, not needsPick', () => {
+    assert.deepEqual(
+        gapSettleOutcome({
+            sourceTask: null,
+            status: 'picking',
+            tracks: [{ downloadError: '', position: 1, state: 'downloaded', title: 'A' }],
+        }),
+        { outcome: 'failed', state: 'needs_match' },
+    );
+});
+
+test('a picking gap with no downloaded track still settles needsPick — your move, unchanged', () => {
+    assert.deepEqual(
+        gapSettleOutcome({
+            sourceTask: null,
+            status: 'picking',
+            tracks: [{ downloadError: '', position: 1, state: 'picked', title: 'A' }],
+        }),
+        { outcome: 'needsPick', state: 'picking' },
+    );
+});
+
+test('a complete gap settles done', () => {
+    assert.deepEqual(gapSettleOutcome({ sourceTask: null, status: 'complete', tracks: [] }), {
+        outcome: 'done',
+        state: 'complete',
+    });
+});
+
+test('an ordinary failed gap settles failed with its own state, not needs_match', () => {
+    assert.deepEqual(
+        gapSettleOutcome({
+            sourceTask: null,
+            status: 'failed',
+            tracks: [{ downloadError: 'no peers', position: 1, state: 'failed', title: 'A' }],
+        }),
+        { outcome: 'failed', state: 'failed' },
+    );
 });

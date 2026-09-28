@@ -1,4 +1,5 @@
 import type { FillOutcome } from '/@/renderer/features/lbbot/stores/active-fills.store';
+import type { LbBotGap } from '/@/shared/types/lbbot-types';
 
 /**
  * B-026 (Feishin half): what `useFillAnnouncements` should say about a row that
@@ -25,6 +26,15 @@ import type { FillOutcome } from '/@/renderer/features/lbbot/stores/active-fills
  * repoints it at an import-recovery record (`rec<N>`,
  * `listenbrainz_bot.py`'s `_album_fill_set`), and `#/gaps/rec17` is a page lb-bot
  * answers "Group not found" on. Only `ActiveGap.groupId` resolves `#/gaps/<id>`.
+ *
+ * Q-031 (Feishin half): lb-bot reports `picking` for two different buckets — the
+ * picker holding candidates and waiting on the user ("your move"), and the
+ * `needs_match` bucket, files already `downloaded` and waiting on a manual match
+ * only lb-bot's own workspace can do. `gapAwaitingMatch` is the one predicate
+ * that tells them apart, shared by `applyGapSummary`'s settle (`use-lbbot.ts`,
+ * via `gapSettleOutcome`) and the gap modal's own "Open in lb-bot" prominence
+ * (`gap-fill-modal.tsx`) — two copies of this test would drift the way the
+ * ledger and the modal already had.
  */
 
 /** Which of the two settled-row toasts to show; `null` means say nothing (the
@@ -81,4 +91,43 @@ export const announcementKindFor = (row: AnnounceRow): AnnounceKind | null => {
 export const announcementLinkPathFor = (row: Pick<AnnounceRow, 'groupId' | 'isGap'>): string => {
     if (row.isGap) return row.groupId ? `#/gaps/${encodeURIComponent(row.groupId)}` : '';
     return '#/downloads';
+};
+
+/**
+ * Q-031: is this gap lb-bot's `needs_match` bucket — files already
+ * `downloaded`, waiting on a manual match only lb-bot's own workspace can do —
+ * rather than the picker holding candidates and waiting on the user?
+ *
+ * Mirrors `gapIsBusy`'s reading of `sourceTask`: while the search is
+ * `queued`/`running`, nothing the group says about itself is final, so a
+ * `downloaded` track seen mid-search does not yet mean the match is stuck.
+ */
+export const gapAwaitingMatch = (
+    gap: Pick<LbBotGap, 'sourceTask' | 'status' | 'tracks'>,
+): boolean => {
+    const searching = gap.sourceTask?.status === 'queued' || gap.sourceTask?.status === 'running';
+    return (
+        !searching &&
+        gap.status === 'picking' &&
+        gap.tracks.some((track) => track.state === 'downloaded')
+    );
+};
+
+/**
+ * Q-031: the settle mapping `applyGapSummary` writes to the ledger for a
+ * `picking` gap. `gapAwaitingMatch` routes the needs_match bucket to the same
+ * `{ outcome: 'failed', state: 'needs_match' }` shape a stalled placement and
+ * an album fill's `needs_match` already use (see `announcementKindFor` and
+ * `fill-vocabulary.ts`'s `needs_match` row) — `state` here is a ledger string,
+ * not a `LbBotGapStatus`, exactly like `stalledPlacement`'s case reuses
+ * `state: 'failed'` for a status lb-bot never reports for a gap. A `picking`
+ * gap with no downloaded track stays `needsPick`, unchanged.
+ */
+export const gapSettleOutcome = (
+    gap: Pick<LbBotGap, 'sourceTask' | 'status' | 'tracks'>,
+): { outcome: FillOutcome; state: string } => {
+    if (gap.status === 'complete') return { outcome: 'done', state: gap.status };
+    if (gapAwaitingMatch(gap)) return { outcome: 'failed', state: 'needs_match' };
+    if (gap.status === 'picking') return { outcome: 'needsPick', state: gap.status };
+    return { outcome: 'failed', state: gap.status };
 };

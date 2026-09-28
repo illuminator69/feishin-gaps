@@ -8,6 +8,7 @@ import {
     defaultSelectedSource,
     SourceList,
 } from '/@/renderer/features/lbbot/components/source-list';
+import { gapAwaitingMatch } from '/@/renderer/features/lbbot/hooks/fill-announce-logic';
 import {
     allowMp3ForAlbum,
     autoFillGap,
@@ -93,11 +94,10 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
     // lb-bot reports `picking` for two buckets. `needs_match` is files already
     // downloaded and waiting for a manual match — its tracks read `downloaded` —
     // and that is a decision only lb-bot's own workspace can take; a search
-    // cannot resolve it.
-    const awaitingMatch =
-        !searching &&
-        gap?.status === 'picking' &&
-        gap.tracks.some((track) => track.state === 'downloaded');
+    // cannot resolve it. `gapAwaitingMatch` is the same predicate
+    // `applyGapSummary` settles a row on (Q-031) — one copy so the modal and
+    // the ledger can't drift on what "awaiting a match" means.
+    const awaitingMatch = !!gap && gapAwaitingMatch(gap);
     // B-011 / ruling R10: the SAME situation as `awaitingMatch` — files
     // downloaded and waiting on lb-bot's own match workspace — reached
     // through `status: 'failed'` instead of `picking`, because a stalled

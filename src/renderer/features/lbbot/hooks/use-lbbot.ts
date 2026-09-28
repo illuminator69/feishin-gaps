@@ -45,6 +45,7 @@ import {
 
 import { api } from '/@/renderer/api';
 import { isSourceVerified } from '/@/renderer/features/lbbot/components/source-list';
+import { gapSettleOutcome } from '/@/renderer/features/lbbot/hooks/fill-announce-logic';
 import {
     getIndexMirrorSnapshot,
     getMirrorArtistByNdId,
@@ -1183,16 +1184,19 @@ export const applyGapSummary = (groupId: string, gap: LbBotGap, now = Date.now()
     // Never inside the startup grace, and never while `gapIsBusy` (which reads
     // `sourceTask`, not `status`) — this API looks idle before it is busy.
     if (age < GAP_SETTLE_GRACE_MS || busy) return;
+    // Q-031: `picking` with the search finished and nothing downloaded is the
+    // picker holding candidates and waiting on the user — a "your move", not a
+    // failure. `picking` with a `downloaded` track is lb-bot's needs_match
+    // bucket instead — `gapSettleOutcome` is the one place (shared with the gap
+    // modal's `gapAwaitingMatch`) that tells the two apart.
+    const { outcome, state } = gapSettleOutcome(gap);
     actions.settleGap(groupId, {
         mp3WouldHelp: gap.mp3WouldHelp,
-        // `picking` with the search finished is the picker holding candidates
-        // and waiting on the user — a "your move", not a failure.
-        outcome:
-            gap.status === 'complete' ? 'done' : gap.status === 'picking' ? 'needsPick' : 'failed',
+        outcome,
         // B-011: lb-bot's human sentence, not the machine `failReason` token
         // ("stalled_placement") it used to show verbatim.
         reason: gap.failDetail || gap.failReason || gap.noSourceReason || gap.sourceTask?.error,
-        state: gap.status,
+        state,
     });
 };
 
