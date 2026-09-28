@@ -64,9 +64,18 @@ const isLogLevel = (value: unknown): value is LogLevel => {
     return value === 'debug' || value === 'info';
 };
 
+// A stdout/stderr with no reader (e.g. launched by systemd --user with a dangling pipe) turns every
+// console write into an async EPIPE. Neither stream has an 'error' listener by default, so each one
+// surfaces as an uncaught exception, which is logged, which writes to the console again — a doubling
+// storm that pins the main thread's CPU and leaks memory on the pending error queue. Declared before
+// setLogLevel's first call at boot so the guard below is active from the start.
+let consoleDisabledForStdioError = false;
+
 export const setLogLevel = (level: LogLevel) => {
     log.transports.file.level = level;
-    log.transports.console.level = level;
+    // Once a stdio write error has been seen, the console transport stays off for the life of the
+    // process — any caller (IPC, a future main-process path, an upstream merge) goes through here.
+    log.transports.console.level = consoleDisabledForStdioError ? false : level;
 };
 
 log.initialize();
@@ -77,13 +86,8 @@ log.transports.file.format = (params) => formatLogLine({ ...params, colorize: fa
 log.transports.file.maxSize = 1024 * 1024 * 10; // 10MB
 log.transports.console.format = (params) => formatLogLine({ ...params, colorize: true });
 
-// A stdout/stderr with no reader (e.g. launched by systemd --user with a dangling pipe) turns every
-// console write into an async EPIPE. Neither stream has an 'error' listener by default, so each one
-// surfaces as an uncaught exception, which is logged, which writes to the console again — a doubling
-// storm that pins the main thread's CPU and leaks memory on the pending error queue. Disable the
-// console transport permanently once this happens; the file transport still gets everything.
-let consoleDisabledForStdioError = false;
-
+// Disable the console transport permanently once a stdio write error happens; the file transport
+// still gets everything. setLogLevel() above enforces this so no caller can bypass it.
 const disableConsoleOnStdioError = (stream: NodeJS.WriteStream, name: string) => {
     stream.on('error', (error: NodeJS.ErrnoException) => {
         if (consoleDisabledForStdioError) {
@@ -101,11 +105,6 @@ disableConsoleOnStdioError(process.stderr, 'stderr');
 ipcMain.on('logger-set-level', (_event, level: unknown) => {
     if (isLogLevel(level)) {
         setLogLevel(level);
-        // A stdio write error is permanent for the life of the process; don't let the renderer's
-        // level change re-enable a console transport that will just resume the EPIPE storm.
-        if (consoleDisabledForStdioError) {
-            log.transports.console.level = false;
-        }
     }
 });
 
