@@ -1,7 +1,10 @@
 import isElectron from 'is-electron';
 import { useEffect, useRef } from 'react';
 
-import { announcementKindFor } from '/@/renderer/features/lbbot/hooks/fill-announce-logic';
+import {
+    announcementKindFor,
+    announcementLinkPathFor,
+} from '/@/renderer/features/lbbot/hooks/fill-announce-logic';
 import { useLbBotWebUrl } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
     FillOutcome,
@@ -53,8 +56,20 @@ export const useFillAnnouncements = () => {
         return useActiveFillsStore.subscribe((state) => {
             const previous = seen.current ?? new Map();
             const rows = [
-                ...Object.values(state.fills).map((f) => ({ ...f, key: f.rgid })),
-                ...Object.values(state.gaps).map((g) => ({ ...g, key: g.groupId })),
+                // Tagged with its origin explicitly — `announcementLinkPathFor`
+                // needs to tell a gap from an album fill, and `'groupId' in row`
+                // cannot do that: `ActiveFill.groupId` exists on the type too,
+                // it just means something else (B-026 final review).
+                ...Object.values(state.fills).map((f) => ({
+                    ...f,
+                    isGap: false as const,
+                    key: f.rgid,
+                })),
+                ...Object.values(state.gaps).map((g) => ({
+                    ...g,
+                    isGap: true as const,
+                    key: g.groupId,
+                })),
             ];
             const next = new Map<string, FillOutcome>();
 
@@ -72,7 +87,12 @@ export const useFillAnnouncements = () => {
                 // `announcementKindFor` is the one place that tells the two apart.
                 const stalledPlacement =
                     'stalledPlacement' in row ? row.stalledPlacement === true : false;
-                const kind = announcementKindFor({ outcome, stalledPlacement, state: row.state });
+                const kind = announcementKindFor({
+                    isGap: row.isGap,
+                    outcome,
+                    stalledPlacement,
+                    state: row.state,
+                });
 
                 if (kind === 'done') {
                     toast.success({ message: `${name} is in your library.` });
@@ -82,19 +102,32 @@ export const useFillAnnouncements = () => {
                     // (a rename/move it can't do on its own) — this is not a failure,
                     // and must not read like one or send the user hunting for a retry
                     // that would only refetch what's already on disk.
-                    const groupId = 'groupId' in row ? row.groupId : undefined;
+                    //
+                    // The link target is decided by `announcementLinkPathFor`, not
+                    // here: a gap's `groupId` is the review group lb-bot's Fill-gaps
+                    // page is keyed on, but an album fill's `groupId` at `needs_match`
+                    // is an import-recovery record id, not a review group, and
+                    // `#/gaps/<that id>` 404s ("Group not found") — see the module
+                    // doc comment for the full story (B-026 final review).
+                    const linkPath = announcementLinkPathFor({
+                        groupId: row.groupId,
+                        isGap: row.isGap,
+                    });
                     const link =
-                        groupId && webUrlRef.current
-                            ? `${webUrlRef.current}/#/gaps/${encodeURIComponent(groupId)}`
-                            : '';
+                        linkPath && webUrlRef.current ? `${webUrlRef.current}/${linkPath}` : '';
                     const body = `Downloaded ${name} — needs sorting out in lb-bot.`;
-                    // Mantine's `message` is plain text, so the link (when we have
-                    // one) is appended as text rather than a real anchor; the main
-                    // process `notify` IPC only takes {title, body} (see
-                    // `lbbot-notify` in `src/main/features/core/lbbot/index.ts`) and
-                    // cannot carry a link at all — clicking it only refocuses the
-                    // window, same as any other lb-bot notification.
-                    toast.info({ message: link ? `${body} ${link}` : body });
+                    // Mantine's `NotificationData` extends `ElementProps<'div', ...>`,
+                    // so `onClick` reaches the rendered toast (same `window.open`
+                    // gap-fill-modal.tsx uses for "Open in lb-bot") — the toast CAN
+                    // carry the link after all. The main-process `notify` IPC still
+                    // cannot: it only takes {title, body} (`lbbot-notify` in
+                    // `src/main/features/core/lbbot/index.ts`) and its click handler
+                    // just refocuses the window, same as every other lb-bot
+                    // notification — so the desktop notification stays text-only.
+                    toast.info({
+                        message: link ? `${body} Click to open it in lb-bot.` : body,
+                        onClick: link ? () => window.open(link, '_blank') : undefined,
+                    });
                     void lbBot?.notify('Needs sorting out', body);
                 } else if (kind === 'couldntGet') {
                     toast.error({

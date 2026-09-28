@@ -61,8 +61,15 @@ export interface ActiveFill {
      *  wording of `reason`. Empty on anything that has not failed. */
     failureKind?: LbBotFailureKind;
     finishedAt?: number;
-    /** lb-bot's *review group* id, learned from a status poll. Not the rgid: Allow
-     *  MP3 is keyed on this, and sending the rgid instead silently no-ops. */
+    /** An id learned from a status poll, whose MEANING depends on state — never
+     *  a stable "review group" handle the way `ActiveGap.groupId` is. Before
+     *  `needs_match` it is the transfer-group id (`ag…`); at `needs_match` lb-bot
+     *  repoints it at an import-recovery record (`rec…`,
+     *  `listenbrainz_bot.py`'s `_album_fill_set`). Allow MP3 is keyed on this
+     *  (not the rgid, which silently no-ops), but **B-026: it is not a
+     *  `#/gaps/<id>` page for any state** — that route only resolves an
+     *  `ActiveGap.groupId`. See `fill-announce-logic.ts` for the one place
+     *  that decides what to link to. */
     groupId?: string;
     /** When a poll last reached lb-bot for this row, and what the last failed
      *  poll said. A failed poll is NOT `unknown`: it leaves the state alone and
