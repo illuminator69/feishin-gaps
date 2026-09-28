@@ -67,8 +67,9 @@ const isLogLevel = (value: unknown): value is LogLevel => {
 // A stdout/stderr with no reader (e.g. launched by systemd --user with a dangling pipe) turns every
 // console write into an async EPIPE. Neither stream has an 'error' listener by default, so each one
 // surfaces as an uncaught exception, which is logged, which writes to the console again — a doubling
-// storm that pins the main thread's CPU and leaks memory on the pending error queue. Declared before
-// setLogLevel's first call at boot so the guard below is active from the start.
+// storm that pins the main thread's CPU and leaks memory on the pending error queue. Declared first —
+// above every reader of it, including `setLogLevel` below — so a `let` this file merges further up
+// from upstream doesn't throw a temporal-dead-zone error on the reference; keep it first.
 let consoleDisabledForStdioError = false;
 
 export const setLogLevel = (level: LogLevel) => {
