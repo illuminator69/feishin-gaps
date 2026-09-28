@@ -68,11 +68,16 @@ export const usePlayerTimestamp = () => {
     );
 
     useEffect(() => {
+        // navi-connect (B-030): call setState only when the value moved. A setState that
+        // resolves to the current state still queues an update on the hook (React's eager
+        // bail-out) that is only drained by the component's next render — never, while
+        // paused — so the old "return prev" updater leaked one update per tick.
+        let lastTimestamp: number | undefined;
         const syncTimestamp = () => {
             const nextTimestamp = useTimestampStoreBase.getState().timestamp;
-            setLocalTimestamp((prevTimestamp) =>
-                prevTimestamp !== nextTimestamp ? nextTimestamp : prevTimestamp,
-            );
+            if (nextTimestamp === lastTimestamp) return;
+            lastTimestamp = nextTimestamp;
+            setLocalTimestamp(nextTimestamp);
         };
 
         syncTimestamp();

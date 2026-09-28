@@ -45,11 +45,13 @@ export const useScrobbleDebugSnapshot = () => {
     const [snapshot, setLocalSnapshot] = useState(() => useScrobbleDebugStore.getState().snapshot);
 
     useEffect(() => {
+        // navi-connect (B-030): same leak as usePlayerTimestamp — only call setState on a change.
+        let lastSnapshot: ScrobbleDebugSnapshot | undefined;
         const syncSnapshot = () => {
             const nextSnapshot = useScrobbleDebugStore.getState().snapshot;
-            setLocalSnapshot((prevSnapshot) =>
-                prevSnapshot !== nextSnapshot ? nextSnapshot : prevSnapshot,
-            );
+            if (nextSnapshot === lastSnapshot) return;
+            lastSnapshot = nextSnapshot;
+            setLocalSnapshot(nextSnapshot);
         };
 
         syncSnapshot();
