@@ -77,9 +77,35 @@ log.transports.file.format = (params) => formatLogLine({ ...params, colorize: fa
 log.transports.file.maxSize = 1024 * 1024 * 10; // 10MB
 log.transports.console.format = (params) => formatLogLine({ ...params, colorize: true });
 
+// A stdout/stderr with no reader (e.g. launched by systemd --user with a dangling pipe) turns every
+// console write into an async EPIPE. Neither stream has an 'error' listener by default, so each one
+// surfaces as an uncaught exception, which is logged, which writes to the console again — a doubling
+// storm that pins the main thread's CPU and leaks memory on the pending error queue. Disable the
+// console transport permanently once this happens; the file transport still gets everything.
+let consoleDisabledForStdioError = false;
+
+const disableConsoleOnStdioError = (stream: NodeJS.WriteStream, name: string) => {
+    stream.on('error', (error: NodeJS.ErrnoException) => {
+        if (consoleDisabledForStdioError) {
+            return;
+        }
+        consoleDisabledForStdioError = true;
+        log.transports.console.level = false;
+        log.warn(`Console transport disabled after a ${name} write error`, error);
+    });
+};
+
+disableConsoleOnStdioError(process.stdout, 'stdout');
+disableConsoleOnStdioError(process.stderr, 'stderr');
+
 ipcMain.on('logger-set-level', (_event, level: unknown) => {
     if (isLogLevel(level)) {
         setLogLevel(level);
+        // A stdio write error is permanent for the life of the process; don't let the renderer's
+        // level change re-enable a console transport that will just resume the EPIPE storm.
+        if (consoleDisabledForStdioError) {
+            log.transports.console.level = false;
+        }
     }
 });
 
