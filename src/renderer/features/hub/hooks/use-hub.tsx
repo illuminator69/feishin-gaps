@@ -43,6 +43,7 @@ import {
     useSavedQueuesStore,
     useTimestampStoreBase,
 } from '/@/renderer/store';
+import { logger } from '/@/renderer/utils/logger';
 import { toast } from '/@/shared/components/toast/toast';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
@@ -475,6 +476,25 @@ export const useHub = () => {
             playing.current &&
             Date.now() - lastUnclaimedPublishAt.current > 2000;
         if (sig === lastQueueSig.current && !unclaimed) return;
+        // B-047: a publish into an empty slot IS a claim, so a client that isn't playing must
+        // not make one just to restate the queue the hub already holds. At launch the restored
+        // queue did exactly that (position 0, not playing) the moment the slot was empty:
+        // either it claimed first, and this app's own cast bridge then found "another device
+        // active" and left a still-playing speaker unadopted; or the bridge adopted first and
+        // this stale publish reloaded the speaker at 0:00, paused. Nothing is lost by skipping:
+        // a local play still claims through `unclaimed` above.
+        if (
+            activeId.current === null &&
+            !playing.current &&
+            sig ===
+                useHubStore
+                    .getState()
+                    .remoteQueue.map((track) => track.id)
+                    .join(',')
+        ) {
+            lastQueueSig.current = sig;
+            return;
+        }
         if (unclaimed) lastUnclaimedPublishAt.current = Date.now();
         lastQueueSig.current = sig;
         if (!items.length) {
@@ -515,7 +535,22 @@ export const useHub = () => {
         void (async () => {
             const tracks = await buildHubTracks(items);
             if (gen !== publishGen.current) return;
+            // B-047: the claim gate above was read BEFORE resolving the tracks (network I/O);
+            // another device (this app's own cast bridge, adopting a speaker at launch) can
+            // claim the slot meanwhile, and this queue would then reach the hub as a
+            // non-active device's setQueue — a reload of that device.
+            if (!(activeId.current === null || activeId.current === myId.current)) {
+                logger.info(
+                    `[hub] setQueue dropped: ${activeId.current} took the active slot while ` +
+                        `the queue resolved`,
+                );
+                return;
+            }
             const live = usePlayerStore.getState();
+            logger.info(
+                `[hub] setQueue index=${live.player.index} pos=${positionMs.current} ` +
+                    `play=${playing.current} active=${activeId.current ?? 'none'}`,
+            );
             hub.send({
                 action: 'setQueue',
                 coverImageUrl: savedQueueCoverUrl(),
