@@ -131,3 +131,15 @@ export const gapSettleOutcome = (
     if (gap.status === 'picking') return { outcome: 'needsPick', state: gap.status };
     return { outcome: 'failed', state: gap.status };
 };
+
+/**
+ * B-044: the sentence saying why a gap didn't fill — never lb-bot's `failReason`
+ * token (`blocked_no_source`, R10). A stalled placement's `failDetail` is lb-bot's
+ * current sentence. Any other `failDetail` comes from a group message kind
+ * (`error`/`blocked_no_source`/`download_failed`) lb-bot stopped writing in B-022,
+ * so it can only be left over from an older search, with counts that contradict
+ * the current verdict: `noSourceReason`, which a new search rewrites, wins over it.
+ */
+export const gapFailReason = (
+    gap: Pick<LbBotGap, 'failDetail' | 'noSourceReason' | 'stalledPlacement'>,
+): string => (gap.stalledPlacement ? gap.failDetail : gap.noSourceReason || gap.failDetail) || '';

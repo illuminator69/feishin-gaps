@@ -45,7 +45,10 @@ import {
 
 import { api } from '/@/renderer/api';
 import { isSourceVerified } from '/@/renderer/features/lbbot/components/source-list';
-import { gapSettleOutcome } from '/@/renderer/features/lbbot/hooks/fill-announce-logic';
+import {
+    gapFailReason,
+    gapSettleOutcome,
+} from '/@/renderer/features/lbbot/hooks/fill-announce-logic';
 import {
     getIndexMirrorSnapshot,
     getMirrorArtistByNdId,
@@ -1193,9 +1196,9 @@ export const applyGapSummary = (groupId: string, gap: LbBotGap, now = Date.now()
     actions.settleGap(groupId, {
         mp3WouldHelp: gap.mp3WouldHelp,
         outcome,
-        // B-011: lb-bot's human sentence, not the machine `failReason` token
-        // ("stalled_placement") it used to show verbatim.
-        reason: gap.failDetail || gap.failReason || gap.noSourceReason || gap.sourceTask?.error,
+        // B-011/B-044: lb-bot's human sentence, never the machine `failReason`
+        // token ("stalled_placement", "blocked_no_source").
+        reason: gapFailReason(gap) || gap.sourceTask?.error,
         state,
     });
 };

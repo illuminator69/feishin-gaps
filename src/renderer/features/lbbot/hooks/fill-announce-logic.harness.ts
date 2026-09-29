@@ -5,6 +5,7 @@ import {
     announcementKindFor,
     announcementLinkPathFor,
     gapAwaitingMatch,
+    gapFailReason,
     gapSettleOutcome,
 } from './fill-announce-logic.ts';
 
@@ -205,5 +206,41 @@ test('an ordinary failed gap settles failed with its own state, not needs_match'
             tracks: [{ downloadError: 'no peers', position: 1, state: 'failed', title: 'A' }],
         }),
         { outcome: 'failed', state: 'failed' },
+    );
+});
+
+// B-044: the gap's "why" sentence — never the token, never a stale detail over
+// the current verdict.
+
+test('a no-source verdict wins over a failDetail left over from an older search', () => {
+    assert.equal(
+        gapFailReason({
+            failDetail: 'No usable source: 7 peer(s) offered 17 file(s)',
+            noSourceReason: '9 peer(s) offered 32 file(s), but none in FLAC, OPUS',
+            stalledPlacement: false,
+        }),
+        '9 peer(s) offered 32 file(s), but none in FLAC, OPUS',
+    );
+});
+
+test('a stalled placement reads its own sentence, not a no-source verdict', () => {
+    assert.equal(
+        gapFailReason({
+            failDetail: 'Some tracks downloaded but were never filed',
+            noSourceReason: 'older verdict',
+            stalledPlacement: true,
+        }),
+        'Some tracks downloaded but were never filed',
+    );
+});
+
+test('with no verdict, the detail is still better than nothing', () => {
+    assert.equal(
+        gapFailReason({ failDetail: 'detail', noSourceReason: '', stalledPlacement: false }),
+        'detail',
+    );
+    assert.equal(
+        gapFailReason({ failDetail: '', noSourceReason: '', stalledPlacement: false }),
+        '',
     );
 });

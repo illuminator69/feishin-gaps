@@ -334,15 +334,12 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                     </Text>
                 )}
 
+                {/* The one "why" line. B-044: there used to be a second one printing
+                `failReason — failDetail`: a raw token, and a detail left over from an
+                older search whose counts contradicted this line (see gapFailReason). */}
                 {!searching && !stalledPlacement && sources.length === 0 && gap.noSourceReason && (
                     <Text isMuted size="sm">
                         {gap.noSourceReason}
-                    </Text>
-                )}
-
-                {!stalledPlacement && gap.failReason && (
-                    <Text isMuted size="sm">
-                        {[gap.failReason, gap.failDetail].filter(Boolean).join(' — ')}
                     </Text>
                 )}
 
