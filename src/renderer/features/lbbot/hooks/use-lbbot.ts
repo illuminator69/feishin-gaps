@@ -48,6 +48,7 @@ import { isSourceVerified } from '/@/renderer/features/lbbot/components/source-l
 import {
     gapFailReason,
     gapSettleOutcome,
+    mergeGapSummary,
 } from '/@/renderer/features/lbbot/hooks/fill-announce-logic';
 import {
     getIndexMirrorSnapshot,
@@ -949,10 +950,14 @@ const pollInterval = (quietTicks: number): number => {
  * query cache and the library refresh.
  */
 const registry: {
+    /** The `sourcesFoundAt` each gap's full view was last re-read for (B-042), so a
+     *  summary reporting sources the cache holds no rows for costs one `/lb/gap`,
+     *  not one per poll tick. */
+    gapSourceReads: Map<string, number>;
     lastPushAt: number;
     queryClient: null | QueryClient;
     refresh: ((ndArtistId?: string, landing?: LbBotLibraryLanding) => void) | null;
-} = { lastPushAt: 0, queryClient: null, refresh: null };
+} = { gapSourceReads: new Map(), lastPushAt: 0, queryClient: null, refresh: null };
 
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
 const num = (value: unknown): number =>
@@ -1141,12 +1146,26 @@ const GAP_SETTLE_GRACE_MS = 90 * 1000;
 /** The gap counterpart of `applyFillStatus`: one writer for the gap ledger. */
 export const applyGapSummary = (groupId: string, gap: LbBotGap, now = Date.now()): void => {
     const { actions, gaps } = useActiveFillsStore.getState();
-    registry.queryClient?.setQueryData(['lbbot', 'gap', groupId], {
-        data: gap,
+    const queryKey = ['lbbot', 'gap', groupId];
+    const cached = registry.queryClient?.getQueryData<LbBotResult<LbBotGap>>(queryKey)?.data;
+    const merged = mergeGapSummary(cached, gap);
+    registry.queryClient?.setQueryData(queryKey, {
+        data: merged,
         error: '',
         ok: true,
         status: 200,
     });
+    // Results the cache holds no rows for (a search just finished): read the full
+    // view once for that result set. Refetches now if the dialog is open, else
+    // marks it stale for when it opens.
+    if (
+        merged.sources.length === 0 &&
+        gap.sourcesTotal > 0 &&
+        registry.gapSourceReads.get(groupId) !== gap.sourcesFoundAt
+    ) {
+        registry.gapSourceReads.set(groupId, gap.sourcesFoundAt);
+        void registry.queryClient?.invalidateQueries({ queryKey });
+    }
     const watch = gaps[groupId];
     if (!watch) return;
     actions.noteCheck(groupId, '');

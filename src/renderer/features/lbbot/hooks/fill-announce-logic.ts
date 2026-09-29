@@ -143,3 +143,27 @@ export const gapSettleOutcome = (
 export const gapFailReason = (
     gap: Pick<LbBotGap, 'failDetail' | 'noSourceReason' | 'stalledPlacement'>,
 ): string => (gap.stalledPlacement ? gap.failDetail : gap.noSourceReason || gap.failDetail) || '';
+
+/**
+ * B-042: what the gap cache should hold after a `/lb/fills` summary. The summary
+ * is the gap view with its source rows dropped (main normalises the missing key to
+ * `sources: []`), but it still carries `sourcesTotal` and `sourcesFoundAt`. Written
+ * over the cached gap as-is, it blanked the gap dialog's source list on every
+ * ledger poll until the dialog's own `/lb/gap` poll wrote the rows back — the list
+ * vanished and returned every ~10 s. The summary wins on every field except the
+ * rows, which are kept while they describe the same result set (same
+ * `sourcesFoundAt`): Navic's `applyGapSummary` rule. A new search changes the
+ * stamp, and an emptied list is a summary with the rows already gone either way.
+ */
+export const mergeGapSummary = (prev: LbBotGap | null | undefined, summary: LbBotGap): LbBotGap =>
+    summary.sources.length === 0 &&
+    prev &&
+    prev.sources.length > 0 &&
+    prev.sourcesFoundAt === summary.sourcesFoundAt
+        ? {
+              ...summary,
+              sources: prev.sources,
+              sourcesPage: prev.sourcesPage,
+              sourcesPages: prev.sourcesPages,
+          }
+        : summary;

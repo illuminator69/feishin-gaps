@@ -1,3 +1,5 @@
+import type { LbBotGap } from '/@/shared/types/lbbot-types';
+
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -7,6 +9,7 @@ import {
     gapAwaitingMatch,
     gapFailReason,
     gapSettleOutcome,
+    mergeGapSummary,
 } from './fill-announce-logic.ts';
 
 /**
@@ -243,4 +246,41 @@ test('with no verdict, the detail is still better than nothing', () => {
         gapFailReason({ failDetail: '', noSourceReason: '', stalledPlacement: false }),
         '',
     );
+});
+
+// B-042: a `/lb/fills` summary (no source rows) must not blank the dialog's list.
+
+const gapWith = (over: Partial<LbBotGap>): LbBotGap =>
+    ({
+        sources: [],
+        sourcesFoundAt: 100,
+        sourcesPage: 0,
+        sourcesPages: 1,
+        sourcesTotal: 0,
+        status: 'picking',
+        ...over,
+    }) as LbBotGap;
+const rows = [{ id: 1 }, { id: 2 }] as unknown as LbBotGap['sources'];
+
+test('a summary of the same result set keeps the rows the cache holds', () => {
+    const prev = gapWith({ sources: rows, sourcesPages: 2, sourcesTotal: 12 });
+    const summary = gapWith({ sourcesTotal: 12, status: 'downloading' });
+    const merged = mergeGapSummary(prev, summary);
+    assert.equal(merged.sources, rows);
+    assert.equal(merged.sourcesPages, 2);
+    // Everything else is the summary's: it is the newer read.
+    assert.equal(merged.status, 'downloading');
+});
+
+test('a new search (new sourcesFoundAt) does not keep the old rows', () => {
+    const prev = gapWith({ sources: rows, sourcesTotal: 12 });
+    const merged = mergeGapSummary(prev, gapWith({ sourcesFoundAt: 200, sourcesTotal: 9 }));
+    assert.equal(merged.sources.length, 0);
+});
+
+test('with nothing cached, or a full view in hand, the incoming gap stands', () => {
+    const summary = gapWith({ sourcesTotal: 12 });
+    assert.equal(mergeGapSummary(undefined, summary), summary);
+    const full = gapWith({ sources: rows, sourcesTotal: 12 });
+    assert.equal(mergeGapSummary(gapWith({ sources: [] }), full), full);
 });
