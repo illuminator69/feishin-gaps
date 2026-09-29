@@ -45,8 +45,9 @@ export type SavedQueueKind = 'album' | 'journey' | 'manual' | 'moodFlow' | 'play
 
 /**
  * The subset [updateProgress] moves without rewriting the (large) song list. Deliberately
- * excludes coverImageUrl/sourceName: a queue's identity is frozen at birth, so the card
- * doesn't change name or artwork as playback moves through it.
+ * excludes coverImageUrl/sourceName: a queue's origin name is frozen at birth. The card's
+ * title and artwork are the resume track's (`savedQueueTitle`, `savedQueueCoverSongId`), so
+ * they follow this cursor.
  */
 export interface SavedQueueProgress {
     currentIndex: number;
@@ -60,6 +61,7 @@ export const MAX_SAVED_QUEUES = 20;
 interface SavedQueuesSlice extends SavedQueuesState {
     actions: {
         clearAll: () => void;
+        followCursor: (id: string, cursor: Omit<SavedQueueProgress, 'positionSeconds'>) => void;
         mergeFromHub: (incoming: SavedQueue[]) => void;
         remove: (id: string) => void;
         rename: (id: string, name: string) => void;
@@ -80,6 +82,21 @@ export const useSavedQueuesStore = createWithEqualityFn<SavedQueuesSlice>()(
                     clearAll: () => {
                         set((state) => {
                             state.queues = [];
+                        });
+                    },
+                    // B-046: the live session moved to another track. The hub sends
+                    // `savedQueues` only when a queue is edited, never on a track change, so
+                    // the active card kept the index of the last edit — its artwork and title
+                    // a track behind for an ordinary queue, and one behind ALWAYS for radio,
+                    // whose top-up lands just before each track boundary. Not a new write:
+                    // `updatedAt` stays, so the history's order is the hub's.
+                    followCursor: (id, cursor) => {
+                        set((state) => {
+                            const entry = state.queues.find((q) => q.id === id);
+                            if (!entry || entry.currentIndex === cursor.currentIndex) return;
+                            entry.currentIndex = cursor.currentIndex;
+                            entry.currentSongId = cursor.currentSongId;
+                            entry.currentSongName = cursor.currentSongName;
                         });
                     },
                     // navi-connect: adopt the hub's AUTHORITATIVE history when connected. This is a

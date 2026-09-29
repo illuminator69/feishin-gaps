@@ -47,12 +47,32 @@ import { toast } from '/@/shared/components/toast/toast';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
 
+/**
+ * B-046: point the live session's saved-queue card at the track actually playing. The hub
+ * broadcasts `savedQueues` only when a queue is edited, and its own cursor on a record is
+ * throttled, so every card read the index of the last edit. Checked against the live queue
+ * by id, so a record that doesn't hold the session's tracks is never mis-pointed.
+ */
+const followSavedQueueCursor = () => {
+    const { remoteQueue, remoteQueueIndex, savedQueueId } = useHubStore.getState();
+    if (!savedQueueId) return;
+    const { actions, queues } = useSavedQueuesStore.getState();
+    const entry = queues.find((q) => q.id === savedQueueId);
+    const song = entry?.songs[remoteQueueIndex];
+    if (!song || song.id !== remoteQueue[remoteQueueIndex]?.id) return;
+    actions.followCursor(savedQueueId, {
+        currentIndex: remoteQueueIndex,
+        currentSongId: song.id,
+        currentSongName: song.name,
+    });
+};
+
 /** Coerce a hub saved-queue record (wire shape) into the local SavedQueue store shape. Songs are
  *  minimal (id + display metadata); a cross-client restore re-resolves them by id. */
 const mapHubSavedQueue = (rec: any, serverId: null | string): SavedQueue => ({
     // A record minted by the other client may carry no cover URL; the queue's FIRST
-    // track image stands in. Deliberately not the current track's art — the card's
-    // artwork is frozen at the queue's origin so it doesn't change as playback moves.
+    // track image stands in. Only a fallback: cards draw the resume track by id
+    // (`savedQueueCoverSongId`), so their artwork follows playback (B-046).
     coverImageUrl: rec.coverImageUrl ?? rec.songs?.[0]?.imageUrl ?? null,
     createdAt: rec.createdAt ?? Date.now(),
     currentIndex: rec.currentIndex ?? 0,
@@ -1136,6 +1156,7 @@ export const useHub = () => {
                     remoteShuffle: msg.shuffle ?? false,
                     savedQueueId: msg.savedQueueId ?? null,
                 });
+                followSavedQueueCursor();
                 reconcileRemoteActive();
                 // Active device may have just dropped (activeId → null): adopt the
                 // last-known queue locally, paused, so we're not stranded mirroring it.
@@ -1147,6 +1168,7 @@ export const useHub = () => {
                     remotePositionMs: msg.positionMs ?? 0,
                     remoteQueueIndex: msg.index ?? 0,
                 });
+                followSavedQueueCursor();
             } else if (msg.t === 'devices') {
                 setStore({ devices: msg.devices ?? [] });
             } else if (msg.t === 'savedQueues') {
@@ -1158,6 +1180,8 @@ export const useHub = () => {
                             mapHubSavedQueue(r, serverIdRef.current),
                         ),
                     );
+                // The broadcast's cursor for the live record can be a track behind.
+                followSavedQueueCursor();
             } else if (msg.t === 'mixes') {
                 useMixesStore.getState().actions.setMixes(mixesFromHub(msg.mixes));
             } else if (msg.t === 'library') {
