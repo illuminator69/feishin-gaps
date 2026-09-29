@@ -126,6 +126,8 @@ class CastDeviceBridge {
     // Whether we've already tried to re-adopt a running cast session for the
     // current hub connection (reset on each fresh `welcome`).
     private adopted = false;
+    /** B-047: the last reason maybeAdopt skipped, so a skip is logged once, not per frame. */
+    private adoptSkipLogged = '';
 
     private backoffMs = INITIAL_BACKOFF_MS;
 
@@ -757,6 +759,7 @@ class CastDeviceBridge {
                     // Fresh connection: allow one re-adoption attempt, then
                     // evaluate the session the hub just handed us.
                     this.adopted = false;
+                    this.adoptSkipLogged = '';
                     this.maybeAdopt(msg.session);
                 } else if (msg.t === 'session') {
                     this.maybeAdopt(msg);
@@ -1200,7 +1203,14 @@ class CastDeviceBridge {
      * session so auto-advance, release/stop and live reporting all work again.
      */
     private maybeAdopt(session: any): void {
-        if (!session || this.adopted || this.castPlayer) return;
+        if (!session) return;
+        if (this.adopted || this.castPlayer) {
+            this.noteAdoptSkip(
+                this.castPlayer ? 'already holding a cast session' : 'already adopted',
+                session,
+            );
+            return;
+        }
         const stillOurs = session.activeDeviceId === this.hubDeviceId;
         // No live receiver at all. This is the ordinary shape of "Feishin restarted while
         // the speaker kept playing": the bridge lives IN Feishin's main process, so its
@@ -1211,7 +1221,15 @@ class CastDeviceBridge {
         // Claiming from the orphan slot has to be earned, though: we only take it if the
         // device is really playing a track from THIS session (see the contentId check).
         const orphaned = session.activeDeviceId == null && (session.queue?.length ?? 0) > 0;
-        if (!stillOurs && !orphaned) return;
+        if (!stillOurs && !orphaned) {
+            this.noteAdoptSkip(
+                session.activeDeviceId == null
+                    ? 'nothing active and no queue'
+                    : 'another device is active',
+                session,
+            );
+            return;
+        }
         this.adopted = true;
         this.tracks = session.queue ?? [];
         this.index = session.index ?? 0;
@@ -1222,6 +1240,22 @@ class CastDeviceBridge {
             sourceName: session.sourceName ?? undefined,
         };
         void this.adoptRunningSession(!stillOurs);
+    }
+
+    /**
+     * B-047 diagnostics: Feishin didn't pick a cast back up after a restart, and the one
+     * branch that says nothing is a skip here. Logged once per distinct reason (this runs
+     * on every `session` frame), with what the hub said.
+     */
+    private noteAdoptSkip(reason: string, session: any): void {
+        const key = `${reason}|${session.activeDeviceId ?? ''}`;
+        if (key === this.adoptSkipLogged) return;
+        this.adoptSkipLogged = key;
+        log.info(
+            `[cast-bridge] ${this.friendlyName}: not adopting (${reason}) — hub active=` +
+                `${session.activeDeviceId ?? 'none'} us=${this.hubDeviceId} ` +
+                `queue=${session.queue?.length ?? 0} playing=${session.isPlaying ?? '?'}`,
+        );
     }
 
     // ---------------------------------------------------------------- cast
