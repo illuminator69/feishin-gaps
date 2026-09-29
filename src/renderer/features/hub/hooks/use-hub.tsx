@@ -1009,7 +1009,13 @@ export const useHub = () => {
                 }
                 hubDrivenUntil.current = Date.now() + 2000;
                 lastQueueSig.current = '';
-                if (targetIndex !== state2.player.index) mediaPlayByIndex(targetIndex);
+                // Loaded PAUSED outright, as the branch below does. mediaPlayByIndex STARTS the
+                // engine, asynchronously, so the pause after it could land first and the track
+                // played for a moment: the blip when another device dropped out of the session
+                // (seen 2026-09-30 — a `timeupdate` then a `pause` scrobble as Navic reinstalled).
+                if (targetIndex !== state2.player.index) {
+                    setQueue(state2.getQueue().items, targetIndex, targetSec, false);
+                }
                 armSeek(targetIndex, targetSec, true);
                 adoptPauseGuardUntil.current = Date.now() + 3000;
                 mediaPause();
@@ -1045,7 +1051,7 @@ export const useHub = () => {
                 if (activeId.current === null && audioIsRolling()) hardPause();
             }, 400);
         },
-        [armSeek, hardPause, mediaPause, mediaPlayByIndex, publishQueue, resolveSongs, setQueue],
+        [armSeek, hardPause, mediaPause, publishQueue, resolveSongs, setQueue],
     );
 
     /**
