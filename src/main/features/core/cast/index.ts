@@ -379,6 +379,29 @@ class CastDeviceBridge {
                                 finish();
                                 return;
                             }
+                            // Claiming the orphaned slot also needs the speaker to be LIVE. A
+                            // speaker playback was moved away from keeps its receiver session,
+                            // paused on the old track — which matched, so the next launch claimed
+                            // it and pulled the session back onto the speaker (seen 2026-09-30:
+                            // Navic, reinstalled, re-adopted a DOGTOOTH paused 12 minutes earlier).
+                            // Re-joining a session the hub still names as ours is not a claim and
+                            // is unaffected.
+                            const live =
+                                status?.playerState === 'PLAYING' ||
+                                status?.playerState === 'BUFFERING';
+                            if (claim && !live) {
+                                log.info(
+                                    `[cast-bridge] ${this.friendlyName}: running session is ` +
+                                        `${status?.playerState ?? 'without status'} — not claiming the idle slot`,
+                                );
+                                try {
+                                    client.close();
+                                } catch {
+                                    /* ignore */
+                                }
+                                finish();
+                                return;
+                            }
                             this.castClient = client;
                             this.castPlayer = player;
                             (
