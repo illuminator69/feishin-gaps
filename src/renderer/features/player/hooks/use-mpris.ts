@@ -1,16 +1,23 @@
 import isElectron from 'is-electron';
 import React, { useEffect, useMemo } from 'react';
 
-import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
+import { getItemImageUrl, useItemImageUrl } from '/@/renderer/components/item-image/item-image';
+import { getRemoteAwareSnapshot } from '/@/renderer/features/hub/hooks/use-remote-aware';
+import { isRemoteSessionActive } from '/@/renderer/features/hub/utils/remote-queue';
 import { lyricsMetadataToLrc } from '/@/renderer/features/lyrics/components/lyrics-export-form';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
 import {
     useIsRadioActive,
     useRadioPlayer,
 } from '/@/renderer/features/radio/hooks/use-radio-player';
-import { usePlayerSong, usePlayerStore } from '/@/renderer/store';
+import {
+    useHubIsRemoteActive,
+    useHubStore,
+    usePlayerSong,
+    usePlayerStore,
+} from '/@/renderer/store';
 import { LibraryItem, QueueSong } from '/@/shared/types/domain-types';
-import { PlayerShuffle, ServerType } from '/@/shared/types/types';
+import { PlayerShuffle, PlayerStatus, ServerType } from '/@/shared/types/types';
 
 const ipc = isElectron() ? window.api.ipc : null;
 const utils = isElectron() ? window.api.utils : null;
@@ -19,6 +26,7 @@ const mpris = isElectron() && (utils?.isLinux() || utils?.isMacOS()) ? window.ap
 export const useMPRIS = () => {
     const player = usePlayerStore();
     const currentSong = usePlayerSong();
+    const isRemote = useHubIsRemoteActive();
     const isRadioActive = useIsRadioActive();
     const { metadata: radioMetadata, stationName } = useRadioPlayer();
 
@@ -161,9 +169,11 @@ export const useMPRIS = () => {
         };
     }, [player]);
 
-    // Update MPRIS when song, imageUrl, or radio metadata changes
+    // Update MPRIS when song, imageUrl, or radio metadata changes — for LOCAL playback. While
+    // another device plays, the effect below owns MPRIS; this one re-publishes the local song
+    // and status when playback comes back here.
     useEffect(() => {
-        if (!mpris) {
+        if (!mpris || isRemote) {
             return;
         }
 
@@ -172,7 +182,57 @@ export const useMPRIS = () => {
         const imageUrlToUpdate = isRadioActive ? null : imageUrl;
 
         mpris?.updateSong(songToUpdate, imageUrlToUpdate);
-    }, [currentSong, imageUrl, isRadioActive, radioSong]);
+        mpris?.updateStatus(usePlayerStore.getState().player.status);
+    }, [currentSong, imageUrl, isRadioActive, isRemote, radioSong]);
+
+    // navi-connect (B-050): MPRIS must describe the SESSION, not this client's local engine.
+    // While another device plays (a cast from here, Navic), the local player sits paused on
+    // the pre-transfer track — so the desktop's media widget read "paused" on a stale song and
+    // never followed a track change. Same rule as use-media-session's `publish`. The hub store
+    // carries the ~1 Hz progress mirror, so each field is published only on an actual change.
+    useEffect(() => {
+        if (!mpris || !isRemote) {
+            return;
+        }
+
+        let lastSongId: string | undefined;
+        let lastStatus: PlayerStatus | undefined;
+        let lastPositionSec = -1;
+
+        const publish = () => {
+            const { isRemote: remote, song, status } = getRemoteAwareSnapshot();
+            if (!remote) return;
+            if (song?.id !== lastSongId) {
+                lastSongId = song?.id;
+                const songImageUrl = song
+                    ? getItemImageUrl({
+                          id: song.imageId || undefined,
+                          imageUrl: song.imageUrl,
+                          itemType: LibraryItem.SONG,
+                          type: 'itemCard',
+                      })
+                    : null;
+                mpris.updateSong(song, songImageUrl ?? null);
+            }
+            if (status !== lastStatus) {
+                lastStatus = status;
+                mpris.updateStatus(status);
+            }
+            const hub = useHubStore.getState();
+            const positionMs =
+                hub.remotePositionMs +
+                (hub.remoteIsPlaying ? Date.now() - hub.remotePositionAt : 0);
+            const positionSec = Math.max(0, Math.floor(positionMs / 1000));
+            if (positionSec !== lastPositionSec) {
+                lastPositionSec = positionSec;
+                mpris.updatePosition(positionSec);
+            }
+        };
+
+        const unsubscribe = useHubStore.subscribe(publish);
+        publish();
+        return unsubscribe;
+    }, [isRemote]);
 
     usePlayerEvents(
         {
@@ -193,7 +253,7 @@ export const useMPRIS = () => {
                 mpris?.updateLyrics(formattedLyrics);
             },
             onPlayerProgress: (properties) => {
-                if (!mpris) {
+                if (!mpris || isRemoteSessionActive()) {
                     return;
                 }
 
@@ -208,7 +268,7 @@ export const useMPRIS = () => {
                 mpris?.updateRepeat(properties.repeat);
             },
             onPlayerSeekToTimestamp: (properties) => {
-                if (!mpris) {
+                if (!mpris || isRemoteSessionActive()) {
                     return;
                 }
 
@@ -224,7 +284,7 @@ export const useMPRIS = () => {
                 mpris?.updateShuffle(isShuffleEnabled);
             },
             onPlayerStatus: (properties) => {
-                if (!mpris) {
+                if (!mpris || isRemoteSessionActive()) {
                     return;
                 }
 
