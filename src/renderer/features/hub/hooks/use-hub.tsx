@@ -1347,13 +1347,21 @@ export const useHub = () => {
                     setTimeout(() => {
                         mediaSeekToTimestamp(pending.sec);
                         if (pending.pause) {
-                            // mediaPlayByIndex/setQueue start playback async; the
-                            // earlier mediaPause loses that race. Re-assert it
-                            // after the seek so a paused transfer STAYS paused.
-                            // hardPause, not mediaPause: by now the store is back at
-                            // PAUSED, which makes a plain pause a no-op against the
-                            // playback that won the race.
-                            setTimeout(() => hardPause(), 100);
+                            // A load that raced its pause can still start playback
+                            // async; re-assert the pause so a paused transfer STAYS
+                            // paused. hardPause, not mediaPause: by then the store is
+                            // back at PAUSED, which makes a plain pause a no-op against
+                            // the playback that won the race.
+                            // But only against audio that is actually ROLLING (B-051).
+                            // hardPause forces the engine by flipping the store to
+                            // PLAYING and back — against a track that loaded paused and
+                            // is silent, which every adopt/transfer path now does, that
+                            // flip IS the blip (Navic force-stopped while playing,
+                            // 2026-09-30). A runaway shows as advancing progress within
+                            // ~1 s, which is what audioIsRolling measures.
+                            setTimeout(() => {
+                                if (audioIsRolling()) hardPause();
+                            }, 1200);
                         }
                     }, 150);
                 }
