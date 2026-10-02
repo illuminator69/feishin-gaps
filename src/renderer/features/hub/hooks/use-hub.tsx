@@ -54,6 +54,24 @@ import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
 
 /**
+ * B-053: adopting an orphaned session seeks to the hub's cursor - at launch usually our own
+ * last report, rounded to the ms, against the unrounded seconds the timestamp store kept.
+ * Logged so a launch shows whether that precondition was there, and whether the persisted
+ * queue had hydrated yet (`localQueue: 0` means the hub's queue is loaded over nothing).
+ */
+const logAdopt = (path: 'align' | 'load', session: any, targetIndex: number) => {
+    const player = usePlayerStore.getState();
+    logger.info(`[hub] adopt orphaned session (${path})`, {
+        hubIndex: targetIndex,
+        hubMs: session?.positionMs ?? 0,
+        hubQueue: (session?.queue ?? []).length,
+        localIndex: player.player.index,
+        localQueue: player.getQueue().items.length,
+        localSec: useTimestampStoreBase.getState().timestamp,
+    });
+};
+
+/**
  * B-046: point the live session's saved-queue card at the track actually playing. The hub
  * broadcasts `savedQueues` only when a queue is edited, and its own cursor on a record is
  * throttled, so every card read the index of the last edit. Checked against the live queue
@@ -263,16 +281,35 @@ export const useHub = () => {
     const audioIsRolling = () =>
         playing.current || isPlayheadRolling(playheadRun.current, Date.now());
 
-    const hardPause = useCallback(() => {
-        const now = Date.now();
-        if (now - lastHardPauseAt.current < 2000) return;
-        lastHardPauseAt.current = now;
-        if (usePlayerStore.getState().player.status !== PlayerStatus.PLAYING) {
-            hubDrivenUntil.current = Math.max(hubDrivenUntil.current, now + 1000);
-            mediaPlay();
-        }
-        mediaPause();
-    }, [mediaPause, mediaPlay]);
+    const hardPause = useCallback(
+        (why: string) => {
+            const now = Date.now();
+            if (now - lastHardPauseAt.current < 2000) return;
+            lastHardPauseAt.current = now;
+            const flip = usePlayerStore.getState().player.status !== PlayerStatus.PLAYING;
+            // B-053: the flip below is audible when the engine was in fact silent, so say when
+            // it happens and on whose word - an unpause+pause scrobble pair alone names no caller.
+            const run = playheadRun.current;
+            logger.info(`[hub] hardPause (${why})`, {
+                flip,
+                playing: playing.current,
+                run: run
+                    ? {
+                          ageMs: now - run.startedAt,
+                          coveredSec: Number((run.lastPos - run.startPos).toFixed(3)),
+                          sinceLastMs: now - run.lastAt,
+                          steps: run.steps,
+                      }
+                    : null,
+            });
+            if (flip) {
+                hubDrivenUntil.current = Math.max(hubDrivenUntil.current, now + 1000);
+                mediaPlay();
+            }
+            mediaPause();
+        },
+        [mediaPause, mediaPlay],
+    );
 
     const reconcileRemoteActive = useCallback(() => {
         if (isRemoteActiveNow() && playing.current && Date.now() >= hubDrivenUntil.current) {
@@ -282,7 +319,9 @@ export const useHub = () => {
             // shortly after; the onPlayerProgress watchdog below is the ongoing
             // safety net if even this is beaten.
             setTimeout(() => {
-                if (isRemoteActiveNow() && Date.now() >= hubDrivenUntil.current) hardPause();
+                if (isRemoteActiveNow() && Date.now() >= hubDrivenUntil.current) {
+                    hardPause('remote active, 150 ms re-check');
+                }
             }, 150);
         }
     }, [hardPause, mediaPause]);
@@ -1019,6 +1058,7 @@ export const useHub = () => {
                     lastQueueSig.current = '';
                     return; // genuinely in sync
                 }
+                logAdopt('align', session, targetIndex);
                 hubDrivenUntil.current = Date.now() + 2000;
                 lastQueueSig.current = '';
                 // Loaded PAUSED outright, as the branch below does. mediaPlayByIndex STARTS the
@@ -1036,6 +1076,7 @@ export const useHub = () => {
 
             const songs = await resolveSongs(hubTracks);
             if (!songs.length) return;
+            logAdopt('load', session, targetIndex);
             hubDrivenUntil.current = Date.now() + 2000;
             // Seek is armed for onCurrentSongChange (a source reload loses an immediate
             // seek); `pause: true` re-asserts the paused state after the async load.
@@ -1060,7 +1101,9 @@ export const useHub = () => {
             // a truly silent player hardPause's play/pause correction would be the thing
             // making noise.
             setTimeout(() => {
-                if (activeId.current === null && audioIsRolling()) hardPause();
+                if (activeId.current === null && audioIsRolling()) {
+                    hardPause('adopt, 400 ms re-check');
+                }
             }, 400);
         },
         [armSeek, hardPause, mediaPause, publishQueue, resolveSongs, setQueue],
@@ -1372,7 +1415,7 @@ export const useHub = () => {
                             // 2026-09-30). A runaway shows as advancing progress within
                             // ~1 s, which is what audioIsRolling measures.
                             setTimeout(() => {
-                                if (audioIsRolling()) hardPause();
+                                if (audioIsRolling()) hardPause('armed seek, 1200 ms re-check');
                             }, 1200);
                         }
                     }, 150);
@@ -1408,7 +1451,7 @@ export const useHub = () => {
                 // local playback that's still progressing. Fires only while local
                 // audio actually advances, so it self-stops once truly paused.
                 if (isRemoteActiveNow() && rolling && Date.now() >= hubDrivenUntil.current) {
-                    hardPause();
+                    hardPause('remote active, progress watchdog');
                     return;
                 }
                 // Just adopted an orphaned session (no active device) as PAUSED: an
@@ -1421,7 +1464,7 @@ export const useHub = () => {
                     rolling &&
                     Date.now() < adoptPauseGuardUntil.current
                 ) {
-                    hardPause();
+                    hardPause('adopt guard, progress watchdog');
                     return;
                 }
                 // Last net, and the only one that doesn't care what the hub is doing:
@@ -1430,7 +1473,7 @@ export const useHub = () => {
                 // there's no intent here to fight. Silence it whether or not a hub session
                 // is in play; this is what makes the state recoverable without a restart.
                 if (!playing.current && rolling) {
-                    hardPause();
+                    hardPause('store paused, progress watchdog');
                     return;
                 }
                 // ~1 Hz per protocol §5 — the engine fires this several times a second.
