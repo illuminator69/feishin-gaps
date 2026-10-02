@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef } from 'react';
 
 import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
+import { shouldSkipUnplayedSeekReport } from '/@/renderer/features/player/hooks/scrobble-gate';
 import { useSendScrobble } from '/@/renderer/features/player/mutations/scrobble-mutation';
 import {
     getServerById,
@@ -148,6 +149,9 @@ export const useScrobble = () => {
     const previousTimestampRef = useRef<number>(0);
     const stopPositionRef = useRef<number>(0);
     const stoppedSongIdRef = useRef<string | undefined>(undefined);
+    // Q-041: _uniqueId of the queue item that has actually been PLAYING since it became
+    // current. A paused item that never played must not be reported by the seek handler.
+    const playedUniqueIdRef = useRef<string | undefined>(undefined);
     const lastProgressEventRef = useRef<number>(0);
     const lastSeekEventRef = useRef<number>(0);
     const songChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -550,6 +554,20 @@ export const useScrobble = () => {
                 return;
             }
 
+            // Q-041: a track that never played since it became current (paused adopt /
+            // queue restore) has nothing to report; returning before the throttle keeps the
+            // real seek that follows from being throttled out.
+            if (
+                shouldSkipUnplayedSeekReport({
+                    currentUniqueId: currentSong._uniqueId,
+                    isPlaying: usePlayerStore.getState().player.status === PlayerStatus.PLAYING,
+                    playedUniqueId: playedUniqueIdRef.current,
+                })
+            ) {
+                flushScrobbleDebug();
+                return;
+            }
+
             const now = Date.now();
             const timeSinceLastSeek = now - lastSeekEventRef.current;
 
@@ -598,6 +616,10 @@ export const useScrobble = () => {
 
     const handleScrobbleFromStatus = useCallback(
         (properties: { status: PlayerStatus }, prev: { status: PlayerStatus }) => {
+            if (properties.status === PlayerStatus.PLAYING) {
+                playedUniqueIdRef.current = usePlayerStore.getState().getCurrentSong()?._uniqueId;
+            }
+
             if (!isScrobbleEnabled || isPrivateModeEnabled) {
                 return;
             }
