@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { shouldSkipUnplayedSeekReport } from './scrobble-gate.ts';
+import { nextPlayedUniqueId, shouldSkipUnplayedSeekReport } from './scrobble-gate.ts';
 
 /**
  * Q-041:  node --test src/renderer/features/player/hooks/scrobble-gate.harness.ts
@@ -46,6 +46,40 @@ test('same track id, new _uniqueId after a reload, paused: skipped', () => {
             currentUniqueId: 'b',
             isPlaying: false,
             playedUniqueId: 'a',
+        }),
+        true,
+    );
+});
+
+test('auto-advance while PLAYING stamps the new item; a later paused seek is reported', () => {
+    const played = nextPlayedUniqueId({
+        currentUniqueId: 'b',
+        isPlaying: true,
+        playedUniqueId: 'a',
+    });
+    assert.equal(played, 'b');
+    assert.equal(
+        shouldSkipUnplayedSeekReport({
+            currentUniqueId: 'b',
+            isPlaying: false,
+            playedUniqueId: played,
+        }),
+        false,
+    );
+});
+
+test('fresh paused adopt does not stamp; its seek is skipped', () => {
+    const played = nextPlayedUniqueId({
+        currentUniqueId: 'b',
+        isPlaying: false,
+        playedUniqueId: 'a',
+    });
+    assert.equal(played, 'a');
+    assert.equal(
+        shouldSkipUnplayedSeekReport({
+            currentUniqueId: 'b',
+            isPlaying: false,
+            playedUniqueId: played,
         }),
         true,
     );

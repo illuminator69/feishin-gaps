@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useRef } from 'react';
 
 import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
-import { shouldSkipUnplayedSeekReport } from '/@/renderer/features/player/hooks/scrobble-gate';
+import {
+    nextPlayedUniqueId,
+    shouldSkipUnplayedSeekReport,
+} from '/@/renderer/features/player/hooks/scrobble-gate';
 import { useSendScrobble } from '/@/renderer/features/player/mutations/scrobble-mutation';
 import {
     getServerById,
@@ -387,11 +390,22 @@ export const useScrobble = () => {
         ],
     );
 
+    const stampPlayed = useCallback((isPlaying: boolean) => {
+        playedUniqueIdRef.current = nextPlayedUniqueId({
+            currentUniqueId: usePlayerStore.getState().getCurrentSong()?._uniqueId,
+            isPlaying,
+            playedUniqueId: playedUniqueIdRef.current,
+        });
+    }, []);
+
     const handleScrobbleFromSongChange = useCallback(
         (
             properties: { index: number; song: QueueSong | undefined },
             prev: { index: number; song: QueueSong | undefined },
         ) => {
+            // Q-041: an auto-advance keeps the status PLAYING and fires no status event.
+            stampPlayed(usePlayerStore.getState().player.status === PlayerStatus.PLAYING);
+
             const currentSong = properties.song;
             const previousSong = previousSongRef.current;
             const previousPositionSec = stopPositionRef.current;
@@ -515,6 +529,7 @@ export const useScrobble = () => {
             flushScrobbleDebug,
             sendScrobble,
             playbackRate,
+            stampPlayed,
         ],
     );
 
@@ -557,6 +572,7 @@ export const useScrobble = () => {
             // Q-041: a track that never played since it became current (paused adopt /
             // queue restore) has nothing to report; returning before the throttle keeps the
             // real seek that follows from being throttled out.
+            stampPlayed(usePlayerStore.getState().player.status === PlayerStatus.PLAYING);
             if (
                 shouldSkipUnplayedSeekReport({
                     currentUniqueId: currentSong._uniqueId,
@@ -611,14 +627,19 @@ export const useScrobble = () => {
             );
             flushScrobbleDebug();
         },
-        [isScrobbleEnabled, isPrivateModeEnabled, sendScrobble, playbackRate, flushScrobbleDebug],
+        [
+            isScrobbleEnabled,
+            isPrivateModeEnabled,
+            sendScrobble,
+            playbackRate,
+            flushScrobbleDebug,
+            stampPlayed,
+        ],
     );
 
     const handleScrobbleFromStatus = useCallback(
         (properties: { status: PlayerStatus }, prev: { status: PlayerStatus }) => {
-            if (properties.status === PlayerStatus.PLAYING) {
-                playedUniqueIdRef.current = usePlayerStore.getState().getCurrentSong()?._uniqueId;
-            }
+            stampPlayed(properties.status === PlayerStatus.PLAYING);
 
             if (!isScrobbleEnabled || isPrivateModeEnabled) {
                 return;
@@ -753,7 +774,14 @@ export const useScrobble = () => {
 
             flushScrobbleDebug();
         },
-        [isScrobbleEnabled, isPrivateModeEnabled, flushScrobbleDebug, sendScrobble, playbackRate],
+        [
+            isScrobbleEnabled,
+            isPrivateModeEnabled,
+            flushScrobbleDebug,
+            sendScrobble,
+            playbackRate,
+            stampPlayed,
+        ],
     );
 
     const handleScrobbleFromRepeat = useCallback(() => {

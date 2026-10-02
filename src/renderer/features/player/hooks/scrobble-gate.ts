@@ -1,4 +1,19 @@
 /**
+ * Stamping rule for the "has played" ref: an item counts as played once it is
+ * current while the status is PLAYING. Called from the status, song-change and seek
+ * handlers, because an auto-advance keeps the status PLAYING and fires no status event.
+ */
+export function nextPlayedUniqueId(params: {
+    currentUniqueId: string | undefined;
+    isPlaying: boolean;
+    playedUniqueId: string | undefined;
+}): string | undefined {
+    return params.isPlaying && params.currentUniqueId
+        ? params.currentUniqueId
+        : params.playedUniqueId;
+}
+
+/**
  * Q-041: should a seek-driven pause/unpause report be skipped because the current
  * queue item has never actually played?
  *
