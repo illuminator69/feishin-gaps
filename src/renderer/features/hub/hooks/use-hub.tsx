@@ -3,6 +3,11 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
+import {
+    isPlayheadRolling,
+    notePlayheadStep,
+    PlayheadRun,
+} from '/@/renderer/features/hub/utils/playhead-run';
 import { placeholderSong, resolveHubTracks } from '/@/renderer/features/hub/utils/resolve-songs';
 import {
     adoptLbBotFrame,
@@ -210,9 +215,9 @@ export const useHub = () => {
     // Wall-clock until which local playback is force-paused after adopting an orphaned
     // (no active device) session — see the onPlayerProgress watchdog.
     const adoptPauseGuardUntil = useRef(0);
-    // When the engine's own clock started advancing without a break. Lets the watchdogs
-    // ask "is audio ACTUALLY rolling?" instead of trusting the store — see hardPause.
-    const advancingSince = useRef(0);
+    // The engine's own clock while it advances without a break. Lets the watchdogs ask
+    // "is audio ACTUALLY rolling?" instead of trusting the store - see audioIsRolling.
+    const playheadRun = useRef<null | PlayheadRun>(null);
     // Throttles hardPause so a pause that never takes can't turn into a play/pause loop.
     const lastHardPauseAt = useRef(0);
 
@@ -251,9 +256,12 @@ export const useHub = () => {
     // small forward steps means it's really playing (a single jump is a seek, a backwards
     // step a track change). 1 s of unbroken advance — long enough that a pause fade-out's
     // trailing ticks can't trip it.
+    // B-053: and the run must still be ticking, over more than one step, at a real pace. A
+    // single sub-ms step (adopting our own ms-rounded hub cursor at launch) used to count
+    // once 1 s had passed, so this read "rolling" against a silent, paused engine and the
+    // armed-seek re-check's hardPause flip WAS the blip. See playhead-run.ts.
     const audioIsRolling = () =>
-        playing.current ||
-        (advancingSince.current ? Date.now() - advancingSince.current >= 1000 : false);
+        playing.current || isPlayheadRolling(playheadRun.current, Date.now());
 
     const hardPause = useCallback(() => {
         const now = Date.now();
@@ -642,7 +650,7 @@ export const useHub = () => {
     //
     // So watch for the outcome instead. Engine ground truth differs by intent:
     //   playing -> the target track is current AND the engine clock is advancing
-    //              (`advancingSince`, fed by onPlayerProgress deltas — the same signal
+    //              (`playheadRun`, fed by onPlayerProgress deltas - the same signal
     //              the runaway watchdogs trust)
     //   paused  -> the target track is current, we are not playing, and the timestamp
     //              store sits at the requested offset (i.e. the seek actually landed)
@@ -672,9 +680,13 @@ export const useHub = () => {
                 const onTarget = state.player.index === targetIndex;
                 if (onTarget) {
                     if (!wantPause) {
-                        const rolling =
-                            advancingSince.current > 0 &&
-                            Date.now() - advancingSince.current >= ROLLING_PROOF_MS;
+                        // B-053: same rule as audioIsRolling: a lone seek step is not
+                        // proof that the engine started.
+                        const rolling = isPlayheadRolling(
+                            playheadRun.current,
+                            Date.now(),
+                            ROLLING_PROOF_MS,
+                        );
                         if (rolling) return { ok: true };
                     } else if (state.player.status !== PlayerStatus.PLAYING) {
                         const at = useTimestampStoreBase.getState().timestamp || 0;
@@ -1383,12 +1395,12 @@ export const useHub = () => {
             onPlayerProgress: (properties, prev) => {
                 positionMs.current = Math.round(properties.timestamp * 1000);
                 // Feed the engine-clock ground truth the watchdogs read — see audioIsRolling.
-                const delta = properties.timestamp - prev.timestamp;
-                if (delta > 0 && delta < 2) {
-                    if (!advancingSince.current) advancingSince.current = Date.now();
-                } else {
-                    advancingSince.current = 0;
-                }
+                playheadRun.current = notePlayheadStep(
+                    playheadRun.current,
+                    prev.timestamp,
+                    properties.timestamp,
+                    Date.now(),
+                );
                 const rolling = audioIsRolling();
                 // Watchdog: while another device is the active receiver, the
                 // local engine must stay silent. Startup auto-resume can begin
