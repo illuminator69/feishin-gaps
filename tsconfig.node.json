@@ -10,6 +10,9 @@
     "src/types/**/*",
     "src/shared/**/*"
   ],
+  "exclude": [
+    "src/main/**/*.harness.ts"
+  ],
   "compilerOptions": {
     "composite": true,
     "types": ["electron-vite/node"],

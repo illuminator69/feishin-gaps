@@ -19,6 +19,7 @@ import net from 'net';
 import { WebSocket } from 'ws';
 
 import { getHubConfig, getHubDeviceId, getHubDevices, hubEvents, isHubConnected } from '../hub';
+import { logSafeStreamId } from './log-id';
 
 /**
  * Chromecast ⇄ navi-connect bridge (the "full virtual receiver" model).
@@ -1078,9 +1079,9 @@ class CastDeviceBridge {
         }
         log.info(
             `[cast-bridge] ${this.friendlyName}: loading "${track.title}" ` +
-                `(${track.mime ?? 'audio/mpeg'}) @ ${positionMs}ms`,
+                `(${track.mime ?? 'audio/mpeg'}) @ ${positionMs}ms ` +
+                `[id ${logSafeStreamId(track.streamUrl)}]`,
         );
-        log.info(`[cast-bridge] contentId: ${track.streamUrl}`);
         let player: import('castv2-client').CastPlayer;
         try {
             player = await this.ensureCast();
