@@ -58,15 +58,22 @@ import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types
  * last report, rounded to the ms, against the unrounded seconds the timestamp store kept.
  * Logged so a launch shows whether that precondition was there, and whether the persisted
  * queue had hydrated yet (`localQueue: 0` means the hub's queue is loaded over nothing).
+ * `local` is the player as the adopt found it, captured before any await: the `load` path
+ * spends ~1 s resolving songs, long enough for the persisted queue to hydrate meanwhile.
+ * `localSec` is read now, because it is what the coming seek steps away from.
  */
-const logAdopt = (path: 'align' | 'load', session: any, targetIndex: number) => {
-    const player = usePlayerStore.getState();
+const logAdopt = (
+    path: 'align' | 'load',
+    session: any,
+    targetIndex: number,
+    local: { index: number; queue: number },
+) => {
     logger.info(`[hub] adopt orphaned session (${path})`, {
         hubIndex: targetIndex,
         hubMs: session?.positionMs ?? 0,
         hubQueue: (session?.queue ?? []).length,
-        localIndex: player.player.index,
-        localQueue: player.getQueue().items.length,
+        localIndex: local.index,
+        localQueue: local.queue,
         localSec: useTimestampStoreBase.getState().timestamp,
     });
 };
@@ -1006,6 +1013,8 @@ export const useHub = () => {
                 .getQueue()
                 .items.map((item) => item.id)
                 .join(',');
+            // B-053 diagnostics: the player as found, before the `load` path's await.
+            const found = { index: state.player.index, queue: state.getQueue().items.length };
 
             // Empty hub session: keep our local queue as the offline fallback; allow the
             // first real user play to publish it.
@@ -1058,7 +1067,7 @@ export const useHub = () => {
                     lastQueueSig.current = '';
                     return; // genuinely in sync
                 }
-                logAdopt('align', session, targetIndex);
+                logAdopt('align', session, targetIndex, found);
                 hubDrivenUntil.current = Date.now() + 2000;
                 lastQueueSig.current = '';
                 // Loaded PAUSED outright, as the branch below does. mediaPlayByIndex STARTS the
@@ -1076,7 +1085,7 @@ export const useHub = () => {
 
             const songs = await resolveSongs(hubTracks);
             if (!songs.length) return;
-            logAdopt('load', session, targetIndex);
+            logAdopt('load', session, targetIndex, found);
             hubDrivenUntil.current = Date.now() + 2000;
             // Seek is armed for onCurrentSongChange (a source reload loses an immediate
             // seek); `pause: true` re-asserts the paused state after the async load.
