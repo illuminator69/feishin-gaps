@@ -35,6 +35,36 @@ const playing = (fromSec: number, startAt: number, untilAt: number, everyMs: num
     return ticks;
 };
 
+/**
+ * A whole-second engine: polled every `pollMs`, the reply lands `latencyMs` later and is
+ * floored to whole seconds (DLNA: 500 ms poll + Math.floor; jukebox: 1000 ms poll).
+ */
+const wholeSeconds = (fromSec: number, untilAt: number, pollMs: number, latencyMs: number) => {
+    const ticks: Tick[] = [];
+    for (let at = pollMs; at <= untilAt; at += pollMs) {
+        ticks.push([at + latencyMs, Math.floor(fromSec + at / 1000)]);
+    }
+    return ticks;
+};
+
+/** awaitLoadOutcome's loop: the first 100 ms poll at which the run proves playback, or null. */
+const firstRollingAt = (startSec: number, ticks: Tick[], minRunMs: number, untilMs: number) => {
+    let run: null | PlayheadRun = null;
+    let prev = startSec;
+    let i = 0;
+    for (let now = 0; now <= untilMs; now += 100) {
+        while (i < ticks.length && ticks[i][0] <= now) {
+            const [at, sec] = ticks[i++];
+            if (sec !== prev) {
+                run = notePlayheadStep(run, prev, sec, at);
+                prev = sec;
+            }
+        }
+        if (isPlayheadRolling(run, now, minRunMs)) return now;
+    }
+    return null;
+};
+
 // --- The incident (2026-10-02 20:22:31Z) -------------------------------------------------
 
 test('B-053: the adopt seek to the hub cursor (ms-rounded UP) is not playback', () => {
@@ -82,6 +112,52 @@ test('a stale seek step does not head a later run of real ticks', () => {
     assert.equal(isPlayheadRolling(run, 5750), false, 'only 500 ms of real ticks');
     const later = replay(168.1296, [[0, 168.13], ...playing(168.13, 5000, 6250, 250)]);
     assert.equal(isPlayheadRolling(later, 6250), true, 'a full second of real ticks');
+});
+
+test("a trailing tick just after a pause counts at that tick (the caller's problem), then lapses", () => {
+    // The clock cannot tell a last in-flight poll from a live tick; it only stops counting once
+    // the ticks stop. (mpv's in-flight poll extending a run is BACKLOG M-2, not fixed here.)
+    const run = replay(10, [...playing(10, 0, 5000, 250), [5100, 15.1]]);
+    assert.equal(isPlayheadRolling(run, 5100), true, 'at the trailing tick');
+    assert.equal(isPlayheadRolling(run, 5100 + 800), false, 'a web cadence later');
+});
+
+test('pausing, then nudging the playhead a second forward, is not playback', () => {
+    // Paused at 5000 after real playback; a +1 s seek at 6000 must start its own run.
+    const run = replay(10, [...playing(10, 0, 5000, 250), [6000, 16]]);
+    assert.equal(isPlayheadRolling(run, 6000), false);
+});
+
+// --- Whole-second engines (DLNA, jukebox): the store moves about once a second ------------
+
+test('DLNA (500 ms poll, floored) acks a load well inside the budget', () => {
+    const at = firstRollingAt(42, wholeSeconds(42, 9000, 500, 40), 600, 8500);
+    assert.notEqual(at, null, 'never acked: the hub would roll the transfer back');
+    assert.ok(at! <= 2500, `acked at ${at} ms`);
+});
+
+test('DLNA reads rolling for the watchdog, at a tick and between ticks', () => {
+    const ticks = wholeSeconds(42, 3000, 500, 40);
+    const run = replay(42, ticks);
+    const lastAt = ticks[ticks.length - 1][0];
+    assert.equal(isPlayheadRolling(run, lastAt), true, 'at a tick');
+    assert.equal(isPlayheadRolling(run, lastAt + 900), true, 'between ticks');
+});
+
+test('jukebox (1 s poll, whole seconds) acks a load and reads rolling for the watchdog', () => {
+    const ticks = wholeSeconds(42, 9000, 1000, 60);
+    const at = firstRollingAt(42, ticks, 600, 8500);
+    assert.notEqual(at, null, 'never acked: the hub would roll the transfer back');
+    assert.ok(at! <= 2500, `acked at ${at} ms`);
+    const run = replay(42, wholeSeconds(42, 3000, 1000, 60));
+    assert.equal(isPlayheadRolling(run, 3060), true, 'at a tick');
+    assert.equal(isPlayheadRolling(run, 3060 + 900), true, 'between ticks');
+});
+
+test('mpv: a poll that lands late (busy renderer) does not break the run', () => {
+    // 500 ms polls, then one 400 ms late: a 900 ms gap.
+    const run = replay(10, [...playing(10, 0, 2000, 500), [2900, 12.9]]);
+    assert.equal(isPlayheadRolling(run, 2900), true);
 });
 
 // --- Load acknowledgement (awaitLoadOutcome, 600 ms proof) -------------------------------
