@@ -1,0 +1,112 @@
+.tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: var(--theme-spacing-md);
+}
+
+.tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--theme-spacing-xs);
+    padding: var(--theme-spacing-md);
+    background: alpha(var(--theme-colors-foreground), 0.04);
+    border: 1px solid var(--theme-colors-border);
+    border-radius: var(--theme-radius-md);
+}
+
+.banner {
+    padding: var(--theme-spacing-md);
+    border: 1px solid var(--theme-colors-border);
+    border-radius: var(--theme-radius-md);
+}
+
+/* Plain CSS grid, no chart dependency: columns are weeks, rows are weekdays
+   (Monday first), filled column by column. */
+.heatmap {
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(7, 14px);
+    grid-auto-columns: 14px;
+    gap: 3px;
+    overflow-x: auto;
+}
+
+.cell {
+    border-radius: 2px;
+    background: alpha(var(--theme-colors-foreground), 0.06);
+}
+
+.cell[data-level='1'] {
+    background: alpha(var(--theme-colors-primary), 0.3);
+}
+
+.cell[data-level='2'] {
+    background: alpha(var(--theme-colors-primary), 0.5);
+}
+
+.cell[data-level='3'] {
+    background: alpha(var(--theme-colors-primary), 0.75);
+}
+
+.cell[data-level='4'] {
+    background: var(--theme-colors-primary);
+}
+
+.pad {
+    visibility: hidden;
+}
+
+.hours {
+    display: grid;
+    grid-template-columns: repeat(24, 1fr);
+    gap: 3px;
+    align-items: end;
+    height: 90px;
+}
+
+.bar {
+    min-height: 2px;
+    background: var(--theme-colors-primary);
+    border-radius: 2px 2px 0 0;
+}
+
+.hourLabels {
+    display: grid;
+    grid-template-columns: repeat(24, 1fr);
+    gap: 3px;
+    text-align: center;
+}
+
+.columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--theme-spacing-xl);
+}
+
+.row {
+    display: grid;
+    grid-template-columns: 1.6rem 1fr auto;
+    gap: var(--theme-spacing-sm);
+    align-items: baseline;
+    padding: 2px 0;
+}
+
+.recent {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: var(--theme-spacing-sm);
+    align-items: baseline;
+    padding: 2px 0;
+}
+
+.clip {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: var(--theme-spacing-lg) var(--theme-spacing-md);
+}

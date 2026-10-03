@@ -37,6 +37,9 @@ export enum AppRoute {
     LIBRARY_GENRES = '/library/genres',
     LIBRARY_GENRES_DETAIL = '/library/genres/:genreId',
     LIBRARY_SONGS = '/library/songs',
+    /** navi-connect: My Listening — aggregates over the user's ListenBrainz
+     *  history, mirrored by lb-bot. */
+    LISTENING = '/listening',
     LOGIN = '/login',
     /** navi-connect: "Mixed for You" — the hub's stored generator recipes. Each
      *  one regenerates on play rather than replaying a frozen tracklist, which

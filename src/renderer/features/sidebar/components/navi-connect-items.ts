@@ -1,5 +1,8 @@
 import { useDiscoverCapabilities } from '/@/renderer/features/discover/use-discover-capabilities';
-import { useLbBotAvailable } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import {
+    useLbBotAvailable,
+    useListeningSupported,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { AppRoute } from '/@/renderer/router/routes';
 import { useHubConnected } from '/@/renderer/store/hub.store';
 import { SidebarItemType } from '/@/renderer/store/settings.store';
@@ -21,6 +24,7 @@ import { SidebarItemType } from '/@/renderer/store/settings.store';
 export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
     const lbBotAvailable = useLbBotAvailable();
     const hubConnected = useHubConnected();
+    const listeningSupported = useListeningSupported();
     const { hasSources } = useDiscoverCapabilities();
 
     const items: SidebarItemType[] = [];
@@ -45,6 +49,16 @@ export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
             { disabled: false, id: 'Fresh', label: 'Fresh', route: AppRoute.FRESH },
             { disabled: false, id: 'Downloads', label: 'Downloads', route: AppRoute.DOWNLOADS },
         );
+        // I-006: only when the hub advertises the listening routes (a non-empty
+        // advert that includes them) — an older hub or lb-bot has no such page.
+        if (listeningSupported) {
+            items.push({
+                disabled: false,
+                id: 'Listening',
+                label: 'My Listening',
+                route: AppRoute.LISTENING,
+            });
+        }
     }
     return items;
 };

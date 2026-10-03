@@ -11,9 +11,13 @@ import type {
     LbBotGap,
     LbBotGapSource,
     LbBotGapTrackState,
+    LbBotListeningPeriod,
+    LbBotListeningStatus,
+    LbBotListeningSummary,
     LbBotMeta,
     LbBotOverrideRemoved,
     LbBotOverrideSet,
+    LbBotRecent,
     LbBotRelease,
     LbBotReleaseDetail,
     LbBotResolvedEdition,
@@ -24,12 +28,14 @@ import type {
     LbBotSourceFiles,
     LbBotStatus,
     LbBotTracklist,
+    LbBotUnowned,
     LbBotWishlist,
 } from '/@/shared/types/lbbot-types';
 
 import {
     keepPreviousData,
     QueryClient,
+    useInfiniteQuery,
     useQuery,
     useQueryClient,
     UseQueryResult,
@@ -807,6 +813,144 @@ export const useArtistOverrideActions = (
     );
 
     return { failure, pending, remove, set };
+};
+
+// ---------------------------------------------------------------------------
+// Listening history (I-006)
+// ---------------------------------------------------------------------------
+
+const LISTENING_ROUTE = 'GET /lb/listening/summary';
+
+/**
+ * Whether the My Listening surface exists: lb-bot reachable and the hub's
+ * advert, non-empty, includes the summary route. An EMPTY advert means an old
+ * hub, not support (so not {@link useHubSupports}).
+ */
+export const useListeningSupported = (): boolean => {
+    const status = useLbBotStatus();
+    return !!lbBot && status?.available === true && !!status.routes?.includes(LISTENING_ROUTE);
+};
+
+/** A failed listening read, carrying the HTTP status so a 404 (lb-bot older than
+ *  the hub) can hide the surface instead of being reported as an error. */
+export class ListeningReadError extends Error {
+    status: number;
+    constructor(result: LbBotResult<unknown>) {
+        super(result.error || 'lb-bot could not answer.');
+        this.status = result.status;
+    }
+}
+
+export const isListeningUnavailable = (error: unknown): boolean =>
+    error instanceof ListeningReadError && error.status === 404;
+
+const unwrapListening = <T>(result: LbBotResult<T>): T => {
+    if (!result.ok || !result.data) throw new ListeningReadError(result);
+    return result.data;
+};
+
+/** The zone lb-bot buckets days and hours in; its own container runs in UTC. */
+export const listeningTimeZone = (): string => {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+        return 'UTC';
+    }
+};
+
+/** Sync state of the listens mirror. Polled every 5 s ONLY while it says importing. */
+export const useListeningStatus = () => {
+    const supported = useListeningSupported();
+    return useQuery<LbBotListeningStatus>({
+        enabled: supported,
+        gcTime: 10 * 60 * 1000,
+        queryFn: async () => unwrapListening(await lbBot!.listeningStatus()),
+        queryKey: ['lbbot', 'listening-status'],
+        refetchInterval: (query) => (query.state.data?.state === 'importing' ? 5000 : false),
+        refetchOnWindowFocus: false,
+        retry: false,
+        staleTime: 30 * 1000,
+    });
+};
+
+/**
+ * The aggregates for a period. Persisted (`persisted-queries.ts`) so the last body
+ * paints offline; a failed fetch throws, which keeps it. While the mirror is still
+ * importing it is re-read every 15 s, so the numbers under "Importing N of M" move.
+ */
+export const useListeningSummary = (period: LbBotListeningPeriod, importing = false) => {
+    const supported = useListeningSupported();
+    const tz = listeningTimeZone();
+    const query = useQuery<LbBotListeningSummary>({
+        enabled: supported,
+        gcTime: 30 * 60 * 1000,
+        placeholderData: keepPreviousData,
+        queryFn: async () => unwrapListening(await lbBot!.listeningSummary(period, tz)),
+        queryKey: ['lbbot', 'listening-summary', period, tz],
+        refetchInterval: importing ? 15_000 : false,
+        refetchOnWindowFocus: false,
+        retry: false,
+        staleTime: 5 * 60 * 1000,
+    });
+    return useShownWithHub(query);
+};
+
+/** "Most played, not in your library" — albums or artists the library does not hold. */
+export const useListeningUnowned = (period: LbBotListeningPeriod, kind: 'album' | 'artist') => {
+    const supported = useListeningSupported();
+    return useQuery<LbBotUnowned>({
+        enabled: supported,
+        gcTime: 10 * 60 * 1000,
+        placeholderData: keepPreviousData,
+        queryFn: async () => unwrapListening(await lbBot!.listeningUnowned(period, kind, 30)),
+        queryKey: ['lbbot', 'listening-unowned', period, kind],
+        refetchOnWindowFocus: false,
+        retry: false,
+        staleTime: 5 * 60 * 1000,
+    });
+};
+
+/** Recent plays, newest first, paged on `nextBefore`. */
+export const useListeningRecent = () => {
+    const supported = useListeningSupported();
+    return useInfiniteQuery<
+        LbBotRecent,
+        Error,
+        { pages: LbBotRecent[] },
+        string[],
+        number | undefined
+    >({
+        enabled: supported,
+        gcTime: 10 * 60 * 1000,
+        getNextPageParam: (last) => last.nextBefore ?? undefined,
+        initialPageParam: undefined,
+        queryFn: async ({ pageParam }) =>
+            unwrapListening(await lbBot!.listeningRecent(50, pageParam)),
+        queryKey: ['lbbot', 'listening-recent'],
+        refetchOnWindowFocus: false,
+        retry: false,
+        staleTime: 60 * 1000,
+    });
+};
+
+/**
+ * Ask lb-bot to pull from ListenBrainz now. It answers at once; the caller sees
+ * the result as the status moving, so this re-reads status right away and again
+ * a few seconds on (the worker flips to importing / ready after the answer).
+ */
+export const requestListeningSync = async (): Promise<LbBotResult<boolean>> => {
+    if (!lbBot) return { data: null, error: 'Not available here.', ok: false, status: 0 };
+    const result = await lbBot.listeningSync();
+    if (result.ok) {
+        const reread = () =>
+            void queryClient.invalidateQueries({
+                queryKey: ['lbbot', 'listening-status'],
+                refetchType: 'all',
+            });
+        reread();
+        window.setTimeout(reread, 3000);
+    }
+    return result;
 };
 
 /**

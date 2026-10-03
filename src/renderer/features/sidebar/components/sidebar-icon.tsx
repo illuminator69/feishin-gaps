@@ -1,6 +1,8 @@
 import {
     RiAlbumFill,
     RiAlbumLine,
+    RiBarChart2Fill,
+    RiBarChart2Line,
     RiCompassDiscoverFill,
     RiCompassDiscoverLine,
     RiDownloadCloud2Fill,
@@ -82,6 +84,10 @@ export const SidebarIcon = ({ active, route, size }: SidebarIconProps) => {
             case AppRoute.LIBRARY_SONGS:
                 if (isActive) return <RiMusic2Fill size={size} />;
                 return <RiMusic2Line size={size} />;
+            // navi-connect: My Listening (I-006).
+            case AppRoute.LISTENING:
+                if (isActive) return <RiBarChart2Fill size={size} />;
+                return <RiBarChart2Line size={size} />;
             case AppRoute.NOW_PLAYING:
                 if (isActive) return <RiPlayFill size={size} />;
                 return <RiPlayLine size={size} />;

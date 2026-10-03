@@ -29,6 +29,9 @@ const PERSIST_FOR_MS: Record<string, number> = {
     // current one loads, an older one is not.
     deezer: 24 * 60 * 60 * 1000,
     'fresh-releases': 24 * 60 * 60 * 1000,
+    // The last My Listening body for a period, painted while offline; replaced by
+    // any refetch that answers.
+    'listening-summary': 30 * 24 * 60 * 60 * 1000,
     'meta-album': 7 * 24 * 60 * 60 * 1000,
     'meta-artist': 7 * 24 * 60 * 60 * 1000,
     // The user's own MusicBrainz choices: small, and wrong to forget just because
