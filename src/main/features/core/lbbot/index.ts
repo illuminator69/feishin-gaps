@@ -30,6 +30,9 @@ import type {
     LbBotMetaCredit,
     LbBotMetaLink,
     LbBotMetaRelation,
+    LbBotOverride,
+    LbBotOverrideRemoved,
+    LbBotOverrideSet,
     LbBotRelease,
     LbBotReleaseDetail,
     LbBotReleaseStatus,
@@ -113,6 +116,11 @@ type Json = Record<string, unknown>;
  */
 const describeFailure = (status: number, body: Json | null): string => {
     const upstream = typeof body?.error === 'string' ? body.error : '';
+    // lb-bot's own 404 (I-019: `unknown_mbid`, `no_override`) carries a `code`; the
+    // hub's "no such route" 404 does not. Only the first is a sentence to relay.
+    if (status === 404 && typeof body?.code === 'string' && upstream) return upstream;
+    // lb-bot's own 502 for a MusicBrainz outage says so and that nothing was stored.
+    if (status === 502 && body?.retryable === true && upstream) return upstream;
     if (status === 404) {
         return 'This hub does not know that route — restart the hub to pick up its newer lb-bot features.';
     }
@@ -123,12 +131,19 @@ const describeFailure = (status: number, body: Json | null): string => {
     return upstream || `Request failed (${status})`;
 };
 
-const failed = <T>(status: number, error: string, tooLarge = false): LbBotResult<T> => ({
+const failed = <T>(
+    status: number,
+    error: string,
+    tooLarge = false,
+    extra: { code?: string; retryable?: boolean } = {},
+): LbBotResult<T> => ({
     data: null,
     error,
     ok: false,
     status,
     ...(tooLarge ? { tooLarge: true } : {}),
+    ...(extra.code ? { code: extra.code } : {}),
+    ...(extra.retryable ? { retryable: true } : {}),
 });
 
 /**
@@ -197,7 +212,10 @@ const request = async <T = Json>(
         // console either, is the bug this whole result type exists to prevent.
         console.error(`[lbbot] ${method} ${path} → ${res.status}`);
         // The hub's own oversize-body 502 (B-013), not lb-bot's — see LbBotResult.tooLarge.
-        return failed(res.status, describeFailure(res.status, body), body?.tooLarge === true);
+        return failed(res.status, describeFailure(res.status, body), body?.tooLarge === true, {
+            code: typeof body?.code === 'string' ? body.code : undefined,
+            retryable: body?.retryable === true,
+        });
     }
     return { data: (body ?? {}) as T, error: '', ok: true, status: res.status };
 };
@@ -414,6 +432,119 @@ ipcMain.handle(
             data: ok,
             error: ok ? '' : str(result.data?.error) || 'lb-bot refused the request.',
             ok,
+            status: result.status,
+        };
+    },
+);
+
+// ---------------------------------------------------------------------------
+// Artist MBID overrides (I-019)
+// ---------------------------------------------------------------------------
+
+// The user's server-stored choice of MusicBrainz artist for a library artist
+// whose Navidrome tag is missing or wrong. All three are `LbBotResult`s: the map
+// read has to tell "failed" from "empty" (a failed fetch must keep the cached
+// map, not replace it with nothing), and a set or remove is a button press whose
+// failure has to be sayable — `status` / `code` / `retryable` tell the 404
+// (`unknown_mbid`, `no_override`), the 409 (`busy`) and the 502 (MusicBrainz
+// down, nothing stored) apart. An older hub or lb-bot 404s these routes without
+// a `code`; the renderer gates on the hub's advert and never offers them there.
+
+const toOverride = (row: unknown): LbBotOverride[] => {
+    if (!row || typeof row !== 'object') return [];
+    const r = row as Json;
+    const ndArtistId = str(r.ndArtistId);
+    const mbid = str(r.mbid);
+    if (!ndArtistId || !mbid) return [];
+    return [
+        {
+            mbid,
+            name: str(r.name),
+            ndArtistId,
+            setAt: num(r.setAt),
+            tagMbid: str(r.tagMbid),
+        },
+    ];
+};
+
+ipcMain.handle('lbbot-overrides', async (): Promise<LbBotResult<LbBotOverride[]>> => {
+    const result = await request('GET', '/lb/overrides');
+    if (!result.ok) return failed<LbBotOverride[]>(result.status, result.error);
+    // A body without the list is not an empty list: it is not an answer.
+    if (!Array.isArray(result.data?.artists)) {
+        return failed<LbBotOverride[]>(result.status, 'lb-bot answered with no override list.');
+    }
+    return {
+        data: result.data.artists.flatMap(toOverride),
+        error: '',
+        ok: true,
+        status: result.status,
+    };
+});
+
+// Sets are the slow ones: lb-bot checks the MBID against MusicBrainz (one
+// request behind its global 1 req/s lock) before it stores anything, then starts
+// the discography scan and returns its task id without waiting for it.
+ipcMain.handle(
+    'lbbot-override-set',
+    async (
+        _event,
+        args: { mbid: string; name: string; ndId: string },
+    ): Promise<LbBotResult<LbBotOverrideSet>> => {
+        if (!args.ndId || !args.mbid) {
+            return failed<LbBotOverrideSet>(0, 'An artist and a MusicBrainz id are both needed.');
+        }
+        const result = await request('POST', '/lb/artist/override', {
+            body: { mbid: args.mbid, name: args.name ?? '', nd_id: args.ndId },
+        });
+        if (!result.ok) {
+            return failed<LbBotOverrideSet>(result.status, result.error, false, {
+                code: result.code,
+                retryable: result.retryable,
+            });
+        }
+        if (result.data?.ok !== true) {
+            return failed<LbBotOverrideSet>(
+                result.status,
+                str(result.data?.error) || 'lb-bot refused the request.',
+            );
+        }
+        return {
+            data: {
+                mbid: str(result.data.mbid) || args.mbid,
+                name: str(result.data.name) || args.name,
+                taskId: str(result.data.task_id),
+            },
+            error: '',
+            ok: true,
+            status: result.status,
+        };
+    },
+);
+
+ipcMain.handle(
+    'lbbot-override-remove',
+    async (_event, args: { ndId: string }): Promise<LbBotResult<LbBotOverrideRemoved>> => {
+        if (!args.ndId) return failed<LbBotOverrideRemoved>(0, 'No artist to remove it from.');
+        const result = await request('POST', '/lb/artist/override/remove', {
+            body: { nd_id: args.ndId },
+        });
+        if (!result.ok) {
+            return failed<LbBotOverrideRemoved>(result.status, result.error, false, {
+                code: result.code,
+                retryable: result.retryable,
+            });
+        }
+        if (result.data?.ok !== true) {
+            return failed<LbBotOverrideRemoved>(
+                result.status,
+                str(result.data?.error) || 'lb-bot refused the request.',
+            );
+        }
+        return {
+            data: { taskId: str(result.data.task_id) },
+            error: '',
+            ok: true,
             status: result.status,
         };
     },

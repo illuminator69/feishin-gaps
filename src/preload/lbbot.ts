@@ -13,6 +13,9 @@ import type {
     LbBotIndexKeys,
     LbBotIndexPage,
     LbBotMeta,
+    LbBotOverride,
+    LbBotOverrideRemoved,
+    LbBotOverrideSet,
     LbBotReleaseDetail,
     LbBotResolvedEdition,
     LbBotResolvedLink,
@@ -69,6 +72,23 @@ const indexRelease = (args: {
     type?: string;
     year?: string;
 }): Promise<LbBotResult<boolean>> => ipcRenderer.invoke('lbbot-index-release', args);
+
+/** Every artist MBID override (I-019). Result-shaped: a failed read must not
+ *  look like an empty map. */
+const overrides = (): Promise<LbBotResult<LbBotOverride[]>> =>
+    ipcRenderer.invoke('lbbot-overrides');
+
+/** Choose the MusicBrainz artist for a library artist. `status` + `code` tell
+ *  a 404 `unknown_mbid`, a 409 `busy` and a retryable 502 apart. */
+const overrideSet = (
+    ndId: string,
+    mbid: string,
+    name: string,
+): Promise<LbBotResult<LbBotOverrideSet>> =>
+    ipcRenderer.invoke('lbbot-override-set', { mbid, name, ndId });
+
+const overrideRemove = (ndId: string): Promise<LbBotResult<LbBotOverrideRemoved>> =>
+    ipcRenderer.invoke('lbbot-override-remove', { ndId });
 
 /** Site-wide fresh releases. Fail-soft: null when ListenBrainz or lb-bot is down. */
 const freshReleases = (days: number): Promise<LbBotFreshFeed | null> =>
@@ -277,6 +297,9 @@ export const lbBot = {
     metaAlbum,
     metaArtist,
     notify,
+    overrideRemove,
+    overrides,
+    overrideSet,
     resolveLink,
     status,
     wishlist,
