@@ -4,7 +4,10 @@ import { generatePath, Link } from 'react-router';
 import styles from './listening.module.css';
 
 import { MissingAlbumTile } from '/@/renderer/features/lbbot/components/missing-album-tile';
-import { externalAlbumPathFor, externalArtistPath } from '/@/renderer/features/lbbot/utils/external-paths';
+import {
+    externalAlbumPathFor,
+    externalArtistPath,
+} from '/@/renderer/features/lbbot/utils/external-paths';
 import {
     AlbumTarget,
     albumTarget,
@@ -202,7 +205,9 @@ export const TopLists = ({ summary }: { summary: LbBotListeningSummary }) => (
         <Section title="Top artists">
             {summary.topArtists.map((artist, i) => (
                 <RankRow key={`${artist.mbid}-${artist.name}`} plays={artist.plays} rank={i + 1}>
-                    <MaybeLink to={artistPath(artistTarget(artist.ndArtistId, artist.mbid), artist.name)}>
+                    <MaybeLink
+                        to={artistPath(artistTarget(artist.ndArtistId, artist.mbid), artist.name)}
+                    >
                         {artist.name}
                     </MaybeLink>
                 </RankRow>
@@ -365,8 +370,13 @@ export const RecentSection = ({
                 No plays yet.
             </Text>
         )}
-        {rows.map((row) => (
-            <div className={styles.recent} key={`${row.listenedAt}-${row.recordingMbid}-${row.track}`}>
+        {rows.map((row, index) => (
+            // The index too: two plays in the same second with no recording MBID
+            // share every other part of the key. Pages only append, so it is stable.
+            <div
+                className={styles.recent}
+                key={`${row.listenedAt}-${row.recordingMbid}-${row.track}-${index}`}
+            >
                 <MaybeLink
                     to={albumPath(albumTarget(row.ndAlbumId, row.rgid), {
                         artist: row.artist,
@@ -376,7 +386,9 @@ export const RecentSection = ({
                 >
                     {row.track}
                 </MaybeLink>
-                <MaybeLink to={artistPath(artistTarget(row.ndArtistId, row.artistMbid), row.artist)}>
+                <MaybeLink
+                    to={artistPath(artistTarget(row.ndArtistId, row.artistMbid), row.artist)}
+                >
                     {row.artist}
                 </MaybeLink>
                 <Text isMuted size="xs">
