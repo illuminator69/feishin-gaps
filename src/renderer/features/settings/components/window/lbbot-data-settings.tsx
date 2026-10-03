@@ -21,6 +21,7 @@ import {
 } from '/@/renderer/features/lbbot/index-mirror/index-mirror';
 import {
     describeListeningStatus,
+    describeToCheck,
     sortOverrides,
     syncReport,
     SyncSnapshot,
@@ -32,7 +33,7 @@ import { Group } from '/@/shared/components/group/group';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { Text } from '/@/shared/components/text/text';
-import { LbBotOverride } from '/@/shared/types/lbbot-types';
+import { LbBotOverride, LbBotToCheck } from '/@/shared/types/lbbot-types';
 
 /**
  * Settings panel "lb-bot data" (I-020, with I-021's list): what lb-bot holds on
@@ -79,6 +80,63 @@ const OverrideRow = ({ available, row }: { available: boolean; row: LbBotOverrid
                 >
                     Remove
                 </Button>
+            </Group>
+            {failure && (
+                <Text c="red" size="xs">
+                    {failure.message}
+                </Text>
+            )}
+        </Stack>
+    );
+};
+
+const ToCheckRow = ({ available, row }: { available: boolean; row: LbBotToCheck }) => {
+    const { indexArtist } = useIndexArtist(row.ndArtistId);
+    const { failure, pending, set } = useArtistOverrideActions(row.ndArtistId, indexArtist);
+    return (
+        <Stack gap={2}>
+            <Group justify="space-between" wrap="nowrap">
+                <Stack gap={0}>
+                    <Text component={Link} isLink size="sm" to={artistPage(row.ndArtistId)}>
+                        {row.name || 'Unnamed artist'}
+                    </Text>
+                    <Text isMuted size="xs">
+                        {row.kind === 'unmatched'
+                            ? describeToCheck(row)
+                            : `${describeToCheck(row)} · ${row.albums} ${row.albums === 1 ? 'album' : 'albums'}`}
+                    </Text>
+                </Stack>
+                <Group gap="xs" wrap="nowrap">
+                    <Button
+                        disabled={!available || pending}
+                        onClick={() =>
+                            openMbidMatchModal({
+                                currentMbid: row.mbid || undefined,
+                                indexArtist,
+                                name: row.name,
+                                ndId: row.ndArtistId,
+                                tagMbid: undefined,
+                            })
+                        }
+                        size="compact-sm"
+                        variant="default"
+                    >
+                        Choose…
+                    </Button>
+                    {row.kind === 'unmatched' && row.mbid && (
+                        <Button
+                            disabled={!available || pending}
+                            loading={pending}
+                            // An ordinary override set to lb-bot's own guess: it becomes
+                            // "set by you", and the row leaves the list.
+                            onClick={() => void set(row.mbid, row.name)}
+                            size="compact-sm"
+                            variant="default"
+                        >
+                            Keep this match
+                        </Button>
+                    )}
+                </Group>
             </Group>
             {failure && (
                 <Text c="red" size="xs">
@@ -169,6 +227,7 @@ export const LbBotDataSettings = memo(() => {
 
     const data = list.data;
     const overrides = data ? sortOverrides(data.byNdId) : [];
+    const toCheck = data?.toCheck ?? null;
 
     return (
         <SettingsSection
@@ -199,6 +258,26 @@ export const LbBotDataSettings = memo(() => {
                             )}
                             {overrides.map((row) => (
                                 <OverrideRow available={available} key={row.ndArtistId} row={row} />
+                            ))}
+                        </Stack>
+                    )}
+
+                    {overridesSupported && toCheck !== null && (
+                        <Stack gap="xs">
+                            <TextTitle fw={600} order={5}>
+                                {`Matches to check (${toCheck.length})`}
+                            </TextTitle>
+                            <Text isMuted size="xs">
+                                Artists with no MusicBrainz tag in Navidrome whose lb-bot match
+                                found none of your albums. Worth a look, not necessarily wrong.
+                            </Text>
+                            {toCheck.length === 0 && (
+                                <Text isMuted size="sm">
+                                    Nothing to check.
+                                </Text>
+                            )}
+                            {toCheck.map((row) => (
+                                <ToCheckRow available={available} key={row.ndArtistId} row={row} />
                             ))}
                         </Stack>
                     )}
