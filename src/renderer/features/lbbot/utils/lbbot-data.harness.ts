@@ -193,3 +193,20 @@ test('classifyRefresh: a success that carries no meta is "returned nothing", not
     assert.doesNotMatch(empty, /refreshed|same as/i);
     assert.match(classifyRefresh({ data: {}, ok: true, status: 200 }, false), /refreshed/i);
 });
+
+import { listeningSyncFailure } from './lbbot-data.ts';
+
+test('listeningSyncFailure: 404 and 405 are "no listening history yet", not an error', () => {
+    for (const status of [404, 405]) {
+        const f = listeningSyncFailure({
+            error: 'The method is not allowed for the requested URL.',
+            status,
+        });
+        assert.equal(f.older, true);
+        assert.match(f.message, /no listening history yet/i);
+        assert.doesNotMatch(f.message, /not allowed/i);
+    }
+    const other = listeningSyncFailure({ error: 'lb-bot is busy', status: 502 });
+    assert.equal(other.older, false);
+    assert.equal(other.message, 'lb-bot is busy');
+});

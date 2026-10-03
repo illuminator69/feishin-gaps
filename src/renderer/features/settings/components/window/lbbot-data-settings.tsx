@@ -24,6 +24,7 @@ import {
 import {
     describeListeningStatus,
     describeToCheck,
+    listeningSyncFailure,
     sortOverrides,
     syncReport,
     SyncSnapshot,
@@ -173,7 +174,7 @@ export const LbBotDataSettings = memo(() => {
         startedAt: number;
     }>(null);
     const [now, setNow] = useState(() => Date.now());
-    const [syncError, setSyncError] = useState('');
+    const [syncError, setSyncError] = useState<null | { message: string; older: boolean }>(null);
     const statusRef = useRef(listening);
     statusRef.current = listening;
     const watching = sync !== null && now - sync.startedAt < SYNC_WATCH_MS;
@@ -204,7 +205,7 @@ export const LbBotDataSettings = memo(() => {
     if (!isElectron() || !shown) return null;
 
     const handleSync = async () => {
-        setSyncError('');
+        setSyncError(null);
         setSync({
             before: {
                 cursor: mirror.meta.cursor,
@@ -222,7 +223,7 @@ export const LbBotDataSettings = memo(() => {
         if (listeningSupported) {
             const result = await requestListeningSync();
             if (!result.ok) {
-                setSyncError(result.error);
+                setSyncError(listeningSyncFailure(result));
                 setSync((current) =>
                     current ? { ...current, listeningRequested: false } : current,
                 );
@@ -351,8 +352,12 @@ export const LbBotDataSettings = memo(() => {
                             </Stack>
                         )}
                         {syncError && (
-                            <Text c="red" size="sm">
-                                {syncError}
+                            <Text
+                                c={syncError.older ? undefined : 'red'}
+                                isMuted={syncError.older}
+                                size="sm"
+                            >
+                                {`Listening: ${syncError.message}`}
                             </Text>
                         )}
                     </Stack>

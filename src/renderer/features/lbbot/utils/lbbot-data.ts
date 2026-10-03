@@ -182,3 +182,17 @@ export const classifyRefresh = (
     if (result.status === 0) return 'Could not reach lb-bot. What is shown is unchanged.';
     return `lb-bot answered an error (${result.status})${result.error ? `: ${result.error}` : ''}. What is shown is unchanged.`;
 };
+
+/**
+ * "Sync now"'s listening half failing. A 404 without a code or a 405 (an lb-bot
+ * older than the hub answers an unknown POST with "method not allowed") means it
+ * has no listening history yet: said as a fact about lb-bot, not as an error, and
+ * never with the raw text.
+ */
+export const listeningSyncFailure = (result: {
+    error?: string;
+    status: number;
+}): { message: string; older: boolean } =>
+    result.status === 404 || result.status === 405
+        ? { message: 'This lb-bot has no listening history yet.', older: true }
+        : { message: result.error || 'lb-bot did not accept the request.', older: false };
