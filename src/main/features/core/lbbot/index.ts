@@ -70,7 +70,7 @@ import { BrowserWindow, ipcMain, Notification } from 'electron';
 
 import { getHubConfig } from '../hub';
 
-import { normalizeLbBotWebUrl } from '/@/shared/utils/lbbot-wire';
+import { hasMetaFields, normalizeLbBotWebUrl } from '/@/shared/utils/lbbot-wire';
 
 /**
  * navi-connect lb-bot client (main process).
@@ -1140,7 +1140,15 @@ ipcMain.handle(
         }
         const result = await request('GET', `/lb/meta/${args.kind}`, { params });
         if (!result.ok) return failed<LbBotMeta>(result.status, result.error);
-        return { data: toMeta(result.data ?? {}), error: '', ok: true, status: result.status };
+        // A 200 whose body held nothing (empty / unparseable -> `{}`) is not an
+        // answer: null data, so the caller keeps what it shows.
+        const body = result.data ?? {};
+        return {
+            data: hasMetaFields(body) ? toMeta(body) : null,
+            error: '',
+            ok: true,
+            status: result.status,
+        };
     },
 );
 

@@ -27,3 +27,23 @@ export const routeAdvertised = (routes: string[] | undefined, route: string): bo
  */
 export const normalizeLbBotWebUrl = (value: unknown): string =>
     typeof value === 'string' && /^https?:\/\//.test(value) ? value.replace(/\/+$/, '') : '';
+
+/**
+ * Whether an editorial-metadata body (`/lb/meta/*`) carries ANY of the fields the
+ * client reads. A 200 with an empty or unparseable body reaches the main process
+ * as `{}`, which must not be mistaken for a (valid, empty) answer and written
+ * over a good one. An answer that says `found: false` has a field, so it counts.
+ */
+export const hasMetaFields = (body: null | Record<string, unknown> | undefined): boolean =>
+    !!body &&
+    [
+        'credits',
+        'found',
+        'imageUrl',
+        'links',
+        'paragraphs',
+        'relations',
+        'source',
+        'summary',
+        'wikidataDescription',
+    ].some((key) => key in body);

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { hasMetaFields } from '../../../../shared/utils/lbbot-wire.ts';
 import {
     classifyRefresh,
     describeListeningStatus,
@@ -174,4 +175,21 @@ test('classifyRefresh: only a successful answer identical to what is shown is "t
     assert.match(err, /502/);
     assert.match(err, /lb-bot is busy/);
     assert.doesNotMatch(err, /nothing new|same as/i);
+});
+
+test('hasMetaFields: a body with none of the fields toMeta reads is "nothing"', () => {
+    assert.equal(hasMetaFields({}), false);
+    assert.equal(hasMetaFields({ unrelated: 1 }), false);
+    assert.equal(hasMetaFields({ found: false }), true);
+    assert.equal(hasMetaFields({ summary: '' }), true);
+    assert.equal(hasMetaFields({ paragraphs: [] }), true);
+    assert.equal(hasMetaFields({ relations: {} }), true);
+});
+
+test('classifyRefresh: a success that carries no meta is "returned nothing", not "Refreshed"', () => {
+    const empty = classifyRefresh({ data: null, ok: true, status: 200 }, false);
+    assert.match(empty, /returned nothing/i);
+    assert.match(empty, /unchanged/i);
+    assert.doesNotMatch(empty, /refreshed|same as/i);
+    assert.match(classifyRefresh({ data: {}, ok: true, status: 200 }, false), /refreshed/i);
 });

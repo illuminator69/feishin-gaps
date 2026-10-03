@@ -169,9 +169,13 @@ export const syncReport = (
  * body equals what was already shown; only then is "nothing new" true.
  */
 export const classifyRefresh = (
-    result: { error?: string; ok: boolean; status: number },
+    result: { data?: unknown; error?: string; ok: boolean; status: number },
     same: boolean,
 ): string => {
+    // `data: null` on a success = the body carried no meta at all (`hasMetaFields`).
+    if (result.ok && result.data === null) {
+        return 'lb-bot returned nothing. What is shown is unchanged.';
+    }
     if (result.ok) {
         return same ? "Checked: lb-bot's answer is the same as what is shown." : 'Refreshed.';
     }
