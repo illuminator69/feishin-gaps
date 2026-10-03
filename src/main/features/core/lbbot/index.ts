@@ -35,6 +35,7 @@ import type {
     LbBotMetaLink,
     LbBotMetaRelation,
     LbBotOverride,
+    LbBotOverrideList,
     LbBotOverrideRemoved,
     LbBotOverrideSet,
     LbBotRecent,
@@ -52,6 +53,7 @@ import type {
     LbBotSourceFile,
     LbBotSourceFiles,
     LbBotStatus,
+    LbBotToCheck,
     LbBotTopAlbum,
     LbBotTopArtist,
     LbBotTopTrack,
@@ -478,15 +480,38 @@ const toOverride = (row: unknown): LbBotOverride[] => {
     ];
 };
 
-ipcMain.handle('lbbot-overrides', async (): Promise<LbBotResult<LbBotOverride[]>> => {
+// I-021: `toCheck` rides on the same route. A body without the field is an older
+// lb-bot, reported as null — which is not an empty list ("nothing to check").
+const toCheckRow = (row: unknown): LbBotToCheck[] => {
+    if (!row || typeof row !== 'object') return [];
+    const r = row as Json;
+    const ndArtistId = str(r.ndArtistId);
+    if (!ndArtistId) return [];
+    return [
+        {
+            albums: num(r.albums),
+            kind: r.kind === 'unmatched' ? 'unmatched' : 'unresolved',
+            mbid: str(r.mbid),
+            name: str(r.name),
+            ndArtistId,
+        },
+    ];
+};
+
+ipcMain.handle('lbbot-overrides', async (): Promise<LbBotResult<LbBotOverrideList>> => {
     const result = await request('GET', '/lb/overrides');
-    if (!result.ok) return failed<LbBotOverride[]>(result.status, result.error);
+    if (!result.ok) return failed<LbBotOverrideList>(result.status, result.error);
     // A body without the list is not an empty list: it is not an answer.
     if (!Array.isArray(result.data?.artists)) {
-        return failed<LbBotOverride[]>(result.status, 'lb-bot answered with no override list.');
+        return failed<LbBotOverrideList>(result.status, 'lb-bot answered with no override list.');
     }
     return {
-        data: result.data.artists.flatMap(toOverride),
+        data: {
+            artists: result.data.artists.flatMap(toOverride),
+            toCheck: Array.isArray(result.data.toCheck)
+                ? result.data.toCheck.flatMap(toCheckRow)
+                : null,
+        },
         error: '',
         ok: true,
         status: result.status,
@@ -1062,13 +1087,19 @@ const toMeta = (data: Json): LbBotMeta => {
 
 ipcMain.handle(
     'lbbot-meta-artist',
-    async (_event, args: { mbid?: string; name?: string }): Promise<LbBotMeta | null> => {
+    async (
+        _event,
+        args: { mbid?: string; name?: string; refresh?: boolean },
+    ): Promise<LbBotMeta | null> => {
         // `name` costs lb-bot an extra MusicBrainz search and takes the first
         // hit, so the MBID is always preferred when Navidrome carries one.
         const params: Record<string, string> = {};
         if (args.mbid) params.mbid = args.mbid;
         else if (args.name) params.name = args.name;
         else return null;
+        // I-020 "Refresh About": the hub allowlists `refresh` and bypasses both
+        // its own cache and lb-bot's 30-day one.
+        if (args.refresh) params.refresh = '1';
         const data = await get('/lb/meta/artist', params);
         return data ? toMeta(data) : null;
     },
@@ -1076,12 +1107,16 @@ ipcMain.handle(
 
 ipcMain.handle(
     'lbbot-meta-album',
-    async (_event, args: { releaseMbid?: string; rgid: string }): Promise<LbBotMeta | null> => {
+    async (
+        _event,
+        args: { refresh?: boolean; releaseMbid?: string; rgid: string },
+    ): Promise<LbBotMeta | null> => {
         if (!args.rgid) return null;
         const params: Record<string, string> = { rgid: args.rgid };
         // Saves lb-bot the canonical-release resolution — two rate-limited
         // MusicBrainz seconds — when the caller already knows the release.
         if (args.releaseMbid) params.release_mbid = args.releaseMbid;
+        if (args.refresh) params.refresh = '1';
         const data = await get('/lb/meta/album', params);
         return data ? toMeta(data) : null;
     },

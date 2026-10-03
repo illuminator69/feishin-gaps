@@ -824,6 +824,12 @@ export interface LbBotOverride {
     tagMbid: string;
 }
 
+/** `GET /lb/overrides`. `toCheck` is null when the lb-bot sent no such field. */
+export interface LbBotOverrideList {
+    artists: LbBotOverride[];
+    toCheck: LbBotToCheck[] | null;
+}
+
 /** A successful remove. */
 export interface LbBotOverrideRemoved {
     taskId: string;
@@ -1023,10 +1029,6 @@ export interface LbBotSourceFile {
     sizeMb: number;
 }
 
-// ---------------------------------------------------------------------------
-// Listening (I-006)
-// ---------------------------------------------------------------------------
-
 export interface LbBotSourceFiles {
     coverage: string;
     coverageDetail: LbBotSourceCoverage;
@@ -1040,12 +1042,27 @@ export interface LbBotSourceFiles {
     filesTruncated: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Listening (I-006)
+// ---------------------------------------------------------------------------
+
 export interface LbBotSourceMatch {
     /** exact | prefix | contained | fuzzy | duration | position — lb-bot grades
      *  its own confidence, and the weak tiers are worth chipping. */
     basis: string;
     position: string;
     title: string;
+}
+
+/** I-021: a library artist worth a look — untagged in Navidrome, no override, and
+ *  lb-bot's guess matched none of its owned albums (`unmatched`, `mbid` is the
+ *  guess) or it has no MusicBrainz id at all (`unresolved`, `mbid` is ""). */
+export interface LbBotToCheck {
+    albums: number;
+    kind: 'unmatched' | 'unresolved';
+    mbid: string;
+    name: string;
+    ndArtistId: string;
 }
 
 export interface LbBotTopAlbum {

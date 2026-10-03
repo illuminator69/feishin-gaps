@@ -1,5 +1,7 @@
 import { openMbidMatchModal } from '/@/renderer/features/lbbot/components/mbid-match-modal';
+import { RefreshAboutButton } from '/@/renderer/features/lbbot/components/refresh-about-button';
 import {
+    refreshArtistMeta,
     useArtistOverrideKind,
     useIndexArtist,
     useOverridesSupported,
@@ -100,6 +102,9 @@ export const LbBotIndexButton = ({
                 <Button disabled={pending} onClick={openPicker} size="compact-md" variant="subtle">
                     {artistMbid ? 'Wrong artist?' : 'Choose MusicBrainz artist'}
                 </Button>
+            )}
+            {(artistMbid || artistName) && (
+                <RefreshAboutButton onRefresh={() => refreshArtistMeta(artistMbid, artistName)} />
             )}
             {overridesSupported && (kind === 'override' || kind === 'override-same') && (
                 <Text isMuted size="xs">

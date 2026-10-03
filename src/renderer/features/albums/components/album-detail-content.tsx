@@ -22,8 +22,9 @@ import { ItemControls } from '/@/renderer/components/item-list/types';
 import { albumQueries } from '/@/renderer/features/albums/api/album-api';
 import { AlbumInfiniteCarousel } from '/@/renderer/features/albums/components/album-infinite-carousel';
 import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
+import { RefreshAboutButton } from '/@/renderer/features/lbbot/components/refresh-about-button';
 import { SimilarAlbumsShelf } from '/@/renderer/features/lbbot/components/similar-albums-shelf';
-import { useLbBotAlbumMeta } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { refreshAlbumMeta, useLbBotAlbumMeta } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
     ListConfigMenu,
@@ -586,6 +587,11 @@ export const AlbumDetailContent = () => {
                     <Stack gap="md" pb="md">
                         <AlbumCredits credits={meta.credits} />
                     </Stack>
+                )}
+                {mbzReleaseGroupId && (
+                    <RefreshAboutButton
+                        onRefresh={() => refreshAlbumMeta(mbzReleaseGroupId, mbzId)}
+                    />
                 )}
                 <div className={styles.contentLayout}>
                     <div className={styles.songsColumn}>

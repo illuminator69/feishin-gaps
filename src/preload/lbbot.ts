@@ -15,7 +15,7 @@ import type {
     LbBotListeningStatus,
     LbBotListeningSummary,
     LbBotMeta,
-    LbBotOverride,
+    LbBotOverrideList,
     LbBotOverrideRemoved,
     LbBotOverrideSet,
     LbBotRecent,
@@ -79,7 +79,7 @@ const indexRelease = (args: {
 
 /** Every artist MBID override (I-019). Result-shaped: a failed read must not
  *  look like an empty map. */
-const overrides = (): Promise<LbBotResult<LbBotOverride[]>> =>
+const overrides = (): Promise<LbBotResult<LbBotOverrideList>> =>
     ipcRenderer.invoke('lbbot-overrides');
 
 /** Choose the MusicBrainz artist for a library artist. `status` + `code` tell
@@ -236,12 +236,18 @@ const artistSimilar = (args: {
  *  attribution, the Wikidata one-liner, members/side-projects and links.
  *  Prefer `mbid`; `name` costs lb-bot an extra MusicBrainz search.
  *  Null means we could not ask, which hides the section. */
-const metaArtist = (args: { mbid?: string; name?: string }): Promise<LbBotMeta | null> =>
-    ipcRenderer.invoke('lbbot-meta-artist', args);
+const metaArtist = (args: {
+    mbid?: string;
+    name?: string;
+    refresh?: boolean;
+}): Promise<LbBotMeta | null> => ipcRenderer.invoke('lbbot-meta-artist', args);
 
 /** The same for a release-group, plus release credits. */
-const metaAlbum = (args: { releaseMbid?: string; rgid: string }): Promise<LbBotMeta | null> =>
-    ipcRenderer.invoke('lbbot-meta-album', args);
+const metaAlbum = (args: {
+    refresh?: boolean;
+    releaseMbid?: string;
+    rgid: string;
+}): Promise<LbBotMeta | null> => ipcRenderer.invoke('lbbot-meta-album', args);
 
 /** Post a system notification for a fill that landed while Feishin was in the
  *  background. The main process suppresses it when the window is focused — the

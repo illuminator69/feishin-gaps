@@ -89,6 +89,7 @@ import {
     OverridesByNdId,
 } from '/@/renderer/features/lbbot/utils/artist-override';
 import { artistLinkPath } from '/@/renderer/features/lbbot/utils/external-paths';
+import { normalizeOverridesData, OverridesData } from '/@/renderer/features/lbbot/utils/lbbot-data';
 import { staleUnlessAnswered } from '/@/renderer/features/lbbot/utils/persisted-queries';
 import { importFinished } from '/@/renderer/features/listening/listening-logic';
 import { queryClient } from '/@/renderer/lib/react-query';
@@ -683,24 +684,37 @@ export const useOverridesSupported = (): boolean => {
  * `data` is undefined until a map exists; use {@link useEffectiveArtistMbid}
  * unless the whole map is wanted.
  */
-export const useLbBotOverrides = () => {
+const useOverridesQuery = <TData>(select: (raw: OverridesData) => TData) => {
     const available = useLbBotAvailable();
     const supported = useOverridesSupported();
-    const query = useQuery<OverridesByNdId>({
+    return useQuery<OverridesData, Error, TData>({
         enabled: !!lbBot && available && supported,
         gcTime: 60 * 60 * 1000,
         queryFn: async () => {
             const result = await lbBot!.overrides();
             if (!result.ok || !result.data) throw new Error(result.error || 'No override list.');
-            return overridesByNdId(result.data);
+            return {
+                byNdId: overridesByNdId(result.data.artists),
+                toCheck: result.data.toCheck,
+            };
         },
         queryKey: OVERRIDES_KEY,
         refetchOnWindowFocus: false,
         retry: false,
+        // Tolerates a body persisted before `toCheck` existed (a bare map).
+        select: (raw) => select(normalizeOverridesData(raw)),
         staleTime: 10 * 60 * 1000,
     });
-    return useShownWithHub(query);
 };
+
+const selectByNdId = (data: OverridesData): OverridesByNdId => data.byNdId;
+const selectAll = (data: OverridesData): OverridesData => data;
+
+export const useLbBotOverrides = () => useShownWithHub(useOverridesQuery(selectByNdId));
+
+/** The same cached read with the I-021 list: `toCheck` is null on an lb-bot that
+ *  sends none. One query key, so the settings panel costs no extra request. */
+export const useLbBotOverrideList = () => useShownWithHub(useOverridesQuery(selectAll));
 
 /** `overrides[ndId]?.mbid ?? tagMbid` for one artist — the MBID every lb-bot call
  *  and MusicBrainz / ListenBrainz link for it should use. */
@@ -1236,6 +1250,41 @@ export const useLbBotAlbumMeta = (rgid?: null | string, releaseMbid?: null | str
         staleTime: staleUnlessAnswered(Infinity),
     });
     return useShownWithHub(query);
+};
+
+/**
+ * "Refresh About" (I-020): ask lb-bot to bypass its caches (`refresh=1`) and
+ * REPLACE the cached, persisted body with the answer. A null answer (lb-bot
+ * unreachable, nothing found) leaves the existing body alone and says so.
+ */
+export const refreshArtistMeta = async (
+    mbid: null | string | undefined,
+    name: null | string | undefined,
+): Promise<boolean> => {
+    if (!lbBot || !(mbid || name)) return false;
+    const fresh = await lbBot.metaArtist({
+        mbid: mbid ?? undefined,
+        name: mbid ? undefined : (name ?? undefined),
+        refresh: true,
+    });
+    if (!fresh) return false;
+    queryClient.setQueryData(['lbbot', 'meta-artist', mbid || `name:${name}`], fresh);
+    return true;
+};
+
+export const refreshAlbumMeta = async (
+    rgid: null | string | undefined,
+    releaseMbid: null | string | undefined,
+): Promise<boolean> => {
+    if (!lbBot || !rgid) return false;
+    const fresh = await lbBot.metaAlbum({
+        refresh: true,
+        releaseMbid: releaseMbid ?? undefined,
+        rgid,
+    });
+    if (!fresh) return false;
+    queryClient.setQueryData(['lbbot', 'meta-album', rgid], fresh);
+    return true;
 };
 
 /** Editions of one release-group. Sits on MusicBrainz upstream — show a skeleton. */
