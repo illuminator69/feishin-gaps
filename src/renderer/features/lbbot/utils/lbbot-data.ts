@@ -139,26 +139,34 @@ export const syncReport = (
     let listening = '';
     let listeningDone = true;
     if (listeningRequested) {
+        // `a` is a status read taken right BEFORE the POST (null when that read
+        // failed). "Synced" is only ever said for `ready` with `lastSyncAt` moved
+        // past it: a count or state difference against a cached read proves nothing
+        // about this tap, and with no baseline nothing can be proved at all.
         const a = before.listening;
         const b = now.listening;
         if (!b) {
             listening = 'Listening: no status from lb-bot.';
+        } else if (b.state === 'off') {
+            listening = 'Listening: lb-bot has no ListenBrainz user, so there is nothing to sync.';
+        } else if (b.state === 'error') {
+            listening = `Listening: the sync failed: ${b.error || 'no reason given'}.`;
         } else if (b.state === 'importing') {
             listening = `Listening: Importing ${b.count} of ${b.total ?? '?'}.`;
             listeningDone = false;
         } else if (
-            !a ||
-            a.state !== b.state ||
-            a.count !== b.count ||
-            a.lastSyncAt !== b.lastSyncAt
+            a &&
+            b.lastSyncAt !== null &&
+            (a.lastSyncAt === null || b.lastSyncAt > a.lastSyncAt)
         ) {
             listening = `Listening: synced, ${b.count} listens stored.`;
         } else if (elapsedMs < LISTENING_GIVE_UP_MS) {
             listening = 'Listening: waiting for lb-bot...';
             listeningDone = false;
         } else {
-            listening =
-                'Listening: no change reported (already up to date, or lb-bot is still working).';
+            listening = a
+                ? 'Listening: no change reported (already up to date, or lb-bot is still working).'
+                : 'Listening: could not confirm a sync (there was no earlier reading to compare with).';
         }
     }
     return { done: mirrorDone && listeningDone, listening, mirror };

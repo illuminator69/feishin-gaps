@@ -36,7 +36,7 @@ import { Group } from '/@/shared/components/group/group';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { Text } from '/@/shared/components/text/text';
-import { LbBotOverride, LbBotToCheck } from '/@/shared/types/lbbot-types';
+import { LbBotListeningStatus, LbBotOverride, LbBotToCheck } from '/@/shared/types/lbbot-types';
 
 /**
  * Settings panel "lb-bot data" (I-020, with I-021's list): what lb-bot holds on
@@ -177,21 +177,30 @@ export const LbBotDataSettings = memo(() => {
     const [syncError, setSyncError] = useState<null | { message: string; older: boolean }>(null);
     const statusRef = useRef(listening);
     statusRef.current = listening;
-    const watching = sync !== null && now - sync.startedAt < SYNC_WATCH_MS;
+    // A tap is in flight from the baseline read until the watch ends.
+    const [starting, setStarting] = useState(false);
+    // The status as it is now. A failed re-read leaves react-query's last data in
+    // place, which would read as a current answer, so an errored read is no status.
+    const listeningNow = listening.isError ? null : (listening.data ?? null);
     const report = sync
         ? syncReport(
               sync.before,
               {
                   cursor: mirror.meta.cursor,
                   epoch: mirror.meta.epoch,
-                  listening: listening.data ?? null,
+                  listening: listeningNow,
                   sync: mirrorSync,
               },
               sync.listeningRequested,
               now - sync.startedAt,
           )
         : null;
-    const settled = report?.done === true || !watching;
+    // Watching lasts until both halves have an answer or the window runs out. Time
+    // is judged from `now`, which only the interval below advances, so `done` has
+    // to end it too — otherwise a finished watch would hold the button disabled.
+    const watching =
+        sync !== null && report !== null && !report.done && now - sync.startedAt < SYNC_WATCH_MS;
+    const settled = !watching;
 
     useEffect(() => {
         if (!sync || settled) return;
@@ -205,18 +214,32 @@ export const LbBotDataSettings = memo(() => {
     if (!isElectron() || !shown) return null;
 
     const handleSync = async () => {
+        // The button is disabled while `starting` or `watching`, so a tap is never
+        // ignored while it looks enabled.
+        setStarting(true);
         setSyncError(null);
+        setSync(null);
+        // A fresh status read right before the POST is the baseline. A cached read
+        // could already include a sync that finished earlier and be mistaken for
+        // this tap's result; a failed read is no baseline at all (null).
+        let baseline: LbBotListeningStatus | null = null;
+        if (listeningSupported) {
+            const fresh = await statusRef.current.refetch();
+            baseline = fresh.isError ? null : (fresh.data ?? null);
+        }
+        const startedAt = Date.now();
         setSync({
             before: {
                 cursor: mirror.meta.cursor,
                 epoch: mirror.meta.epoch,
-                listening: listening.data ?? null,
-                sync: mirrorSync,
+                listening: baseline,
+                sync: getMirrorSyncState(),
             },
             listeningRequested: listeningSupported,
-            startedAt: Date.now(),
+            startedAt,
         });
-        setNow(Date.now());
+        setNow(startedAt);
+        setStarting(false);
         // Ends the mirror's back-off and pulls now (a plain trigger is dropped
         // while a retry is pending, which would make this button do nothing).
         onLbBotAvailable();
@@ -333,8 +356,8 @@ export const LbBotDataSettings = memo(() => {
                     <Stack gap="xs">
                         <Group gap="sm">
                             <Button
-                                disabled={!available || watching}
-                                loading={watching}
+                                disabled={!available || watching || starting}
+                                loading={watching || starting}
                                 onClick={() => void handleSync()}
                                 size="compact-md"
                                 variant="default"

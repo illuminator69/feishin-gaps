@@ -147,22 +147,72 @@ test("syncReport: a run that began BEFORE the click is not this click's answer",
     assert.match(late.mirror, /no pull has started/i);
 });
 
-test('syncReport: listening shows the state change it caused, then settles', () => {
-    const fin = { id: 5, phase: 'finished' };
-    const importing = at(fin, {
-        listening: listen({ count: 100, state: 'importing', total: 500 }),
-    });
-    const r1 = syncReport(before, importing, true, 2000);
-    assert.match(r1.listening, /Importing 100 of 500/);
-    assert.equal(r1.done, false);
-    const synced = at(fin, { listening: listen({ count: 130, lastSyncAt: 1500 }) });
-    assert.match(syncReport(before, synced, true, 4000).listening, /130 listens/);
-    const waiting = syncReport(before, at(fin), true, 4000);
-    assert.match(waiting.listening, /waiting/i);
-    assert.equal(waiting.done, false);
-    const late = syncReport(before, at(fin), true, 25_000);
+const FIN = { id: 5, phase: 'finished' };
+const lst = (listening: null | ReturnType<typeof listen>, base = before) =>
+    syncReport(base, at(FIN, { listening }), true, 4000);
+
+test('syncReport listening: no baseline never reads "synced"', () => {
+    const noBase = { ...before, listening: null };
+    const r = syncReport(noBase, at(FIN, { listening: listen() }), true, 4000);
+    assert.doesNotMatch(r.listening, /synced/i);
+    assert.match(r.listening, /waiting|no earlier reading/i);
+    assert.equal(r.done, false);
+    // ...but importing / error / off are still said.
+    assert.match(
+        syncReport(
+            noBase,
+            at(FIN, { listening: listen({ state: 'importing', total: 9 }) }),
+            true,
+            4000,
+        ).listening,
+        /Importing/,
+    );
+    assert.match(
+        syncReport(
+            noBase,
+            at(FIN, { listening: listen({ error: 'x', state: 'error' }) }),
+            true,
+            4000,
+        ).listening,
+        /failed/i,
+    );
+});
+
+test('syncReport listening: a stale baseline equal to the new status is not a sync', () => {
+    const r = lst(listen());
+    assert.doesNotMatch(r.listening, /synced/i);
+    assert.match(r.listening, /waiting/i);
+    assert.equal(r.done, false);
+    const late = syncReport(before, at(FIN, { listening: listen() }), true, 25_000);
     assert.match(late.listening, /no change/i);
     assert.equal(late.done, true);
+});
+
+test('syncReport listening: synced needs state ready AND lastSyncAt moved past the baseline', () => {
+    const moved = lst(listen({ count: 130, lastSyncAt: 1500 }));
+    assert.match(moved.listening, /synced, 130 listens/);
+    assert.equal(moved.done, true);
+    // count changed but lastSyncAt did not: not proof of this tap's pull.
+    assert.doesNotMatch(lst(listen({ count: 130 })).listening, /synced/i);
+    // baseline had never synced: any lastSyncAt counts as moved.
+    const neverSynced = { ...before, listening: listen({ lastSyncAt: null }) };
+    assert.match(lst(listen({ lastSyncAt: 50 }), neverSynced).listening, /synced/i);
+});
+
+test("syncReport listening: error reads as a failure with lb-bot's text, off as no ListenBrainz user", () => {
+    const err = lst(listen({ error: 'ListenBrainz 503', lastSyncAt: 1500, state: 'error' }));
+    assert.match(err.listening, /failed.*ListenBrainz 503/i);
+    assert.doesNotMatch(err.listening, /synced/i);
+    assert.equal(err.done, true);
+    const off = lst(listen({ state: 'off' }));
+    assert.match(off.listening, /no ListenBrainz user/i);
+    assert.equal(off.done, true);
+});
+
+test('syncReport listening: importing is reported, not done', () => {
+    const r = lst(listen({ count: 100, state: 'importing', total: 500 }));
+    assert.match(r.listening, /Importing 100 of 500/);
+    assert.equal(r.done, false);
 });
 
 test('classifyRefresh: only a successful answer identical to what is shown is "the same"', () => {
