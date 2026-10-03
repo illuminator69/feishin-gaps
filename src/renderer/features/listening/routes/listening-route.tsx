@@ -5,6 +5,7 @@ import styles from '../components/listening.module.css';
 import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
 import {
     isListeningUnavailable,
+    ListeningReadError,
     useLbBotAvailable,
     useListeningRecent,
     useListeningStatus,
@@ -155,6 +156,17 @@ const ListeningRoute = () => {
                             <TopLists summary={summary} />
                             <Genres summary={summary} />
                             <UnownedSection
+                                error={
+                                    unownedQuery.error
+                                        ? {
+                                              message: unownedQuery.error.message,
+                                              status:
+                                                  unownedQuery.error instanceof ListeningReadError
+                                                      ? unownedQuery.error.status
+                                                      : 0,
+                                          }
+                                        : null
+                                }
                                 kind={unownedKind}
                                 onKind={setUnownedKind}
                                 rows={unownedQuery.data?.rows}

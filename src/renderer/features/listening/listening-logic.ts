@@ -166,3 +166,22 @@ export const importFinished = (
     prev: LbBotListeningStatus['state'] | undefined,
     next: LbBotListeningStatus['state'],
 ): boolean => prev === 'importing' && (next === 'ready' || next === 'error');
+
+/**
+ * The "Most played, not in your library" list failing. A failure must not read as
+ * an empty list (that would claim nothing you play is missing): 503 (lb-bot cannot
+ * tell owned from unowned) and 400 show lb-bot's own text; a 404 is an lb-bot
+ * older than the hub, said quietly.
+ */
+export const describeUnownedFailure = (error: {
+    message: string;
+    status: number;
+}): { older: boolean; text: string } =>
+    error.status === 404
+        ? { older: true, text: 'This lb-bot does not list unowned plays yet.' }
+        : {
+              older: false,
+              text:
+                  error.message ||
+                  'Could not load the most played albums that are not in your library.',
+          };

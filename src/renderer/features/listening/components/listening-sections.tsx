@@ -13,6 +13,7 @@ import {
     albumTarget,
     ArtistTarget,
     artistTarget,
+    describeUnownedFailure,
     formatListeningTime,
     genresNote,
     heatmapGrid,
@@ -281,10 +282,13 @@ export const Genres = ({ summary }: { summary: LbBotListeningSummary }) => {
 };
 
 export const UnownedSection = ({
+    error,
     kind,
     onKind,
     rows,
 }: {
+    /** The read failed and there is no list to show. NOT the same as an empty list. */
+    error?: null | { message: string; status: number };
     kind: 'album' | 'artist';
     onKind: (kind: 'album' | 'artist') => void;
     rows: LbBotUnownedRow[] | undefined;
@@ -306,6 +310,20 @@ export const UnownedSection = ({
                 Artists
             </Button>
         </div>
+        {!rows && error && (
+            <Text
+                c={describeUnownedFailure(error).older ? undefined : 'red'}
+                isMuted={describeUnownedFailure(error).older}
+                size="sm"
+            >
+                {describeUnownedFailure(error).text}
+            </Text>
+        )}
+        {!rows && !error && (
+            <Text isMuted size="sm">
+                Loading…
+            </Text>
+        )}
         {rows && rows.length === 0 && (
             <Text isMuted size="sm">
                 Nothing here for this period.

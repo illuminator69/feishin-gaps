@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
     albumTarget,
     artistTarget,
+    describeUnownedFailure,
     formatListeningTime,
     genresNote,
     heatmapGrid,
@@ -161,4 +162,20 @@ test('importFinished: only the importing -> ready/error edge refreshes the numbe
     assert.equal(importFinished('ready', 'ready'), false);
     assert.equal(importFinished('ready', 'importing'), false);
     assert.equal(importFinished(undefined, 'ready'), false);
+});
+
+test('describeUnownedFailure: a failure is never an empty list; 404 is the quiet older-lb-bot case', () => {
+    const f503 = describeUnownedFailure({
+        message: "Navidrome's library is unavailable.",
+        status: 503,
+    });
+    assert.equal(f503.older, false);
+    assert.match(f503.text, /Navidrome's library is unavailable/);
+    assert.doesNotMatch(f503.text, /nothing here/i);
+    assert.equal(describeUnownedFailure({ message: 'bad kind', status: 400 }).text, 'bad kind');
+    const f404 = describeUnownedFailure({ message: 'restart the hub', status: 404 });
+    assert.equal(f404.older, true);
+    assert.match(f404.text, /does not list|yet/i);
+    assert.doesNotMatch(f404.text, /restart/);
+    assert.match(describeUnownedFailure({ message: '', status: 500 }).text, /could not/i);
 });
