@@ -302,11 +302,15 @@ const LbBotFreshRoute = () => {
                                 onChange={(value) => set({ type: value as FreshType })}
                                 value={type}
                             />
-                            <SegmentedControl
-                                data={SORT_DATA}
-                                onChange={(value) => set({ sort: value as FreshSort })}
-                                value={sort}
-                            />
+                            {/* "Artists you play" orders the rows itself (most played
+                                first); a sort control there would do nothing. */}
+                            {scope !== 'plays' && (
+                                <SegmentedControl
+                                    data={SORT_DATA}
+                                    onChange={(value) => set({ sort: value as FreshSort })}
+                                    value={sort}
+                                />
+                            )}
                         </div>
 
                         {/* The previous window's rows, dimmed, already say "loading"
