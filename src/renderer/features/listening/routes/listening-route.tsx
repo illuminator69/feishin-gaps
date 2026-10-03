@@ -1,6 +1,17 @@
 import { Suspense, useMemo, useState } from 'react';
 
+import styles from '../components/listening.module.css';
+
 import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
+import {
+    isListeningUnavailable,
+    useLbBotAvailable,
+    useListeningRecent,
+    useListeningStatus,
+    useListeningSummary,
+    useListeningSupported,
+    useListeningUnowned,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
     Genres,
     Heatmap,
@@ -15,28 +26,19 @@ import {
     PERIOD_OPTIONS,
     statusView,
 } from '/@/renderer/features/listening/listening-logic';
-import {
-    isListeningUnavailable,
-    useLbBotAvailable,
-    useListeningRecent,
-    useListeningStatus,
-    useListeningSummary,
-    useListeningSupported,
-    useListeningUnowned,
-} from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
 import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
 import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
 import { useWindowSettings } from '/@/renderer/store';
+import { Button } from '/@/shared/components/button/button';
+import { Group } from '/@/shared/components/group/group';
 import { SegmentedControl } from '/@/shared/components/segmented-control/segmented-control';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
 import { LbBotListeningPeriod } from '/@/shared/types/lbbot-types';
 import { Platform } from '/@/shared/types/types';
-
-import styles from '../components/listening.module.css';
 
 /**
  * navi-connect: My Listening — aggregates over the user's ListenBrainz history,
@@ -126,6 +128,21 @@ const ListeningRoute = () => {
                     )}
 
                     {loading && <Spinner container />}
+
+                    {/* A failure is not "nothing here": no body, not a 404 (that has
+                        its own sentence), and the read errored. */}
+                    {supported && !summary && !unavailable && !off && summaryQuery.isError && (
+                        <Group gap="sm">
+                            <Text isMuted>Could not load listening history.</Text>
+                            <Button
+                                onClick={() => void summaryQuery.refetch()}
+                                size="compact-sm"
+                                variant="default"
+                            >
+                                Retry
+                            </Button>
+                        </Group>
+                    )}
 
                     {summary && !off && (
                         <>
