@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import type { PlayheadRun } from './playhead-run.ts';
 
-import { isPlayheadRolling, notePlayheadStep } from './playhead-run.ts';
+import { isPlayheadRolling, notePlayerStatus, notePlayheadStep } from './playhead-run.ts';
 
 /**
  * B-053, Q-051:  node --test src/renderer/features/hub/utils/playhead-run.harness.ts
@@ -45,6 +45,44 @@ const pausedWatchdogFiresAt = (startSec: number, ticks: Tick[]): null | number =
         if (isPlayheadRolling(run, at)) return at;
     }
     return null;
+};
+
+/** The player store's status changing (use-hub's onPlayerStatus). */
+type Status = [atMs: number, status: 'paused' | 'playing'];
+
+const isStatus = (event: Status | Tick): event is Status => typeof event[1] === 'string';
+
+/**
+ * use-hub's two handlers over a timeline of timestamp writes and store status changes. Every
+ * progress event of a store that does not read PLAYING asks the last-net watchdog; when it
+ * fires, hardPause acts at most once per 2 s, and against a paused store it flips the status
+ * PLAYING -> PAUSED, which the status handler sees too. Returns the ms hardPause acted at.
+ */
+const simulate = (startSec: number, playingAtStart: boolean, events: Array<Status | Tick>) => {
+    let run: null | PlayheadRun = null;
+    let prev = startSec;
+    let isPlaying = playingAtStart;
+    let lastHardPauseAt = -Infinity;
+    const hardPauses: number[] = [];
+    for (const event of events) {
+        if (isStatus(event)) {
+            const next = event[1] === 'playing';
+            if (next !== isPlaying) run = notePlayerStatus(run, isPlaying, next);
+            isPlaying = next;
+            continue;
+        }
+        const [at, sec, kind] = event;
+        if (sec === prev) continue;
+        run = notePlayheadStep(run, prev, sec, at, kind === 'seek');
+        prev = sec;
+        if (!isPlaying && isPlayheadRolling(run, at) && at - lastHardPauseAt >= 2000) {
+            lastHardPauseAt = at;
+            hardPauses.push(at);
+            run = notePlayerStatus(run, false, true); // mediaPlay()
+            run = notePlayerStatus(run, true, false); // mediaPause()
+        }
+    }
+    return hardPauses;
 };
 
 /** Real playback: the engine reports every `everyMs`, advancing `speed`× wall time. */
@@ -143,7 +181,7 @@ test('a stale seek step does not head a later run of real ticks', () => {
 
 test("a trailing tick just after a pause counts at that tick (the caller's problem), then lapses", () => {
     // The clock cannot tell a last in-flight poll from a live tick; it only stops counting once
-    // the ticks stop. (mpv's in-flight poll extending a run is BACKLOG M-2, not fixed here.)
+    // the ticks stop. (So use-hub also ends the run when the store leaves PLAYING - Q-051.)
     const run = replay(10, [...playing(10, 0, 5000, 250), [5100, 15.1]]);
     assert.equal(isPlayheadRolling(run, 5100), true, 'at the trailing tick');
     assert.equal(isPlayheadRolling(run, 5100 + 800), false, 'a web cadence later');
@@ -349,5 +387,54 @@ test('Q-051: a hub do:load positions with a seek, and the ticks after it ack the
             assert.notEqual(at, null, `${label}: never acked - the hub would roll back`);
             assert.ok(at! - 100 <= withinMs, `${label}: acked ${at! - 100} ms after the seek`);
         }
+    }
+});
+
+// --- Q-051: a run never outlives the store leaving PLAYING ---------------------------------
+//
+// A tick already on its way when the user pauses (an mpv or jukebox poll in flight, a DLNA
+// renderer that obeys the pause a few hundred ms later) used to extend the run, and the
+// paused store then read as a runaway. use-hub now ends the run on PLAYING -> anything else.
+
+test('Q-051: an mpv poll in flight when the user pauses does not extend the run', () => {
+    // Polls every 500 ms while PLAYING; the one issued at 5000 resolves after the pause.
+    const events = [
+        ...playing(10, 0, 4500, 500),
+        [5020, 'paused'] as Status,
+        [5060, 15.06] as Tick,
+    ];
+    assert.deepEqual(simulate(10, true, events), []);
+});
+
+test('Q-051: DLNA - positions that land just after a pause do not extend the run', () => {
+    // The renderer obeys the pause ~600 ms late: the poll crossing the next whole second lands.
+    const ticks = wholeSeconds(42, 9000, 500, 40); // events at 1040, 2040, 3040, ...
+    const events = [
+        ...ticks.filter(([at]) => at < 3500),
+        [3500, 'paused'] as Status,
+        [4040, 46] as Tick,
+        seek(4600, 47), // and a forward nudge within 1.5 s of the pause (a seek: ends it too)
+    ];
+    assert.deepEqual(simulate(42, true, events), []);
+});
+
+test('Q-051: a DLNA runaway under a paused store is still caught after the reset, within ~2 s', () => {
+    // The store left PLAYING but the renderer never stopped. DLNA writes positions whatever the
+    // store says, so the run rebuilds from its next two ticks - and hardPause's own flip (which
+    // leaves PLAYING too) does not hide a renderer that ignores it: it is caught again 2 s on.
+    const ticks = wholeSeconds(42, 12000, 500, 40);
+    for (const pausedAt of [3041, 3500, 4000]) {
+        const events = [
+            ...ticks.filter(([at]) => at < pausedAt),
+            [pausedAt, 'paused'] as Status,
+            ...ticks.filter(([at]) => at >= pausedAt),
+        ];
+        const hardPauses = simulate(42, true, events);
+        assert.ok(hardPauses.length >= 2, `paused at ${pausedAt}: ${hardPauses}`);
+        assert.ok(hardPauses[0] - pausedAt <= 2000, `caught ${hardPauses[0] - pausedAt} ms late`);
+        assert.ok(
+            hardPauses[1] - hardPauses[0] <= 2100,
+            `re-caught after ${hardPauses[1] - hardPauses[0]} ms`,
+        );
     }
 });

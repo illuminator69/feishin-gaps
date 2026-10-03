@@ -69,6 +69,21 @@ export function isPlayheadRolling(run: null | PlayheadRun, now: number, minRunMs
 }
 
 /**
+ * Q-051: fold a player-store status change into the run. Leaving PLAYING ends it: a tick
+ * already on its way (an mpv or jukebox poll in flight, a DLNA renderer obeying the pause a
+ * few hundred ms late) would otherwise extend the run past the pause and make the paused
+ * store read as a runaway. Audio that really keeps going rebuilds a run from its next ticks -
+ * only DLNA writes them under a paused store, about once a second, so within ~2 s.
+ */
+export function notePlayerStatus(
+    run: null | PlayheadRun,
+    wasPlaying: boolean,
+    isPlaying: boolean,
+): null | PlayheadRun {
+    return wasPlaying && !isPlaying ? null : run;
+}
+
+/**
  * Fold one timestamp-store change (prevSec -> sec, at wall-clock `now`) into the run. `seek`:
  * the write moved the playhead instead of reporting it (timestamp.store's isTimestampSeek).
  */

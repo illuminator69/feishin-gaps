@@ -5,6 +5,7 @@ import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import {
     isPlayheadRolling,
+    notePlayerStatus,
     notePlayheadStep,
     PlayheadRun,
 } from '/@/renderer/features/hub/utils/playhead-run';
@@ -1496,8 +1497,15 @@ export const useHub = () => {
                 lastProgressReportAt.current = now;
                 report();
             },
-            onPlayerStatus: (properties) => {
+            onPlayerStatus: (properties, prev) => {
                 playing.current = properties.status === PlayerStatus.PLAYING;
+                // Q-051: a tick that lands after the store left PLAYING must not extend the
+                // run it had, or the paused store reads as a runaway - see notePlayerStatus.
+                playheadRun.current = notePlayerStatus(
+                    playheadRun.current,
+                    prev.status === PlayerStatus.PLAYING,
+                    playing.current,
+                );
                 routeLocalPlayToRemote();
                 publishQueue();
                 report({ isPlaying: playing.current });
