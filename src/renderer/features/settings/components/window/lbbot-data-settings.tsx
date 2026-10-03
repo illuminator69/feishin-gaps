@@ -277,8 +277,9 @@ export const LbBotDataSettings = memo(() => {
                                 {`Matches to check (${toCheck.length})`}
                             </TextTitle>
                             <Text isMuted size="xs">
-                                Artists with no MusicBrainz tag in Navidrome whose lb-bot match
-                                found none of your albums. Worth a look, not necessarily wrong.
+                                Artists with no MusicBrainz tag in Navidrome where lb-bot either
+                                guessed an artist that matches none of your albums, or found none.
+                                Worth a look, not necessarily wrong.
                             </Text>
                             {toCheck.length === 0 && (
                                 <Text isMuted size="sm">
