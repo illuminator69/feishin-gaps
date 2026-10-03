@@ -15,6 +15,12 @@
 // a real playhead keeps. "Still ticking" is measured against the run's OWN cadence: the
 // engines report at very different rates (see PlayheadRun.steps), and one fixed silence
 // limit either missed the whole-second engines entirely or let a paused web run linger.
+//
+// Q-051: and a run is built from engine ticks ONLY. A seek writes the same store, and two
+// small forward ones a second apart on a paused player (ArrowRight on the focused seek bar,
+// a click on a lyric line) passed every test above, so the progress watchdog flipped the
+// store - the B-053 blip, from a user's nudge. The seek writers mark their write
+// (timestamp.store's isTimestampSeek), and a seek ends the run instead of joining it.
 
 export interface PlayheadRun {
     /** Wall-clock ms of the newest forward step. */
@@ -26,14 +32,14 @@ export interface PlayheadRun {
     /** Playhead (s) before the step that began the run. */
     startPos: number;
     /**
-     * Forward steps in the run. A seek is one. The engines' cadence: web every 250 ms, mpv
-     * every 500 ms; DLNA (500 ms poll) and jukebox (1 s poll) report whole seconds, so the
-     * store moves about once a second.
+     * Forward engine ticks in the run (never a seek - Q-051). The engines' cadence: web every
+     * 250 ms, mpv every 500 ms; DLNA (500 ms poll) and jukebox (1 s poll) report whole
+     * seconds, so the store moves about once a second.
      */
     steps: number;
 }
 
-/** A bigger forward step is a seek, not a tick. */
+/** A bigger forward step is not a tick (a jump the writer did not mark as a seek). */
 const MAX_STEP_SEC = 2;
 /** The shortest silence any run survives - three web ticks. */
 const MIN_GAP_MS = 750;
@@ -62,17 +68,23 @@ export function isPlayheadRolling(run: null | PlayheadRun, now: number, minRunMs
     return (run.lastPos - run.startPos) * 1000 >= elapsedMs * MIN_PACE;
 }
 
-/** Fold one timestamp-store change (prevSec -> sec, at wall-clock `now`) into the run. */
+/**
+ * Fold one timestamp-store change (prevSec -> sec, at wall-clock `now`) into the run. `seek`:
+ * the write moved the playhead instead of reporting it (timestamp.store's isTimestampSeek).
+ */
 export function notePlayheadStep(
     run: null | PlayheadRun,
     prevSec: number,
     sec: number,
     now: number,
+    seek = false,
 ): null | PlayheadRun {
+    // Q-051: a seek is never a step, and it ends the run - the engine may be silent under it.
+    if (seek) return null;
     const delta = sec - prevSec;
-    // A jump (seek) or a step back (track change, rewind) ends the run.
+    // So does a jump or a step back (track change, rewind, a poll issued before a seek).
     if (!(delta > 0 && delta < MAX_STEP_SEC)) return null;
-    // So does a silence: a step long after the last one starts a run of its own.
+    // A silence does too: a step long after the last one starts a run of its own.
     if (!run || now - run.lastAt > allowedGapMs(run)) {
         return { lastAt: now, lastPos: sec, startedAt: now, startPos: prevSec, steps: 1 };
     }

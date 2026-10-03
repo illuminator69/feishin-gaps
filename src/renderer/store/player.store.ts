@@ -1302,7 +1302,7 @@ export const usePlayerStoreBase = createWithEqualityFn<PlayerState>()(
                 mediaSeekToTimestamp: (timestamp: number) => {
                     // See mediaSkipBackward: update the timestamp store right away to
                     // avoid the stale-read left by the ~500ms engine poll.
-                    setTimestampStore(timestamp);
+                    setTimestampStore(timestamp, { seek: true }); // navi-connect (Q-051)
                     set((state) => {
                         state.player.seekToTimestamp = uniqueSeekToTimestamp(timestamp);
                     });
@@ -1318,7 +1318,7 @@ export const usePlayerStoreBase = createWithEqualityFn<PlayerState>()(
                     // subsequent seek compute from the new position instead of the
                     // stale value left by the ~500ms engine poll (otherwise mashing
                     // the seek keys repeatedly lands on the same time).
-                    setTimestampStore(newTimestamp);
+                    setTimestampStore(newTimestamp, { seek: true }); // navi-connect (Q-051)
                     set((state) => {
                         state.player.seekToTimestamp = uniqueSeekToTimestamp(newTimestamp);
                     });
@@ -1342,7 +1342,7 @@ export const usePlayerStoreBase = createWithEqualityFn<PlayerState>()(
 
                     // See mediaSkipBackward: update the timestamp store right away to
                     // avoid the stale-read left by the ~500ms engine poll.
-                    setTimestampStore(newTimestamp);
+                    setTimestampStore(newTimestamp, { seek: true }); // navi-connect (Q-051)
                     set((state) => {
                         state.player.seekToTimestamp = uniqueSeekToTimestamp(newTimestamp);
                     });

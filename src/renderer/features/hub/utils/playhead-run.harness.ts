@@ -6,24 +6,45 @@ import type { PlayheadRun } from './playhead-run.ts';
 import { isPlayheadRolling, notePlayheadStep } from './playhead-run.ts';
 
 /**
- * B-053:  node --test src/renderer/features/hub/utils/playhead-run.harness.ts
+ * B-053, Q-051:  node --test src/renderer/features/hub/utils/playhead-run.harness.ts
  *
  * Each case replays what the timestamp store reports to use-hub's onPlayerProgress
- * (prev -> next, at a wall-clock ms) and asks the question the watchdogs ask.
+ * (prev -> next, at a wall-clock ms) and asks the question the watchdogs ask. A write is an
+ * engine tick unless tagged 'seek' (timestamp.store's isTimestampSeek()).
  */
 
-type Tick = [atMs: number, sec: number];
+type Tick = [atMs: number, sec: number, kind?: 'seek'];
+
+/** A write that moves the playhead (slider, lyric line, hub do:seek, a restored position). */
+const seek = (atMs: number, sec: number): Tick => [atMs, sec, 'seek'];
 
 /** Feed a timeline of timestamp-store values through the run tracker. */
 const replay = (startSec: number, ticks: Tick[]): null | PlayheadRun => {
     let run: null | PlayheadRun = null;
     let prev = startSec;
-    for (const [at, sec] of ticks) {
+    for (const [at, sec, kind] of ticks) {
         if (sec === prev) continue; // the store's equalityFn: no event for an unchanged value
-        run = notePlayheadStep(run, prev, sec, at);
+        run = notePlayheadStep(run, prev, sec, at, kind === 'seek');
         prev = sec;
     }
     return run;
+};
+
+/**
+ * use-hub's last-net watchdog, `!playing.current && rolling` -> hardPause('store paused,
+ * progress watchdog'), evaluated on every progress event of a player whose store reads
+ * PAUSED throughout. Returns the ms of the first event it fires on, or null.
+ */
+const pausedWatchdogFiresAt = (startSec: number, ticks: Tick[]): null | number => {
+    let run: null | PlayheadRun = null;
+    let prev = startSec;
+    for (const [at, sec, kind] of ticks) {
+        if (sec === prev) continue;
+        run = notePlayheadStep(run, prev, sec, at, kind === 'seek');
+        prev = sec;
+        if (isPlayheadRolling(run, at)) return at;
+    }
+    return null;
 };
 
 /** Real playback: the engine reports every `everyMs`, advancing `speed`× wall time. */
@@ -39,10 +60,16 @@ const playing = (fromSec: number, startAt: number, untilAt: number, everyMs: num
  * A whole-second engine: polled every `pollMs`, the reply lands `latencyMs` later and is
  * floored to whole seconds (DLNA: 500 ms poll + Math.floor; jukebox: 1000 ms poll).
  */
-const wholeSeconds = (fromSec: number, untilAt: number, pollMs: number, latencyMs: number) => {
+const wholeSeconds = (
+    fromSec: number,
+    untilAt: number,
+    pollMs: number,
+    latencyMs: number,
+    startAt = 0,
+) => {
     const ticks: Tick[] = [];
-    for (let at = pollMs; at <= untilAt; at += pollMs) {
-        ticks.push([at + latencyMs, Math.floor(fromSec + at / 1000)]);
+    for (let at = startAt + pollMs; at <= untilAt; at += pollMs) {
+        ticks.push([at + latencyMs, Math.floor(fromSec + (at - startAt) / 1000)]);
     }
     return ticks;
 };
@@ -54,9 +81,9 @@ const firstRollingAt = (startSec: number, ticks: Tick[], minRunMs: number, until
     let i = 0;
     for (let now = 0; now <= untilMs; now += 100) {
         while (i < ticks.length && ticks[i][0] <= now) {
-            const [at, sec] = ticks[i++];
+            const [at, sec, kind] = ticks[i++];
             if (sec !== prev) {
-                run = notePlayheadStep(run, prev, sec, at);
+                run = notePlayheadStep(run, prev, sec, at, kind === 'seek');
                 prev = sec;
             }
         }
@@ -222,4 +249,105 @@ test('playback resumed after a break needs its own full second', () => {
         ...playing(0, 2100, 3350, 250),
     ]);
     assert.equal(isPlayheadRolling(later, 3350), true);
+});
+
+// --- Q-051: a seek is never a tick --------------------------------------------------------
+//
+// Only the engine's own position reports are ticks. The seek writers (the store's
+// mediaSeekToTimestamp / mediaSkipBackward / mediaSkipForward, and the restored queue's
+// position) mark their write, so a seek is never a step: it ends the run, and only the
+// ticks after it can build the next one.
+
+test('Q-051: two forward nudges on a paused player, 1.0-1.5 s apart, are not playback', () => {
+    // ArrowRight on the focused seek bar (+1 s each, playerbar-seek-slider onChangeEnd),
+    // or a click on the bar / waveform / a lyric line < 2 s ahead.
+    for (const [gapMs, stepSec] of [
+        [1000, 1],
+        [1250, 1],
+        [1500, 1],
+        [1200, 0.4],
+        [1200, 1.9],
+    ]) {
+        const ticks = [seek(0, 30 + stepSec), seek(gapMs, 30 + 2 * stepSec)];
+        const label = `+${stepSec} s twice, ${gapMs} ms apart`;
+        assert.equal(isPlayheadRolling(replay(30, ticks), gapMs), false, label);
+        assert.equal(pausedWatchdogFiresAt(30, ticks), null, `watchdog: ${label}`);
+    }
+});
+
+test('Q-051: ArrowRight on the focused seek bar while paused - tapped or held - is not playback', () => {
+    const tapped = Array.from({ length: 6 }, (_, n) => seek(n * 1000, 31 + n));
+    assert.equal(pausedWatchdogFiresAt(30, tapped), null, 'tapped about once a second');
+    // Held: one seek on the press, then the OS key repeat (500 ms delay, ~30 Hz).
+    const held = [seek(0, 31), ...Array.from({ length: 60 }, (_, n) => seek(500 + n * 33, 32 + n))];
+    assert.equal(pausedWatchdogFiresAt(30, held), null, 'held');
+});
+
+test('Q-051: a seek during playback ends the run; the ticks after it read rolling a second later', () => {
+    // Web engine playing; at 3100 a lyric line 1.1 s ahead is clicked.
+    const ticks = [
+        ...playing(10, 0, 3000, 250),
+        seek(3100, 14.1),
+        ...playing(14.1, 3100, 4600, 250),
+    ];
+    const upTo = (atMs: number) =>
+        replay(
+            10,
+            ticks.filter(([at]) => at <= atMs),
+        );
+    assert.equal(isPlayheadRolling(upTo(3000), 3000), true, 'before the seek');
+    assert.equal(upTo(3100), null, 'the seek ends the run');
+    assert.equal(isPlayheadRolling(upTo(3350), 3350), false, 'one tick after it');
+    assert.equal(isPlayheadRolling(upTo(4100), 4100), false, '750 ms of ticks after it');
+    assert.equal(isPlayheadRolling(upTo(4350), 4350), true, 'a full second of ticks after it');
+});
+
+test('Q-051: an mpv poll in flight across a seek cannot head the new run', () => {
+    // Playing at 52 s; the user seeks 1 s forward, then a poll issued before the seek lands
+    // with the old position (a step back), then the polls from the new position.
+    const ticks = [
+        ...playing(50, 0, 2000, 500),
+        seek(2100, 53),
+        [2150, 52.15] as Tick,
+        ...playing(53, 2100, 3600, 500),
+    ];
+    const upTo = (atMs: number) =>
+        replay(
+            50,
+            ticks.filter(([at]) => at <= atMs),
+        );
+    assert.equal(isPlayheadRolling(upTo(2150), 2150), false, 'the stale poll');
+    assert.equal(isPlayheadRolling(upTo(3100), 3100), false, '500 ms of new polls');
+    assert.equal(isPlayheadRolling(upTo(3600), 3600), true, 'a second of new polls');
+});
+
+test('Q-051 + B-053: the restored position is a seek - the incident never even starts a run', () => {
+    const run = replay(0, [
+        [0, 168.129676], // the timestamp store rehydrates: not an engine tick, but a jump
+        seek(900, 168.13), // QUEUE_RESTORED -> use-queue-restore's setTimestamp(..., seek)
+        seek(950, 168.13), // pendingSeek's mediaSeekToTimestamp(168.13): unchanged, no event
+    ]);
+    assert.equal(run, null);
+    assert.equal(isPlayheadRolling(run, 800 + 150 + 1200), false, 'armed-seek 1200 ms re-check');
+});
+
+test('Q-051: a hub do:load positions with a seek, and the ticks after it ack the load promptly', () => {
+    // The load's position lands as a seek 100 ms in (QUEUE_RESTORED; or mediaSeekToTimestamp
+    // on the same-queue path, sub-ms ahead of where a paused player sat), then the engine
+    // ticks from there. The ack (awaitLoadOutcome, 600 ms proof) must not wait on the seek.
+    const target = 42.456;
+    const engines: Array<[name: string, ticks: Tick[], withinMs: number]> = [
+        ['web', playing(target, 100, 9000, 250), 1000],
+        ['mpv', playing(target, 100, 9000, 500), 1600],
+        ['DLNA', wholeSeconds(target, 9000, 500, 40, 100), 2600],
+        ['jukebox', wholeSeconds(target, 9000, 1000, 60, 100), 2600],
+    ];
+    for (const fromSec of [200, target - 0.0004]) {
+        for (const [name, ticks, withinMs] of engines) {
+            const at = firstRollingAt(fromSec, [seek(100, target), ...ticks], 600, 8500);
+            const label = `${name}, from ${fromSec} s`;
+            assert.notEqual(at, null, `${label}: never acked - the hub would roll back`);
+            assert.ok(at! - 100 <= withinMs, `${label}: acked ${at! - 100} ms after the seek`);
+        }
+    }
 });

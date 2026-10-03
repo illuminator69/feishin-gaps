@@ -35,6 +35,7 @@ import {
 } from '/@/renderer/features/player/utils/saved-queue-source';
 import { isPreviewId, previewHubTrack } from '/@/renderer/features/preview/preview-track';
 import {
+    isTimestampSeek,
     mixesFromHub,
     SavedQueue,
     SavedQueueKind,
@@ -285,6 +286,7 @@ export const useHub = () => {
     // single sub-ms step (adopting our own ms-rounded hub cursor at launch) used to count
     // once 1 s had passed, so this read "rolling" against a silent, paused engine and the
     // armed-seek re-check's hardPause flip WAS the blip. See playhead-run.ts.
+    // Q-051: and the run is made of engine ticks only - a seek ends it (onPlayerProgress).
     const audioIsRolling = () =>
         playing.current || isPlayheadRolling(playheadRun.current, Date.now());
 
@@ -1452,6 +1454,9 @@ export const useHub = () => {
                     prev.timestamp,
                     properties.timestamp,
                     Date.now(),
+                    // Q-051: a seek ends the run instead of joining it. Its writer marks the
+                    // write, and zustand runs this handler synchronously inside that write.
+                    isTimestampSeek(),
                 );
                 const rolling = audioIsRolling();
                 // Watchdog: while another device is the active receiver, the

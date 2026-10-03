@@ -89,6 +89,20 @@ export const usePlayerTimestamp = () => {
     return timestamp;
 };
 
-export const setTimestamp = (timestamp: number) => {
-    useTimestampStoreBase.getState().setTimestamp(timestamp);
+// navi-connect (Q-051): the engines report where the playhead IS through this same store, so
+// a write that MOVES it (a seek, a skip, a restored queue's position) passes `{ seek: true }`.
+// Subscribers run synchronously inside set(), so one handling the change can tell which kind
+// it is with isTimestampSeek() - use-hub's playhead run must never count a seek as playback.
+// A counter, not a flag, so a seek nested in another seek's subscriber can't clear it early.
+let seekWritesInFlight = 0;
+
+export const isTimestampSeek = () => seekWritesInFlight > 0;
+
+export const setTimestamp = (timestamp: number, options?: { seek?: boolean }) => {
+    if (options?.seek) seekWritesInFlight += 1; // navi-connect (Q-051)
+    try {
+        useTimestampStoreBase.getState().setTimestamp(timestamp);
+    } finally {
+        if (options?.seek) seekWritesInFlight -= 1; // navi-connect (Q-051)
+    }
 };

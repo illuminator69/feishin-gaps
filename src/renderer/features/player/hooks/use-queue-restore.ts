@@ -30,7 +30,7 @@ export const useQueueRestoreTimestamp = () => {
                 const { position } = properties;
 
                 setTimeout(() => {
-                    setTimestamp(position);
+                    setTimestamp(position, { seek: true }); // navi-connect (Q-051)
                     mediaSeekToTimestamp(position);
                 }, 100);
             },
