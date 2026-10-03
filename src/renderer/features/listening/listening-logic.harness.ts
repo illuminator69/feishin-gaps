@@ -8,6 +8,7 @@ import {
     genresNote,
     heatmapGrid,
     hoursBars,
+    importFinished,
     listeningTimeNote,
     PERIOD_OPTIONS,
     statusView,
@@ -119,7 +120,9 @@ test('heatmapGrid: levels are 0 for no plays and 1..4 scaled to the busiest day'
 
 test('heatmapGrid: empty and all-zero input does not divide by zero', () => {
     assert.deepEqual(heatmapGrid([]).columns, []);
-    const cells = heatmapGrid(days('2026-09-28', 3, () => 0)).columns.flat().filter(Boolean);
+    const cells = heatmapGrid(days('2026-09-28', 3, () => 0))
+        .columns.flat()
+        .filter(Boolean);
     assert.ok(cells.every((c) => c?.level === 0));
 });
 
@@ -148,4 +151,14 @@ test('unownedAlbumRelease builds a missing release row for the shared tile', () 
     assert.equal(r.title, 'T');
     assert.equal(r.status, 'missing');
     assert.deepEqual(r.navidromeAlbumIds, []);
+});
+
+test('importFinished: only the importing -> ready/error edge refreshes the numbers', () => {
+    assert.equal(importFinished('importing', 'ready'), true);
+    assert.equal(importFinished('importing', 'error'), true);
+    assert.equal(importFinished('importing', 'importing'), false);
+    assert.equal(importFinished('importing', 'off'), false);
+    assert.equal(importFinished('ready', 'ready'), false);
+    assert.equal(importFinished('ready', 'importing'), false);
+    assert.equal(importFinished(undefined, 'ready'), false);
 });

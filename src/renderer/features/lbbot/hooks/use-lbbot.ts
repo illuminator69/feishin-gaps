@@ -90,6 +90,7 @@ import {
 } from '/@/renderer/features/lbbot/utils/artist-override';
 import { artistLinkPath } from '/@/renderer/features/lbbot/utils/external-paths';
 import { staleUnlessAnswered } from '/@/renderer/features/lbbot/utils/persisted-queries';
+import { importFinished } from '/@/renderer/features/listening/listening-logic';
 import { queryClient } from '/@/renderer/lib/react-query';
 import { useCurrentServerId } from '/@/renderer/store';
 import { useHubConnected, useHubStore } from '/@/renderer/store/hub.store';
@@ -861,16 +862,33 @@ export const listeningTimeZone = (): string => {
 /** Sync state of the listens mirror. Polled every 5 s ONLY while it says importing. */
 export const useListeningStatus = () => {
     const supported = useListeningSupported();
-    return useQuery<LbBotListeningStatus>({
+    const query = useQuery<LbBotListeningStatus>({
         enabled: supported,
         gcTime: 10 * 60 * 1000,
         queryFn: async () => unwrapListening(await lbBot!.listeningStatus()),
         queryKey: ['lbbot', 'listening-status'],
-        refetchInterval: (query) => (query.state.data?.state === 'importing' ? 5000 : false),
+        refetchInterval: (q) => (q.state.data?.state === 'importing' ? 5000 : false),
         refetchOnWindowFocus: false,
         retry: false,
         staleTime: 30 * 1000,
     });
+    // When an import ends, re-read what was read while it ran: otherwise the
+    // summary keeps its partial totals, with no "Importing" label, until its
+    // 5-minute staleTime runs out.
+    const state = query.data?.state;
+    const previous = useRef<LbBotListeningStatus['state'] | undefined>(undefined);
+    useEffect(() => {
+        if (state && importFinished(previous.current, state)) {
+            for (const kind of ['listening-summary', 'listening-unowned', 'listening-recent']) {
+                void queryClient.invalidateQueries({
+                    queryKey: ['lbbot', kind],
+                    refetchType: 'all',
+                });
+            }
+        }
+        previous.current = state;
+    }, [state]);
+    return query;
 };
 
 /**

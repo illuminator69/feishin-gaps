@@ -103,7 +103,8 @@ export const heatmapGrid = (
     const cells: (HeatmapCell | null)[] = days.map((d) => ({
         count: d.count,
         date: d.date,
-        level: d.count <= 0 || max <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((d.count / max) * 4))),
+        level:
+            d.count <= 0 || max <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((d.count / max) * 4))),
     }));
     // Date strings are zone-local calendar days; read them as UTC so the weekday
     // is the one printed, whatever zone this machine is in.
@@ -119,7 +120,9 @@ export const heatmapGrid = (
     return { columns, max };
 };
 
-export const hoursBars = (hours: readonly number[]): { count: number; hour: number; ratio: number }[] => {
+export const hoursBars = (
+    hours: readonly number[],
+): { count: number; hour: number; ratio: number }[] => {
     const max = hours.reduce((m, h) => Math.max(m, h), 0);
     return Array.from({ length: 24 }, (_, hour) => {
         const count = hours[hour] ?? 0;
@@ -127,16 +130,18 @@ export const hoursBars = (hours: readonly number[]): { count: number; hour: numb
     });
 };
 
-export type ArtistTarget = { id: string; kind: 'library' } | { kind: 'external'; mbid: string } | null;
-export type AlbumTarget = { id: string; kind: 'library' } | { kind: 'external'; rgid: string } | null;
+export type AlbumTarget =
+    | null
+    | { id: string; kind: 'library' }
+    | { kind: 'external'; rgid: string };
+export type ArtistTarget =
+    | null
+    | { id: string; kind: 'library' }
+    | { kind: 'external'; mbid: string };
 
 /** Owned → the library page; else the virtual page; else plain text. */
 export const artistTarget = (ndArtistId: string, mbid: string): ArtistTarget =>
-    ndArtistId
-        ? { id: ndArtistId, kind: 'library' }
-        : mbid
-          ? { kind: 'external', mbid }
-          : null;
+    ndArtistId ? { id: ndArtistId, kind: 'library' } : mbid ? { kind: 'external', mbid } : null;
 
 export const albumTarget = (ndAlbumId: string, rgid: string): AlbumTarget =>
     ndAlbumId ? { id: ndAlbumId, kind: 'library' } : rgid ? { kind: 'external', rgid } : null;
@@ -152,3 +157,12 @@ export const unownedAlbumRelease = (row: { rgid: string; title: string }): LbBot
     title: row.title,
     year: '',
 });
+
+/** The first read after an import ends: the summary and unowned lists were read
+ *  while it ran, so they hold partial totals under no "Importing" label until
+ *  something re-reads them. `error` ends an import too (the numbers stay, the
+ *  banner says why). */
+export const importFinished = (
+    prev: LbBotListeningStatus['state'] | undefined,
+    next: LbBotListeningStatus['state'],
+): boolean => prev === 'importing' && (next === 'ready' || next === 'error');
