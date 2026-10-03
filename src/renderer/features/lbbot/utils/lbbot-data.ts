@@ -66,20 +66,42 @@ export const describeListeningStatus = (status: LbBotListeningStatus): string =>
     }
 };
 
+/**
+ * The index mirror's last sync run, read-only (`getMirrorSyncState`). `id` counts
+ * runs, so a caller can tell a run that began after its click from one that was
+ * already over. `status` on a failure is the HTTP status the pull ended on (0 =
+ * an IPC or storage failure, no HTTP answer).
+ */
+export interface MirrorSyncState {
+    id: number;
+    phase: 'failed' | 'finished' | 'idle' | 'running' | 'skipped';
+    reason?: string;
+    status?: number;
+}
+
 export interface SyncSnapshot {
     cursor: number;
     epoch: string;
     listening: LbBotListeningStatus | null;
+    sync: MirrorSyncState;
 }
 
-const MIRROR_SETTLE_MS = 5000;
+const MIRROR_START_MS = 5000;
 const LISTENING_GIVE_UP_MS = 20_000;
+
+const describePullFailure = (status: number | undefined): string => {
+    if (status === 503) return 'the hub is busy (503); it will retry';
+    if (status === 404) return 'the hub does not serve the index feed (404)';
+    if (status === 0 || status === undefined) return 'no answer from the hub, or a storage error';
+    return `the hub answered ${status}`;
+};
 
 /**
  * What "Sync now" has visibly done so far. The click is not the answer: the
  * answer is the mirror's cursor moving and the listening status changing, read
- * from the same sources the rest of the app reads. Each part is "still waiting"
- * until it shows a change or enough time passes to call it settled.
+ * from the same sources the rest of the app reads. The mirror part judges the
+ * pull's OWN outcome (a run that started after the click), never a timeout:
+ * "up to date" only after a pull that finished with the cursor unchanged.
  */
 export const syncReport = (
     before: SyncSnapshot,
@@ -89,13 +111,27 @@ export const syncReport = (
 ): { done: boolean; listening: string; mirror: string } => {
     let mirror: string;
     let mirrorDone = true;
+    const ownRun = now.sync.id > before.sync.id;
     if (now.epoch !== before.epoch) {
         mirror = 'Index mirror: lb-bot rebuilt its index, so the mirror started over.';
     } else if (now.cursor !== before.cursor) {
         mirror = `Index mirror moved: cursor ${before.cursor} to ${now.cursor}.`;
-    } else if (elapsedMs < MIRROR_SETTLE_MS) {
-        mirror = 'Index mirror: checking...';
+        // The pull may still be running; the cursor already moved, which is the answer.
+    } else if (!ownRun) {
+        if (elapsedMs < MIRROR_START_MS) {
+            mirror = 'Index mirror: waiting for the pull to start...';
+            mirrorDone = false;
+        } else {
+            mirror =
+                'Index mirror: no pull has started (one may be queued, or backing off after an earlier failure).';
+        }
+    } else if (now.sync.phase === 'running') {
+        mirror = 'Index mirror: the pull is still running...';
         mirrorDone = false;
+    } else if (now.sync.phase === 'failed') {
+        mirror = `Index mirror: the pull failed (${describePullFailure(now.sync.status)}). The mirror is unchanged.`;
+    } else if (now.sync.phase === 'skipped') {
+        mirror = `Index mirror: the pull was not run (${now.sync.reason || 'lb-bot is not available'}).`;
     } else {
         mirror = `Index mirror: already up to date (cursor ${now.cursor}).`;
     }
@@ -126,4 +162,19 @@ export const syncReport = (
         }
     }
     return { done: mirrorDone && listeningDone, listening, mirror };
+};
+
+/**
+ * The sentence under "Refresh About". `same` = the answer was a success whose
+ * body equals what was already shown; only then is "nothing new" true.
+ */
+export const classifyRefresh = (
+    result: { error?: string; ok: boolean; status: number },
+    same: boolean,
+): string => {
+    if (result.ok) {
+        return same ? "Checked: lb-bot's answer is the same as what is shown." : 'Refreshed.';
+    }
+    if (result.status === 0) return 'Could not reach lb-bot. What is shown is unchanged.';
+    return `lb-bot answered an error (${result.status})${result.error ? `: ${result.error}` : ''}. What is shown is unchanged.`;
 };

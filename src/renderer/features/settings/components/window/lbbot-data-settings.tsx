@@ -15,8 +15,10 @@ import {
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
     getIndexMirrorSnapshot,
+    getMirrorSyncState,
     onLbBotAvailable,
     subscribeIndexMirror,
+    subscribeMirrorSyncState,
     useMirrorShown,
 } from '/@/renderer/features/lbbot/index-mirror/index-mirror';
 import {
@@ -160,6 +162,7 @@ export const LbBotDataSettings = memo(() => {
     const list = useLbBotOverrideList();
     const listening = useListeningStatus();
     const mirror = useSyncExternalStore(subscribeIndexMirror, getIndexMirrorSnapshot);
+    const mirrorSync = useSyncExternalStore(subscribeMirrorSyncState, getMirrorSyncState);
 
     // "Sync now" is judged by what changes, not by the click: the snapshot taken
     // when it was pressed is compared with the mirror's cursor and the listening
@@ -181,6 +184,7 @@ export const LbBotDataSettings = memo(() => {
                   cursor: mirror.meta.cursor,
                   epoch: mirror.meta.epoch,
                   listening: listening.data ?? null,
+                  sync: mirrorSync,
               },
               sync.listeningRequested,
               now - sync.startedAt,
@@ -206,6 +210,7 @@ export const LbBotDataSettings = memo(() => {
                 cursor: mirror.meta.cursor,
                 epoch: mirror.meta.epoch,
                 listening: listening.data ?? null,
+                sync: mirrorSync,
             },
             listeningRequested: listeningSupported,
             startedAt: Date.now(),
@@ -247,7 +252,11 @@ export const LbBotDataSettings = memo(() => {
                             </TextTitle>
                             {!data && (
                                 <Text isMuted size="sm">
-                                    {list.isError ? 'Could not load overrides.' : 'Loading…'}
+                                    {!available
+                                        ? 'lb-bot is needed for this and is not reachable.'
+                                        : list.isError
+                                          ? 'Could not load overrides.'
+                                          : 'Loading…'}
                                 </Text>
                             )}
                             {data && overrides.length === 0 && (
@@ -309,9 +318,11 @@ export const LbBotDataSettings = memo(() => {
                                 </>
                             ) : (
                                 <Text isMuted size="sm">
-                                    {listening.isError
-                                        ? 'Could not read the listening status.'
-                                        : 'Loading…'}
+                                    {!available
+                                        ? 'lb-bot is needed for this and is not reachable.'
+                                        : listening.isError
+                                          ? 'Could not read the listening status.'
+                                          : 'Loading…'}
                                 </Text>
                             )}
                         </Stack>

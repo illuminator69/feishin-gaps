@@ -1,3 +1,4 @@
+import type { MirrorSyncState } from '/@/renderer/features/lbbot/utils/lbbot-data';
 import type { LbBotDiscography, LbBotIndexArtist, LbBotStatus } from '/@/shared/types/lbbot-types';
 
 import { clear, createStore, entries, promisifyRequest, UseStore } from 'idb-keyval';
@@ -106,6 +107,24 @@ export interface IndexMirrorSnapshot {
 
 let snapshot: IndexMirrorSnapshot = { artistCount: 0, loaded, meta, version: 0 };
 const listeners = new Set<() => void>();
+
+// Read-only record of the last sync RUN, for the settings panel's "Sync now" (it
+// must report what the pull did, not guess from a timer). Deliberately outside
+// the snapshot: a run starting must not look like a change that could alter a
+// lookup. Nothing here feeds back into how the mirror syncs, retries or backs off.
+let syncState: MirrorSyncState = { id: 0, phase: 'idle' };
+const syncListeners = new Set<() => void>();
+const setSyncState = (next: MirrorSyncState) => {
+    syncState = next;
+    for (const listener of syncListeners) listener();
+};
+export const getMirrorSyncState = (): MirrorSyncState => syncState;
+export const subscribeMirrorSyncState = (listener: () => void): (() => void) => {
+    syncListeners.add(listener);
+    return () => {
+        syncListeners.delete(listener);
+    };
+};
 
 const notify = () => {
     snapshot = { artistCount: byKey.size, loaded, meta, version: snapshot.version + 1 };
@@ -524,6 +543,8 @@ const pull = async (): Promise<null | number> => {
 };
 
 const runSync = async (): Promise<void> => {
+    const runId = syncState.id + 1;
+    setSyncState({ id: runId, phase: 'running' });
     if (pendingWelcomeReset) applyWelcomeReset();
     await loadIndexMirror();
     // Q-010 (3): two cases this used to attempt a doomed round trip for
@@ -544,6 +565,17 @@ const runSync = async (): Promise<void> => {
         !mirrorShown() ||
         useHubStore.getState().lbStatus?.available === false
     ) {
+        setSyncState({
+            id: runId,
+            phase: 'skipped',
+            reason: !useHubStore.getState().connected
+                ? 'not connected to the hub'
+                : !mirrorShown()
+                  ? 'the hub is switched off in settings'
+                  : useHubStore.getState().lbStatus?.available === false
+                    ? 'the hub reports lb-bot unavailable'
+                    : 'this hub does not serve the index feed',
+        });
         return;
     }
     let status: null | number;
@@ -555,6 +587,9 @@ const runSync = async (): Promise<void> => {
         logger.error('[lbbot-index] sync failed', { error });
         status = 0;
     }
+    setSyncState(
+        status === null ? { id: runId, phase: 'finished' } : { id: runId, phase: 'failed', status },
+    );
     // A pull that succeeded does NOT mark lb-bot available: that verdict is the
     // hub's alone (`welcome.lb` and the `lb` frame). Set here, it could stand
     // against a hub that still says down — and since the hub only broadcasts a
