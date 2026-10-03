@@ -4,10 +4,12 @@ import { useCallback, useEffect, useRef } from 'react';
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import {
+    adoptClaimDelay,
     GuardWindow,
     isGuardOpen,
     isRunaway,
     lastPlayRequest,
+    notePauseRequest,
     notePlayRequest,
 } from '/@/renderer/features/hub/utils/play-request';
 import {
@@ -933,6 +935,7 @@ export const useHub = () => {
                     break;
                 }
                 case 'pause':
+                    notePauseRequest(); // B-058: a controller withdrew any play it asked for
                     mediaPause();
                     break;
                 case 'play':
@@ -1555,6 +1558,28 @@ export const useHub = () => {
                 );
                 routeLocalPlayToRemote();
                 publishQueue();
+                // B-058: a play asked for inside an adopt's hub-driven window can't claim the
+                // session yet (publishQueue returns early) and nothing republishes until the next
+                // track - retry once the window lapses. publishQueue re-checks every gate itself:
+                // paused meanwhile, it takes B-047's no-claim path. Asked again after each try, so
+                // a window re-armed meanwhile is waited out too; claimed, paused or no longer
+                // orphaned, the answer is null and it stops.
+                const claimWhenWindowLapses = () => {
+                    const claimInMs = adoptClaimDelay({
+                        adopt: adoptPauseGuard.current,
+                        hubDrivenUntil: hubDrivenUntil.current,
+                        now: Date.now(),
+                        orphaned: activeId.current === null,
+                        playing: playing.current,
+                        request: lastPlayRequest(),
+                    });
+                    if (claimInMs === null) return;
+                    setTimeout(() => {
+                        publishQueue();
+                        claimWhenWindowLapses();
+                    }, claimInMs);
+                };
+                claimWhenWindowLapses();
                 report({ isPlaying: playing.current });
             },
         },

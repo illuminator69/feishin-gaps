@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { queryKeys } from '/@/renderer/api/query-keys';
 import { albumQueries } from '/@/renderer/features/albums/api/album-api';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
-import { notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
+import { notePauseRequest, notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
 import {
     addToQueueTypeToRemoteMode,
     enqueueToRemote,
@@ -825,6 +825,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
         logger.debug('Media pause');
 
+        // navi-connect (B-058): withdraws the play the user asked for before it (play-request.ts).
+        // mpv's own `paused` echo comes through here too; that only makes the guards stricter.
+        notePauseRequest();
         storeActions.mediaPause();
     }, [storeActions]);
 
@@ -886,6 +889,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
             logger.debug('Media stop', { reset: options?.reset });
 
+            notePauseRequest(); // navi-connect (B-058): see mediaPause
             storeActions.mediaStop(options);
         },
         [storeActions],
@@ -979,6 +983,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         // caller is a person (the play button, the mobile bars, the main process's play-pause:
         // tray, dock, thumbar, global shortcut, MPRIS, media keys).
         if (usePlayerStore.getState().player.status !== PlayerStatus.PLAYING) notePlayRequest();
+        else notePauseRequest();
         storeActions.mediaTogglePlayPause();
     }, [storeActions]);
 

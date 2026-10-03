@@ -1,7 +1,7 @@
 import isElectron from 'is-electron';
 import { useMemo } from 'react';
 
-import { notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
+import { notePauseRequest, notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
 import { HotkeyItem, useHotkeys } from '/@/renderer/hooks/use-hotkeys';
 import { useHotkeySettings, useHubStore, usePlayerStore } from '/@/renderer/store';
 import { PlayerStatus } from '/@/shared/types/types';
@@ -62,7 +62,9 @@ export const usePlaybackHotkeys = () => {
             {
                 binding: bindings.pause,
                 handler: () => {
-                    if (!sendRemote('pause')) player.mediaPause();
+                    if (sendRemote('pause')) return;
+                    notePauseRequest(); // navi-connect (B-058): the store direct - mark it here
+                    player.mediaPause();
                 },
             },
             {
@@ -80,6 +82,8 @@ export const usePlaybackHotkeys = () => {
                     // navi-connect (B-058): the store direct (space, by default) - mark a play here.
                     if (usePlayerStore.getState().player.status !== PlayerStatus.PLAYING) {
                         notePlayRequest();
+                    } else {
+                        notePauseRequest();
                     }
                     player.mediaTogglePlayPause();
                 },
@@ -109,7 +113,9 @@ export const usePlaybackHotkeys = () => {
             {
                 binding: bindings.stop,
                 handler: () => {
-                    if (!sendRemote('pause')) player.mediaStop();
+                    if (sendRemote('pause')) return;
+                    notePauseRequest(); // navi-connect (B-058): the store direct - mark it here
+                    player.mediaStop();
                 },
             },
             {
