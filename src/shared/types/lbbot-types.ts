@@ -295,6 +295,12 @@ export interface LbBotBrowseArtist {
     owned: boolean;
 }
 
+export interface LbBotDayCount {
+    count: number;
+    /** YYYY-MM-DD in the requested tz. */
+    date: string;
+}
+
 /**
  * One of Deezer's own genres, as `GET /lb/deezer/genres` serves them.
  *
@@ -481,6 +487,10 @@ export interface LbBotFreshRelease {
     artistId: string;
     artistMbids: string[];
     artistOwned: boolean;
+    /** I-006: all-time plays of this row's artists in lb-bot's listens mirror.
+     *  UNDEFINED when the row came from an lb-bot older than the field (0 means
+     *  "none, or the mirror is off / importing"). */
+    artistPlays?: number;
     /** Public Cover Art Archive URL. Fetched straight from the Archive — never
      *  through anything carrying Navidrome or reverse-proxy credentials. */
     coverUrl: string;
@@ -667,6 +677,54 @@ export type LbBotGapTrackState =
  */
 export type LbBotLinkKind = 'album' | 'artist' | 'track' | 'unknown';
 
+export type LbBotListeningPeriod = '7d' | '30d' | '90d' | '365d' | 'all';
+
+/** `off`: no ListenBrainz user configured. `importing`: first backfill running.
+ *  `error`: the last sync failed (rows already stored are still served). */
+export type LbBotListeningState = 'error' | 'importing' | 'off' | 'ready';
+
+export interface LbBotListeningStatus {
+    /** Listens stored. */
+    count: number;
+    /** The last failure text, "" when none. */
+    error: string;
+    /** Epoch seconds, or null. */
+    lastSyncAt: null | number;
+    /** Epoch seconds of the newest stored listen, or null. */
+    newest: null | number;
+    oldest: null | number;
+    state: LbBotListeningState;
+    /** ListenBrainz's own listen count, null when unknown. */
+    total: null | number;
+}
+
+export interface LbBotListeningSummary {
+    daily: LbBotDayCount[];
+    generatedAt: number;
+    /** Plays of albums the library holds — the denominator for `genres`. */
+    genrePlays: number;
+    genres: { genre: string; plays: number }[];
+    /** The last 112 days ending today in `tz`, oldest first. */
+    heatmap: LbBotDayCount[];
+    /** 24 ints: plays per local hour within the period. */
+    hours: number[];
+    period: string;
+    streak: { current: number; longest: number };
+    topAlbums: LbBotTopAlbum[];
+    topArtists: LbBotTopArtist[];
+    topTracks: LbBotTopTrack[];
+    totals: {
+        albums: number;
+        artists: number;
+        plays: number;
+        /** Only listens carrying a duration are summed into this. */
+        seconds: number;
+        /** How many plays `seconds` covers. */
+        secondsKnownFor: number;
+    };
+    tz: string;
+}
+
 /**
  * Editorial metadata for an artist or an album: real, attributed, full-length
  * text instead of the Last.fm summary that dead-ends in a "Read more on
@@ -776,6 +834,25 @@ export interface LbBotOverrideSet {
     mbid: string;
     name: string;
     taskId: string;
+}
+
+export interface LbBotRecent {
+    /** The last row's `listenedAt` when the page was full, else null. */
+    nextBefore: null | number;
+    rows: LbBotRecentRow[];
+}
+
+export interface LbBotRecentRow {
+    artist: string;
+    artistMbid: string;
+    client: string;
+    listenedAt: number;
+    ndAlbumId: string;
+    ndArtistId: string;
+    recordingMbid: string;
+    release: string;
+    rgid: string;
+    track: string;
 }
 
 export interface LbBotRelease {
@@ -946,6 +1023,10 @@ export interface LbBotSourceFile {
     sizeMb: number;
 }
 
+// ---------------------------------------------------------------------------
+// Listening (I-006)
+// ---------------------------------------------------------------------------
+
 export interface LbBotSourceFiles {
     coverage: string;
     coverageDetail: LbBotSourceCoverage;
@@ -967,6 +1048,34 @@ export interface LbBotSourceMatch {
     title: string;
 }
 
+export interface LbBotTopAlbum {
+    artist: string;
+    artistMbid: string;
+    /** "" when the library does not hold the album. */
+    ndAlbumId: string;
+    owned: boolean;
+    plays: number;
+    rgid: string;
+    title: string;
+}
+
+export interface LbBotTopArtist {
+    mbid: string;
+    name: string;
+    /** "" when the library does not hold the artist. */
+    ndArtistId: string;
+    plays: number;
+}
+
+export interface LbBotTopTrack {
+    artist: string;
+    ndAlbumId: string;
+    plays: number;
+    recordingMbid: string;
+    rgid: string;
+    title: string;
+}
+
 export interface LbBotTrack {
     position: number;
     /** Undefined when presence is unknown (the library holds none of this album). */
@@ -977,6 +1086,26 @@ export interface LbBotTrack {
 export interface LbBotTracklist {
     presenceKnown: boolean;
     tracks: LbBotTrack[];
+}
+
+export interface LbBotUnowned {
+    kind: string;
+    period: string;
+    rows: LbBotUnownedRow[];
+}
+
+export interface LbBotUnownedRow {
+    artist: string;
+    artistId: string;
+    artistMbid: string;
+    artistOwned: boolean;
+    kind: string;
+    lastListenedAt: number;
+    plays: number;
+    /** Non-empty on an `album` row; "" on an `artist` row. */
+    rgid: string;
+    /** "" on an `artist` row. */
+    title: string;
 }
 
 export interface LbBotVariant {

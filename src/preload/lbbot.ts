@@ -12,10 +12,13 @@ import type {
     LbBotGapSource,
     LbBotIndexKeys,
     LbBotIndexPage,
+    LbBotListeningStatus,
+    LbBotListeningSummary,
     LbBotMeta,
     LbBotOverride,
     LbBotOverrideRemoved,
     LbBotOverrideSet,
+    LbBotRecent,
     LbBotReleaseDetail,
     LbBotResolvedEdition,
     LbBotResolvedLink,
@@ -25,6 +28,7 @@ import type {
     LbBotSourceFiles,
     LbBotStatus,
     LbBotTracklist,
+    LbBotUnowned,
     LbBotWishlist,
 } from '/@/shared/types/lbbot-types';
 
@@ -89,6 +93,30 @@ const overrideSet = (
 
 const overrideRemove = (ndId: string): Promise<LbBotResult<LbBotOverrideRemoved>> =>
     ipcRenderer.invoke('lbbot-override-remove', { ndId });
+
+/** Listening history (I-006). All result-shaped: a failed read must keep the
+ *  cached body, and a 404 means lb-bot is older than the hub. */
+const listeningStatus = (): Promise<LbBotResult<LbBotListeningStatus>> =>
+    ipcRenderer.invoke('lbbot-listening-status');
+
+const listeningSummary = (
+    period: string,
+    tz: string,
+): Promise<LbBotResult<LbBotListeningSummary>> =>
+    ipcRenderer.invoke('lbbot-listening-summary', { period, tz });
+
+const listeningUnowned = (
+    period: string,
+    kind: string,
+    limit: number,
+): Promise<LbBotResult<LbBotUnowned>> =>
+    ipcRenderer.invoke('lbbot-listening-unowned', { kind, limit, period });
+
+const listeningRecent = (limit: number, before?: number): Promise<LbBotResult<LbBotRecent>> =>
+    ipcRenderer.invoke('lbbot-listening-recent', { before, limit });
+
+const listeningSync = (): Promise<LbBotResult<boolean>> =>
+    ipcRenderer.invoke('lbbot-listening-sync');
 
 /** Site-wide fresh releases. Fail-soft: null when ListenBrainz or lb-bot is down. */
 const freshReleases = (days: number): Promise<LbBotFreshFeed | null> =>
@@ -294,6 +322,11 @@ export const lbBot = {
     indexChanges,
     indexKeys,
     indexRelease,
+    listeningRecent,
+    listeningStatus,
+    listeningSummary,
+    listeningSync,
+    listeningUnowned,
     metaAlbum,
     metaArtist,
     notify,

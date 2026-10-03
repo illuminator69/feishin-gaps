@@ -5,6 +5,7 @@ import type {
     LbBotBrowse,
     LbBotBrowseAlbum,
     LbBotBrowseArtist,
+    LbBotDayCount,
     LbBotDeezerGenre,
     LbBotDeezerGenres,
     LbBotDiscography,
@@ -26,6 +27,9 @@ import type {
     LbBotIndexKeys,
     LbBotIndexPage,
     LbBotLinkKind,
+    LbBotListeningState,
+    LbBotListeningStatus,
+    LbBotListeningSummary,
     LbBotMeta,
     LbBotMetaCredit,
     LbBotMetaLink,
@@ -33,6 +37,8 @@ import type {
     LbBotOverride,
     LbBotOverrideRemoved,
     LbBotOverrideSet,
+    LbBotRecent,
+    LbBotRecentRow,
     LbBotRelease,
     LbBotReleaseDetail,
     LbBotReleaseStatus,
@@ -46,8 +52,13 @@ import type {
     LbBotSourceFile,
     LbBotSourceFiles,
     LbBotStatus,
+    LbBotTopAlbum,
+    LbBotTopArtist,
+    LbBotTopTrack,
     LbBotTrack,
     LbBotTracklist,
+    LbBotUnowned,
+    LbBotUnownedRow,
     LbBotVariant,
     LbBotWishlist,
     LbBotWishlistEntry,
@@ -551,6 +562,218 @@ ipcMain.handle(
 );
 
 // ---------------------------------------------------------------------------
+// Listening history (I-006)
+// ---------------------------------------------------------------------------
+
+// lb-bot mirrors the user's ListenBrainz listens into SQLite and serves
+// aggregates from it. Every route is a local read on lb-bot's side, so none of
+// them waits on ListenBrainz. All are `LbBotResult`: a failed summary has to keep
+// the cached body on screen (the hook throws on !ok), and a 404 means lb-bot is
+// older than the hub — the screen then hides itself instead of showing an error.
+// The hub drops any query param it does not list, so these send exactly:
+// status (none), summary (period, tz), unowned (period, kind, limit),
+// recent (before, limit), sync (no body).
+
+const LISTENING_STATES = new Set<LbBotListeningState>(['error', 'importing', 'off', 'ready']);
+
+const nullableNum = (value: unknown): null | number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+ipcMain.handle('lbbot-listening-status', async (): Promise<LbBotResult<LbBotListeningStatus>> => {
+    const result = await request('GET', '/lb/listening/status');
+    if (!result.ok) return failed<LbBotListeningStatus>(result.status, result.error);
+    const d: Json = result.data ?? {};
+    if (!LISTENING_STATES.has(d.state as LbBotListeningState)) {
+        return failed<LbBotListeningStatus>(result.status, 'lb-bot sent no listening state.');
+    }
+    return {
+        data: {
+            count: num(d.count),
+            error: str(d.error),
+            lastSyncAt: nullableNum(d.lastSyncAt),
+            newest: nullableNum(d.newest),
+            oldest: nullableNum(d.oldest),
+            state: d.state as LbBotListeningState,
+            total: nullableNum(d.total),
+        },
+        error: '',
+        ok: true,
+        status: result.status,
+    };
+});
+
+const toDayCounts = (value: unknown): LbBotDayCount[] =>
+    (Array.isArray(value) ? value : []).flatMap((row): LbBotDayCount[] => {
+        if (!row || typeof row !== 'object') return [];
+        const r = row as Json;
+        const date = str(r.date);
+        return date ? [{ count: num(r.count), date }] : [];
+    });
+
+const rowsOf = (value: unknown): Json[] =>
+    (Array.isArray(value) ? value : []).filter(
+        (row): row is Json => !!row && typeof row === 'object',
+    );
+
+const toTopArtist = (r: Json): LbBotTopArtist => ({
+    mbid: str(r.mbid),
+    name: str(r.name),
+    ndArtistId: str(r.ndArtistId),
+    plays: num(r.plays),
+});
+
+const toTopAlbum = (r: Json): LbBotTopAlbum => ({
+    artist: str(r.artist),
+    artistMbid: str(r.artistMbid),
+    ndAlbumId: str(r.ndAlbumId),
+    owned: r.owned === true,
+    plays: num(r.plays),
+    rgid: str(r.rgid),
+    title: str(r.title),
+});
+
+const toTopTrack = (r: Json): LbBotTopTrack => ({
+    artist: str(r.artist),
+    ndAlbumId: str(r.ndAlbumId),
+    plays: num(r.plays),
+    recordingMbid: str(r.recordingMbid),
+    rgid: str(r.rgid),
+    title: str(r.title),
+});
+
+ipcMain.handle(
+    'lbbot-listening-summary',
+    async (
+        _event,
+        args: { period: string; tz: string },
+    ): Promise<LbBotResult<LbBotListeningSummary>> => {
+        const result = await request('GET', '/lb/listening/summary', {
+            params: { period: args.period, tz: args.tz },
+        });
+        if (!result.ok) return failed<LbBotListeningSummary>(result.status, result.error);
+        const d: Json = result.data ?? {};
+        if (!d.totals || typeof d.totals !== 'object') {
+            return failed<LbBotListeningSummary>(result.status, 'lb-bot sent no totals.');
+        }
+        const totals = d.totals as Json;
+        const streak = (d.streak && typeof d.streak === 'object' ? d.streak : {}) as Json;
+        const hours = Array.isArray(d.hours) ? d.hours.map(num) : [];
+        return {
+            data: {
+                daily: toDayCounts(d.daily),
+                generatedAt: num(d.generatedAt),
+                genrePlays: num(d.genrePlays),
+                genres: rowsOf(d.genres).map((g) => ({ genre: str(g.genre), plays: num(g.plays) })),
+                heatmap: toDayCounts(d.heatmap),
+                // Always 24 slots so the chart can index by hour.
+                hours: Array.from({ length: 24 }, (_, hour) => hours[hour] ?? 0),
+                period: str(d.period),
+                streak: { current: num(streak.current), longest: num(streak.longest) },
+                topAlbums: rowsOf(d.topAlbums).map(toTopAlbum),
+                topArtists: rowsOf(d.topArtists).map(toTopArtist),
+                topTracks: rowsOf(d.topTracks).map(toTopTrack),
+                totals: {
+                    albums: num(totals.albums),
+                    artists: num(totals.artists),
+                    plays: num(totals.plays),
+                    seconds: num(totals.seconds),
+                    secondsKnownFor: num(totals.secondsKnownFor),
+                },
+                tz: str(d.tz),
+            },
+            error: '',
+            ok: true,
+            status: result.status,
+        };
+    },
+);
+
+const toUnownedRow = (r: Json): LbBotUnownedRow => ({
+    artist: str(r.artist),
+    artistId: str(r.artistId),
+    artistMbid: str(r.artistMbid),
+    artistOwned: r.artistOwned === true,
+    kind: str(r.kind),
+    lastListenedAt: num(r.lastListenedAt),
+    plays: num(r.plays),
+    rgid: str(r.rgid),
+    title: str(r.title),
+});
+
+ipcMain.handle(
+    'lbbot-listening-unowned',
+    async (
+        _event,
+        args: { kind: string; limit: number; period: string },
+    ): Promise<LbBotResult<LbBotUnowned>> => {
+        const result = await request('GET', '/lb/listening/unowned', {
+            params: { kind: args.kind, limit: String(args.limit), period: args.period },
+        });
+        if (!result.ok) return failed<LbBotUnowned>(result.status, result.error);
+        const d: Json = result.data ?? {};
+        return {
+            data: {
+                kind: str(d.kind),
+                period: str(d.period),
+                rows: rowsOf(d.rows).map(toUnownedRow),
+            },
+            error: '',
+            ok: true,
+            status: result.status,
+        };
+    },
+);
+
+const toRecentRow = (r: Json): LbBotRecentRow => ({
+    artist: str(r.artist),
+    artistMbid: str(r.artistMbid),
+    client: str(r.client),
+    listenedAt: num(r.listenedAt),
+    ndAlbumId: str(r.ndAlbumId),
+    ndArtistId: str(r.ndArtistId),
+    recordingMbid: str(r.recordingMbid),
+    release: str(r.release),
+    rgid: str(r.rgid),
+    track: str(r.track),
+});
+
+ipcMain.handle(
+    'lbbot-listening-recent',
+    async (_event, args: { before?: number; limit: number }): Promise<LbBotResult<LbBotRecent>> => {
+        const result = await request('GET', '/lb/listening/recent', {
+            params: {
+                ...(args.before ? { before: String(args.before) } : {}),
+                limit: String(args.limit),
+            },
+        });
+        if (!result.ok) return failed<LbBotRecent>(result.status, result.error);
+        return {
+            data: {
+                nextBefore: nullableNum(result.data?.nextBefore),
+                rows: rowsOf(result.data?.rows).map(toRecentRow),
+            },
+            error: '',
+            ok: true,
+            status: result.status,
+        };
+    },
+);
+
+// Asks lb-bot's worker to pull now and returns at once; it never waits on
+// ListenBrainz. The caller watches `status` for the state to move.
+ipcMain.handle('lbbot-listening-sync', async (): Promise<LbBotResult<boolean>> => {
+    const result = await request('POST', '/lb/listening/sync');
+    if (!result.ok) return failed<boolean>(result.status, result.error);
+    const ok = result.data?.ok === true;
+    return {
+        data: ok,
+        error: ok ? '' : str(result.data?.error) || 'lb-bot refused the request.',
+        ok,
+        status: result.status,
+    };
+});
+
+// ---------------------------------------------------------------------------
 // Index change feed — the renderer's local mirror pulls these
 // ---------------------------------------------------------------------------
 
@@ -723,6 +946,8 @@ ipcMain.handle(
                     artistId: str(r.artistId),
                     artistMbids: strList(r.artistMbids),
                     artistOwned: r.artistOwned === true,
+                    // I-006 rider: absent from an older lb-bot, and absent is not 0.
+                    ...(typeof r.artistPlays === 'number' ? { artistPlays: r.artistPlays } : {}),
                     coverUrl: str(r.coverUrl),
                     releaseAlbumId: str(r.releaseAlbumId),
                     releaseDate: str(r.releaseDate),
@@ -1877,7 +2102,7 @@ ipcMain.handle(
         if (!result.ok || !result.data) {
             return failed(result.status, result.error || 'lb-bot could not read that link.');
         }
-        const d = result.data;
+        const d: Json = result.data ?? {};
         const kind = str(d.kind);
         return {
             data: {
