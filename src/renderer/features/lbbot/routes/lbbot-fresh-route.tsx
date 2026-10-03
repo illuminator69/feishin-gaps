@@ -19,6 +19,11 @@ import {
     useFreshType,
 } from '/@/renderer/features/lbbot/stores/fresh-filters.store';
 import { artistLinkPath, externalAlbumPath } from '/@/renderer/features/lbbot/utils/external-paths';
+import {
+    applyFreshScope,
+    hasArtistPlays,
+    scopeInEffect,
+} from '/@/renderer/features/lbbot/utils/fresh-scope';
 import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
 import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
 import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
@@ -187,7 +192,7 @@ const FreshTile = ({ release }: { release: LbBotFreshRelease }) => {
 const LbBotFreshRoute = () => {
     const { windowBarStyle } = useWindowSettings();
     const days = useFreshDays();
-    const scope = useFreshScope();
+    const storedScope = useFreshScope();
     const sort = useFreshSort();
     const type = useFreshType();
     const { set } = useFreshFiltersActions();
@@ -205,12 +210,22 @@ const LbBotFreshRoute = () => {
     // data leaves `isLoading` false, which is why switching counts separately.
     const loading = available && (query.isLoading || switching);
 
+    // I-006: "Artists you play" exists only while some row carries `artistPlays`
+    // (an older lb-bot sends none); a stored `plays` then reads as `mine`.
+    const playsAvailable = hasArtistPlays(data?.releases);
+    const scope = scopeInEffect(storedScope, playsAvailable);
+    const scopeData = playsAvailable
+        ? [...SCOPE_DATA, { label: 'Artists you play', value: 'plays' as FreshScope }]
+        : SCOPE_DATA;
+
     const buckets = useMemo(() => {
-        const rows = (data?.releases ?? []).filter(
-            (release) =>
-                (scope === 'all' || release.artistOwned) &&
-                (type === 'all' || typeBucket(release) === type),
+        const rows = applyFreshScope(data?.releases ?? [], scope).filter(
+            (release) => type === 'all' || typeBucket(release) === type,
         );
+        if (scope === 'plays') {
+            // Most played first, newest breaking ties — already ordered by the scope.
+            return [{ label: '', releases: rows }];
+        }
         if (sort === 'artist') {
             const sorted = [...rows].sort(
                 (a, b) =>
@@ -273,7 +288,7 @@ const LbBotFreshRoute = () => {
                         </Text>
                         <div className={styles.filters}>
                             <SegmentedControl
-                                data={SCOPE_DATA}
+                                data={scopeData}
                                 onChange={(value) => set({ scope: value as FreshScope })}
                                 value={scope}
                             />
@@ -322,7 +337,9 @@ const LbBotFreshRoute = () => {
                             <Text isMuted>
                                 {scope === 'mine'
                                     ? 'Nothing new from artists in your library in this window. Try All, or a longer window.'
-                                    : 'Nothing in this window.'}
+                                    : scope === 'plays'
+                                      ? 'Nothing new from artists you play in this window. Your listening history may still be importing.'
+                                      : 'Nothing in this window.'}
                             </Text>
                         )}
 

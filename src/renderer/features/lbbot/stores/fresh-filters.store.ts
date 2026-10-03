@@ -11,7 +11,8 @@ import { persist } from 'zustand/middleware';
  * choice — the page says "nothing matches" rather than silently resetting.
  */
 
-export type FreshScope = 'all' | 'mine';
+/** `plays` (I-006): rows whose artists you have listened to, most played first. */
+export type FreshScope = 'all' | 'mine' | 'plays';
 
 export type FreshSort = 'artist' | 'newest';
 
