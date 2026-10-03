@@ -134,6 +134,12 @@ const describeFailure = (status: number, body: Json | null): string => {
     if (status === 404 && typeof body?.code === 'string' && upstream) return upstream;
     // lb-bot's own 502 for a MusicBrainz outage says so and that nothing was stored.
     if (status === 502 && body?.retryable === true && upstream) return upstream;
+    // An lb-bot older than the hub answers an unknown POST with 405 "The method
+    // is not allowed" (its catch-all route is GET-only), where an unknown GET is
+    // a 404. Same condition; never relay the raw text.
+    if (status === 405) {
+        return 'This lb-bot is older than the hub and does not have that route yet.';
+    }
     if (status === 404) {
         return 'This hub does not know that route — restart the hub to pick up its newer lb-bot features.';
     }

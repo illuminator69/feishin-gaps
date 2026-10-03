@@ -82,11 +82,14 @@ import {
     sameArtist,
 } from '/@/renderer/features/lbbot/utils/album-match';
 import {
+    describeOverrideFailure,
     effectiveArtistMbid,
+    OverrideFailure,
     overrideKind,
     OverrideKind,
     overridesByNdId,
     OverridesByNdId,
+    planScan,
 } from '/@/renderer/features/lbbot/utils/artist-override';
 import { artistLinkPath } from '/@/renderer/features/lbbot/utils/external-paths';
 import {
@@ -739,38 +742,6 @@ export const useArtistOverrideKind = (
     return overrideKind(data, ndId, tagMbid);
 };
 
-/** Why a set or remove failed, in the words the picker shows. */
-export interface OverrideFailure {
-    /** lb-bot's `code`, when it sent one. */
-    code: string;
-    message: string;
-    /** HTTP status; 0 = never reached the hub. */
-    status: number;
-}
-
-export const describeOverrideFailure = (result: LbBotResult<unknown>): OverrideFailure => {
-    const base = { code: result.code ?? '', status: result.status };
-    if (result.status === 409) {
-        return {
-            ...base,
-            message: 'A fill for this artist is running. Try again when it is done.',
-        };
-    }
-    if (result.status === 404 && result.code === 'unknown_mbid') {
-        return { ...base, message: 'MusicBrainz has no artist with that id.' };
-    }
-    if (result.status === 404 && result.code === 'no_override') {
-        return { ...base, message: 'There is no override to remove.' };
-    }
-    if (result.status === 502 && result.retryable) {
-        return {
-            ...base,
-            message: 'MusicBrainz is unavailable right now. Nothing was changed. Try again.',
-        };
-    }
-    return { ...base, message: result.error || 'lb-bot did not accept that.' };
-};
-
 /**
  * Choose, or clear, the MusicBrainz artist for one library artist (I-019).
  *
@@ -802,8 +773,14 @@ export const useArtistOverrideActions = (
                 setFailure(describeOverrideFailure(result));
             } else {
                 await settle();
-                // A scan only has something to say with a name to match against.
-                if (name) void indexArtist(result.data?.mbid || mbid, name);
+                // lb-bot starts the scan itself; `task_id: ""` is its decision to
+                // start none, and a scan from here would rewrite the wrong row.
+                const scan = planScan(
+                    'set',
+                    { mbid: result.data?.mbid, taskId: result.data?.taskId ?? '' },
+                    { mbid, name, tagMbid: undefined },
+                );
+                if (scan) void indexArtist(scan.mbid, scan.name);
             }
             setPending(false);
             return result;
@@ -823,7 +800,12 @@ export const useArtistOverrideActions = (
                 setFailure(describeOverrideFailure(result));
             } else {
                 await settle();
-                if (tagMbid && name) void indexArtist(tagMbid, name);
+                const scan = planScan(
+                    'remove',
+                    { taskId: result.data?.taskId ?? '' },
+                    { mbid: '', name, tagMbid },
+                );
+                if (scan) void indexArtist(scan.mbid, scan.name);
             }
             setPending(false);
             return result;

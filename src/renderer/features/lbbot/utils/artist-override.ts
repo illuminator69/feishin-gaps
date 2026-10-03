@@ -81,3 +81,71 @@ export const parseMbidInput = (input: string): null | string => {
     const match = ARTIST_URL.exec(text);
     return match ? match[1].toLowerCase() : null;
 };
+
+/** Why a set or remove failed, in the words the picker shows. */
+export interface OverrideFailure {
+    /** lb-bot's `code`, when it sent one. */
+    code: string;
+    message: string;
+    /** HTTP status; 0 = never reached the hub. */
+    status: number;
+}
+
+/**
+ * A code-less 404 (the hub or an older GET-only lb-bot has no such route) and a
+ * 405 (an lb-bot older than the hub: its catch-all route is GET-only, so an
+ * unknown POST answers "method not allowed") both mean the same thing. A 404
+ * that carries a `code` is lb-bot's own answer and stays what it is.
+ */
+export const describeOverrideFailure = (result: {
+    code?: string;
+    error?: string;
+    retryable?: boolean;
+    status: number;
+}): OverrideFailure => {
+    const base = { code: result.code ?? '', status: result.status };
+    if (result.status === 409) {
+        return {
+            ...base,
+            message: 'A fill for this artist is running. Try again when it is done.',
+        };
+    }
+    if (result.status === 404 && result.code === 'unknown_mbid') {
+        return { ...base, message: 'MusicBrainz has no artist with that id.' };
+    }
+    if (result.status === 404 && result.code === 'no_override') {
+        return { ...base, message: 'There is no override to remove.' };
+    }
+    if (result.status === 405 || (result.status === 404 && !result.code)) {
+        return { ...base, message: 'This lb-bot is older and cannot store overrides yet.' };
+    }
+    if (result.status === 502 && result.retryable) {
+        // lb-bot's own words: the cause is MusicBrainz for a set and may be
+        // Navidrome's artist list for a remove.
+        return {
+            ...base,
+            message: result.error
+                ? `${result.error} Nothing was changed. Try again.`
+                : 'lb-bot could not complete that right now. Nothing was changed. Try again.',
+        };
+    }
+    return { ...base, message: result.error || 'lb-bot did not accept that.' };
+};
+
+/**
+ * Whether, and with what, to follow a set / remove with the page's own scan flow.
+ * lb-bot starts the scan itself and answers its `task_id`; `""` means it chose
+ * not to (a set onto an MBID whose discography another artist holds, or a remove
+ * after which nothing resolves), and starting one anyway would rewrite the wrong
+ * artist's row. A set follows with the `mbid` lb-bot answered; a remove falls
+ * back to the tag, so without one there is nothing to scan.
+ */
+export const planScan = (
+    kind: 'remove' | 'set',
+    answer: { mbid?: string; taskId: string },
+    requested: { mbid: string; name: string; tagMbid: null | string | undefined },
+): null | { mbid: string; name: string } => {
+    if (!answer.taskId || !requested.name) return null;
+    const mbid = kind === 'set' ? answer.mbid || requested.mbid : requested.tagMbid;
+    return mbid ? { mbid, name: requested.name } : null;
+};

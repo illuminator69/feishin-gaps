@@ -85,3 +85,90 @@ test('parseMbidInput refuses everything else', () => {
     assert.equal(parseMbidInput(`https://evil.example/artist/${A}`), null);
     assert.equal(parseMbidInput(`https://musicbrainz.org.evil.example/artist/${A}`), null);
 });
+
+// ---- cross-lane fix round: scan decision and failure wording --------------
+
+import { describeOverrideFailure, planScan } from './artist-override.ts';
+
+test('planScan: a set follows the scan only when lb-bot answered a task id, with the mbid it answered', () => {
+    assert.deepEqual(
+        planScan('set', { mbid: A, taskId: 't1' }, { mbid: B, name: 'X', tagMbid: '' }),
+        { mbid: A, name: 'X' },
+    );
+    assert.equal(
+        planScan('set', { mbid: A, taskId: '' }, { mbid: B, name: 'X', tagMbid: '' }),
+        null,
+    );
+    // No answered mbid: the requested one.
+    assert.deepEqual(
+        planScan('set', { mbid: '', taskId: 't1' }, { mbid: B, name: 'X', tagMbid: '' }),
+        { mbid: B, name: 'X' },
+    );
+    // A scan needs a name to match against.
+    assert.equal(
+        planScan('set', { mbid: A, taskId: 't1' }, { mbid: A, name: '', tagMbid: '' }),
+        null,
+    );
+});
+
+test('planScan: a remove follows the scan only with a task id AND a tag to fall back to', () => {
+    assert.deepEqual(planScan('remove', { taskId: 't2' }, { mbid: '', name: 'X', tagMbid: B }), {
+        mbid: B,
+        name: 'X',
+    });
+    assert.equal(planScan('remove', { taskId: '' }, { mbid: '', name: 'X', tagMbid: B }), null);
+    assert.equal(planScan('remove', { taskId: 't2' }, { mbid: '', name: 'X', tagMbid: '' }), null);
+});
+
+const fail = (status: number, extra: Record<string, unknown> = {}) => ({
+    code: undefined,
+    error: '',
+    retryable: undefined,
+    status,
+    ...extra,
+});
+
+test('describeOverrideFailure: coded 404s keep their meaning', () => {
+    assert.match(
+        describeOverrideFailure(fail(404, { code: 'unknown_mbid' })).message,
+        /no artist with that id/i,
+    );
+    assert.match(
+        describeOverrideFailure(fail(404, { code: 'no_override' })).message,
+        /no override to remove/i,
+    );
+});
+
+test('describeOverrideFailure: a code-less 404 and a 405 both mean an older lb-bot, without the raw text', () => {
+    for (const status of [404, 405]) {
+        const f = describeOverrideFailure(
+            fail(status, { error: 'The method is not allowed for the requested URL.' }),
+        );
+        assert.match(f.message, /older/i);
+        assert.doesNotMatch(f.message, /not allowed/i);
+        assert.equal(f.status, status);
+    }
+});
+
+test("describeOverrideFailure: 409 busy, and a retryable 502 relays lb-bot's own words", () => {
+    assert.match(describeOverrideFailure(fail(409, { code: 'busy' })).message, /running/i);
+    const mb = describeOverrideFailure(
+        fail(502, { error: 'MusicBrainz is unavailable.', retryable: true }),
+    ).message;
+    assert.equal(mb, 'MusicBrainz is unavailable. Nothing was changed. Try again.');
+    const nd = describeOverrideFailure(
+        fail(502, { error: "Navidrome's artist list is unavailable.", retryable: true }),
+    ).message;
+    assert.match(nd, /Navidrome/);
+    assert.doesNotMatch(nd, /MusicBrainz/);
+    // Generic only when lb-bot said nothing.
+    assert.match(
+        describeOverrideFailure(fail(502, { retryable: true })).message,
+        /Nothing was changed\. Try again\./,
+    );
+});
+
+test("describeOverrideFailure: anything else shows lb-bot's error, else a generic sentence", () => {
+    assert.equal(describeOverrideFailure(fail(400, { error: 'bad mbid' })).message, 'bad mbid');
+    assert.match(describeOverrideFailure(fail(500)).message, /did not accept/i);
+});
