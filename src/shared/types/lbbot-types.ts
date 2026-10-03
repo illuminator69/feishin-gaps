@@ -142,11 +142,17 @@ export type LbBotQuality = 'flac-16-44' | 'flac-any' | 'highest-bitrate' | 'pref
  * and was 404ing every new route.
  */
 export interface LbBotResult<T> {
+    /** lb-bot's own machine-readable reason (`unknown_mbid`, `no_override`,
+     *  `busy`), when a failure body carried one. Absent on a hub-minted failure. */
+    code?: string;
     data: null | T;
     /** Empty when `ok`. lb-bot's own `error` sentence when it wrote one, else a
      *  translated transport failure — see `describeFailure` in the main client. */
     error: string;
     ok: boolean;
+    /** lb-bot said the same request may succeed later (`retryable: true` on its
+     *  502 for a MusicBrainz outage). Absent otherwise. */
+    retryable?: boolean;
     /** HTTP status, or 0 when the request never left this process. */
     status: number;
     /** A 502 the hub minted itself, not lb-bot's: one item in the answer was
@@ -744,6 +750,32 @@ export interface LbBotMetaSource {
     name: string;
     title: string;
     url: string;
+}
+
+/**
+ * One server-stored MusicBrainz override (I-019): the user's choice of artist
+ * for a library artist whose Navidrome tag is missing or wrong. Keyed by the
+ * Navidrome artist id. `tagMbid` is what Navidrome said when it was set ("" for
+ * none); `setAt` is epoch seconds.
+ */
+export interface LbBotOverride {
+    mbid: string;
+    name: string;
+    ndArtistId: string;
+    setAt: number;
+    tagMbid: string;
+}
+
+/** A successful remove. */
+export interface LbBotOverrideRemoved {
+    taskId: string;
+}
+
+/** A successful set. `taskId` is the discography scan lb-bot started, "" when none. */
+export interface LbBotOverrideSet {
+    mbid: string;
+    name: string;
+    taskId: string;
 }
 
 export interface LbBotRelease {
