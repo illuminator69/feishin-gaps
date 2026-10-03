@@ -1,8 +1,10 @@
 import isElectron from 'is-electron';
 import { useMemo } from 'react';
 
+import { notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
 import { HotkeyItem, useHotkeys } from '/@/renderer/hooks/use-hotkeys';
 import { useHotkeySettings, useHubStore, usePlayerStore } from '/@/renderer/store';
+import { PlayerStatus } from '/@/shared/types/types';
 
 const hub = isElectron() ? window.api.hub : null;
 
@@ -66,13 +68,20 @@ export const usePlaybackHotkeys = () => {
             {
                 binding: bindings.play,
                 handler: () => {
-                    if (!sendRemote('play')) player.mediaPlay();
+                    if (sendRemote('play')) return;
+                    notePlayRequest(); // navi-connect (B-058): the store direct - mark it here
+                    player.mediaPlay();
                 },
             },
             {
                 binding: bindings.playPause,
                 handler: () => {
-                    if (!sendRemote('playpause')) player.mediaTogglePlayPause();
+                    if (sendRemote('playpause')) return;
+                    // navi-connect (B-058): the store direct (space, by default) - mark a play here.
+                    if (usePlayerStore.getState().player.status !== PlayerStatus.PLAYING) {
+                        notePlayRequest();
+                    }
+                    player.mediaTogglePlayPause();
                 },
             },
             {

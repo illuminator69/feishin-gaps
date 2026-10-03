@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { getRemoteAwareSnapshot } from '/@/renderer/features/hub/hooks/use-remote-aware';
+import { notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
@@ -110,6 +111,7 @@ export const useMediaSession = () => {
         });
 
         mediaSession.setActionHandler('play', () => {
+            notePlayRequest(); // navi-connect (B-058): the OS asked on a person's behalf
             playerRef.current.mediaPlay();
         });
 

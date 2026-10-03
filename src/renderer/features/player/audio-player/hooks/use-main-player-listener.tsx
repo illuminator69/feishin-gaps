@@ -2,6 +2,7 @@ import { t } from 'i18next';
 import isElectron from 'is-electron';
 import { useCallback, useEffect } from 'react';
 
+import { notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { useIsRadioActive, useRadioStore } from '/@/renderer/features/radio/hooks/use-radio-player';
 import { usePlayerActions, useVolumeWheelStep } from '/@/renderer/store';
@@ -100,8 +101,12 @@ export const useMainPlayerListener = () => {
             }
         });
 
-        mpvPlayerListener.rendererPlay(() => {
+        mpvPlayerListener.rendererPlay((data) => {
             if (!isRadioActive) {
+                // navi-connect (B-058): the app menu, a global shortcut, MPRIS and Feishin's remote
+                // send this for a person pressing play; mpv's own `resumed` echo says only that
+                // the engine started (a startup auto-resume is one), so it is not marked.
+                if (!(data as undefined | { fromEngine?: boolean })?.fromEngine) notePlayRequest();
                 mediaPlay();
             } else {
                 const radio = useRadioStore.getState();

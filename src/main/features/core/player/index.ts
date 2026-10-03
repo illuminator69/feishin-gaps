@@ -223,7 +223,9 @@ const createMpv = async (data: {
 
     // Automatically updates the play button when the player is playing
     mpv.on('resumed', () => {
-        sendIfCurrent('renderer-player-play');
+        // navi-connect (B-058): a report, not a request - every other sender of this channel is
+        // a person pressing play, and the renderer must not take mpv starting for one.
+        sendIfCurrent('renderer-player-play', { fromEngine: true });
     });
 
     // Automatically updates the play button when the player is stopped

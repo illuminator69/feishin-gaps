@@ -4,6 +4,13 @@ import { useCallback, useEffect, useRef } from 'react';
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import {
+    GuardWindow,
+    isGuardOpen,
+    isRunaway,
+    lastPlayRequest,
+    notePlayRequest,
+} from '/@/renderer/features/hub/utils/play-request';
+import {
     isPlayheadRolling,
     notePlayerStatus,
     notePlayheadStep,
@@ -169,6 +176,12 @@ const savedQueueToHubRecord = (q: SavedQueue): Record<string, unknown> => ({
 
 const hub = isElectron() ? window.api.hub : null;
 
+/** The adopt guard's window (see `adoptPauseGuard`), opened now. */
+const openAdoptPauseGuard = (): GuardWindow => {
+    const now = Date.now();
+    return { armedAt: now, until: now + 3000 };
+};
+
 /**
  * navi-connect receiver/controller glue.
  *
@@ -239,9 +252,10 @@ export const useHub = () => {
     // (not user-initiated) — prevents do:load side effects from being
     // misinterpreted as "user started new local playback".
     const hubDrivenUntil = useRef(0);
-    // Wall-clock until which local playback is force-paused after adopting an orphaned
-    // (no active device) session — see the onPlayerProgress watchdog.
-    const adoptPauseGuardUntil = useRef(0);
+    // The window in which local playback is force-paused after adopting an orphaned (no active
+    // device) session — see the onPlayerProgress watchdog. B-058: a play somebody asks for inside
+    // it closes it (isGuardOpen), so the watchdog pauses only audio nobody asked for.
+    const adoptPauseGuard = useRef<GuardWindow>({ armedAt: 0, until: 0 });
     // The engine's own clock while it advances without a break. Lets the watchdogs ask
     // "is audio ACTUALLY rolling?" instead of trusting the store - see audioIsRolling.
     const playheadRun = useRef<null | PlayheadRun>(null);
@@ -319,6 +333,26 @@ export const useHub = () => {
             mediaPause();
         },
         [mediaPause, mediaPlay],
+    );
+
+    // B-058: the post-load re-checks are armed against a runaway, and a play somebody asks for
+    // inside their window rolls just the same - "rolling" cannot tell the two apart, the source
+    // of the play can (play-request.ts). So a re-check pauses only audio nobody asked for since
+    // it was armed, and says so when it stands down: otherwise the log reads as if it never ran.
+    const pauseIfRunaway = useCallback(
+        (why: string, armedAt: number) => {
+            if (!audioIsRolling()) return;
+            const request = lastPlayRequest();
+            if (isRunaway(true, armedAt, request)) {
+                hardPause(why);
+                return;
+            }
+            logger.info(`[hub] ${why}: stood down for a requested play`, {
+                afterArmMs: request ? request.at - armedAt : null,
+                source: request?.source ?? null,
+            });
+        },
+        [hardPause],
     );
 
     const reconcileRemoteActive = useCallback(() => {
@@ -801,6 +835,7 @@ export const useHub = () => {
                     clearQueue();
                     break;
                 case 'jump':
+                    notePlayRequest('hub'); // B-058: a controller asked for this play
                     mediaPlayByIndex(msg.index);
                     break;
                 case 'load': {
@@ -870,8 +905,13 @@ export const useHub = () => {
                         // Load straight into the requested state — see setQueue's `play`.
                         setQueue(songs, msg.index ?? 0, targetSec, !wantPause);
                     }
-                    if (wantPause) mediaPause();
-                    else mediaPlay();
+                    if (wantPause) {
+                        mediaPause();
+                    } else {
+                        // B-058: asked for - no older load's re-check may pause it.
+                        notePlayRequest('hub');
+                        mediaPlay();
+                    }
                     // Everything above is asynchronous. Watch for the result rather than
                     // reporting the commands as one — see awaitLoadOutcome.
                     const outcome = await awaitLoadOutcome(
@@ -896,6 +936,9 @@ export const useHub = () => {
                     mediaPause();
                     break;
                 case 'play':
+                    // B-058: a controller asked for this play. hubDrivenUntil cannot shield it from
+                    // a paused load's re-check, which always runs inside that window.
+                    notePlayRequest('hub');
                     mediaPlay();
                     break;
                 case 'queueChanged': {
@@ -1047,10 +1090,11 @@ export const useHub = () => {
                 // and the hub handed the slot back as null. `playing.current` is kept as the
                 // positive signal because the engine clock resets at every track boundary, and
                 // requiring it would pause a client that is legitimately mid-queue.
+                // B-058: a play requested since the adopt closes its window here too.
                 const weAreTheLiveReceiver =
                     playing.current &&
                     Date.now() >= hubDrivenUntil.current &&
-                    Date.now() >= adoptPauseGuardUntil.current &&
+                    !isGuardOpen(adoptPauseGuard.current, Date.now(), lastPlayRequest()) &&
                     Date.now() - lastHardPauseAt.current >= 2000;
                 if (weAreTheLiveReceiver) {
                     lastQueueSig.current = '';
@@ -1081,7 +1125,7 @@ export const useHub = () => {
                     setQueue(state2.getQueue().items, targetIndex, targetSec, false);
                 }
                 armSeek(targetIndex, targetSec, true);
-                adoptPauseGuardUntil.current = Date.now() + 3000;
+                adoptPauseGuard.current = openAdoptPauseGuard();
                 mediaPause();
                 return;
             }
@@ -1101,7 +1145,8 @@ export const useHub = () => {
             // Left empty (not pinned to hubSig) so the first local play republishes and
             // claims the session — the adopted queue is ours to own now.
             lastQueueSig.current = '';
-            adoptPauseGuardUntil.current = Date.now() + 3000;
+            const guard = openAdoptPauseGuard();
+            adoptPauseGuard.current = guard;
             // Loaded PAUSED outright. Loading it playing and pausing straight after was the
             // runaway: setQueue's PLAYING starts the engine asynchronously and the pause
             // could land first, so the audio arrived to a store that already read PAUSED —
@@ -1113,12 +1158,12 @@ export const useHub = () => {
             // a truly silent player hardPause's play/pause correction would be the thing
             // making noise.
             setTimeout(() => {
-                if (activeId.current === null && audioIsRolling()) {
-                    hardPause('adopt, 400 ms re-check');
+                if (activeId.current === null) {
+                    pauseIfRunaway('adopt, 400 ms re-check', guard.armedAt);
                 }
             }, 400);
         },
-        [armSeek, hardPause, mediaPause, publishQueue, resolveSongs, setQueue],
+        [armSeek, mediaPause, pauseIfRunaway, publishQueue, resolveSongs, setQueue],
     );
 
     /**
@@ -1426,8 +1471,9 @@ export const useHub = () => {
                             // flip IS the blip (Navic force-stopped while playing,
                             // 2026-09-30). A runaway shows as advancing progress within
                             // ~1 s, which is what audioIsRolling measures.
+                            // B-058: ...and that nobody asked for since the load armed it.
                             setTimeout(() => {
-                                if (audioIsRolling()) hardPause('armed seek, 1200 ms re-check');
+                                pauseIfRunaway('armed seek, 1200 ms re-check', pending.armedAt);
                             }, 1200);
                         }
                     }, 150);
@@ -1473,11 +1519,12 @@ export const useHub = () => {
                 // in-flight auto-resume can start the engine right after and leave audio
                 // running under a bar that reads "paused". Short window only — outside it
                 // a local play with no active device is the user legitimately claiming
-                // the session, and pausing that would fight them.
+                // the session, and pausing that would fight them. B-058: so is a play asked
+                // for INSIDE it - that closes the window (isGuardOpen).
                 if (
                     activeId.current === null &&
                     rolling &&
-                    Date.now() < adoptPauseGuardUntil.current
+                    isGuardOpen(adoptPauseGuard.current, Date.now(), lastPlayRequest())
                 ) {
                     hardPause('adopt guard, progress watchdog');
                     return;
@@ -1511,7 +1558,15 @@ export const useHub = () => {
                 report({ isPlaying: playing.current });
             },
         },
-        [hardPause, mediaPause, mediaSeekToTimestamp, publishQueue, report, routeLocalPlayToRemote],
+        [
+            hardPause,
+            mediaPause,
+            mediaSeekToTimestamp,
+            pauseIfRunaway,
+            publishQueue,
+            report,
+            routeLocalPlayToRemote,
+        ],
     );
 };
 

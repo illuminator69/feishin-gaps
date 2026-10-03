@@ -5,6 +5,7 @@ import { api } from '/@/renderer/api';
 import { queryKeys } from '/@/renderer/api/query-keys';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { albumQueries } from '/@/renderer/features/albums/api/album-api';
+import { notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { playlistsQueries } from '/@/renderer/features/playlists/api/playlists-api';
 import { radioQueries } from '/@/renderer/features/radio/api/radio-api';
@@ -489,6 +490,7 @@ export const useRemoteLibrary = () => {
         });
 
         remote.requestQueueJump(({ uniqueId }) => {
+            notePlayRequest(); // navi-connect (B-058): a person jumped to this row
             usePlayerStoreBase.getState().mediaPlay(uniqueId);
         });
 

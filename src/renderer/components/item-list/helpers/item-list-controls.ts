@@ -5,6 +5,7 @@ import { getTitlePath } from '/@/renderer/components/item-list/helpers/get-title
 import { ItemListStateItemWithRequiredProperties } from '/@/renderer/components/item-list/helpers/item-list-state';
 import { DefaultItemControlProps, ItemControls } from '/@/renderer/components/item-list/types';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
+import { notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { useSetFavorite } from '/@/renderer/features/shared/hooks/use-set-favorite';
 import { useSetRating } from '/@/renderer/features/shared/hooks/use-set-rating';
@@ -280,6 +281,7 @@ export const useDefaultItemListControls = (args?: UseDefaultItemListControlsArgs
                 if (itemType === LibraryItem.QUEUE_SONG) {
                     const queueSong = item as QueueSong;
                     if (queueSong._uniqueId) {
+                        notePlayRequest(); // navi-connect (B-058): a person picked this row
                         playerRef.current.mediaPlay(queueSong._uniqueId);
                     }
                 }

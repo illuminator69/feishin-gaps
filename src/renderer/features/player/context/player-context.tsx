@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { queryKeys } from '/@/renderer/api/query-keys';
 import { albumQueries } from '/@/renderer/features/albums/api/album-api';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
+import { notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
 import {
     addToQueueTypeToRemoteMode,
     enqueueToRemote,
@@ -32,6 +33,7 @@ import {
     AddToQueueType,
     useHubStore,
     usePlayerActions,
+    usePlayerStore,
     useSettingsStore,
     useSettingsStoreActions,
 } from '/@/renderer/store';
@@ -52,7 +54,7 @@ import {
     QueueSong,
     Song,
 } from '/@/shared/types/domain-types';
-import { Play, PlayerRepeat, PlayerShuffle } from '/@/shared/types/types';
+import { Play, PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
 
 export interface PlayerContext {
     addToQueueByData: (
@@ -229,6 +231,9 @@ const isReplaceQueueType = (type: AddToQueueType): boolean => {
 // keeps whichever announcement came last, and a bare replace falls back to inference.
 const announceNewQueueSession = (type: AddToQueueType): void => {
     if (!isReplaceQueueType(type)) return;
+    // navi-connect (B-058): and a replace starts playback the user asked for (Play.NOW / SHUFFLE,
+    // from every play button, menu and Feishin's remote) - use-hub's guards must not pause it.
+    notePlayRequest();
     if (isNewQueueSessionPending()) return; // a call site already named it
     beginQueueSession('manual');
 };
@@ -839,6 +844,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
             logger.debug('Media play', { id });
 
+            // navi-connect (B-058): deliberately NOT marked as a requested play (notePlayRequest):
+            // mpv's own `resumed` echo arrives through here too. Each caller marks its own.
             storeActions.mediaPlay(id);
         },
         [storeActions],
@@ -920,6 +927,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                     position,
                 });
 
+                notePlayRequest(); // navi-connect (B-058): a setQueue without `play` starts playing
                 storeActions.setQueue(data, index, position);
             });
         },
@@ -967,6 +975,10 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
         logger.debug('Media toggle play pause');
 
+        // navi-connect (B-058): a toggle that starts playback is a play the user asked for - every
+        // caller is a person (the play button, the mobile bars, the main process's play-pause:
+        // tray, dock, thumbar, global shortcut, MPRIS, media keys).
+        if (usePlayerStore.getState().player.status !== PlayerStatus.PLAYING) notePlayRequest();
         storeActions.mediaTogglePlayPause();
     }, [storeActions]);
 
