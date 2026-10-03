@@ -1087,19 +1087,13 @@ const toMeta = (data: Json): LbBotMeta => {
 
 ipcMain.handle(
     'lbbot-meta-artist',
-    async (
-        _event,
-        args: { mbid?: string; name?: string; refresh?: boolean },
-    ): Promise<LbBotMeta | null> => {
+    async (_event, args: { mbid?: string; name?: string }): Promise<LbBotMeta | null> => {
         // `name` costs lb-bot an extra MusicBrainz search and takes the first
         // hit, so the MBID is always preferred when Navidrome carries one.
         const params: Record<string, string> = {};
         if (args.mbid) params.mbid = args.mbid;
         else if (args.name) params.name = args.name;
         else return null;
-        // I-020 "Refresh About": the hub allowlists `refresh` and bypasses both
-        // its own cache and lb-bot's 30-day one.
-        if (args.refresh) params.refresh = '1';
         const data = await get('/lb/meta/artist', params);
         return data ? toMeta(data) : null;
     },
@@ -1107,18 +1101,46 @@ ipcMain.handle(
 
 ipcMain.handle(
     'lbbot-meta-album',
-    async (
-        _event,
-        args: { refresh?: boolean; releaseMbid?: string; rgid: string },
-    ): Promise<LbBotMeta | null> => {
+    async (_event, args: { releaseMbid?: string; rgid: string }): Promise<LbBotMeta | null> => {
         if (!args.rgid) return null;
         const params: Record<string, string> = { rgid: args.rgid };
         // Saves lb-bot the canonical-release resolution — two rate-limited
         // MusicBrainz seconds — when the caller already knows the release.
         if (args.releaseMbid) params.release_mbid = args.releaseMbid;
-        if (args.refresh) params.refresh = '1';
         const data = await get('/lb/meta/album', params);
         return data ? toMeta(data) : null;
+    },
+);
+
+// I-020 "Refresh About": the same two reads with `refresh=1` (the hub allowlists
+// it and bypasses its own cache and lb-bot's 30-day one), but result-shaped: the
+// button has to tell "could not reach lb-bot" and "lb-bot answered an error" from
+// a successful answer, which the fail-soft reads above collapse to null.
+ipcMain.handle(
+    'lbbot-meta-refresh',
+    async (
+        _event,
+        args: {
+            kind: 'album' | 'artist';
+            mbid?: string;
+            name?: string;
+            releaseMbid?: string;
+            rgid?: string;
+        },
+    ): Promise<LbBotResult<LbBotMeta>> => {
+        const params: Record<string, string> = { refresh: '1' };
+        if (args.kind === 'artist') {
+            if (args.mbid) params.mbid = args.mbid;
+            else if (args.name) params.name = args.name;
+            else return failed<LbBotMeta>(0, 'No artist to refresh.');
+        } else {
+            if (!args.rgid) return failed<LbBotMeta>(0, 'No album to refresh.');
+            params.rgid = args.rgid;
+            if (args.releaseMbid) params.release_mbid = args.releaseMbid;
+        }
+        const result = await request('GET', `/lb/meta/${args.kind}`, { params });
+        if (!result.ok) return failed<LbBotMeta>(result.status, result.error);
+        return { data: toMeta(result.data ?? {}), error: '', ok: true, status: result.status };
     },
 );
 

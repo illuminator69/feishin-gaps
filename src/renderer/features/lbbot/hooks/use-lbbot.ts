@@ -89,7 +89,11 @@ import {
     OverridesByNdId,
 } from '/@/renderer/features/lbbot/utils/artist-override';
 import { artistLinkPath } from '/@/renderer/features/lbbot/utils/external-paths';
-import { normalizeOverridesData, OverridesData } from '/@/renderer/features/lbbot/utils/lbbot-data';
+import {
+    classifyRefresh,
+    normalizeOverridesData,
+    OverridesData,
+} from '/@/renderer/features/lbbot/utils/lbbot-data';
 import { staleUnlessAnswered } from '/@/renderer/features/lbbot/utils/persisted-queries';
 import { importFinished } from '/@/renderer/features/listening/listening-logic';
 import { queryClient } from '/@/renderer/lib/react-query';
@@ -1254,38 +1258,41 @@ export const useLbBotAlbumMeta = (rgid?: null | string, releaseMbid?: null | str
 
 /**
  * "Refresh About" (I-020): ask lb-bot to bypass its caches (`refresh=1`) and
- * REPLACE the cached, persisted body with the answer. A null answer (lb-bot
- * unreachable, nothing found) leaves the existing body alone and says so.
+ * REPLACE the cached, persisted body with the answer. Resolves to the sentence to
+ * show: a failure leaves the existing body alone and says what is known about it
+ * (`classifyRefresh`); "the same" is claimed only for a successful, identical answer.
  */
-export const refreshArtistMeta = async (
-    mbid: null | string | undefined,
-    name: null | string | undefined,
-): Promise<boolean> => {
-    if (!lbBot || !(mbid || name)) return false;
-    const fresh = await lbBot.metaArtist({
-        mbid: mbid ?? undefined,
-        name: mbid ? undefined : (name ?? undefined),
-        refresh: true,
-    });
-    if (!fresh) return false;
-    queryClient.setQueryData(['lbbot', 'meta-artist', mbid || `name:${name}`], fresh);
-    return true;
+const refreshMeta = async (
+    key: readonly unknown[],
+    args: Parameters<NonNullable<typeof lbBot>['metaRefresh']>[0],
+): Promise<{ message: string; ok: boolean }> => {
+    if (!lbBot) return { message: 'Not available here.', ok: false };
+    const result = await lbBot.metaRefresh(args);
+    const current = queryClient.getQueryData<LbBotMeta | null>(key);
+    const same = result.ok && !!current && JSON.stringify(current) === JSON.stringify(result.data);
+    if (result.ok && result.data && !same) queryClient.setQueryData(key, result.data);
+    return { message: classifyRefresh(result, same), ok: result.ok };
 };
 
-export const refreshAlbumMeta = async (
+export const refreshArtistMeta = (
+    mbid: null | string | undefined,
+    name: null | string | undefined,
+) =>
+    refreshMeta(['lbbot', 'meta-artist', mbid || `name:${name}`], {
+        kind: 'artist',
+        mbid: mbid ?? undefined,
+        name: mbid ? undefined : (name ?? undefined),
+    });
+
+export const refreshAlbumMeta = (
     rgid: null | string | undefined,
     releaseMbid: null | string | undefined,
-): Promise<boolean> => {
-    if (!lbBot || !rgid) return false;
-    const fresh = await lbBot.metaAlbum({
-        refresh: true,
+) =>
+    refreshMeta(['lbbot', 'meta-album', rgid], {
+        kind: 'album',
         releaseMbid: releaseMbid ?? undefined,
-        rgid,
+        rgid: rgid ?? undefined,
     });
-    if (!fresh) return false;
-    queryClient.setQueryData(['lbbot', 'meta-album', rgid], fresh);
-    return true;
-};
 
 /** Editions of one release-group. Sits on MusicBrainz upstream — show a skeleton. */
 export const useLbBotAlbumReleases = (rgid: null | string) =>
