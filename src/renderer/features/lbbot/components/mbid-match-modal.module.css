@@ -1,0 +1,34 @@
+/* Fixed-height column like the other lb-bot modals: the candidate list scrolls,
+   the search box and the actions stay on screen. */
+.root {
+    display: flex;
+    flex-direction: column;
+    max-height: min(72vh, 40rem);
+}
+
+.body {
+    flex: 1;
+    min-height: 0;
+    padding-right: var(--theme-spacing-xs);
+    overflow-y: auto;
+}
+
+.footer {
+    padding-top: var(--theme-spacing-sm);
+    border-top: 1px solid var(--theme-colors-border);
+}
+
+.candidate {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--theme-spacing-sm);
+    align-items: center;
+    padding: var(--theme-spacing-xs) 0;
+    border-bottom: 1px solid var(--theme-colors-border);
+}
+
+.name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

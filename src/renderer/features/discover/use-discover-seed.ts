@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
+import { useLbBotOverrides } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { effectiveArtistMbid } from '/@/renderer/features/lbbot/utils/artist-override';
 import { useCurrentServerId } from '/@/renderer/store';
 import { AlbumArtistListSort, SortOrder } from '/@/shared/types/domain-types';
 
@@ -58,13 +60,18 @@ export const useDiscoverSeedArtist = () => {
         setHour(Math.floor(Date.now() / (60 * 60 * 1000)));
     }, []);
 
+    const { data: overrides } = useLbBotOverrides();
     const seed = useMemo(() => {
         if (hour === null) return null;
         const artists = (data?.items ?? []).filter((a) => a.name);
         if (artists.length === 0) return null;
         const picked = artists[hour % artists.length];
-        return { mbid: picked.mbz ?? null, name: picked.name };
-    }, [data, hour]);
+        // I-019: an override replaces the tag, as on the artist page.
+        return {
+            mbid: effectiveArtistMbid(overrides, picked.id, picked.mbz) ?? null,
+            name: picked.name,
+        };
+    }, [data, hour, overrides]);
 
     // `pending` tells "no seed yet" from "no seed at all" (a library with no
     // plays): the row reserves its height for the first and renders nothing for

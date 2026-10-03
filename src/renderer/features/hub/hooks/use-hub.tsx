@@ -26,6 +26,7 @@ import {
     clearLbBotStatus,
     invalidateLbBotOwnership,
     markLbBotUnreachable,
+    refreshLbBotOverrides,
     useLbBotLibraryRefresh,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
@@ -1372,6 +1373,10 @@ export const useHub = () => {
                 // local mirror pulls the delta and re-renders what reads it.
                 if (typeof msg.seq === 'number' && typeof msg.epoch === 'string') {
                     onIndexFrame(msg.seq, msg.epoch);
+                    // An override set from another device re-keys the index, so
+                    // this frame is how it reaches us (I-019). Trailing and
+                    // throttled: bulk builds send a frame every ~2 s.
+                    refreshLbBotOverrides(3000);
                 }
             } else if (msg.t === 'do') {
                 void runDirective(msg);

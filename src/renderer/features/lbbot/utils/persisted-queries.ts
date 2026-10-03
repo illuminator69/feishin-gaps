@@ -31,6 +31,9 @@ const PERSIST_FOR_MS: Record<string, number> = {
     'fresh-releases': 24 * 60 * 60 * 1000,
     'meta-album': 7 * 24 * 60 * 60 * 1000,
     'meta-artist': 7 * 24 * 60 * 60 * 1000,
+    // The user's own MusicBrainz choices: small, and wrong to forget just because
+    // the app was offline for a month. A refetch replaces it whenever lb-bot answers.
+    overrides: 30 * 24 * 60 * 60 * 1000,
     tracklist: 7 * 24 * 60 * 60 * 1000,
 };
 

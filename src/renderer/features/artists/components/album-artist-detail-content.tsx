@@ -31,6 +31,7 @@ import { MissingAlbumTile } from '/@/renderer/features/lbbot/components/missing-
 import {
     gapsByAlbumId,
     unownedReleases,
+    useEffectiveArtistMbid,
     useLbBotArtistMeta,
     useLbBotDiscography,
     withoutOwned,
@@ -1356,7 +1357,11 @@ export const AlbumArtistDetailContent = ({
         [routeId, detailQuery.data?.name],
     );
 
-    const mbzId = detailQuery.data?.mbz;
+    // I-019: Navidrome's tag, unless the user chose a MusicBrainz artist for this
+    // one. EVERYTHING below that feeds lb-bot or a MusicBrainz / ListenBrainz
+    // link takes `mbzId`; only the override picker needs to know the tag too.
+    const tagMbid = detailQuery.data?.mbz;
+    const mbzId = useEffectiveArtistMbid(routeId, tagMbid);
 
     const handleArtistRadio = useCallback(async () => {
         if (!server?.id || !routeId) return;
@@ -1433,6 +1438,7 @@ export const AlbumArtistDetailContent = ({
                         artistMbid={mbzId}
                         artistName={detailQuery.data?.name || ''}
                         order={itemOrder.recentAlbums}
+                        tagMbid={tagMbid}
                     />
                     {enabledItem.similarArtists && (
                         <AlbumArtistMetadataSimilarArtists
@@ -1693,9 +1699,17 @@ interface ArtistAlbumsProps {
     artistMbid?: null | string;
     artistName: string;
     order?: number;
+    /** Navidrome's own tag, for the override picker; `artistMbid` is the effective one. */
+    tagMbid?: null | string;
 }
 
-const ArtistAlbums = ({ albumsQuery, artistMbid, artistName, order }: ArtistAlbumsProps) => {
+const ArtistAlbums = ({
+    albumsQuery,
+    artistMbid,
+    artistName,
+    order,
+    tagMbid,
+}: ArtistAlbumsProps) => {
     const { t } = useTranslation();
     const [searchTerm, setSearchTerm] = useState('');
     const [debouncedSearchTerm] = useDebouncedValue(searchTerm, 300);
@@ -1846,6 +1860,7 @@ const ArtistAlbums = ({ albumsQuery, artistMbid, artistName, order }: ArtistAlbu
                         artistName={artistName}
                         discography={discographyQuery.data}
                         ndId={routeId}
+                        tagMbid={tagMbid}
                     />
                     <GroupingTypeSelector
                         displayNameFor={releaseTypeDisplayName}

@@ -12,6 +12,8 @@ import type {
     LbBotGapSource,
     LbBotGapTrackState,
     LbBotMeta,
+    LbBotOverrideRemoved,
+    LbBotOverrideSet,
     LbBotRelease,
     LbBotReleaseDetail,
     LbBotResolvedEdition,
@@ -73,6 +75,13 @@ import {
     sameAlbumTitle,
     sameArtist,
 } from '/@/renderer/features/lbbot/utils/album-match';
+import {
+    effectiveArtistMbid,
+    overrideKind,
+    OverrideKind,
+    overridesByNdId,
+    OverridesByNdId,
+} from '/@/renderer/features/lbbot/utils/artist-override';
 import { artistLinkPath } from '/@/renderer/features/lbbot/utils/external-paths';
 import { staleUnlessAnswered } from '/@/renderer/features/lbbot/utils/persisted-queries';
 import { queryClient } from '/@/renderer/lib/react-query';
@@ -304,6 +313,37 @@ const LB_OWNERSHIP_KINDS = new Set([
     'wishlist',
 ]);
 
+/** The override-map query (I-019), one key for the hook, the refresh and the persister. */
+const OVERRIDES_KEY = ['lbbot', 'overrides'] as const;
+
+let overridesTimer: null | number = null;
+
+/**
+ * Ask lb-bot for the override map again. Called on every welcome, after a set or
+ * remove, and on `index` frames — which arrive every ~2 s during a bulk build,
+ * so a frame only arms a single trailing refresh a few seconds out instead of
+ * one request per frame (the map is a small read, but it shares the hub's four
+ * proxy slots). Like {@link invalidateLbBotOwnership}, with lb-bot down it only
+ * marks the map stale: a refetch then would fail, and a failed fetch keeps the
+ * last map anyway.
+ */
+export const refreshLbBotOverrides = (delayMs = 0): void => {
+    const run = () => {
+        overridesTimer = null;
+        const down = useHubStore.getState().lbStatus?.available === false;
+        void queryClient.invalidateQueries({
+            queryKey: OVERRIDES_KEY,
+            refetchType: down ? 'none' : 'active',
+        });
+    };
+    if (delayMs <= 0) {
+        if (overridesTimer !== null) window.clearTimeout(overridesTimer);
+        run();
+        return;
+    }
+    if (overridesTimer === null) overridesTimer = window.setTimeout(run, delayMs);
+};
+
 /** lb-bot's index head (`welcome.lbIndex`) at the last ownership invalidation. */
 let ownershipHead: null | string = null;
 
@@ -335,6 +375,9 @@ let ownershipHead: null | string = null;
  *   and the observers are enabled again.
  */
 export const invalidateLbBotOwnership = (indexHint?: unknown): void => {
+    // Before the head check below: an override is a client-visible fact the head
+    // may not have moved for (a set made while this socket was down).
+    refreshLbBotOverrides();
     const hint =
         indexHint && typeof indexHint === 'object' ? (indexHint as Record<string, unknown>) : null;
     const head =
@@ -602,6 +645,168 @@ export const useIndexArtist = (ndId: string) => {
     );
 
     return { error, indexArtist, pending };
+};
+
+/** The route whose advert says this hub proxies the override writes (I-019). */
+const OVERRIDE_ROUTE = 'POST /lb/artist/override';
+
+/**
+ * Whether the override layer exists at all: lb-bot reachable and the hub
+ * advertising the write route. Stricter than {@link useHubSupports}, which
+ * assumes an EMPTY advert list means "supported": a hub that advertises nothing
+ * predates this feature, and offering a picker its 404 would only answer with
+ * "restart the hub" is worse than today's tooltip.
+ */
+export const useOverridesSupported = (): boolean => {
+    const status = useLbBotStatus();
+    return !!lbBot && !!status?.routes?.includes(OVERRIDE_ROUTE);
+};
+
+/**
+ * The override map by Navidrome artist id (I-019), persisted so an artist page
+ * opened offline still follows the user's choice. Refetched on welcome, on an
+ * `index` frame and after a set or remove ({@link refreshLbBotOverrides}).
+ *
+ * A failed fetch THROWS rather than answering an empty map, so react-query keeps
+ * the last good one — an empty map would silently send every overridden artist
+ * back to its (possibly wrong or missing) tag.
+ *
+ * Returns the cached map even while lb-bot is down (a disabled query still
+ * serves it); only the hub being switched off hides it (`useShownWithHub`).
+ * `data` is undefined until a map exists; use {@link useEffectiveArtistMbid}
+ * unless the whole map is wanted.
+ */
+export const useLbBotOverrides = () => {
+    const available = useLbBotAvailable();
+    const supported = useOverridesSupported();
+    const query = useQuery<OverridesByNdId>({
+        enabled: !!lbBot && available && supported,
+        gcTime: 60 * 60 * 1000,
+        queryFn: async () => {
+            const result = await lbBot!.overrides();
+            if (!result.ok || !result.data) throw new Error(result.error || 'No override list.');
+            return overridesByNdId(result.data);
+        },
+        queryKey: OVERRIDES_KEY,
+        refetchOnWindowFocus: false,
+        retry: false,
+        staleTime: 10 * 60 * 1000,
+    });
+    return useShownWithHub(query);
+};
+
+/** `overrides[ndId]?.mbid ?? tagMbid` for one artist — the MBID every lb-bot call
+ *  and MusicBrainz / ListenBrainz link for it should use. */
+export const useEffectiveArtistMbid = (
+    ndId: null | string | undefined,
+    tagMbid: null | string | undefined,
+): null | string | undefined => {
+    const { data } = useLbBotOverrides();
+    return effectiveArtistMbid(data, ndId, tagMbid);
+};
+
+/** Which of none / tag / override / override-same this artist is in. */
+export const useArtistOverrideKind = (
+    ndId: string,
+    tagMbid: null | string | undefined,
+): OverrideKind => {
+    const { data } = useLbBotOverrides();
+    return overrideKind(data, ndId, tagMbid);
+};
+
+/** Why a set or remove failed, in the words the picker shows. */
+export interface OverrideFailure {
+    /** lb-bot's `code`, when it sent one. */
+    code: string;
+    message: string;
+    /** HTTP status; 0 = never reached the hub. */
+    status: number;
+}
+
+export const describeOverrideFailure = (result: LbBotResult<unknown>): OverrideFailure => {
+    const base = { code: result.code ?? '', status: result.status };
+    if (result.status === 409) {
+        return {
+            ...base,
+            message: 'A fill for this artist is running. Try again when it is done.',
+        };
+    }
+    if (result.status === 404 && result.code === 'unknown_mbid') {
+        return { ...base, message: 'MusicBrainz has no artist with that id.' };
+    }
+    if (result.status === 404 && result.code === 'no_override') {
+        return { ...base, message: 'There is no override to remove.' };
+    }
+    if (result.status === 502 && result.retryable) {
+        return {
+            ...base,
+            message: 'MusicBrainz is unavailable right now. Nothing was changed. Try again.',
+        };
+    }
+    return { ...base, message: result.error || 'lb-bot did not accept that.' };
+};
+
+/**
+ * Choose, or clear, the MusicBrainz artist for one library artist (I-019).
+ *
+ * On success: refresh the override map first (so the page already resolves to the
+ * new MBID), THEN follow the scan lb-bot started with the page's own
+ * {@link useIndexArtist} flow — passed in, not a second watcher: the button that
+ * owns it stays mounted when the picker closes, so its spinner and its mirror
+ * pull outlive the dialog. lb-bot dedupes the scan on the one already running.
+ * A remove falls back to the tag, and re-scans only when there is one.
+ */
+export const useArtistOverrideActions = (
+    ndId: string,
+    indexArtist: (mbid: string, name: string) => Promise<boolean>,
+) => {
+    const queryClient = useQueryClient();
+    const [pending, setPending] = useState(false);
+    const [failure, setFailure] = useState<null | OverrideFailure>(null);
+
+    const settle = useCallback(async () => {
+        await queryClient.invalidateQueries({ queryKey: OVERRIDES_KEY, refetchType: 'all' });
+    }, [queryClient]);
+
+    const set = useCallback(
+        async (mbid: string, name: string): Promise<LbBotResult<LbBotOverrideSet>> => {
+            setPending(true);
+            setFailure(null);
+            const result = await lbBot!.overrideSet(ndId, mbid, name);
+            if (!result.ok) {
+                setFailure(describeOverrideFailure(result));
+            } else {
+                await settle();
+                // A scan only has something to say with a name to match against.
+                if (name) void indexArtist(result.data?.mbid || mbid, name);
+            }
+            setPending(false);
+            return result;
+        },
+        [indexArtist, ndId, settle],
+    );
+
+    const remove = useCallback(
+        async (
+            tagMbid: null | string | undefined,
+            name: string,
+        ): Promise<LbBotResult<LbBotOverrideRemoved>> => {
+            setPending(true);
+            setFailure(null);
+            const result = await lbBot!.overrideRemove(ndId);
+            if (!result.ok) {
+                setFailure(describeOverrideFailure(result));
+            } else {
+                await settle();
+                if (tagMbid && name) void indexArtist(tagMbid, name);
+            }
+            setPending(false);
+            return result;
+        },
+        [indexArtist, ndId, settle],
+    );
+
+    return { failure, pending, remove, set };
 };
 
 /**

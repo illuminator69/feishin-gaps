@@ -1,4 +1,9 @@
-import { useIndexArtist } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { openMbidMatchModal } from '/@/renderer/features/lbbot/components/mbid-match-modal';
+import {
+    useArtistOverrideKind,
+    useIndexArtist,
+    useOverridesSupported,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
 import { Text } from '/@/shared/components/text/text';
@@ -9,6 +14,8 @@ interface LbBotIndexButtonProps {
     artistName: string;
     discography: LbBotDiscography | null | undefined;
     ndId: string;
+    /** Navidrome's own MBID tag, which `artistMbid` (the effective one) may differ from. */
+    tagMbid?: null | string;
 }
 
 /**
@@ -28,14 +35,22 @@ interface LbBotIndexButtonProps {
  *
  * Still nothing at all when `discography` is undefined, which is lb-bot being
  * unconfigured or unreachable — that layer hides completely, as everywhere else.
+ *
+ * I-019: when the hub supports MBID overrides, "no MBID" is no longer a dead end
+ * ("Choose MusicBrainz artist"), and an artist that has one can be corrected
+ * ("Wrong artist?"). With a hub too old to, today's retag-in-Navidrome tooltip
+ * stays and neither control exists.
  */
 export const LbBotIndexButton = ({
     artistMbid,
     artistName,
     discography,
     ndId,
+    tagMbid,
 }: LbBotIndexButtonProps) => {
     const { error, indexArtist, pending } = useIndexArtist(ndId);
+    const overridesSupported = useOverridesSupported();
+    const kind = useArtistOverrideKind(ndId, tagMbid);
 
     if (!discography) return null;
 
@@ -50,6 +65,14 @@ export const LbBotIndexButton = ({
     // it matches the library against, and it 400s without either. A virtual artist
     // page reached by a bookmarked URL has the id and not yet the name.
     const scannable = Boolean(artistMbid && artistName);
+    const openPicker = () =>
+        openMbidMatchModal({
+            currentMbid: artistMbid,
+            indexArtist,
+            name: artistName,
+            ndId,
+            tagMbid,
+        });
 
     return (
         <Group gap="xs" wrap="nowrap">
@@ -60,7 +83,9 @@ export const LbBotIndexButton = ({
                 size="compact-md"
                 tooltip={{
                     label: !artistMbid
-                        ? 'This artist has no MusicBrainz id in your library, and lb-bot matches artists by MBID — there is nothing to ask it with. Tag the artist in Navidrome and rescan the library first.'
+                        ? overridesSupported
+                            ? 'This artist has no MusicBrainz id in your library. Choose the MusicBrainz artist to scan with.'
+                            : 'This artist has no MusicBrainz id in your library, and lb-bot matches artists by MBID — there is nothing to ask it with. Tag the artist in Navidrome and rescan the library first.'
                         : !artistName
                           ? "lb-bot needs the artist's name as well as their MusicBrainz id."
                           : empty
@@ -71,6 +96,16 @@ export const LbBotIndexButton = ({
             >
                 {discography.indexed && !empty ? 'Rescan discography' : 'Find missing albums'}
             </Button>
+            {overridesSupported && artistName && (
+                <Button disabled={pending} onClick={openPicker} size="compact-md" variant="subtle">
+                    {artistMbid ? 'Wrong artist?' : 'Choose MusicBrainz artist'}
+                </Button>
+            )}
+            {overridesSupported && (kind === 'override' || kind === 'override-same') && (
+                <Text isMuted size="xs">
+                    MusicBrainz match set by you
+                </Text>
+            )}
             {/* What makes an always-visible Rescan actionable rather than decorative:
                 without it there is no way to tell an index built this morning from
                 one built in March. `stale` is lb-bot's own verdict on its TTL. */}
