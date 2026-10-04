@@ -6,6 +6,7 @@ import {
     classifyRefresh,
     describeListeningStatus,
     describeToCheck,
+    metaHasContent,
     normalizeOverridesData,
     sortOverrides,
     syncReport,
@@ -167,15 +168,6 @@ test('syncReport listening: no baseline never reads "synced"', () => {
         ).listening,
         /Importing/,
     );
-    assert.match(
-        syncReport(
-            noBase,
-            at(FIN, { listening: listen({ error: 'x', state: 'error' }) }),
-            true,
-            4000,
-        ).listening,
-        /failed/i,
-    );
 });
 
 test('syncReport listening: a stale baseline equal to the new status is not a sync', () => {
@@ -199,14 +191,46 @@ test('syncReport listening: synced needs state ready AND lastSyncAt moved past t
     assert.match(lst(listen({ lastSyncAt: 50 }), neverSynced).listening, /synced/i);
 });
 
-test("syncReport listening: error reads as a failure with lb-bot's text, off as no ListenBrainz user", () => {
-    const err = lst(listen({ error: 'ListenBrainz 503', lastSyncAt: 1500, state: 'error' }));
-    assert.match(err.listening, /failed.*ListenBrainz 503/i);
-    assert.doesNotMatch(err.listening, /synced/i);
-    assert.equal(err.done, true);
-    const off = lst(listen({ state: 'off' }));
-    assert.match(off.listening, /no ListenBrainz user/i);
-    assert.equal(off.done, true);
+test('syncReport listening: error after the tap is a failure only when it is new', () => {
+    const base = {
+        ...before,
+        listening: listen({ error: 'old failure', lastSyncAt: 900, state: 'error' }),
+    };
+    const stillErr = at(FIN, {
+        listening: listen({ error: 'old failure', lastSyncAt: 900, state: 'error' }),
+    });
+    const same = syncReport(base, stillErr, true, 4000);
+    assert.doesNotMatch(same.listening, /failed|synced/i);
+    assert.match(same.listening, /waiting/i);
+    assert.equal(same.done, false);
+    const late = syncReport(base, stillErr, true, 25_000);
+    assert.match(late.listening, /still reports the earlier failure.*old failure/i);
+    assert.equal(late.done, true);
+    const fresh = lst(listen({ error: 'ListenBrainz 503', state: 'error' }));
+    assert.match(fresh.listening, /failed.*ListenBrainz 503/i);
+    assert.equal(fresh.done, true);
+});
+
+test('syncReport listening: with no baseline neither "synced" nor "failed" is claimed', () => {
+    const noBase = { ...before, listening: null };
+    const err = syncReport(
+        noBase,
+        at(FIN, { listening: listen({ error: 'x', state: 'error' }) }),
+        true,
+        4000,
+    );
+    assert.doesNotMatch(err.listening, /failed|synced/i);
+    assert.equal(err.done, false);
+    assert.match(
+        syncReport(noBase, at(FIN, { listening: listen({ state: 'off' }) }), true, 4000).listening,
+        /no ListenBrainz user/i,
+    );
+});
+
+test('syncReport listening: unknown total is not "?"', () => {
+    const r = lst(listen({ count: 5, state: 'importing', total: null }));
+    assert.doesNotMatch(r.listening, /\?/);
+    assert.match(r.listening, /Importing 5/);
 });
 
 test('syncReport listening: importing is reported, not done', () => {
@@ -215,15 +239,53 @@ test('syncReport listening: importing is reported, not done', () => {
     assert.equal(r.done, false);
 });
 
-test('classifyRefresh: only a successful answer identical to what is shown is "the same"', () => {
-    assert.match(classifyRefresh({ ok: true, status: 200 }, true), /same as what is shown/i);
-    assert.match(classifyRefresh({ ok: true, status: 200 }, false), /refreshed/i);
+const withText = { paragraphs: ['A.'], summary: 'A.' };
+const noText = {
+    credits: [],
+    found: false,
+    links: [],
+    paragraphs: [],
+    relations: { members: [], related: [] },
+    summary: '',
+    wikidataDescription: '',
+};
+
+test('metaHasContent: found alone is not content', () => {
+    assert.equal(metaHasContent(null), false);
+    assert.equal(metaHasContent(noText), false);
+    assert.equal(metaHasContent({ ...noText, found: true }), false);
+    assert.equal(metaHasContent({ ...noText, paragraphs: ['x'] }), true);
+    assert.equal(metaHasContent({ ...noText, summary: 'x' }), true);
+    assert.equal(metaHasContent({ ...noText, links: [{}] }), true);
+    assert.equal(metaHasContent({ ...noText, credits: [{}] }), true);
+    assert.equal(metaHasContent({ ...noText, relations: { members: [{}], related: [] } }), true);
+    assert.equal(metaHasContent({ ...noText, wikidataDescription: 'band' }), true);
+});
+
+test('classifyRefresh: content that equals what is shown is "the same"; changed content is "Refreshed"', () => {
+    const ok = { data: withText, ok: true, status: 200 };
+    assert.match(classifyRefresh(ok, true), /same as what is shown/i);
+    assert.match(classifyRefresh(ok, false), /refreshed/i);
+});
+
+test('classifyRefresh: an answer without About content is "found nothing", never "Refreshed"', () => {
+    for (const data of [noText, { ...noText, found: true }, null]) {
+        const r = classifyRefresh({ data, ok: true, status: 200 }, false);
+        assert.doesNotMatch(r, /refreshed|same as/i);
+        assert.match(r, /found nothing|returned nothing/i);
+        assert.match(r, /What is shown is unchanged/);
+    }
+});
+
+test('classifyRefresh: failures say what is known and leave what is shown', () => {
     const down = classifyRefresh({ error: 'Could not reach the hub', ok: false, status: 0 }, false);
     assert.match(down, /could not reach lb-bot/i);
-    assert.match(down, /unchanged/i);
-    const err = classifyRefresh({ error: 'lb-bot is busy', ok: false, status: 502 }, false);
-    assert.match(err, /502/);
-    assert.match(err, /lb-bot is busy/);
+    const err = classifyRefresh(
+        { error: 'MusicBrainz did not answer', ok: false, status: 502 },
+        false,
+    );
+    assert.match(err, /MusicBrainz did not answer/);
+    assert.match(err, /unchanged/);
     assert.doesNotMatch(err, /nothing new|same as/i);
 });
 
@@ -234,14 +296,6 @@ test('hasMetaFields: a body with none of the fields toMeta reads is "nothing"', 
     assert.equal(hasMetaFields({ summary: '' }), true);
     assert.equal(hasMetaFields({ paragraphs: [] }), true);
     assert.equal(hasMetaFields({ relations: {} }), true);
-});
-
-test('classifyRefresh: a success that carries no meta is "returned nothing", not "Refreshed"', () => {
-    const empty = classifyRefresh({ data: null, ok: true, status: 200 }, false);
-    assert.match(empty, /returned nothing/i);
-    assert.match(empty, /unchanged/i);
-    assert.doesNotMatch(empty, /refreshed|same as/i);
-    assert.match(classifyRefresh({ data: {}, ok: true, status: 200 }, false), /refreshed/i);
 });
 
 import { listeningSyncFailure } from './lbbot-data.ts';

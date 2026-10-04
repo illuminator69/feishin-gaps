@@ -149,11 +149,30 @@ export const syncReport = (
             listening = 'Listening: no status from lb-bot.';
         } else if (b.state === 'off') {
             listening = 'Listening: lb-bot has no ListenBrainz user, so there is nothing to sync.';
-        } else if (b.state === 'error') {
-            listening = `Listening: the sync failed: ${b.error || 'no reason given'}.`;
         } else if (b.state === 'importing') {
-            listening = `Listening: Importing ${b.count} of ${b.total ?? '?'}.`;
+            listening =
+                b.total !== null
+                    ? `Listening: Importing ${b.count} of ${b.total}.`
+                    : `Listening: Importing ${b.count} listens so far.`;
             listeningDone = false;
+        } else if (b.state === 'error') {
+            // lb-bot's `error` persists until the next success, which is exactly
+            // when a user presses the button: a failure already there with the same
+            // text and an unmoved lastSyncAt is the earlier one, not this tap's.
+            const earlier =
+                !!a && a.state === 'error' && a.error === b.error && a.lastSyncAt === b.lastSyncAt;
+            if (!a || earlier) {
+                if (elapsedMs < LISTENING_GIVE_UP_MS) {
+                    listening = 'Listening: waiting for lb-bot...';
+                    listeningDone = false;
+                } else {
+                    listening = a
+                        ? `Listening: lb-bot still reports the earlier failure: ${b.error || 'no reason given'}.`
+                        : 'Listening: could not confirm a sync (there was no earlier reading to compare with).';
+                }
+            } else {
+                listening = `Listening: the sync failed: ${b.error || 'no reason given'}.`;
+            }
         } else if (
             a &&
             b.lastSyncAt !== null &&
@@ -172,19 +191,53 @@ export const syncReport = (
     return { done: mirrorDone && listeningDone, listening, mirror };
 };
 
+/** Whether an About body holds anything to show. `found` is not content: lb-bot
+ *  always sends it, and `found: false` with nothing else is an empty answer. */
+export const metaHasContent = (
+    meta:
+        | null
+        | undefined
+        | {
+              credits?: readonly unknown[];
+              links?: readonly unknown[];
+              paragraphs?: readonly unknown[];
+              relations?: { members?: readonly unknown[]; related?: readonly unknown[] };
+              summary?: string;
+              wikidataDescription?: string;
+          },
+): boolean =>
+    !!meta &&
+    !!(
+        meta.summary ||
+        meta.wikidataDescription ||
+        meta.paragraphs?.length ||
+        meta.links?.length ||
+        meta.credits?.length ||
+        meta.relations?.members?.length ||
+        meta.relations?.related?.length
+    );
+
 /**
- * The sentence under "Refresh About". `same` = the answer was a success whose
- * body equals what was already shown; only then is "nothing new" true.
+ * The sentence under "Refresh About". `same` = the answer had content and equals
+ * what was already shown; only then is "the same" true. An answer WITHOUT content
+ * (`found: false` and nothing else, or no body) is never "Refreshed" and never
+ * replaces a shown body.
  */
 export const classifyRefresh = (
-    result: { data?: unknown; error?: string; ok: boolean; status: number },
+    result: {
+        data?: Parameters<typeof metaHasContent>[0];
+        error?: string;
+        ok: boolean;
+        status: number;
+    },
     same: boolean,
 ): string => {
-    // `data: null` on a success = the body carried no meta at all (`hasMetaFields`).
-    if (result.ok && result.data === null) {
-        return 'lb-bot returned nothing. What is shown is unchanged.';
-    }
     if (result.ok) {
+        if (!metaHasContent(result.data)) {
+            return result.data === null
+                ? 'lb-bot returned nothing. What is shown is unchanged.'
+                : 'lb-bot found nothing this time. What is shown is unchanged.';
+        }
         return same ? "Checked: lb-bot's answer is the same as what is shown." : 'Refreshed.';
     }
     if (result.status === 0) return 'Could not reach lb-bot. What is shown is unchanged.';
