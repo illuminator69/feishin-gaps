@@ -84,16 +84,19 @@ import {
 import {
     describeOverrideFailure,
     effectiveArtistMbid,
+    isOlderLbBot,
     OverrideFailure,
     overrideKind,
     OverrideKind,
     overridesByNdId,
     OverridesByNdId,
+    planIndexStart,
     planScan,
 } from '/@/renderer/features/lbbot/utils/artist-override';
 import { artistLinkPath } from '/@/renderer/features/lbbot/utils/external-paths';
 import {
     classifyRefresh,
+    metaHasContent,
     normalizeOverridesData,
     OverridesData,
 } from '/@/renderer/features/lbbot/utils/lbbot-data';
@@ -325,6 +328,11 @@ const LB_OWNERSHIP_KINDS = new Set([
     'artist-similar',
     'discography',
     'fresh-releases',
+    // I-006: listening rows carry `owned` / album ids, and an unowned-album tile
+    // must not keep offering a download once the library holds the record.
+    'listening-recent',
+    'listening-summary',
+    'listening-unowned',
     'wishlist',
 ]);
 
@@ -582,17 +590,45 @@ export const useIndexMirrorReady = (): void => {
     use(mirrorReady);
 };
 
+/**
+ * The picker's MusicBrainz artist search (I-019). Unlike {@link useLbBotArtistLookup}
+ * it is result-shaped (a failure is an error line, never "no artists found" — lb-bot
+ * answers 502 `retryable` when MusicBrainz did not answer) and it searches ANY
+ * non-blank term: a two-character name such as "U2" is a real artist.
+ */
+export const useLbBotArtistSearch = (term: string) => {
+    const available = useLbBotAvailable();
+    const q = term.trim();
+    return useQuery<LbBotArtistCandidate[]>({
+        enabled: !!lbBot && available && q.length > 0,
+        gcTime: 10 * 60 * 1000,
+        queryFn: async () => {
+            const result = await lbBot!.artistSearch(q);
+            if (!result.ok || !result.data) throw new LbBotReadError(result);
+            return result.data;
+        },
+        queryKey: ['lbbot', 'artist-search', q],
+        refetchOnWindowFocus: false,
+        retry: false,
+        staleTime: 10 * 60 * 1000,
+    });
+};
+
 /** Trigger the (slow, rate-limited) MusicBrainz scan for one artist. */
 export const useIndexArtist = (ndId: string) => {
     const queryClient = useQueryClient();
     const [pending, setPending] = useState(false);
     const [error, setError] = useState('');
+    // Not a failure: lb-bot started no scan because another library artist holds
+    // this discography.
+    const [note, setNote] = useState('');
 
     const indexArtist = useCallback(
         async (mbid: string, name: string) => {
             if (!lbBot || !mbid || !name) return false;
             setPending(true);
             setError('');
+            setNote('');
             // What the index says *before* the scan. A rescan of an artist that
             // is already indexed never flips `indexed`, so waiting on that flag
             // alone declared victory on the first tick and dropped the spinner
@@ -611,12 +647,21 @@ export const useIndexArtist = (ndId: string) => {
                 before?.scannedAt ?? 0,
                 getMirrorArtistByNdId(ndId, mbid)?.scannedAt ?? 0,
             );
-            const taskId = await lbBot.indexArtist(ndId, mbid, name);
-            if (!taskId) {
+            const plan = planIndexStart(await lbBot.indexArtist(ndId, mbid, name));
+            if (plan.kind === 'covered') {
+                // Nothing was started, so there is nothing to wait on: no spinner.
+                setPending(false);
+                setNote(
+                    'This artist shares its discography with another artist in your library, so there is nothing to scan from here.',
+                );
+                return false;
+            }
+            if (plan.kind === 'failed') {
                 setPending(false);
                 setError('lb-bot did not start the scan. Is it reachable?');
                 return false;
             }
+            const { taskId } = plan;
             // A big discography takes 10-60s at MusicBrainz's one-request-a-second.
             // Rather than polling a task, re-read the index a few times and let the
             // shelf appear when it appears — a miss just means "not yet".
@@ -659,7 +704,7 @@ export const useIndexArtist = (ndId: string) => {
         [ndId, queryClient],
     );
 
-    return { error, indexArtist, pending };
+    return { error, indexArtist, note, pending };
 };
 
 /** The route whose advert says this hub proxies the override writes (I-019). */
@@ -691,6 +736,31 @@ export const useOverridesSupported = (): boolean => {
  * `data` is undefined until a map exists; use {@link useEffectiveArtistMbid}
  * unless the whole map is wanted.
  */
+/** "This lb-bot is older" (contract): once the list answered 404 with no code, or
+ *  a set / remove answered 405, the override controls are hidden. Kept as query
+ *  data so every hook sees it; not persisted. */
+const OVERRIDES_OLDER_KEY = ['lbbot', 'overrides-older'] as const;
+export const markOverridesOlder = (): void => {
+    queryClient.setQueryData(OVERRIDES_OLDER_KEY, true);
+};
+export const useOverridesOlder = (): boolean =>
+    useQuery<boolean>({
+        enabled: false,
+        gcTime: Infinity,
+        initialData: false,
+        queryFn: () => false,
+        queryKey: OVERRIDES_OLDER_KEY,
+        staleTime: Infinity,
+    }).data;
+
+/** The override controls (picker entry points, panel buttons) exist: the hub
+ *  advertises the routes AND no answer has said this lb-bot is older. */
+export const useOverrideControls = (): boolean => {
+    const supported = useOverridesSupported();
+    const older = useOverridesOlder();
+    return supported && !older;
+};
+
 const useOverridesQuery = <TData>(select: (raw: OverridesData) => TData) => {
     const available = useLbBotAvailable();
     const supported = useOverridesSupported();
@@ -699,7 +769,14 @@ const useOverridesQuery = <TData>(select: (raw: OverridesData) => TData) => {
         gcTime: 60 * 60 * 1000,
         queryFn: async () => {
             const result = await lbBot!.overrides();
-            if (!result.ok || !result.data) throw new Error(result.error || 'No override list.');
+            if (!result.ok || !result.data) {
+                // An lb-bot older than the hub: remember it, so the controls go.
+                if (isOlderLbBot(result.status, result.code)) markOverridesOlder();
+                throw new LbBotReadError(result);
+            }
+            if (queryClient.getQueryData(OVERRIDES_OLDER_KEY)) {
+                queryClient.setQueryData(OVERRIDES_OLDER_KEY, false);
+            }
             return {
                 byNdId: overridesByNdId(result.data.artists),
                 toCheck: result.data.toCheck,
@@ -754,7 +831,10 @@ export const useArtistOverrideKind = (
  */
 export const useArtistOverrideActions = (
     ndId: string,
-    indexArtist: (mbid: string, name: string) => Promise<boolean>,
+    // Null from the settings panel: lb-bot starts the scan and the mirror's index
+    // frame brings the result; a follow there would poll for a row that has
+    // already unmounted.
+    indexArtist: ((mbid: string, name: string) => Promise<boolean>) | null,
 ) => {
     const queryClient = useQueryClient();
     const [pending, setPending] = useState(false);
@@ -770,6 +850,7 @@ export const useArtistOverrideActions = (
             setFailure(null);
             const result = await lbBot!.overrideSet(ndId, mbid, name);
             if (!result.ok) {
+                if (isOlderLbBot(result.status, result.code)) markOverridesOlder();
                 setFailure(describeOverrideFailure(result));
             } else {
                 await settle();
@@ -780,7 +861,7 @@ export const useArtistOverrideActions = (
                     { mbid: result.data?.mbid, taskId: result.data?.taskId ?? '' },
                     { mbid, name, tagMbid: undefined },
                 );
-                if (scan) void indexArtist(scan.mbid, scan.name);
+                if (scan && indexArtist) void indexArtist(scan.mbid, scan.name);
             }
             setPending(false);
             return result;
@@ -797,6 +878,7 @@ export const useArtistOverrideActions = (
             setFailure(null);
             const result = await lbBot!.overrideRemove(ndId);
             if (!result.ok) {
+                if (isOlderLbBot(result.status, result.code)) markOverridesOlder();
                 setFailure(describeOverrideFailure(result));
             } else {
                 await settle();
@@ -805,7 +887,7 @@ export const useArtistOverrideActions = (
                     { taskId: result.data?.taskId ?? '' },
                     { mbid: '', name, tagMbid },
                 );
-                if (scan) void indexArtist(scan.mbid, scan.name);
+                if (scan && indexArtist) void indexArtist(scan.mbid, scan.name);
             }
             setPending(false);
             return result;
@@ -832,9 +914,9 @@ export const useListeningSupported = (): boolean => {
     return !!lbBot && status?.available === true && !!status.routes?.includes(LISTENING_ROUTE);
 };
 
-/** A failed listening read, carrying the HTTP status so a 404 (lb-bot older than
- *  the hub) can hide the surface instead of being reported as an error. */
-export class ListeningReadError extends Error {
+/** A failed lb-bot read, carrying the HTTP status so a 404 / 405 (lb-bot older
+ *  than the hub) can hide the surface instead of being reported as an error. */
+export class LbBotReadError extends Error {
     status: number;
     constructor(result: LbBotResult<unknown>) {
         super(result.error || 'lb-bot could not answer.');
@@ -843,10 +925,10 @@ export class ListeningReadError extends Error {
 }
 
 export const isListeningUnavailable = (error: unknown): boolean =>
-    error instanceof ListeningReadError && error.status === 404;
+    error instanceof LbBotReadError && error.status === 404;
 
 const unwrapListening = <T>(result: LbBotResult<T>): T => {
-    if (!result.ok || !result.data) throw new ListeningReadError(result);
+    if (!result.ok || !result.data) throw new LbBotReadError(result);
     return result.data;
 };
 
@@ -896,8 +978,14 @@ export const useListeningStatus = () => {
  * paints offline; a failed fetch throws, which keeps it. While the mirror is still
  * importing it is re-read every 15 s, so the numbers under "Importing N of M" move.
  */
-export const useListeningSummary = (period: LbBotListeningPeriod, importing = false) => {
-    const supported = useListeningSupported();
+export const useListeningSummary = (
+    period: LbBotListeningPeriod,
+    importing = false,
+    // False while the status says `off` or an answer said this lb-bot is older:
+    // there is nothing to read, and asking only collects errors.
+    enabled = true,
+) => {
+    const supported = useListeningSupported() && enabled;
     const tz = listeningTimeZone();
     const query = useQuery<LbBotListeningSummary>({
         enabled: supported,
@@ -914,12 +1002,16 @@ export const useListeningSummary = (period: LbBotListeningPeriod, importing = fa
 };
 
 /** "Most played, not in your library" — albums or artists the library does not hold. */
-export const useListeningUnowned = (period: LbBotListeningPeriod, kind: 'album' | 'artist') => {
-    const supported = useListeningSupported();
+export const useListeningUnowned = (
+    period: LbBotListeningPeriod,
+    kind: 'album' | 'artist',
+    enabled = true,
+) => {
+    const supported = useListeningSupported() && enabled;
     return useQuery<LbBotUnowned>({
         enabled: supported,
         gcTime: 10 * 60 * 1000,
-        placeholderData: keepPreviousData,
+        // No placeholder: the Albums / Artists toggle would show the OTHER kind's rows.
         queryFn: async () => unwrapListening(await lbBot!.listeningUnowned(period, kind, 30)),
         queryKey: ['lbbot', 'listening-unowned', period, kind],
         refetchOnWindowFocus: false,
@@ -929,8 +1021,8 @@ export const useListeningUnowned = (period: LbBotListeningPeriod, kind: 'album' 
 };
 
 /** Recent plays, newest first, paged on `nextBefore`. */
-export const useListeningRecent = () => {
-    const supported = useListeningSupported();
+export const useListeningRecent = (enabled = true) => {
+    const supported = useListeningSupported() && enabled;
     return useInfiniteQuery<
         LbBotRecent,
         Error,
@@ -1252,7 +1344,11 @@ const refreshMeta = async (
     const result = await lbBot.metaRefresh(args);
     const current = queryClient.getQueryData<LbBotMeta | null>(key);
     const same = result.ok && !!current && JSON.stringify(current) === JSON.stringify(result.data);
-    if (result.ok && result.data && !same) queryClient.setQueryData(key, result.data);
+    // An answer without About content (`found: false` and nothing else) never
+    // replaces a shown body, whatever it is; neither does one equal to it.
+    if (result.ok && metaHasContent(result.data) && !same) {
+        queryClient.setQueryData(key, result.data);
+    }
     return { message: classifyRefresh(result, same), ok: result.ok };
 };
 
@@ -2020,7 +2116,18 @@ export const useLbBotLibraryRefresh = () => {
             // named albums are dropped — not every album detail in the cache.
             const ids = landing?.ndAlbumIds ?? [];
             const artist = landing?.ndArtistId ?? ndArtistId ?? '';
-            const invalidateLibrary = () =>
+            const invalidateLibrary = () => {
+                void queryClient.invalidateQueries({
+                    predicate: (query) => {
+                        const [scope, kind] = query.queryKey as unknown[];
+                        return (
+                            scope === 'lbbot' &&
+                            typeof kind === 'string' &&
+                            kind.startsWith('listening-') &&
+                            kind !== 'listening-status'
+                        );
+                    },
+                });
                 void queryClient.invalidateQueries({
                     predicate: (query) => {
                         const [, kind, scope] = query.queryKey as [string, string?, string?];
@@ -2036,6 +2143,7 @@ export const useLbBotLibraryRefresh = () => {
                         return false;
                     },
                 });
+            };
             if (landing?.event === 'albumPlaced') {
                 // An lb-bot predating `albumIndexed` never sends the follow-up,
                 // so still look once its quick scan has plausibly finished.

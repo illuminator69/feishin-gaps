@@ -4,8 +4,10 @@ import {
     refreshArtistMeta,
     useArtistOverrideKind,
     useIndexArtist,
-    useOverridesSupported,
+    useLbBotAvailable,
+    useOverrideControls,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { isNavidromeArtistId } from '/@/renderer/features/lbbot/utils/artist-override';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
 import { Text } from '/@/shared/components/text/text';
@@ -50,8 +52,12 @@ export const LbBotIndexButton = ({
     ndId,
     tagMbid,
 }: LbBotIndexButtonProps) => {
-    const { error, indexArtist, pending } = useIndexArtist(ndId);
-    const overridesSupported = useOverridesSupported();
+    const { error, indexArtist, note, pending } = useIndexArtist(ndId);
+    const available = useLbBotAvailable();
+    // The override controls belong to a NAVIDROME artist: the virtual page's
+    // `mb:<uuid>` id is answered 400 by lb-bot. Hidden too once an answer said this
+    // lb-bot is older.
+    const overridesSupported = useOverrideControls() && isNavidromeArtistId(ndId);
     const kind = useArtistOverrideKind(ndId, tagMbid);
 
     if (!discography) return null;
@@ -99,7 +105,12 @@ export const LbBotIndexButton = ({
                 {discography.indexed && !empty ? 'Rescan discography' : 'Find missing albums'}
             </Button>
             {overridesSupported && artistName && (
-                <Button disabled={pending} onClick={openPicker} size="compact-md" variant="subtle">
+                <Button
+                    disabled={pending || !available}
+                    onClick={openPicker}
+                    size="compact-md"
+                    variant="subtle"
+                >
                     {artistMbid ? 'Wrong artist?' : 'Choose MusicBrainz artist'}
                 </Button>
             )}
@@ -118,6 +129,13 @@ export const LbBotIndexButton = ({
                 <Text isMuted size="xs">
                     {describeScan(discography.scannedAt)}
                     {discography.stale ? ' · out of date' : ''}
+                </Text>
+            )}
+            {/* Not a failure: lb-bot started no scan because another library artist
+                holds this discography. */}
+            {note && !pending && !error && (
+                <Text isMuted size="xs">
+                    {note}
                 </Text>
             )}
             {/* The scan failed and lb-bot kept what it had: say so, in its words. */}

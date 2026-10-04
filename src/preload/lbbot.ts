@@ -12,6 +12,7 @@ import type {
     LbBotGapSource,
     LbBotIndexKeys,
     LbBotIndexPage,
+    LbBotIndexStart,
     LbBotListeningStatus,
     LbBotListeningSummary,
     LbBotMeta,
@@ -60,7 +61,9 @@ const indexChanges = (since: number, epoch: string): Promise<LbBotResult<LbBotIn
 const indexKeys = (): Promise<LbBotResult<LbBotIndexKeys>> =>
     ipcRenderer.invoke('lbbot-index-keys');
 
-const indexArtist = (ndId: string, mbid: string, name: string): Promise<null | string> =>
+/** Null when the request failed. A blank `taskId` with `covered` means lb-bot
+ *  started nothing because another library artist holds this discography. */
+const indexArtist = (ndId: string, mbid: string, name: string): Promise<LbBotIndexStart | null> =>
     ipcRenderer.invoke('lbbot-index-artist', { mbid, name, ndId });
 
 /** Add or refresh one release-group in an artist's index — the cheap alternative
@@ -208,6 +211,10 @@ const gapRescan = (groupId: string): Promise<LbBotResult<boolean>> =>
 const artistLookup = (q: string): Promise<LbBotArtistCandidate[]> =>
     ipcRenderer.invoke('lbbot-artist-lookup', { q });
 
+/** The picker's artist search, result-shaped: an error is not "no artists found". */
+const artistSearch = (q: string): Promise<LbBotResult<LbBotArtistCandidate[]>> =>
+    ipcRenderer.invoke('lbbot-artist-search', { q });
+
 /** MusicBrainz album search, with each hit marked owned or not. Same empty-array
  *  contract as `artistLookup`. */
 const albumLookup = (q: string): Promise<LbBotAlbumCandidate[]> =>
@@ -312,6 +319,7 @@ export const lbBot = {
     allowMp3,
     artistLookup,
     artistRelated,
+    artistSearch,
     artistSimilar,
     cancelAlbum,
     deezerChart,

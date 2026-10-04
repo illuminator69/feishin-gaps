@@ -88,7 +88,13 @@ test('parseMbidInput refuses everything else', () => {
 
 // ---- cross-lane fix round: scan decision and failure wording --------------
 
-import { describeOverrideFailure, planScan } from './artist-override.ts';
+import {
+    describeOverrideFailure,
+    isNavidromeArtistId,
+    isOlderLbBot,
+    planIndexStart,
+    planScan,
+} from './artist-override.ts';
 
 test('planScan: a set follows the scan only when lb-bot answered a task id, with the mbid it answered', () => {
     assert.deepEqual(
@@ -152,23 +158,52 @@ test('describeOverrideFailure: a code-less 404 and a 405 both mean an older lb-b
 
 test("describeOverrideFailure: 409 busy, and a retryable 502 relays lb-bot's own words", () => {
     assert.match(describeOverrideFailure(fail(409, { code: 'busy' })).message, /running/i);
+    // lb-bot's text already says nothing was stored: only "Try again." is added.
     const mb = describeOverrideFailure(
-        fail(502, { error: 'MusicBrainz is unavailable.', retryable: true }),
+        fail(502, { error: 'MusicBrainz is unavailable; nothing was stored', retryable: true }),
     ).message;
-    assert.equal(mb, 'MusicBrainz is unavailable. Nothing was changed. Try again.');
+    assert.equal(mb, 'MusicBrainz is unavailable; nothing was stored. Try again.');
+    assert.equal(
+        describeOverrideFailure(fail(502, { error: 'Down.', retryable: true })).message,
+        'Down. Try again.',
+    );
     const nd = describeOverrideFailure(
         fail(502, { error: "Navidrome's artist list is unavailable.", retryable: true }),
     ).message;
     assert.match(nd, /Navidrome/);
     assert.doesNotMatch(nd, /MusicBrainz/);
-    // Generic only when lb-bot said nothing.
-    assert.match(
-        describeOverrideFailure(fail(502, { retryable: true })).message,
-        /Nothing was changed\. Try again\./,
-    );
 });
 
 test("describeOverrideFailure: anything else shows lb-bot's error, else a generic sentence", () => {
     assert.equal(describeOverrideFailure(fail(400, { error: 'bad mbid' })).message, 'bad mbid');
     assert.match(describeOverrideFailure(fail(500)).message, /did not accept/i);
+});
+
+test('isNavidromeArtistId: the virtual mb: id is not a Navidrome id', () => {
+    assert.equal(isNavidromeArtistId('a1b2c3'), true);
+    assert.equal(isNavidromeArtistId('mb:11111111-1111-4111-8111-111111111111'), false);
+    assert.equal(isNavidromeArtistId(''), false);
+});
+
+test("isOlderLbBot: 405, or a 404 without a code; a coded 404 is lb-bot's own answer", () => {
+    assert.equal(isOlderLbBot(405, ''), true);
+    assert.equal(isOlderLbBot(404, ''), true);
+    assert.equal(isOlderLbBot(404, undefined), true);
+    assert.equal(isOlderLbBot(404, 'unknown_mbid'), false);
+    assert.equal(isOlderLbBot(409, 'busy'), false);
+    assert.equal(isOlderLbBot(502, ''), false);
+});
+
+test('planIndexStart: a scan request is followed only when it answered a task id', () => {
+    assert.deepEqual(planIndexStart({ covered: false, taskId: 't1' }), {
+        kind: 'scan',
+        taskId: 't1',
+    });
+    assert.deepEqual(planIndexStart({ taskId: 't1' }), { kind: 'scan', taskId: 't1' });
+    // Blank task id + covered: nothing was started, say why, no spinner.
+    assert.deepEqual(planIndexStart({ covered: true, taskId: '' }), { kind: 'covered' });
+    // Blank without `covered` (an lb-bot that never sends it): as before, a failure.
+    assert.deepEqual(planIndexStart({ taskId: '' }), { kind: 'failed' });
+    assert.deepEqual(planIndexStart({ covered: false, taskId: '' }), { kind: 'failed' });
+    assert.deepEqual(planIndexStart(null), { kind: 'failed' });
 });

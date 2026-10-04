@@ -1,6 +1,7 @@
 import { Modal as MantineModal, ModalProps as MantineModalProps } from '@mantine/core';
 import {
     closeAllModals as closeAllModalsMantine,
+    closeModal as closeModalMantine,
     ContextModalProps,
     ModalsProvider as MantineModalsProvider,
     ModalsProviderProps as MantineModalsProviderProps,
@@ -22,6 +23,8 @@ import { Stack } from '/@/shared/components/stack/stack';
 export const openModal = openModalMantine;
 
 export const closeAllModals = closeAllModalsMantine;
+
+export const closeModal = closeModalMantine;
 
 export interface ModalProps extends Omit<MantineModalProps, 'onClose'> {
     children?: ReactNode;

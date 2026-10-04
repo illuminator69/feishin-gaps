@@ -26,6 +26,7 @@ import type {
     LbBotIndexItem,
     LbBotIndexKeys,
     LbBotIndexPage,
+    LbBotIndexStart,
     LbBotLinkKind,
     LbBotListeningState,
     LbBotListeningStatus,
@@ -382,14 +383,20 @@ ipcMain.handle(
 // on page open. Returns the background task id, or null if the trigger failed.
 ipcMain.handle(
     'lbbot-index-artist',
-    async (_event, args: { mbid: string; name: string; ndId: string }): Promise<null | string> => {
+    async (
+        _event,
+        args: { mbid: string; name: string; ndId: string },
+    ): Promise<LbBotIndexStart | null> => {
         // lb-bot requires both: the MBID is what it scans, the name is what it
         // matches the library against. Without an MBID there is nothing to ask.
         if (!args.mbid || !args.name) return null;
         const { data } = await request('POST', '/lb/artist/discography', {
             body: { mbid: args.mbid, name: args.name, nd_id: args.ndId },
         });
-        return data?.ok === true ? str(data.task_id) : null;
+        if (data?.ok !== true) return null;
+        // A blank `task_id` with `covered: true` is lb-bot's decision to start
+        // nothing: another library artist holds this discography.
+        return { covered: data.covered === true, taskId: str(data.task_id) };
     },
 );
 
@@ -467,7 +474,8 @@ ipcMain.handle(
 // failure has to be sayable — `status` / `code` / `retryable` tell the 404
 // (`unknown_mbid`, `no_override`), the 409 (`busy`) and the 502 (MusicBrainz
 // down, nothing stored) apart. An older hub or lb-bot 404s these routes without
-// a `code`; the renderer gates on the hub's advert and never offers them there.
+// a `code`; the renderer reads that as "older" and hides the controls (a 405
+// for the POSTs, a 404 for the list).
 
 const toOverride = (row: unknown): LbBotOverride[] => {
     if (!row || typeof row !== 'object') return [];
@@ -1277,6 +1285,43 @@ ipcMain.handle(
                 },
             ];
         });
+    },
+);
+
+// The picker's lookup (I-019), result-shaped: an error line (lb-bot answers 502
+// `retryable` when MusicBrainz did not answer) must not read as "no artists
+// found", which the fail-soft lookup above cannot tell apart.
+ipcMain.handle(
+    'lbbot-artist-search',
+    async (_event, args: { q: string }): Promise<LbBotResult<LbBotArtistCandidate[]>> => {
+        const q = (args.q ?? '').trim();
+        if (!q) return { data: [], error: '', ok: true, status: 200 };
+        const result = await request('GET', '/lb/artist/lookup', { params: { q } });
+        if (!result.ok) return failed<LbBotArtistCandidate[]>(result.status, result.error);
+        if (!Array.isArray(result.data?.candidates)) {
+            return failed<LbBotArtistCandidate[]>(result.status, 'lb-bot sent no candidate list.');
+        }
+        return {
+            data: result.data.candidates.flatMap((row): LbBotArtistCandidate[] => {
+                if (!row || typeof row !== 'object') return [];
+                const r = row as Json;
+                const mbid = str(r.mbid);
+                if (!mbid) return [];
+                return [
+                    {
+                        country: str(r.country),
+                        disambiguation: str(r.disambiguation),
+                        mbid,
+                        name: str(r.name),
+                        score: num(r.score),
+                        type: str(r.type),
+                    },
+                ];
+            }),
+            error: '',
+            ok: true,
+            status: result.status,
+        };
     },
 );
 

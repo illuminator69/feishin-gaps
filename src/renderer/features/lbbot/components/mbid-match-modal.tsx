@@ -5,13 +5,16 @@ import styles from './mbid-match-modal.module.css';
 import {
     useArtistOverrideActions,
     useArtistOverrideKind,
-    useLbBotArtistLookup,
+    useLbBotArtistSearch,
+    useLbBotAvailable,
+    useOverrideControls,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { parseMbidInput } from '/@/renderer/features/lbbot/utils/artist-override';
+import { readState } from '/@/renderer/features/listening/listening-logic';
 import { Badge } from '/@/shared/components/badge/badge';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
-import { closeAllModals, openModal } from '/@/shared/components/modal/modal';
+import { closeModal, openModal } from '/@/shared/components/modal/modal';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextInput } from '/@/shared/components/text-input/text-input';
 import { Text } from '/@/shared/components/text/text';
@@ -29,40 +32,71 @@ import { LbBotArtistCandidate } from '/@/shared/types/lbbot-types';
  * `musicbrainz.org/artist/<uuid>` URL is the escape hatch for an artist the
  * search ranks badly. The write is lb-bot's: it validates the id against
  * MusicBrainz, stores it, and starts the scan; a refusal is shown here in place.
+ *
+ * Every sentence about the search comes from what was read: "No MusicBrainz
+ * artists found" only from a 200 with no candidates, an error line (lb-bot's own
+ * text, with Retry unless permanent) when the search failed.
  */
 
 interface MbidMatchModalProps {
     /** The MBID in force now — the override if there is one, else the tag. */
     currentMbid: null | string | undefined;
-    indexArtist: (mbid: string, name: string) => Promise<boolean>;
+    /** The artist page's scan follow; null from the settings panel (see
+     *  `useArtistOverrideActions`). */
+    indexArtist: ((mbid: string, name: string) => Promise<boolean>) | null;
     name: string;
     ndId: string;
     tagMbid: null | string | undefined;
 }
 
-const MbidMatchModal = ({ currentMbid, indexArtist, name, ndId, tagMbid }: MbidMatchModalProps) => {
+const MbidMatchModal = ({
+    currentMbid,
+    indexArtist,
+    modalId,
+    name,
+    ndId,
+    tagMbid,
+}: MbidMatchModalProps & { modalId: string }) => {
     const [term, setTerm] = useState(name);
     const [debounced] = useDebouncedValue(term, 500);
     const [pasted, setPasted] = useState('');
-    const lookup = useLbBotArtistLookup(debounced ?? '');
+    const available = useLbBotAvailable();
+    const controls = useOverrideControls();
+    const search = useLbBotArtistSearch(debounced ?? '');
     const kind = useArtistOverrideKind(ndId, tagMbid);
     const { failure, pending, remove, set } = useArtistOverrideActions(ndId, indexArtist);
 
     const parsed = parseMbidInput(pasted);
     const overridden = kind === 'override' || kind === 'override-same';
+    const canWrite = available && controls;
 
+    // Only the picker closes: from the Settings panel a pick must not eject the user.
     const choose = async (mbid: string) => {
         const result = await set(mbid, name);
-        if (result.ok) closeAllModals();
+        if (result.ok) closeModal(modalId);
     };
 
     const handleRemove = async () => {
         const result = await remove(tagMbid, name);
-        if (result.ok) closeAllModals();
+        if (result.ok) closeModal(modalId);
     };
 
-    const candidates: LbBotArtistCandidate[] = lookup.data ?? [];
-    const searched = (debounced ?? '').trim().length >= 3;
+    const candidates: LbBotArtistCandidate[] = search.data ?? [];
+    const typed = (debounced ?? '').trim().length > 0;
+    const settledTerm = typed && (debounced ?? '').trim() === term.trim();
+    const reading = readState({
+        available,
+        error: search.error
+            ? {
+                  message: search.error.message,
+                  status: (search.error as { status?: number }).status ?? 0,
+              }
+            : null,
+        fetching: search.isFetching,
+        hasData: search.data !== undefined,
+        rowCount: candidates.length,
+        supported: controls,
+    });
 
     return (
         <div className={styles.root}>
@@ -72,6 +106,13 @@ const MbidMatchModal = ({ currentMbid, indexArtist, name, ndId, tagMbid }: MbidM
                         ? 'Navidrome has a MusicBrainz id for this artist. Choose another if it is the wrong one.'
                         : 'Navidrome has no MusicBrainz id for this artist. Choose who they are on MusicBrainz.'}
                 </Text>
+                {(!available || !controls) && (
+                    <Text isMuted size="sm">
+                        {!available
+                            ? 'lb-bot is not reachable, so nothing can be searched or changed right now.'
+                            : 'This lb-bot is older and cannot store overrides yet.'}
+                    </Text>
+                )}
                 <TextInput
                     autoFocus
                     label="Search MusicBrainz"
@@ -80,12 +121,33 @@ const MbidMatchModal = ({ currentMbid, indexArtist, name, ndId, tagMbid }: MbidM
                 />
             </Stack>
             <div className={styles.body}>
-                {searched && lookup.isFetching && candidates.length === 0 && (
+                {!typed && available && (
+                    <Text isMuted py="md" size="sm">
+                        Type an artist name to search MusicBrainz.
+                    </Text>
+                )}
+                {typed && reading.kind === 'reading' && candidates.length === 0 && (
                     <Text isMuted py="md" size="sm">
                         Searching…
                     </Text>
                 )}
-                {searched && !lookup.isFetching && candidates.length === 0 && (
+                {typed && reading.kind === 'failed' && (
+                    <Group gap="sm" py="md">
+                        <Text c="red" size="sm">
+                            {reading.text}
+                        </Text>
+                        {!reading.permanent && (
+                            <Button
+                                onClick={() => void search.refetch()}
+                                size="compact-sm"
+                                variant="default"
+                            >
+                                Retry
+                            </Button>
+                        )}
+                    </Group>
+                )}
+                {typed && settledTerm && reading.kind === 'empty' && (
                     <Text isMuted py="md" size="sm">
                         No MusicBrainz artists found for that search.
                     </Text>
@@ -114,7 +176,7 @@ const MbidMatchModal = ({ currentMbid, indexArtist, name, ndId, tagMbid }: MbidM
                                 </Text>
                             </Stack>
                             <Button
-                                disabled={pending || current}
+                                disabled={pending || current || !canWrite}
                                 onClick={() => choose(candidate.mbid)}
                                 size="compact-sm"
                                 variant="default"
@@ -137,7 +199,7 @@ const MbidMatchModal = ({ currentMbid, indexArtist, name, ndId, tagMbid }: MbidM
                         value={pasted}
                     />
                     <Button
-                        disabled={pending || !parsed || parsed === currentMbid}
+                        disabled={pending || !parsed || parsed === currentMbid || !canWrite}
                         loading={pending}
                         onClick={() => parsed && choose(parsed)}
                         variant="filled"
@@ -158,7 +220,7 @@ const MbidMatchModal = ({ currentMbid, indexArtist, name, ndId, tagMbid }: MbidM
                                 : 'Removing the override leaves this artist with no MusicBrainz id.'}
                         </Text>
                         <Button
-                            disabled={pending}
+                            disabled={pending || !canWrite}
                             onClick={handleRemove}
                             size="compact-sm"
                             variant="subtle"
@@ -173,8 +235,10 @@ const MbidMatchModal = ({ currentMbid, indexArtist, name, ndId, tagMbid }: MbidM
 };
 
 export const openMbidMatchModal = (props: MbidMatchModalProps) => {
+    const modalId = `mbid-match-${props.ndId}`;
     openModal({
-        children: <MbidMatchModal {...props} />,
+        children: <MbidMatchModal {...props} modalId={modalId} />,
+        modalId,
         size: 'lg',
         title: `MusicBrainz match for ${props.name}`,
     });

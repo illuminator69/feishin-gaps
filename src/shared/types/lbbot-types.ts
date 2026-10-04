@@ -662,6 +662,13 @@ export type LbBotGapTrackState =
     | 'queued'
     | 'skipped';
 
+/** The answer to a scan request. `taskId` blank + `covered`: lb-bot started
+ *  nothing because another library artist holds this discography. */
+export interface LbBotIndexStart {
+    covered: boolean;
+    taskId: string;
+}
+
 /**
  * What a pasted streaming link resolved to.
  *
@@ -843,7 +850,8 @@ export interface LbBotOverrideSet {
 }
 
 export interface LbBotRecent {
-    /** The last row's `listenedAt` when the page was full, else null. */
+    /** The last row's `listenedAt` when more rows exist, else null. A page may be
+     *  shorter than `limit` and still carry it: page on this, never on the row count. */
     nextBefore: null | number;
     rows: LbBotRecentRow[];
 }
@@ -1041,10 +1049,6 @@ export interface LbBotSourceFiles {
     files: LbBotSourceFile[];
     filesTruncated: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Listening (I-006)
-// ---------------------------------------------------------------------------
 
 export interface LbBotSourceMatch {
     /** exact | prefix | contained | fuzzy | duration | position — lb-bot grades

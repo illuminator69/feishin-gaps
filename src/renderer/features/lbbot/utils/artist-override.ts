@@ -122,11 +122,11 @@ export const describeOverrideFailure = (result: {
     if (result.status === 502 && result.retryable) {
         // lb-bot's own words: the cause is MusicBrainz for a set and may be
         // Navidrome's artist list for a remove.
+        // lb-bot's text already says nothing was stored (MusicBrainz or Navidrome
+        // as the cause); only the instruction is added, after tidying the end.
         return {
             ...base,
-            message: result.error
-                ? `${result.error} Nothing was changed. Try again.`
-                : 'lb-bot could not complete that right now. Nothing was changed. Try again.',
+            message: `${(result.error ?? '').replace(/[\s.;]+$/, '')}. Try again.`,
         };
     }
     return { ...base, message: result.error || 'lb-bot did not accept that.' };
@@ -148,4 +148,27 @@ export const planScan = (
     if (!answer.taskId || !requested.name) return null;
     const mbid = kind === 'set' ? answer.mbid || requested.mbid : requested.tagMbid;
     return mbid ? { mbid, name: requested.name } : null;
+};
+
+/** The virtual artist page's `mb:<uuid>` id is not a Navidrome id: lb-bot answers
+ *  400 to it, so no override control belongs there. */
+export const isNavidromeArtistId = (ndId: string): boolean => !!ndId && !ndId.startsWith('mb:');
+
+/** An lb-bot older than the hub: a 405 (its GET-only catch-all, for a POST) or a
+ *  404 without a `code` (a coded 404 is lb-bot's own answer). */
+export const isOlderLbBot = (status: number, code: string | undefined): boolean =>
+    status === 405 || (status === 404 && !code);
+
+/**
+ * What a scan request answered, as a decision. A blank `task_id` with `covered`
+ * means lb-bot started nothing because another library artist holds this
+ * discography: stop at once, no spinner, say why. A blank one without `covered`
+ * (an lb-bot that never sends it) and no answer at all stay the failure they were.
+ */
+export const planIndexStart = (
+    answer: null | { covered?: boolean; taskId: string },
+): { kind: 'covered' } | { kind: 'failed' } | { kind: 'scan'; taskId: string } => {
+    if (!answer) return { kind: 'failed' };
+    if (answer.taskId) return { kind: 'scan', taskId: answer.taskId };
+    return answer.covered === true ? { kind: 'covered' } : { kind: 'failed' };
 };
