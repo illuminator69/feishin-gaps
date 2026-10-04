@@ -5,7 +5,7 @@ import styles from '../components/listening.module.css';
 import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
 import {
     isListeningUnavailable,
-    ListeningReadError,
+    LbBotReadError,
     useLbBotAvailable,
     useListeningRecent,
     useListeningStatus,
@@ -25,6 +25,7 @@ import {
 import {
     DEFAULT_PERIOD,
     PERIOD_OPTIONS,
+    readState,
     statusView,
 } from '/@/renderer/features/listening/listening-logic';
 import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
@@ -51,6 +52,11 @@ import { Platform } from '/@/shared/types/types';
  * persisted body for the period is shown with a note. A route that is not there
  * (lb-bot older than the hub, 404) shows one quiet sentence, never an error.
  */
+const errorOf = (error: Error | null): null | { message: string; status: number } =>
+    error
+        ? { message: error.message, status: error instanceof LbBotReadError ? error.status : 0 }
+        : null;
+
 const ListeningRoute = () => {
     const { windowBarStyle } = useWindowSettings();
     const [period, setPeriod] = useState<LbBotListeningPeriod>(DEFAULT_PERIOD);
@@ -60,17 +66,24 @@ const ListeningRoute = () => {
     const supported = useListeningSupported();
     const statusQuery = useListeningStatus();
     const view = statusQuery.data ? statusView(statusQuery.data) : null;
-    const summaryQuery = useListeningSummary(period, view?.poll === true);
-    const unownedQuery = useListeningUnowned(period, unownedKind);
-    const recentQuery = useListeningRecent();
+    const off = view?.kind === 'off';
+    const older = [statusQuery.error].some(isListeningUnavailable);
+    // Nothing to read when the mirror is off, or an answer said this lb-bot is older.
+    const readable = !off && !older;
+    const summaryQuery = useListeningSummary(period, view?.poll === true, readable);
+    const unownedQuery = useListeningUnowned(period, unownedKind, readable);
+    const recentQuery = useListeningRecent(readable);
 
-    const summary = summaryQuery.data;
+    // `keepPreviousData` holds the PREVIOUS period's body while the new one loads:
+    // it is not this period's answer, so it is dimmed while fetching and dropped
+    // when nothing can fetch (lb-bot unreachable would leave it standing for good).
+    const placeholder = summaryQuery.isPlaceholderData;
+    const summary = placeholder && !supported ? undefined : summaryQuery.data;
     const recentRows = useMemo(
         () => recentQuery.data?.pages.flatMap((page) => page.rows) ?? [],
         [recentQuery.data],
     );
     const unavailable = [statusQuery.error, summaryQuery.error].some(isListeningUnavailable);
-    const off = view?.kind === 'off';
     const loading = supported && !summary && !off && summaryQuery.isPending;
 
     return (
@@ -134,19 +147,33 @@ const ListeningRoute = () => {
                         its own sentence), and the read errored. */}
                     {supported && !summary && !unavailable && !off && summaryQuery.isError && (
                         <Group gap="sm">
-                            <Text isMuted>Could not load listening history.</Text>
-                            <Button
-                                onClick={() => void summaryQuery.refetch()}
-                                size="compact-sm"
-                                variant="default"
-                            >
-                                Retry
-                            </Button>
+                            <Text isMuted>
+                                {summaryQuery.error.message || 'Could not load listening history.'}
+                            </Text>
+                            {!(
+                                summaryQuery.error instanceof LbBotReadError &&
+                                summaryQuery.error.status === 400
+                            ) && (
+                                <Button
+                                    onClick={() => void summaryQuery.refetch()}
+                                    size="compact-sm"
+                                    variant="default"
+                                >
+                                    Retry
+                                </Button>
+                            )}
                         </Group>
                     )}
 
                     {summary && !off && (
-                        <>
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 'var(--theme-spacing-xl)',
+                                opacity: placeholder ? 0.5 : 1,
+                            }}
+                        >
                             {summary.totals.plays === 0 && view?.kind !== 'importing' && (
                                 <Text isMuted>No listens in this period.</Text>
                             )}
@@ -156,28 +183,35 @@ const ListeningRoute = () => {
                             <TopLists summary={summary} />
                             <Genres summary={summary} />
                             <UnownedSection
-                                error={
-                                    unownedQuery.error
-                                        ? {
-                                              message: unownedQuery.error.message,
-                                              status:
-                                                  unownedQuery.error instanceof ListeningReadError
-                                                      ? unownedQuery.error.status
-                                                      : 0,
-                                          }
-                                        : null
-                                }
                                 kind={unownedKind}
                                 onKind={setUnownedKind}
+                                onRetry={() => void unownedQuery.refetch()}
+                                read={readState({
+                                    available,
+                                    error: errorOf(unownedQuery.error),
+                                    fetching: unownedQuery.isFetching,
+                                    hasData: unownedQuery.data !== undefined,
+                                    rowCount: unownedQuery.data?.rows.length ?? 0,
+                                    supported,
+                                })}
                                 rows={unownedQuery.data?.rows}
                             />
                             <RecentSection
                                 hasMore={recentQuery.hasNextPage}
                                 loadingMore={recentQuery.isFetchingNextPage}
                                 onMore={() => void recentQuery.fetchNextPage()}
+                                onRetry={() => void recentQuery.refetch()}
+                                read={readState({
+                                    available,
+                                    error: errorOf(recentQuery.error),
+                                    fetching: recentQuery.isFetching,
+                                    hasData: recentQuery.data !== undefined,
+                                    rowCount: recentRows.length,
+                                    supported,
+                                })}
                                 rows={recentRows}
                             />
-                        </>
+                        </div>
                     )}
                 </Stack>
             </LibraryContainer>

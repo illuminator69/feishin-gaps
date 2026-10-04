@@ -25,10 +25,11 @@ const rows = [
     row('E', false, 0),
 ];
 
-test('hasArtistPlays: true as soon as any row carries the field, even as 0', () => {
+test('hasArtistPlays: only a row with artistPlays > 0 offers the scope (0 and absent say nothing)', () => {
     assert.equal(hasArtistPlays(rows), true);
-    assert.equal(hasArtistPlays([row('A', true, 0)]), true);
+    assert.equal(hasArtistPlays([row('A', true, 0), row('B', false, 0)]), false);
     assert.equal(hasArtistPlays([row('A', true), row('B', false)]), false);
+    assert.equal(hasArtistPlays([row('A', true, 0), row('B', false, 2)]), true);
     assert.equal(hasArtistPlays([]), false);
     assert.equal(hasArtistPlays(undefined), false);
 });

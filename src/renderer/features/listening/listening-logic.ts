@@ -143,17 +143,28 @@ export type ArtistTarget =
 export const artistTarget = (ndArtistId: string, mbid: string): ArtistTarget =>
     ndArtistId ? { id: ndArtistId, kind: 'library' } : mbid ? { kind: 'external', mbid } : null;
 
-export const albumTarget = (ndAlbumId: string, rgid: string): AlbumTarget =>
-    ndAlbumId ? { id: ndAlbumId, kind: 'library' } : rgid ? { kind: 'external', rgid } : null;
+/** `owned` with no id yet (a filled album still syncing) is plain text: the
+ *  external page is where acquire lives, and the library already holds it. */
+export const albumTarget = (ndAlbumId: string, rgid: string, owned = false): AlbumTarget =>
+    ndAlbumId
+        ? { id: ndAlbumId, kind: 'library' }
+        : rgid && !owned
+          ? { kind: 'external', rgid }
+          : null;
 
-/** An unowned-album row as the release the shared missing-album tile renders. */
-export const unownedAlbumRelease = (row: { rgid: string; title: string }): LbBotRelease => ({
+/** An unowned-album row as the release the shared missing-album tile renders.
+ *  `fillDone`: the fills ledger holds a finished fill for it, so it is no longer
+ *  "missing" (never re-offer a download because the download succeeded). */
+export const unownedAlbumRelease = (
+    row: { rgid: string; title: string },
+    fillDone: boolean,
+): LbBotRelease => ({
     effectiveType: 'album',
     navidromeAlbumIds: [],
     primaryType: 'album',
     rgid: row.rgid,
     secondaryTypes: [],
-    status: 'missing',
+    status: fillDone ? 'complete' : 'missing',
     title: row.title,
     year: '',
 });
@@ -167,21 +178,54 @@ export const importFinished = (
     next: LbBotListeningStatus['state'],
 ): boolean => prev === 'importing' && (next === 'ready' || next === 'error');
 
+export type ReadState =
+    | { kind: 'empty' }
+    | { kind: 'failed'; permanent: boolean; text: string }
+    | { kind: 'older' }
+    | { kind: 'reading' }
+    | { kind: 'rows' }
+    | { kind: 'unreachable' };
+
 /**
- * The "Most played, not in your library" list failing. A failure must not read as
- * an empty list (that would claim nothing you play is missing): 503 (lb-bot cannot
- * tell owned from unowned) and 400 show lb-bot's own text; a 404 is an lb-bot
- * older than the hub, said quietly.
+ * One list's honest state: "reading" only while a fetch is in flight, "empty" only
+ * from a 200 that said so, "failed" with lb-bot's own text (a 400 is permanent, so
+ * no Retry), "older" for a 404 / 405, "unreachable" when nothing can be asked.
+ * Rows already read stay rows when a later refetch fails.
  */
-export const describeUnownedFailure = (error: {
-    message: string;
-    status: number;
-}): { older: boolean; text: string } =>
-    error.status === 404
-        ? { older: true, text: 'This lb-bot does not list unowned plays yet.' }
-        : {
-              older: false,
-              text:
-                  error.message ||
-                  'Could not load the most played albums that are not in your library.',
-          };
+export const readState = (input: {
+    available: boolean;
+    error: null | { message: string; status: number };
+    fetching: boolean;
+    hasData: boolean;
+    rowCount: number;
+    supported: boolean;
+}): ReadState => {
+    if (input.hasData && input.rowCount > 0) return { kind: 'rows' };
+    if (input.error && (input.error.status === 404 || input.error.status === 405)) {
+        return { kind: 'older' };
+    }
+    if (input.error) {
+        return {
+            kind: 'failed',
+            permanent: input.error.status === 400,
+            text: input.error.message || 'lb-bot could not answer this.',
+        };
+    }
+    if (input.hasData) return { kind: 'empty' };
+    if (input.fetching) return { kind: 'reading' };
+    return { kind: 'unreachable' };
+};
+
+export const playsLabel = (n: number): string => `${n} ${n === 1 ? 'play' : 'plays'}`;
+
+/** "Range A to B" only from what is known; nothing when neither end is. */
+export const rangeText = (
+    oldest: null | number,
+    newest: null | number,
+    format: (epochSeconds: number) => string,
+): string => {
+    if (oldest !== null && newest !== null) return `Range ${format(oldest)} to ${format(newest)}`;
+    if (oldest !== null) return `Range from ${format(oldest)}`;
+    if (newest !== null) return `Range up to ${format(newest)}`;
+    return '';
+};

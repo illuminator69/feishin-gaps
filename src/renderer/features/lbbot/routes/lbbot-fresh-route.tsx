@@ -342,7 +342,7 @@ const LbBotFreshRoute = () => {
                                 {scope === 'mine'
                                     ? 'Nothing new from artists in your library in this window. Try All, or a longer window.'
                                     : scope === 'plays'
-                                      ? 'Nothing new from artists you play in this window. Your listening history may still be importing.'
+                                      ? 'No release in this window matches that type from artists you play.'
                                       : 'Nothing in this window.'}
                             </Text>
                         )}

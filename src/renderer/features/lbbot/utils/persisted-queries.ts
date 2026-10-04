@@ -87,8 +87,11 @@ export const shouldPersistLbBotQuery = (
     const window = PERSIST_FOR_MS[kind];
     if (window === undefined) return false;
     const { data, dataUpdatedAt, status } = query.state;
+    // A refetch that failed leaves the last good body in place with status
+    // `error`: it is still the right thing to keep for the next launch (the
+    // offline behaviour the overrides map and the listening summary promise).
     return (
-        status === 'success' &&
+        (status === 'success' || (status === 'error' && data !== undefined)) &&
         !isLbBotNonAnswer(query.queryKey, data) &&
         now - dataUpdatedAt < window
     );

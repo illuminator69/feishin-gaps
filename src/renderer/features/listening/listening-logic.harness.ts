@@ -4,7 +4,6 @@ import test from 'node:test';
 import {
     albumTarget,
     artistTarget,
-    describeUnownedFailure,
     formatListeningTime,
     genresNote,
     heatmapGrid,
@@ -12,6 +11,9 @@ import {
     importFinished,
     listeningTimeNote,
     PERIOD_OPTIONS,
+    playsLabel,
+    rangeText,
+    readState,
     statusView,
     unownedAlbumRelease,
 } from './listening-logic.ts';
@@ -144,10 +146,15 @@ test('artistTarget / albumTarget: library first, then the virtual page, else pla
     assert.deepEqual(albumTarget('al1', 'rg1'), { id: 'al1', kind: 'library' });
     assert.deepEqual(albumTarget('', 'rg1'), { kind: 'external', rgid: 'rg1' });
     assert.equal(albumTarget('', ''), null);
+    // An owned row lb-bot has no id for yet (a filled album still syncing) is text,
+    // never a link to the acquire page.
+    assert.equal(albumTarget('', 'rg1', true), null);
+    assert.deepEqual(albumTarget('', 'rg1', false), { kind: 'external', rgid: 'rg1' });
+    assert.deepEqual(albumTarget('al1', 'rg1', true), { id: 'al1', kind: 'library' });
 });
 
 test('unownedAlbumRelease builds a missing release row for the shared tile', () => {
-    const r = unownedAlbumRelease({ rgid: 'rg1', title: 'T' });
+    const r = unownedAlbumRelease({ rgid: 'rg1', title: 'T' }, false);
     assert.equal(r.rgid, 'rg1');
     assert.equal(r.title, 'T');
     assert.equal(r.status, 'missing');
@@ -164,18 +171,68 @@ test('importFinished: only the importing -> ready/error edge refreshes the numbe
     assert.equal(importFinished(undefined, 'ready'), false);
 });
 
-test('describeUnownedFailure: a failure is never an empty list; 404 is the quiet older-lb-bot case', () => {
-    const f503 = describeUnownedFailure({
-        message: "Navidrome's library is unavailable.",
-        status: 503,
+test('unownedAlbumRelease: a finished fill is not re-offered as missing', () => {
+    assert.equal(unownedAlbumRelease({ rgid: 'r', title: 'T' }, true).status, 'complete');
+    assert.equal(unownedAlbumRelease({ rgid: 'r', title: 'T' }, false).status, 'missing');
+});
+
+const rs = (over: Record<string, unknown> = {}) =>
+    readState({
+        available: true,
+        error: null,
+        fetching: false,
+        hasData: false,
+        rowCount: 0,
+        supported: true,
+        ...over,
+    } as never);
+
+test('readState: reading only while a fetch is in flight, empty only from a 200', () => {
+    assert.equal(rs({ fetching: true }).kind, 'reading');
+    assert.equal(rs({ hasData: true, rowCount: 0 }).kind, 'empty');
+    assert.equal(rs({ hasData: true, rowCount: 3 }).kind, 'rows');
+    assert.notEqual(rs().kind, 'empty');
+    assert.notEqual(rs().kind, 'reading');
+});
+
+test("readState: a failure carries lb-bot's text; a 400 is permanent (no Retry); 404/405 is older", () => {
+    assert.deepEqual(rs({ error: { message: 'Navidrome unavailable', status: 503 } }), {
+        kind: 'failed',
+        permanent: false,
+        text: 'Navidrome unavailable',
     });
-    assert.equal(f503.older, false);
-    assert.match(f503.text, /Navidrome's library is unavailable/);
-    assert.doesNotMatch(f503.text, /nothing here/i);
-    assert.equal(describeUnownedFailure({ message: 'bad kind', status: 400 }).text, 'bad kind');
-    const f404 = describeUnownedFailure({ message: 'restart the hub', status: 404 });
-    assert.equal(f404.older, true);
-    assert.match(f404.text, /does not list|yet/i);
-    assert.doesNotMatch(f404.text, /restart/);
-    assert.match(describeUnownedFailure({ message: '', status: 500 }).text, /could not/i);
+    const bad = rs({ error: { message: 'unknown tz', status: 400 } });
+    assert.equal(bad.kind === 'failed' && bad.permanent, true);
+    assert.equal(rs({ error: { message: '', status: 404 } }).kind, 'older');
+    assert.equal(rs({ error: { message: '', status: 405 } }).kind, 'older');
+    const generic = rs({ error: { message: '', status: 500 } });
+    assert.equal(generic.kind === 'failed' && /could not/i.test(generic.text), true);
+    assert.equal(
+        rs({ error: { message: 'x', status: 503 }, hasData: true, rowCount: 2 }).kind,
+        'rows',
+    );
+});
+
+test('readState: unsupported or unreachable says that, not "empty" or "loading"', () => {
+    assert.equal(rs({ available: false }).kind, 'unreachable');
+    assert.equal(rs({ supported: false }).kind, 'unreachable');
+    assert.equal(rs({ available: false, hasData: true, rowCount: 2 }).kind, 'rows');
+});
+
+test('playsLabel and rangeText wording', () => {
+    assert.equal(playsLabel(1), '1 play');
+    assert.equal(playsLabel(0), '0 plays');
+    assert.equal(playsLabel(12), '12 plays');
+    assert.equal(
+        rangeText(null, null, (n) => `d${n}`),
+        '',
+    );
+    assert.equal(
+        rangeText(1, 2, (n) => `d${n}`),
+        'Range d1 to d2',
+    );
+    assert.equal(
+        rangeText(1, null, (n) => `d${n}`),
+        'Range from d1',
+    );
 });

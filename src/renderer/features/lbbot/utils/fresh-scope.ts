@@ -18,7 +18,7 @@ interface ScopedRow {
 /** Any row carries the field (even as 0): this lb-bot knows about listens. */
 export const hasArtistPlays = (
     rows: readonly Pick<ScopedRow, 'artistPlays'>[] | undefined,
-): boolean => !!rows?.some((row) => typeof row.artistPlays === 'number');
+): boolean => !!rows?.some((row) => (row.artistPlays ?? 0) > 0);
 
 /** A persisted `plays` scope with nothing able to support it reads as `mine`
  *  rather than as an empty page with no way to leave it. */
