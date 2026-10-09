@@ -157,3 +157,39 @@ export const fieldedAlbumQuery = (artist: string, title: string): string => {
  * request that named none, so this is what breaks that tie.
  */
 export const hasEditionSuffix = (value: string): boolean => /[([{][^)\]}]*[)\]}]/.test(value || '');
+
+/**
+ * The lookup's answers that really are the album that was asked about, best first.
+ *
+ * Validation narrows without deciding, so the survivors are ordered: ownership
+ * first (a fact about the library, where a score is a guess about text), then a
+ * title with no bracketed qualifier, then the order lb-bot sent. Shared by the
+ * browse-row resolver and the "Fix album match" release-group fallback so the
+ * two cannot disagree about what "the same album" means.
+ */
+export const rankAlbumCandidates = <
+    T extends { artist: string; releaseOwned: boolean; title: string },
+>(
+    candidates: readonly T[],
+    asked: { artist: string; title: string },
+): T[] =>
+    candidates
+        .filter(
+            (row) => sameAlbumTitle(row.title, asked.title) && sameArtist(row.artist, asked.artist),
+        )
+        .map((row, index) => ({ index, row }))
+        .sort(
+            (a, b) =>
+                Number(b.row.releaseOwned) - Number(a.row.releaseOwned) ||
+                Number(hasEditionSuffix(a.row.title)) - Number(hasEditionSuffix(b.row.title)) ||
+                a.index - b.index,
+        )
+        .map(({ row }) => row);
+
+/** The best validated answer, or null: declining is a correct outcome. */
+export const pickAlbumCandidate = <
+    T extends { artist: string; releaseOwned: boolean; title: string },
+>(
+    candidates: readonly T[],
+    asked: { artist: string; title: string },
+): null | T => rankAlbumCandidates(candidates, asked)[0] ?? null;

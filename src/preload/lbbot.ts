@@ -1,7 +1,12 @@
 import type {
     LbBotAlbumCandidate,
+    LbBotAlbumCoverSet,
+    LbBotAlbumJob,
+    LbBotAlbumState,
+    LbBotAlbumStateQuery,
     LbBotArtistCandidate,
     LbBotBrowse,
+    LbBotCover,
     LbBotDeezerGenres,
     LbBotDiscography,
     LbBotDownloadResult,
@@ -19,6 +24,7 @@ import type {
     LbBotOverrideList,
     LbBotOverrideRemoved,
     LbBotOverrideSet,
+    LbBotPreview,
     LbBotRecent,
     LbBotReleaseDetail,
     LbBotResolvedEdition,
@@ -96,6 +102,36 @@ const overrideSet = (
 
 const overrideRemove = (ndId: string): Promise<LbBotResult<LbBotOverrideRemoved>> =>
     ipcRenderer.invoke('lbbot-override-remove', { ndId });
+
+/** Album override (I-022), "Fix album match". All result-shaped: `status` + `code`
+ *  (+ `matched` / `total` on a 409 `poor_match`, `retryable` on a 502) tell the
+ *  answers apart, and a code-less 404 / a 405 means lb-bot is older. */
+const albumOverride = (query: LbBotAlbumStateQuery): Promise<LbBotResult<LbBotAlbumState>> =>
+    ipcRenderer.invoke('lbbot-album-override-get', query);
+
+const albumCovers = (args: {
+    releaseMbid?: string;
+    rgid?: string;
+}): Promise<LbBotResult<LbBotCover[]>> => ipcRenderer.invoke('lbbot-album-covers', args);
+
+const albumPreview = (albumId: string, releaseMbid: string): Promise<LbBotResult<LbBotPreview>> =>
+    ipcRenderer.invoke('lbbot-album-preview', { albumId, releaseMbid });
+
+const albumOverrideApply = (args: {
+    albumId: string;
+    coverUrl?: string;
+    force?: boolean;
+    releaseMbid: string;
+}): Promise<LbBotResult<LbBotAlbumJob>> => ipcRenderer.invoke('lbbot-album-override-apply', args);
+
+const albumCoverSet = (
+    albumId: string,
+    coverUrl: string,
+): Promise<LbBotResult<LbBotAlbumCoverSet>> =>
+    ipcRenderer.invoke('lbbot-album-cover-set', { albumId, coverUrl });
+
+const albumOverrideRemove = (id: string): Promise<LbBotResult<LbBotAlbumJob>> =>
+    ipcRenderer.invoke('lbbot-album-override-remove', { id });
 
 /** Listening history (I-006). All result-shaped: a failed read must keep the
  *  cached body, and a 404 means lb-bot is older than the hub. */
@@ -310,7 +346,13 @@ const wishlistRemove = (rgid: string): Promise<LbBotResult<boolean>> =>
     ipcRenderer.invoke('lbbot-wishlist-remove', { rgid });
 
 export const lbBot = {
+    albumCovers,
+    albumCoverSet,
     albumLookup,
+    albumOverride,
+    albumOverrideApply,
+    albumOverrideRemove,
+    albumPreview,
     albumReleases,
     albumSimilar,
     albumSources,

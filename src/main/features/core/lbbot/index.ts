@@ -1,10 +1,15 @@
 import type {
     LbBotAlbumCandidate,
+    LbBotAlbumCoverSet,
+    LbBotAlbumJob,
+    LbBotAlbumState,
+    LbBotAlbumStateQuery,
     LbBotArtistCandidate,
     LbBotArtistScan,
     LbBotBrowse,
     LbBotBrowseAlbum,
     LbBotBrowseArtist,
+    LbBotCover,
     LbBotDayCount,
     LbBotDeezerGenre,
     LbBotDeezerGenres,
@@ -39,6 +44,7 @@ import type {
     LbBotOverrideList,
     LbBotOverrideRemoved,
     LbBotOverrideSet,
+    LbBotPreview,
     LbBotRecent,
     LbBotRecentRow,
     LbBotRelease,
@@ -71,6 +77,7 @@ import { BrowserWindow, ipcMain, Notification } from 'electron';
 
 import { getHubConfig } from '../hub';
 
+import { toAlbumState, toCovers, toPreview } from '/@/shared/utils/lbbot-album-wire';
 import { hasMetaFields, normalizeLbBotWebUrl } from '/@/shared/utils/lbbot-wire';
 
 /**
@@ -155,7 +162,7 @@ const failed = <T>(
     status: number,
     error: string,
     tooLarge = false,
-    extra: { code?: string; retryable?: boolean } = {},
+    extra: { code?: string; matched?: number; retryable?: boolean; total?: number } = {},
 ): LbBotResult<T> => ({
     data: null,
     error,
@@ -163,7 +170,9 @@ const failed = <T>(
     status,
     ...(tooLarge ? { tooLarge: true } : {}),
     ...(extra.code ? { code: extra.code } : {}),
+    ...(typeof extra.matched === 'number' ? { matched: extra.matched } : {}),
     ...(extra.retryable ? { retryable: true } : {}),
+    ...(typeof extra.total === 'number' ? { total: extra.total } : {}),
 });
 
 /**
@@ -234,7 +243,10 @@ const request = async <T = Json>(
         // The hub's own oversize-body 502 (B-013), not lb-bot's — see LbBotResult.tooLarge.
         return failed(res.status, describeFailure(res.status, body), body?.tooLarge === true, {
             code: typeof body?.code === 'string' ? body.code : undefined,
+            // `poor_match` (I-022) says how many files fit, so the client can ask.
+            matched: typeof body?.matched === 'number' ? body.matched : undefined,
             retryable: body?.retryable === true,
+            total: typeof body?.total === 'number' ? body.total : undefined,
         });
     }
     return { data: (body ?? {}) as T, error: '', ok: true, status: res.status };
@@ -593,6 +605,171 @@ ipcMain.handle(
         }
         return {
             data: { taskId: str(result.data.task_id) },
+            error: '',
+            ok: true,
+            status: result.status,
+        };
+    },
+);
+
+// ---------------------------------------------------------------------------
+// Album override (I-022): "Fix album match"
+// ---------------------------------------------------------------------------
+
+// The user's choice of MusicBrainz release for an album the library owns; lb-bot
+// retags the files, keeps the previous tags, and can undo. Every route here is
+// result-shaped: `status` / `code` / `matched` / `total` / `retryable` tell the
+// 400, the 404s (`unknown_album`, `no_override`, `unknown_release`), the 409s
+// (`busy`, `in_progress`, `poor_match`) and the retryable 502 apart, and an
+// older hub or lb-bot answers a code-less 404 (GET) or a 405 (POST), which the
+// renderer reads as "older" and hides the control. Nothing here carries a path.
+
+const albumFailed = <T>(result: LbBotResult<unknown>): LbBotResult<T> =>
+    failed<T>(result.status, result.error, false, {
+        code: result.code,
+        matched: result.matched,
+        retryable: result.retryable,
+        total: result.total,
+    });
+
+const MBID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The album as lb-bot sees it, by the Navidrome album id the page has, or - to
+// follow an apply or a remove, when that id is dead - by the override row's id.
+// The by-id read is the poll, so it gets the poll's short timeout.
+ipcMain.handle(
+    'lbbot-album-override-get',
+    async (_event, args: LbBotAlbumStateQuery): Promise<LbBotResult<LbBotAlbumState>> => {
+        if (!args.albumId && !args.id) {
+            return failed<LbBotAlbumState>(0, 'No album to look up.');
+        }
+        const byId = !args.albumId && !!args.id;
+        const result = await request('GET', '/lb/album/override', {
+            params: byId ? { id: args.id as string } : { album_id: args.albumId as string },
+            ...(byId ? { timeoutMs: POLL_TIMEOUT_MS } : {}),
+        });
+        if (!result.ok) return albumFailed<LbBotAlbumState>(result);
+        return { data: toAlbumState(result.data), error: '', ok: true, status: result.status };
+    },
+);
+
+ipcMain.handle(
+    'lbbot-album-covers',
+    async (
+        _event,
+        args: { releaseMbid?: string; rgid?: string },
+    ): Promise<LbBotResult<LbBotCover[]>> => {
+        if (!args.rgid && !args.releaseMbid) {
+            return failed<LbBotCover[]>(0, 'A release or a release group is needed.');
+        }
+        const result = await request('GET', '/lb/album/covers', {
+            params: { release_mbid: args.releaseMbid ?? '', rgid: args.rgid ?? '' },
+        });
+        if (!result.ok) return albumFailed<LbBotCover[]>(result);
+        return { data: toCovers(result.data), error: '', ok: true, status: result.status };
+    },
+);
+
+// Writes nothing; sits on MusicBrainz upstream, so it can take seconds.
+ipcMain.handle(
+    'lbbot-album-preview',
+    async (
+        _event,
+        args: { albumId: string; releaseMbid: string },
+    ): Promise<LbBotResult<LbBotPreview>> => {
+        if (!args.albumId || !MBID.test(args.releaseMbid)) {
+            return failed<LbBotPreview>(
+                0,
+                'An album and a MusicBrainz release id are both needed.',
+            );
+        }
+        const result = await request('POST', '/lb/album/override/preview', {
+            body: { album_id: args.albumId, release_mbid: args.releaseMbid },
+        });
+        if (!result.ok) return albumFailed<LbBotPreview>(result);
+        return { data: toPreview(result.data), error: '', ok: true, status: result.status };
+    },
+);
+
+// Answers at once (`state: applying`); the renderer polls by the returned id.
+ipcMain.handle(
+    'lbbot-album-override-apply',
+    async (
+        _event,
+        args: { albumId: string; coverUrl?: string; force?: boolean; releaseMbid: string },
+    ): Promise<LbBotResult<LbBotAlbumJob>> => {
+        if (!args.albumId || !MBID.test(args.releaseMbid)) {
+            return failed<LbBotAlbumJob>(
+                0,
+                'An album and a MusicBrainz release id are both needed.',
+            );
+        }
+        const result = await request('POST', '/lb/album/override', {
+            body: {
+                album_id: args.albumId,
+                ...(args.coverUrl ? { cover_url: args.coverUrl } : {}),
+                ...(args.force === true ? { force: true } : {}),
+                release_mbid: args.releaseMbid,
+            },
+        });
+        if (!result.ok) return albumFailed<LbBotAlbumJob>(result);
+        if (result.data?.ok !== true || !str(result.data.id)) {
+            return failed<LbBotAlbumJob>(
+                result.status,
+                str(result.data?.error) || 'lb-bot refused the request.',
+            );
+        }
+        return {
+            data: { id: str(result.data.id), state: str(result.data.state) },
+            error: '',
+            ok: true,
+            status: result.status,
+        };
+    },
+);
+
+// The cover alone (the release stays). Synchronous.
+ipcMain.handle(
+    'lbbot-album-cover-set',
+    async (
+        _event,
+        args: { albumId: string; coverUrl: string },
+    ): Promise<LbBotResult<LbBotAlbumCoverSet>> => {
+        if (!args.albumId || !args.coverUrl) {
+            return failed<LbBotAlbumCoverSet>(0, 'An album and a cover are both needed.');
+        }
+        const result = await request('POST', '/lb/album/cover', {
+            body: { album_id: args.albumId, cover_url: args.coverUrl },
+        });
+        if (!result.ok) return albumFailed<LbBotAlbumCoverSet>(result);
+        if (result.data?.ok !== true || !str(result.data.id)) {
+            return failed<LbBotAlbumCoverSet>(
+                result.status,
+                str(result.data?.error) || 'lb-bot refused the request.',
+            );
+        }
+        return { data: { id: str(result.data.id) }, error: '', ok: true, status: result.status };
+    },
+);
+
+// Undo: restores the tags and the previous cover in the background; the poll
+// by id ends on a 404 `no_override`.
+ipcMain.handle(
+    'lbbot-album-override-remove',
+    async (_event, args: { id: string }): Promise<LbBotResult<LbBotAlbumJob>> => {
+        if (!args.id) return failed<LbBotAlbumJob>(0, 'No album change to undo.');
+        const result = await request('POST', '/lb/album/override/remove', {
+            body: { id: args.id },
+        });
+        if (!result.ok) return albumFailed<LbBotAlbumJob>(result);
+        if (result.data?.ok !== true || !str(result.data.id)) {
+            return failed<LbBotAlbumJob>(
+                result.status,
+                str(result.data?.error) || 'lb-bot refused the request.',
+            );
+        }
+        return {
+            data: { id: str(result.data.id), state: str(result.data.state) },
             error: '',
             ok: true,
             status: result.status,
@@ -1175,6 +1352,7 @@ const toEdition = (row: unknown): LbBotEdition[] => {
     const r = row as Json;
     return [
         {
+            country: str(r.country),
             coverUrl: str(r.coverUrl),
             format: str(r.format),
             label: str(r.label),

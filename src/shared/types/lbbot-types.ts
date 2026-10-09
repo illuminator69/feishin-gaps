@@ -149,6 +149,9 @@ export interface LbBotResult<T> {
     /** Empty when `ok`. lb-bot's own `error` sentence when it wrote one, else a
      *  translated transport failure — see `describeFailure` in the main client. */
     error: string;
+    /** `poor_match` (album override, 409): how many of the album's files have a slot
+     *  on the chosen release, out of how many. Absent on every other failure. */
+    matched?: number;
     ok: boolean;
     /** lb-bot said the same request may succeed later (`retryable: true` on its
      *  502 for a MusicBrainz outage). Absent otherwise. */
@@ -162,6 +165,8 @@ export interface LbBotResult<T> {
      *  that retries on a timer, where this is deterministic and retrying it
      *  forever never helps (B-013). False/absent on every other failure. */
     tooLarge?: boolean;
+    /** The other half of `matched`. */
+    total?: number;
 }
 
 /** What the hub says it can proxy. An empty list means an older hub that doesn't
@@ -210,6 +215,75 @@ export interface LbBotAlbumCandidate {
     score: number;
     title: string;
     year: string;
+}
+
+/** The answer to a cover-only change (synchronous). */
+export interface LbBotAlbumCoverSet {
+    id: string;
+}
+
+/** A file lb-bot could not write, by title, with why. */
+export interface LbBotAlbumFailure {
+    reason: string;
+    title: string;
+}
+
+/** The answer to an apply or a remove: lb-bot works on in the background. */
+export interface LbBotAlbumJob {
+    id: string;
+    state: string;
+}
+
+// There is deliberately no `year`: Deezer's chart and editorial rows carry
+// `record_type` and a position, and no release date at all. A field that is
+// structurally always empty would later read as a bug in the marking rather
+// than as an absence in the source.
+
+/** The override row for an album: "lb-bot rewrote this album's tags to release R at T". */
+export interface LbBotAlbumOverrideRow {
+    album: string;
+    /** The album's CURRENT Navidrome id; "" while Navidrome has not indexed it. */
+    albumId: string;
+    artist: string;
+    coverUrl: string;
+    done: number;
+    failures: LbBotAlbumFailure[];
+    id: string;
+    prevReleaseMbid: string;
+    releaseMbid: string;
+    rgid: string;
+    /** Epoch seconds. */
+    setAt: number;
+    /** A state the client does not know is kept as lb-bot sent it. */
+    state: LbBotAlbumOverrideStateName | string;
+    total: number;
+}
+
+export type LbBotAlbumOverrideStateName = 'applied' | 'applying' | 'failed' | 'removing';
+
+/** `GET /lb/album/override`. */
+export interface LbBotAlbumState {
+    album: string;
+    albumId: string;
+    artist: string;
+    override: LbBotAlbumOverrideRow | null;
+    releaseMbid: string;
+    /** "" when lb-bot cannot tell. */
+    rgid: string;
+    tracks: LbBotAlbumTrackTag[];
+}
+
+/** Which of the two ids `GET /lb/album/override` is asked by. */
+export type LbBotAlbumStateQuery =
+    | { albumId: string; id?: undefined }
+    | { albumId?: undefined; id: string };
+
+/** One file of the album as tagged now. */
+export interface LbBotAlbumTrackTag {
+    disc: number;
+    duration: number;
+    title: string;
+    track: number;
 }
 
 /**
@@ -274,11 +348,6 @@ export interface LbBotBrowseAlbum {
     title: string;
 }
 
-// There is deliberately no `year`: Deezer's chart and editorial rows carry
-// `record_type` and a position, and no release date at all. A field that is
-// structurally always empty would later read as a bug in the marking rather
-// than as an absence in the source.
-
 export interface LbBotBrowseArtist {
     /** Navidrome artist id, when owned. */
     artistId: string;
@@ -293,6 +362,15 @@ export interface LbBotBrowseArtist {
     mbid: string;
     name: string;
     owned: boolean;
+}
+
+/** One Cover Art Archive image on offer. `full` is what an apply sends back. */
+export interface LbBotCover {
+    full: string;
+    /** "" for a release-group image. */
+    releaseMbid: string;
+    source: 'release' | 'release-group';
+    thumb: string;
 }
 
 export interface LbBotDayCount {
@@ -324,6 +402,8 @@ export interface LbBotDeezerGenres {
 }
 
 export interface LbBotEdition {
+    /** "" when lb-bot sent none (older lb-bot, or a release without one). */
+    country: string;
     coverUrl: string;
     format: string;
     /** Digital | CD | Vinyl | Cassette | Other */
@@ -849,6 +929,42 @@ export interface LbBotOverrideSet {
     taskId: string;
 }
 
+export interface LbBotPreview {
+    albumId: string;
+    files: LbBotPreviewFile[];
+    /** Files with a slot. */
+    matched: number;
+    /** Slots of the release no file fills. */
+    missing: LbBotPreviewSlot[];
+    release: {
+        country: string;
+        disambiguation: string;
+        discCount: number;
+        format: string;
+        title: string;
+        trackCount: number;
+        year: string;
+    };
+    releaseMbid: string;
+    /** Files without a slot: an apply leaves them untouched. */
+    unmatched: number;
+}
+
+export interface LbBotPreviewFile {
+    /** How the file was matched to its slot: mbid, exact, prefix, contained,
+     *  fuzzy, duration, or "" for a file with no slot. */
+    basis: string;
+    changed: boolean;
+    from: LbBotPreviewSlot;
+    to: LbBotPreviewSlot | null;
+}
+
+export interface LbBotPreviewSlot {
+    disc: number;
+    title: string;
+    track: number;
+}
+
 export interface LbBotRecent {
     /** The last row's `listenedAt` when more rows exist, else null. A page may be
      *  shorter than `limit` and still carry it: page on this, never on the row count. */
@@ -1049,6 +1165,10 @@ export interface LbBotSourceFiles {
     files: LbBotSourceFile[];
     filesTruncated: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Album override (I-022) - camelCase as lb-bot answers it; nothing here is a path.
+// ---------------------------------------------------------------------------
 
 export interface LbBotSourceMatch {
     /** exact | prefix | contained | fuzzy | duration | position — lb-bot grades

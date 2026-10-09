@@ -4,6 +4,7 @@ import { AddToPlaylistAction } from '/@/renderer/features/context-menu/actions/a
 import { DownloadAction } from '/@/renderer/features/context-menu/actions/download-action';
 import { EditMetadataAction } from '/@/renderer/features/context-menu/actions/edit-metadata-action';
 import { FindMissingTracksAction } from '/@/renderer/features/context-menu/actions/find-missing-tracks-action';
+import { FixAlbumMatchAction } from '/@/renderer/features/context-menu/actions/fix-album-match-action';
 import { GetInfoAction } from '/@/renderer/features/context-menu/actions/get-info-action';
 import { GoToAction } from '/@/renderer/features/context-menu/actions/go-to-action';
 import { PlayAction } from '/@/renderer/features/context-menu/actions/play-action';
@@ -42,6 +43,9 @@ export const AlbumContextMenu = ({ items, type }: AlbumContextMenuProps) => {
             {/* Renders nothing unless lb-bot knows this exact album is
                 incomplete — so on a single selection, and only then. */}
             <FindMissingTracksAction album={items.length === 1 ? items[0] : undefined} />
+            {/* Renders nothing unless the hub advertises the album-override
+                routes; single selection only. */}
+            <FixAlbumMatchAction album={items.length === 1 ? items[0] : undefined} />
             <ShareAction ids={ids} itemType={LibraryItem.ALBUM} />
             <ContextMenu.Divider />
             <GoToAction items={items} />

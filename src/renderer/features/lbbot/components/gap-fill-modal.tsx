@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import styles from './gap-fill-modal.module.css';
 
+import { openAlbumMatchModal } from '/@/renderer/features/lbbot/components/album-match-modal';
 import {
     defaultSelectedSource,
     SourceList,
@@ -18,6 +19,7 @@ import {
     gapProgress,
     rescanGapAlbum,
     searchGapSources,
+    useAlbumOverrideControls,
     useGapSourceFiles,
     useLbBotGap,
     useLbBotWebUrl,
@@ -81,7 +83,9 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
     const sourceFiles = useGapSourceFiles(groupId);
     const { startGap } = useActiveFillsActions();
 
+    const albumControls = useAlbumOverrideControls();
     const busy = gapIsBusy(gap);
+    const albumFixable = albumControls && !!gap?.albumId;
     const settling = committed && !busy;
     const searching = gap?.sourceTask?.status === 'queued' || gap?.sourceTask?.status === 'running';
     const sources = gap?.sources ?? [];
@@ -240,6 +244,22 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                         If that tag is a deluxe edition, a standard pressing will fill fewer slots
                         than the count suggests.
                     </Text>
+                    {/* I-022: the count follows the tag, so a wrong tag is fixed there.
+                    Only offered when the hub advertises the route and lb-bot gave
+                    this gap a Navidrome album to retag. */}
+                    {albumFixable && (
+                        <Group gap="xs">
+                            <Button
+                                onClick={() =>
+                                    openAlbumMatchModal({ albumId: gap.albumId, title: gap.album })
+                                }
+                                size="compact-xs"
+                                variant="subtle"
+                            >
+                                Wrong edition?
+                            </Button>
+                        </Group>
+                    )}
                     {error && (
                         <Text isMuted size="xs">
                             {error}

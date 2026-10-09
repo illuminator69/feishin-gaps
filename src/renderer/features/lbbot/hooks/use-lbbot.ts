@@ -1,7 +1,11 @@
 import type {
     LbBotAlbumCandidate,
+    LbBotAlbumCoverSet,
+    LbBotAlbumJob,
+    LbBotAlbumState,
     LbBotArtistCandidate,
     LbBotBrowse,
+    LbBotCover,
     LbBotDeezerGenres,
     LbBotDiscography,
     LbBotDownloadResult,
@@ -17,6 +21,7 @@ import type {
     LbBotMeta,
     LbBotOverrideRemoved,
     LbBotOverrideSet,
+    LbBotPreview,
     LbBotRecent,
     LbBotRelease,
     LbBotReleaseDetail,
@@ -76,11 +81,20 @@ import {
 } from '/@/renderer/features/lbbot/stores/active-fills.store';
 import {
     fieldedAlbumQuery,
-    hasEditionSuffix,
     normalizeAlbumTitle,
+    pickAlbumCandidate,
+    rankAlbumCandidates,
     sameAlbumTitle,
     sameArtist,
 } from '/@/renderer/features/lbbot/utils/album-match';
+import {
+    POLL_INTERVAL_MS,
+    PollAnswer,
+    PollSpec,
+    pollStart,
+    PollState,
+    pollStep,
+} from '/@/renderer/features/lbbot/utils/album-override';
 import {
     describeOverrideFailure,
     effectiveArtistMbid,
@@ -896,6 +910,184 @@ export const useArtistOverrideActions = (
     );
 
     return { failure, pending, remove, set };
+};
+
+// ---------------------------------------------------------------------------
+// Album override (I-022): "Fix album match"
+// ---------------------------------------------------------------------------
+
+/** The route whose advert says this hub proxies the album-override writes. */
+const ALBUM_OVERRIDE_ROUTE = 'POST /lb/album/override';
+
+/** "This lb-bot is older" for the album surface: a 405 on a write or a code-less
+ *  404 on a read. Query data so every entry point sees it; not persisted. */
+const ALBUM_OVERRIDE_OLDER_KEY = ['lbbot', 'album-override-older'] as const;
+export const markAlbumOverrideOlder = (): void => {
+    queryClient.setQueryData(ALBUM_OVERRIDE_OLDER_KEY, true);
+};
+const useAlbumOverrideOlder = (): boolean =>
+    useQuery<boolean>({
+        enabled: false,
+        gcTime: Infinity,
+        initialData: false,
+        queryFn: () => false,
+        queryKey: ALBUM_OVERRIDE_OLDER_KEY,
+        staleTime: Infinity,
+    }).data;
+
+/**
+ * The "Fix album match" entry points exist: the hub advertises the write route
+ * AND no answer has said this lb-bot is older. Strict like
+ * {@link useOverridesSupported} (an EMPTY advert is a hub that predates the
+ * feature, not one that supports it), and gated on the contract's route.
+ */
+export const useAlbumOverrideControls = (): boolean => {
+    const status = useLbBotStatus();
+    const older = useAlbumOverrideOlder();
+    return !!lbBot && !!status?.routes?.includes(ALBUM_OVERRIDE_ROUTE) && !older;
+};
+
+/** Marks "older" for the answers that mean it, then hands the result back. */
+const noteAlbumResult = <T>(result: LbBotResult<T>): LbBotResult<T> => {
+    if (!result.ok && isOlderLbBot(result.status, result.code)) markAlbumOverrideOlder();
+    return result;
+};
+
+/**
+ * The album as lb-bot has it now, plus its override row. The RESULT is the data
+ * (a 404 `unknown_album` or an older lb-bot is an answer to show, not a thrown
+ * error), and nothing is kept: tags change under this read.
+ */
+export const useAlbumOverrideState = (albumId: string, enabled = true) =>
+    useQuery<LbBotResult<LbBotAlbumState>>({
+        enabled: !!lbBot && !!albumId && enabled,
+        gcTime: 0,
+        queryFn: async () => noteAlbumResult(await lbBot!.albumOverride({ albumId })),
+        queryKey: ['lbbot', 'album-override', albumId],
+        refetchOnWindowFocus: false,
+        retry: false,
+        staleTime: 0,
+    });
+
+/**
+ * A release group for an album lb-bot could not name (`rgid: ""`): one fielded
+ * lookup, the answer validated against what was asked ({@link pickAlbumCandidate} -
+ * never the first hit). `null` is "declined", a correct outcome; undefined while
+ * unread. A lookup that fails reads as declined, like the browse resolver.
+ */
+export const useAlbumRgidLookup = (artist: string, title: string, enabled: boolean) =>
+    useQuery<LbBotAlbumCandidate | null>({
+        enabled: !!lbBot && enabled && !!title,
+        gcTime: 10 * 60 * 1000,
+        queryFn: async () => {
+            const query = fieldedAlbumQuery(artist, title);
+            if (!query) return null;
+            const candidates = await lbBot!.albumLookup(query).catch(() => []);
+            return pickAlbumCandidate(candidates, { artist, title });
+        },
+        queryKey: ['lbbot', 'album-rgid-lookup', artist, title],
+        refetchOnWindowFocus: false,
+        retry: false,
+        staleTime: 10 * 60 * 1000,
+    });
+
+/** Cover Art Archive candidates for the release in question. Result-shaped, and a
+ *  failure is not kept (a 502 means "ask again"). */
+export const useAlbumCovers = (rgid: string, releaseMbid: string, enabled: boolean) =>
+    useQuery<LbBotResult<LbBotCover[]>>({
+        enabled: !!lbBot && enabled && !!(rgid || releaseMbid),
+        gcTime: 10 * 60 * 1000,
+        queryFn: async () => noteAlbumResult(await lbBot!.albumCovers({ releaseMbid, rgid })),
+        queryKey: ['lbbot', 'album-covers', rgid, releaseMbid],
+        refetchOnWindowFocus: false,
+        retry: false,
+        staleTime: (query) => (query.state.data?.ok ? 5 * 60 * 1000 : 0),
+    });
+
+/** What an apply of this release would do to this album's files. Writes nothing,
+ *  so it is a query; never kept for long (the files it describes change). */
+export const useAlbumPreview = (albumId: string, releaseMbid: null | string) =>
+    useQuery<LbBotResult<LbBotPreview>>({
+        enabled: !!lbBot && !!albumId && !!releaseMbid,
+        gcTime: 60 * 1000,
+        queryFn: async () =>
+            noteAlbumResult(await lbBot!.albumPreview(albumId, releaseMbid as string)),
+        queryKey: ['lbbot', 'album-preview', albumId, releaseMbid],
+        refetchOnWindowFocus: false,
+        retry: false,
+        staleTime: 0,
+    });
+
+export const applyAlbumOverride = async (args: {
+    albumId: string;
+    coverUrl?: string;
+    force?: boolean;
+    releaseMbid: string;
+}): Promise<LbBotResult<LbBotAlbumJob>> => noteAlbumResult(await lbBot!.albumOverrideApply(args));
+
+export const setAlbumCover = async (
+    albumId: string,
+    coverUrl: string,
+): Promise<LbBotResult<LbBotAlbumCoverSet>> =>
+    noteAlbumResult(await lbBot!.albumCoverSet(albumId, coverUrl));
+
+export const removeAlbumOverride = async (id: string): Promise<LbBotResult<LbBotAlbumJob>> =>
+    noteAlbumResult(await lbBot!.albumOverrideRemove(id));
+
+/**
+ * Follow an apply or a remove: `GET /lb/album/override?id=` every 2 s through the
+ * pure {@link pollStep} machine (a failed poll is not an answer; three minutes
+ * and it gives up). The loop outlives the modal on purpose - closing the dialog
+ * does not stop lb-bot - and refreshes the override list when it ends, mounted
+ * or not. The `library` frame the hub relays when Navidrome has re-indexed is
+ * what refreshes the album and discography queries; nothing here refetches those.
+ */
+export const useAlbumJobPoll = () => {
+    const [state, setState] = useState<null | PollState>(null);
+    const token = useRef(0);
+    const mounted = useRef(true);
+    useEffect(() => {
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+        };
+    }, []);
+
+    const start = useCallback((id: string, spec: PollSpec) => {
+        const mine = ++token.current;
+        let current: PollState = pollStart(spec, Date.now());
+        setState(current);
+        const tick = async () => {
+            const result = await lbBot!.albumOverride({ id }).catch(
+                (): LbBotResult<LbBotAlbumState> => ({
+                    data: null,
+                    error: '',
+                    ok: false,
+                    status: 0,
+                }),
+            );
+            if (mine !== token.current) return;
+            const row = result.ok ? result.data?.override : null;
+            const answer: PollAnswer = row
+                ? { ok: true, row }
+                : { code: result.code ?? '', ok: false, status: result.ok ? 0 : result.status };
+            current = pollStep(current, answer, Date.now());
+            if (mounted.current) setState(current);
+            if (current.phase === 'polling') {
+                window.setTimeout(() => void tick(), POLL_INTERVAL_MS);
+            } else {
+                void queryClient.invalidateQueries({ queryKey: OVERRIDES_KEY, refetchType: 'all' });
+            }
+        };
+        window.setTimeout(() => void tick(), POLL_INTERVAL_MS);
+    }, []);
+
+    const reset = useCallback(() => {
+        token.current += 1;
+        setState(null);
+    }, []);
+
+    return { reset, start, state };
 };
 
 // ---------------------------------------------------------------------------
@@ -2819,29 +3011,11 @@ export const useResolveBrowseAlbum = () => {
                 const query = fieldedAlbumQuery(album.artist, album.title);
                 if (!lbBot || !query) return null;
                 const candidates = await lbBot.albumLookup(query).catch(() => []);
-                const valid = candidates.filter(
-                    (row) =>
-                        sameAlbumTitle(row.title, album.title) &&
-                        sameArtist(row.artist, album.artist),
-                );
-                // Ordering the survivors. Ownership first: it is a fact about
-                // the library, where a score is a guess about text. Then a
-                // title with no bracketed qualifier, because several real
-                // candidates strip to the same thing - measured on this exact
-                // case, `Discovery`, `Discovery (Beta Version)` and `Discovery
-                // (Sample Bandit Bootlegs)` all survive validation, and leaving
-                // the pick to MusicBrainz's ranking puts a bootleg one place
-                // from winning. Only then the order lb-bot sent.
-                const ranked = valid
-                    .map((row, index) => ({ index, row }))
-                    .sort(
-                        (a, b) =>
-                            Number(b.row.releaseOwned) - Number(a.row.releaseOwned) ||
-                            Number(hasEditionSuffix(a.row.title)) -
-                                Number(hasEditionSuffix(b.row.title)) ||
-                            a.index - b.index,
-                    );
-                const hit = ranked[0]?.row;
+                // Validated against the question, then ordered (ownership, no
+                // bracketed qualifier, lb-bot's order) - see `rankAlbumCandidates`
+                // for why validation alone leaves a bootleg one place from winning.
+                const ranked = rankAlbumCandidates(candidates, album);
+                const hit = ranked[0];
                 if (!hit) return null;
                 if (hit.releaseAlbumId) {
                     return { albumId: hit.releaseAlbumId, kind: 'library' };
