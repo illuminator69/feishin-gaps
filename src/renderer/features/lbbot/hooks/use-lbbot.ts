@@ -1053,7 +1053,7 @@ export const useAlbumJobPoll = () => {
         };
     }, []);
 
-    const start = useCallback((id: string, spec: PollSpec) => {
+    const start = useCallback((id: string, spec: PollSpec, onEnd?: (ended: PollState) => void) => {
         const mine = ++token.current;
         let current: PollState = pollStart(spec, Date.now());
         setState(current);
@@ -1077,6 +1077,8 @@ export const useAlbumJobPoll = () => {
                 window.setTimeout(() => void tick(), POLL_INTERVAL_MS);
             } else {
                 void queryClient.invalidateQueries({ queryKey: OVERRIDES_KEY, refetchType: 'all' });
+                // Runs mounted or not: the dialog may be gone by now.
+                onEnd?.(current);
             }
         };
         window.setTimeout(() => void tick(), POLL_INTERVAL_MS);

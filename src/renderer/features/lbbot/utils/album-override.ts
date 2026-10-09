@@ -346,3 +346,52 @@ export const editionRows = (
     }
     return rows;
 };
+
+// ---------------------------------------------------------------------------
+// Fix round 1: forced applies and leaving the dead page
+// ---------------------------------------------------------------------------
+
+/** A 409 `poor_match` the user is being asked about - tied to ITS release. */
+export interface PendingConfirm {
+    matched: number;
+    releaseMbid: string;
+    total: number;
+}
+
+/**
+ * Whether `force: true` may go out for `releaseMbid`. Only for the release whose
+ * `poor_match` answer was confirmed: lb-bot's counts for release A say nothing
+ * about release B, whose own guard must answer for itself.
+ */
+export const forceAllowed = (pending: null | PendingConfirm, releaseMbid: string): boolean =>
+    !!pending && !!releaseMbid && pending.releaseMbid === releaseMbid;
+
+export type LeaveDecision =
+    | { id: string; kind: 'album' | 'artist' }
+    | { kind: 'albums' }
+    | { kind: 'stay' };
+
+/**
+ * After an apply or remove ends: where does the app go? Only off the dead album's
+ * own route (a retag changes the Navidrome id, so that page is gone); anywhere
+ * else the user stays. Then the new album when lb-bot gave its id (an apply only),
+ * else the artist, else the album list - a route that is always valid.
+ */
+export const decideLeave = (input: {
+    artistId: string;
+    deadAlbumId: string;
+    kind: 'apply' | 'remove';
+    newAlbumId: string;
+    pathname: string;
+}): LeaveDecision => {
+    if (!input.deadAlbumId || !input.pathname.split('/').includes(input.deadAlbumId)) {
+        return { kind: 'stay' };
+    }
+    if (input.kind === 'apply' && input.newAlbumId) {
+        return input.newAlbumId === input.deadAlbumId
+            ? { kind: 'stay' }
+            : { id: input.newAlbumId, kind: 'album' };
+    }
+    if (input.artistId) return { id: input.artistId, kind: 'artist' };
+    return { kind: 'albums' };
+};

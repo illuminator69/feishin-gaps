@@ -4,9 +4,11 @@ import test from 'node:test';
 import {
     APPLY_SPEC,
     commitSentence,
+    decideLeave,
     describeAlbumFailure,
     editionRows,
     extractReleaseMbid,
+    forceAllowed,
     GIVE_UP_MS,
     nextAfterOverride,
     outcomeSentence,
@@ -406,4 +408,73 @@ test('editionRows: an edition listed twice appears once', () => {
         year: '',
     });
     assert.equal(editionRows([variant('r1'), variant('r1')], '').length, 1);
+});
+
+// --- fix round 1 -----------------------------------------------------------
+
+test('forceAllowed: only for the release whose poor_match the user confirmed', () => {
+    const pending = { matched: 3, releaseMbid: 'rA', total: 12 };
+    assert.equal(forceAllowed(pending, 'rA'), true);
+    assert.equal(forceAllowed(pending, 'rB'), false);
+    assert.equal(forceAllowed(pending, ''), false);
+    assert.equal(forceAllowed(null, 'rA'), false);
+});
+
+test('decideLeave: not on the dead album page means stay', () => {
+    const base = {
+        artistId: 'ar',
+        deadAlbumId: 'al-1',
+        kind: 'apply' as const,
+        newAlbumId: 'al-2',
+    };
+    assert.deepEqual(decideLeave({ ...base, pathname: '/library/albums/other' }), { kind: 'stay' });
+    assert.deepEqual(decideLeave({ ...base, pathname: '/library/albums' }), { kind: 'stay' });
+    // a longer id that merely contains the dead one is not the dead page
+    assert.deepEqual(decideLeave({ ...base, pathname: '/library/albums/al-10' }), { kind: 'stay' });
+});
+
+test('decideLeave: on the dead page goes to the new album, else the artist, else the list', () => {
+    const on = { deadAlbumId: 'al-1', kind: 'apply' as const, pathname: '/library/albums/al-1' };
+    assert.deepEqual(decideLeave({ ...on, artistId: 'ar', newAlbumId: 'al-2' }), {
+        id: 'al-2',
+        kind: 'album',
+    });
+    assert.deepEqual(decideLeave({ ...on, artistId: 'ar', newAlbumId: '' }), {
+        id: 'ar',
+        kind: 'artist',
+    });
+    assert.deepEqual(decideLeave({ ...on, artistId: '', newAlbumId: '' }), { kind: 'albums' });
+});
+
+test('decideLeave: the same id (a cover-only change) stays; a remove never lands on an album', () => {
+    assert.deepEqual(
+        decideLeave({
+            artistId: 'ar',
+            deadAlbumId: 'al-1',
+            kind: 'apply',
+            newAlbumId: 'al-1',
+            pathname: '/library/albums/al-1',
+        }),
+        { kind: 'stay' },
+    );
+    assert.deepEqual(
+        decideLeave({
+            artistId: 'ar',
+            deadAlbumId: 'al-1',
+            kind: 'remove',
+            newAlbumId: 'al-9',
+            pathname: '/library/albums/al-1',
+        }),
+        { id: 'ar', kind: 'artist' },
+    );
+    assert.deepEqual(
+        decideLeave({
+            artistId: '',
+            deadAlbumId: 'al-1',
+            kind: 'remove',
+            newAlbumId: '',
+            pathname: '/library/albums/al-1',
+        }),
+        { kind: 'albums' },
+    );
 });

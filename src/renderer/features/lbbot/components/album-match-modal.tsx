@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { generatePath, useLocation, useNavigate } from 'react-router';
+import { generatePath, useNavigate } from 'react-router';
 
 import styles from './album-match-modal.module.css';
 
@@ -21,13 +21,17 @@ import {
     AlbumFailure,
     APPLY_SPEC,
     commitSentence,
+    decideLeave,
     describeAlbumFailure,
     editionRows,
     extractReleaseMbid,
+    forceAllowed,
     nextAfterOverride,
     outcomeSentence,
+    PendingConfirm,
     PollPhase,
     PollSpec,
+    PollState,
     REMOVE_SPEC,
     STILL_WORKING,
     summarizePreview,
@@ -172,7 +176,6 @@ const AlbumMatchModal = ({
     modalId,
 }: AlbumMatchModalProps & { modalId: string }) => {
     const navigate = useNavigate();
-    const location = useLocation();
     const available = useLbBotAvailable();
     const controls = useAlbumOverrideControls();
     const poll = useAlbumJobPoll();
@@ -200,7 +203,7 @@ const AlbumMatchModal = ({
     const [coverUrl, setCoverUrl] = useState('');
     const [busy, setBusy] = useState(false);
     const [failure, setFailure] = useState<AlbumFailure | null>(null);
-    const [confirm, setConfirm] = useState<null | { matched: number; total: number }>(null);
+    const [confirm, setConfirm] = useState<null | PendingConfirm>(null);
 
     const parsed = extractReleaseMbid(pasted);
     const preview = useAlbumPreview(albumId, job ? null : picked);
@@ -214,7 +217,37 @@ const AlbumMatchModal = ({
     const coverList = covers.data?.ok ? (covers.data.data ?? []) : null;
     const coverFailure = covers.data && !covers.data.ok ? describeAlbumFailure(covers.data) : null;
     // Changing the release invalidates a cover chosen for the previous one.
-    useEffect(() => setCoverUrl(''), [picked]);
+    useEffect(() => {
+        setCoverUrl('');
+        // An old error or poor_match question belongs to the previous release.
+        setFailure(null);
+        setConfirm(null);
+    }, [picked]);
+
+    // Leaving the dead page happens where the poll ends (it outlives this dialog),
+    // not in an effect here. Read the route at that moment, not at render.
+    const leave = (ended: PollState, kind: 'apply' | 'remove') => {
+        if (ended.phase !== 'settled') return;
+        const decision = decideLeave({
+            artistId: artistId ?? '',
+            deadAlbumId: albumId,
+            kind,
+            newAlbumId: ended.row?.albumId ?? '',
+            pathname: window.location.hash.replace(/^#/, '').split(/[?#]/)[0],
+        });
+        if (decision.kind === 'album') {
+            navigate(generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, { albumId: decision.id }), {
+                replace: true,
+            });
+        } else if (decision.kind === 'artist') {
+            navigate(
+                generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, { albumArtistId: decision.id }),
+                { replace: true },
+            );
+        } else if (decision.kind === 'albums') {
+            navigate(AppRoute.LIBRARY_ALBUMS, { replace: true });
+        }
+    };
 
     // An override that is still being worked on when the dialog opens is followed,
     // not offered a second apply.
@@ -230,7 +263,11 @@ const AlbumMatchModal = ({
         if (!spec) return;
         resumed.current = true;
         setJob({ kind: spec === REMOVE_SPEC ? 'remove' : 'apply', spec });
-        poll.start(row.id, spec);
+        poll.start(row.id, spec, (ended) =>
+            leave(ended, spec === REMOVE_SPEC ? 'remove' : 'apply'),
+        );
+        // `leave` only closes over props that do not change while the dialog is open.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [job, poll, state?.override]);
 
     const row: LbBotAlbumOverrideRow | null = poll.state?.row ?? state?.override ?? null;
@@ -252,34 +289,18 @@ const AlbumMatchModal = ({
             );
         }
     };
-    const whereId = where.kind === 'none' ? '' : where.id;
-    const navigated = useRef(false);
-    useEffect(() => {
-        if (phase !== 'settled' || navigated.current) return;
-        navigated.current = true;
-        if (!location.pathname.includes(albumId)) return;
-        if (where.kind === 'album') {
-            navigate(generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, { albumId: whereId }), {
-                replace: true,
-            });
-        } else if (where.kind === 'artist') {
-            navigate(
-                generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, { albumArtistId: whereId }),
-                {
-                    replace: true,
-                },
-            );
-        }
-    }, [albumId, location.pathname, navigate, phase, where.kind, whereId]);
-
     const begin = (kind: 'apply' | 'remove', id: string) => {
         const spec = kind === 'apply' ? APPLY_SPEC : REMOVE_SPEC;
         setJob({ kind, spec });
-        poll.start(id, spec);
+        poll.start(id, spec, (ended) => leave(ended, kind));
     };
 
-    const apply = async (force: boolean) => {
+    // A confirmation only counts for the release it was asked about.
+    const pending = forceAllowed(confirm, picked ?? '') ? confirm : null;
+
+    const apply = async (wantForce: boolean) => {
         if (!picked) return;
+        const force = wantForce && forceAllowed(confirm, picked);
         setBusy(true);
         setFailure(null);
         const result = await applyAlbumOverride({
@@ -296,7 +317,7 @@ const AlbumMatchModal = ({
                 found.matched !== undefined &&
                 found.total !== undefined
             ) {
-                setConfirm({ matched: found.matched, total: found.total });
+                setConfirm({ matched: found.matched, releaseMbid: picked, total: found.total });
             } else {
                 setConfirm(null);
                 setFailure(found);
@@ -320,7 +341,7 @@ const AlbumMatchModal = ({
         }
         // Synchronous on lb-bot's side: follow the row it made to see the final state.
         setJob({ kind: 'apply', spec: APPLY_SPEC });
-        poll.start(result.data.id, APPLY_SPEC);
+        poll.start(result.data.id, APPLY_SPEC, (ended) => leave(ended, 'apply'));
     };
 
     const undo = async (id: string) => {
@@ -715,7 +736,7 @@ const AlbumMatchModal = ({
 
             {showPicker && (
                 <Stack className={styles.footer} gap="xs">
-                    {summary && picked && !confirm && summary.changing > 0 && (
+                    {summary && picked && !pending && summary.changing > 0 && (
                         <Text size="sm">{commitSentence(summary.changing)}</Text>
                     )}
                     {summary && picked && summary.changing === 0 && (
@@ -723,9 +744,9 @@ const AlbumMatchModal = ({
                             No file would change.
                         </Text>
                     )}
-                    {confirm && (
+                    {pending && (
                         <Text size="sm">
-                            Only {confirm.matched} of the {confirm.total} files have a place on this
+                            Only {pending.matched} of the {pending.total} files have a place on this
                             release. Apply anyway?
                         </Text>
                     )}
@@ -733,12 +754,12 @@ const AlbumMatchModal = ({
                         <Failure
                             failure={failure}
                             onRetry={
-                                failure.kind === 'retry' ? () => void apply(!!confirm) : undefined
+                                failure.kind === 'retry' ? () => void apply(!!pending) : undefined
                             }
                         />
                     )}
                     <Group gap="sm" justify="end">
-                        {picked && confirm && (
+                        {picked && pending && (
                             <Button
                                 disabled={busy}
                                 loading={busy}
@@ -748,7 +769,7 @@ const AlbumMatchModal = ({
                                 Apply anyway
                             </Button>
                         )}
-                        {picked && !confirm && (
+                        {picked && !pending && (
                             <Button
                                 disabled={busy || !summary || summary.changing === 0}
                                 loading={busy}
