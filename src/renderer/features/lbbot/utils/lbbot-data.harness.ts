@@ -43,10 +43,15 @@ test('describeToCheck says what was measured, never that it is a mistake', () =>
 
 test('normalizeOverridesData: new shape passes, a bare legacy map is read as no toCheck', () => {
     const row = { mbid: 'm', name: 'N', ndArtistId: 'a', setAt: 1, tagMbid: '' };
-    const full = { byNdId: { a: row }, toCheck: [] };
+    const none = { albums: null, merges: null, siblings: null };
+    const full = { ...none, byNdId: { a: row }, toCheck: [] };
     assert.deepEqual(normalizeOverridesData(full), full);
-    assert.deepEqual(normalizeOverridesData({ a: row }), { byNdId: { a: row }, toCheck: null });
-    assert.deepEqual(normalizeOverridesData(undefined), { byNdId: {}, toCheck: null });
+    assert.deepEqual(normalizeOverridesData({ a: row }), {
+        ...none,
+        byNdId: { a: row },
+        toCheck: null,
+    });
+    assert.deepEqual(normalizeOverridesData(undefined), { ...none, byNdId: {}, toCheck: null });
     // toCheck null stays null: absent field = older lb-bot, which is not "empty".
     assert.equal(normalizeOverridesData({ byNdId: {}, toCheck: null }).toCheck, null);
 });
@@ -313,4 +318,24 @@ test('listeningSyncFailure: 404 and 405 are "no listening history yet", not an e
     const other = listeningSyncFailure({ error: 'lb-bot is busy', status: 502 });
     assert.equal(other.older, false);
     assert.equal(other.message, 'lb-bot is busy');
+});
+
+test('normalizeOverridesData keeps absent (null) apart from empty ([]) for the I-022/I-023 lists', () => {
+    const absent = normalizeOverridesData({ byNdId: {}, toCheck: [] });
+    assert.equal(absent.albums, null);
+    assert.equal(absent.merges, null);
+    assert.equal(absent.siblings, null);
+    const empty = normalizeOverridesData({
+        albums: [],
+        byNdId: {},
+        merges: [],
+        siblings: [],
+        toCheck: null,
+    });
+    assert.deepEqual(empty.albums, []);
+    assert.deepEqual(empty.merges, []);
+    assert.deepEqual(empty.siblings, []);
+    // a body persisted before these existed (a bare map) reads as unknown
+    assert.equal(normalizeOverridesData({ nd1: { mbid: 'x' } }).siblings, null);
+    assert.equal(normalizeOverridesData(undefined).albums, null);
 });

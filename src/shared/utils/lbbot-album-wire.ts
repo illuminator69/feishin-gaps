@@ -4,9 +4,13 @@ import type {
     LbBotAlbumState,
     LbBotAlbumTrackTag,
     LbBotCover,
+    LbBotMergeArtist,
+    LbBotMergePreview,
+    LbBotMergeRow,
     LbBotPreview,
     LbBotPreviewFile,
     LbBotPreviewSlot,
+    LbBotSiblingGroup,
 } from '/@/shared/types/lbbot-types';
 
 /**
@@ -143,5 +147,87 @@ export const toPreview = (body: unknown): LbBotPreview => {
         },
         releaseMbid: str(b.releaseMbid),
         unmatched: typeof b.unmatched === 'number' ? num(b.unmatched) : files.length - slotted,
+    };
+};
+
+// ---------------------------------------------------------------------------
+// The three lists `GET /lb/overrides` gained, and the merge bodies (I-022 / I-023).
+// A field the body lacks is null - "lb-bot could not say" - and is NOT [] ("none").
+// ---------------------------------------------------------------------------
+
+export const toAlbumRows = (value: unknown): LbBotAlbumOverrideRow[] | null =>
+    Array.isArray(value)
+        ? value.flatMap((row) => {
+              const parsed = toOverrideRow(row);
+              return parsed ? [parsed] : [];
+          })
+        : null;
+
+const toMergeArtist = (value: unknown): LbBotMergeArtist => {
+    const v = isObject(value) ? value : {};
+    return { name: str(v.name), ndArtistId: str(v.ndArtistId) };
+};
+
+export const toMergeRow = (row: unknown): LbBotMergeRow | null => {
+    if (!isObject(row)) return null;
+    const id = str(row.id);
+    if (!id) return null;
+    return {
+        done: num(row.done),
+        failures: Array.isArray(row.failures)
+            ? row.failures.flatMap((item) => {
+                  if (!isObject(item)) return [];
+                  const title = str(item.title);
+                  return title ? [{ album: str(item.album), reason: str(item.reason), title }] : [];
+              })
+            : [],
+        from: { name: str(isObject(row.from) ? row.from.name : '') },
+        id,
+        into: toMergeArtist(row.into),
+        mbid: str(row.mbid),
+        setAt: num(row.setAt),
+        state: str(row.state),
+        total: num(row.total),
+    };
+};
+
+export const toMergeRows = (value: unknown): LbBotMergeRow[] | null =>
+    Array.isArray(value)
+        ? value.flatMap((row) => {
+              const parsed = toMergeRow(row);
+              return parsed ? [parsed] : [];
+          })
+        : null;
+
+/** Groups keep lb-bot's order (most albums first); an artist without an id is not
+ *  one, and a group left with fewer than two has nothing to merge. */
+export const toSiblingGroups = (value: unknown): LbBotSiblingGroup[] | null =>
+    Array.isArray(value)
+        ? value.flatMap((group) => {
+              if (!isObject(group) || !Array.isArray(group.artists)) return [];
+              const artists = group.artists.flatMap((artist) => {
+                  if (!isObject(artist)) return [];
+                  const ndArtistId = str(artist.ndArtistId);
+                  return ndArtistId
+                      ? [{ albums: num(artist.albums), name: str(artist.name), ndArtistId }]
+                      : [];
+              });
+              return artists.length >= 2 ? [{ artists, mbid: str(group.mbid) }] : [];
+          })
+        : null;
+
+export const toMergePreview = (body: unknown): LbBotMergePreview => {
+    const b = isObject(body) ? body : {};
+    return {
+        albums: num(b.albums),
+        files: num(b.files),
+        from: toMergeArtist(b.from),
+        into: toMergeArtist(b.into),
+        mbid: str(b.mbid),
+        sample: Array.isArray(b.sample)
+            ? b.sample.flatMap((item) =>
+                  isObject(item) ? [{ album: str(item.album), tracks: num(item.tracks) }] : [],
+              )
+            : [],
     };
 };

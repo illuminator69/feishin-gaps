@@ -2,10 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    toAlbumRows,
     toAlbumState,
     toCovers,
+    toMergePreview,
+    toMergeRow,
+    toMergeRows,
     toOverrideRow,
     toPreview,
+    toSiblingGroups,
 } from '../../../../shared/utils/lbbot-album-wire.ts';
 
 /**
@@ -171,4 +176,81 @@ test('toPreview: a file whose `to` is not a slot has no slot', () => {
     assert.equal(p.files[0].to, null);
     // ...and a slot-less file cannot be a change.
     assert.equal(p.files[0].changed, false);
+});
+
+// --- I-023 / the three new /lb/overrides fields ------------------------------
+
+test('absent is null, [] is [] - for albums, merges and siblings alike', () => {
+    assert.equal(toAlbumRows(undefined), null);
+    assert.equal(toAlbumRows('x'), null);
+    assert.deepEqual(toAlbumRows([]), []);
+    assert.equal(toMergeRows(undefined), null);
+    assert.deepEqual(toMergeRows([]), []);
+    assert.equal(toSiblingGroups(undefined), null);
+    assert.deepEqual(toSiblingGroups([]), []);
+});
+
+test('toAlbumRows drops a row without an id, keeps the rest', () => {
+    const rows = toAlbumRows([ROW, { state: 'applied' }]);
+    assert.equal(rows?.length, 1);
+    assert.equal(rows?.[0].id, 'ov1');
+});
+
+const MERGE = {
+    done: 4,
+    failures: [{ album: 'A', reason: 'ro', title: 'T' }, { album: 'x' }],
+    from: { name: 'Belle and Sebastian' },
+    id: 'm1',
+    into: { name: 'Belle & Sebastian', ndArtistId: 'nd1' },
+    mbid: 'mb',
+    setAt: 1760000000,
+    state: 'merging',
+    total: 9,
+};
+
+test('toMergeRow: names, counters, failures; no id is no row', () => {
+    const row = toMergeRow(MERGE);
+    assert.ok(row);
+    assert.equal(row.from.name, 'Belle and Sebastian');
+    assert.equal(row.into.ndArtistId, 'nd1');
+    assert.deepEqual(row.failures, [{ album: 'A', reason: 'ro', title: 'T' }]);
+    assert.equal(toMergeRow({ ...MERGE, id: '' }), null);
+    assert.equal(toMergeRow(null), null);
+    assert.equal(toMergeRows([MERGE, 'junk'])?.length, 1);
+});
+
+test('toSiblingGroups: keeps lb-bot order, drops artists without an id and groups under two', () => {
+    const groups = toSiblingGroups([
+        {
+            artists: [
+                { albums: 7, name: 'Belle & Sebastian', ndArtistId: 'a' },
+                { albums: '2', name: 'Belle and Sebastian', ndArtistId: 'b' },
+                { albums: 1, name: 'ghost', ndArtistId: '' },
+            ],
+            mbid: 'mb',
+        },
+        { artists: [{ albums: 1, name: 'Solo', ndArtistId: 'c' }], mbid: 'm2' },
+    ]);
+    assert.equal(groups?.length, 1);
+    assert.deepEqual(
+        groups?.[0].artists.map((a) => [a.ndArtistId, a.albums]),
+        [
+            ['a', 7],
+            ['b', 2],
+        ],
+    );
+});
+
+test('toMergePreview reads the counts and both names', () => {
+    const p = toMergePreview({
+        albums: 3,
+        files: 31,
+        from: { name: 'F', ndArtistId: 'f' },
+        into: { name: 'I', ndArtistId: 'i' },
+        mbid: 'mb',
+        sample: [{ album: 'X', tracks: 10 }, 'junk'],
+    });
+    assert.equal(p.files, 31);
+    assert.equal(p.into.name, 'I');
+    assert.deepEqual(p.sample, [{ album: 'X', tracks: 10 }]);
 });

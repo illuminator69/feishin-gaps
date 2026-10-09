@@ -2,6 +2,7 @@ import type {
     LbBotAlbumCandidate,
     LbBotAlbumCoverSet,
     LbBotAlbumJob,
+    LbBotAlbumOverrideRow,
     LbBotAlbumState,
     LbBotArtistCandidate,
     LbBotBrowse,
@@ -18,6 +19,9 @@ import type {
     LbBotListeningPeriod,
     LbBotListeningStatus,
     LbBotListeningSummary,
+    LbBotMergeJob,
+    LbBotMergePreview,
+    LbBotMergeRow,
     LbBotMeta,
     LbBotOverrideRemoved,
     LbBotOverrideSet,
@@ -28,6 +32,7 @@ import type {
     LbBotResolvedEdition,
     LbBotResolvedLink,
     LbBotResult,
+    LbBotSiblingGroup,
     LbBotSimilarAlbums,
     LbBotSimilarArtists,
     LbBotSourceFiles,
@@ -90,6 +95,7 @@ import {
 import {
     POLL_INTERVAL_MS,
     PollAnswer,
+    PollRow,
     PollSpec,
     pollStart,
     PollState,
@@ -792,7 +798,10 @@ const useOverridesQuery = <TData>(select: (raw: OverridesData) => TData) => {
                 queryClient.setQueryData(OVERRIDES_OLDER_KEY, false);
             }
             return {
+                albums: result.data.albums,
                 byNdId: overridesByNdId(result.data.artists),
+                merges: result.data.merges,
+                siblings: result.data.siblings,
                 toCheck: result.data.toCheck,
             };
         },
@@ -1042,8 +1051,8 @@ export const removeAlbumOverride = async (id: string): Promise<LbBotResult<LbBot
  * or not. The `library` frame the hub relays when Navidrome has re-indexed is
  * what refreshes the album and discography queries; nothing here refetches those.
  */
-export const useAlbumJobPoll = () => {
-    const [state, setState] = useState<null | PollState>(null);
+const useJobPoll = <TRow extends PollRow>(read: (id: string) => Promise<PollAnswer<TRow>>) => {
+    const [state, setState] = useState<null | PollState<TRow>>(null);
     const token = useRef(0);
     const mounted = useRef(true);
     useEffect(() => {
@@ -1053,36 +1062,31 @@ export const useAlbumJobPoll = () => {
         };
     }, []);
 
-    const start = useCallback((id: string, spec: PollSpec, onEnd?: (ended: PollState) => void) => {
-        const mine = ++token.current;
-        let current: PollState = pollStart(spec, Date.now());
-        setState(current);
-        const tick = async () => {
-            const result = await lbBot!.albumOverride({ id }).catch(
-                (): LbBotResult<LbBotAlbumState> => ({
-                    data: null,
-                    error: '',
-                    ok: false,
-                    status: 0,
-                }),
-            );
-            if (mine !== token.current) return;
-            const row = result.ok ? result.data?.override : null;
-            const answer: PollAnswer = row
-                ? { ok: true, row }
-                : { code: result.code ?? '', ok: false, status: result.ok ? 0 : result.status };
-            current = pollStep(current, answer, Date.now());
-            if (mounted.current) setState(current);
-            if (current.phase === 'polling') {
-                window.setTimeout(() => void tick(), POLL_INTERVAL_MS);
-            } else {
-                void queryClient.invalidateQueries({ queryKey: OVERRIDES_KEY, refetchType: 'all' });
-                // Runs mounted or not: the dialog may be gone by now.
-                onEnd?.(current);
-            }
-        };
-        window.setTimeout(() => void tick(), POLL_INTERVAL_MS);
-    }, []);
+    const start = useCallback(
+        (id: string, spec: PollSpec, onEnd?: (ended: PollState<TRow>) => void) => {
+            const mine = ++token.current;
+            let current: PollState<TRow> = pollStart<TRow>(spec, Date.now());
+            setState(current);
+            const tick = async () => {
+                const answer = await read(id);
+                if (mine !== token.current) return;
+                current = pollStep(current, answer, Date.now());
+                if (mounted.current) setState(current);
+                if (current.phase === 'polling') {
+                    window.setTimeout(() => void tick(), POLL_INTERVAL_MS);
+                } else {
+                    void queryClient.invalidateQueries({
+                        queryKey: OVERRIDES_KEY,
+                        refetchType: 'all',
+                    });
+                    // Runs mounted or not: the dialog may be gone by now.
+                    onEnd?.(current);
+                }
+            };
+            window.setTimeout(() => void tick(), POLL_INTERVAL_MS);
+        },
+        [read],
+    );
 
     const reset = useCallback(() => {
         token.current += 1;
@@ -1091,6 +1095,87 @@ export const useAlbumJobPoll = () => {
 
     return { reset, start, state };
 };
+
+const readAlbumRow = async (id: string): Promise<PollAnswer<LbBotAlbumOverrideRow>> => {
+    const result = await lbBot!
+        .albumOverride({ id })
+        .catch(
+            (): LbBotResult<LbBotAlbumState> => ({ data: null, error: '', ok: false, status: 0 }),
+        );
+    const row = result.ok ? result.data?.override : null;
+    return row
+        ? { ok: true, row }
+        : { code: result.code ?? '', ok: false, status: result.ok ? 0 : result.status };
+};
+
+const readMergeRow = async (id: string): Promise<PollAnswer<LbBotMergeRow>> => {
+    const result = await lbBot!
+        .mergeGet(id)
+        .catch((): LbBotResult<LbBotMergeRow> => ({ data: null, error: '', ok: false, status: 0 }));
+    return result.ok && result.data
+        ? { ok: true, row: result.data }
+        : { code: result.code ?? '', ok: false, status: result.ok ? 0 : result.status };
+};
+
+export const useAlbumJobPoll = () => useJobPoll<LbBotAlbumOverrideRow>(readAlbumRow);
+
+// ---------------------------------------------------------------------------
+// Artist name merge (I-023): "Merge into one name"
+// ---------------------------------------------------------------------------
+
+const MERGE_ROUTE = 'POST /lb/artist/merge';
+const MERGE_OLDER_KEY = ['lbbot', 'artist-merge-older'] as const;
+export const markMergeOlder = (): void => {
+    queryClient.setQueryData(MERGE_OLDER_KEY, true);
+};
+const useMergeOlder = (): boolean =>
+    useQuery<boolean>({
+        enabled: false,
+        gcTime: Infinity,
+        initialData: false,
+        queryFn: () => false,
+        queryKey: MERGE_OLDER_KEY,
+        staleTime: Infinity,
+    }).data;
+
+/** The merge surfaces exist: the hub advertises the route (strictly, like the
+ *  override controls) and no answer has said this lb-bot is older. */
+export const useMergeControls = (): boolean => {
+    const status = useLbBotStatus();
+    const older = useMergeOlder();
+    return !!lbBot && !!status?.routes?.includes(MERGE_ROUTE) && !older;
+};
+
+const noteMergeResult = <T>(result: LbBotResult<T>): LbBotResult<T> => {
+    if (!result.ok && isOlderLbBot(result.status, result.code)) markMergeOlder();
+    return result;
+};
+
+/** The same-MBID groups from the cached override list: null = unknown, [] = none. */
+export const useLbBotSiblings = (): LbBotSiblingGroup[] | null | undefined =>
+    useLbBotOverrideList().data?.siblings;
+
+/** "N files in M albums" for keeping `ndId`'s name. Writes nothing. */
+export const useMergePreview = (ndId: string, fromNdId: string, enabled: boolean) =>
+    useQuery<LbBotResult<LbBotMergePreview>>({
+        enabled: !!lbBot && enabled && !!ndId && !!fromNdId,
+        gcTime: 60 * 1000,
+        queryFn: async () => noteMergeResult(await lbBot!.mergePreview(ndId, fromNdId)),
+        queryKey: ['lbbot', 'merge-preview', ndId, fromNdId],
+        refetchOnWindowFocus: false,
+        retry: false,
+        staleTime: 0,
+    });
+
+export const startArtistMerge = async (
+    ndId: string,
+    fromNdId: string,
+): Promise<LbBotResult<LbBotMergeJob>> => noteMergeResult(await lbBot!.mergeStart(ndId, fromNdId));
+
+export const undoArtistMerge = async (id: string): Promise<LbBotResult<LbBotMergeJob>> =>
+    noteMergeResult(await lbBot!.mergeUndo(id));
+
+export const useMergeJobPoll = () => useJobPoll<LbBotMergeRow>(readMergeRow);
 
 // ---------------------------------------------------------------------------
 // Listening history (I-006)

@@ -4,12 +4,18 @@ import { generatePath, Link } from 'react-router';
 
 import { openMbidMatchModal } from '/@/renderer/features/lbbot/components/mbid-match-modal';
 import {
+    removeAlbumOverride,
     requestListeningSync,
+    undoArtistMerge,
+    useAlbumJobPoll,
+    useAlbumOverrideControls,
     useArtistOverrideActions,
     useLbBotAvailable,
     useLbBotOverrideList,
     useListeningStatus,
     useListeningSupported,
+    useMergeControls,
+    useMergeJobPoll,
     useOverrideControls,
     useOverridesOlder,
     useOverridesSupported,
@@ -22,6 +28,8 @@ import {
     subscribeMirrorSyncState,
     useMirrorShown,
 } from '/@/renderer/features/lbbot/index-mirror/index-mirror';
+import { REMOVE_SPEC } from '/@/renderer/features/lbbot/utils/album-override';
+import { UNDO_SPEC } from '/@/renderer/features/lbbot/utils/artist-merge';
 import {
     describeListeningStatus,
     describeToCheck,
@@ -39,7 +47,13 @@ import { closeAllModals } from '/@/shared/components/modal/modal';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { Text } from '/@/shared/components/text/text';
-import { LbBotListeningStatus, LbBotOverride, LbBotToCheck } from '/@/shared/types/lbbot-types';
+import {
+    LbBotAlbumOverrideRow,
+    LbBotListeningStatus,
+    LbBotMergeRow,
+    LbBotOverride,
+    LbBotToCheck,
+} from '/@/shared/types/lbbot-types';
 
 /**
  * Settings panel "lb-bot data" (I-020, with I-021's list): what lb-bot holds on
@@ -90,6 +104,149 @@ const OverrideRow = ({ available, row }: { available: boolean; row: LbBotOverrid
             {failure && (
                 <Text c="red" size="xs">
                     {failure.message}
+                </Text>
+            )}
+        </Stack>
+    );
+};
+
+const setOn = (epochSeconds: number): string =>
+    epochSeconds > 0 ? new Date(epochSeconds * 1000).toLocaleDateString() : '';
+
+// I-022: an album whose tags lb-bot rewrote. Undo restores them in the background;
+// the row follows that and leaves the list when lb-bot has finished.
+const AlbumOverrideRowView = ({
+    available,
+    row,
+}: {
+    available: boolean;
+    row: LbBotAlbumOverrideRow;
+}) => {
+    const poll = useAlbumJobPoll();
+    const [error, setError] = useState('');
+    const [busy, setBusy] = useState(false);
+    const phase = poll.state?.phase ?? null;
+    const progress = poll.state?.row ?? row;
+    const undo = async () => {
+        setBusy(true);
+        setError('');
+        const result = await removeAlbumOverride(row.id);
+        setBusy(false);
+        if (!result.ok || !result.data) {
+            setError(result.error || 'lb-bot did not accept that.');
+            return;
+        }
+        poll.start(result.data.id, REMOVE_SPEC);
+    };
+    return (
+        <Stack gap={2}>
+            <Group justify="space-between" wrap="nowrap">
+                <Stack gap={0}>
+                    <Text size="sm">{`${row.artist || 'Unknown artist'} – ${row.album || 'Unknown album'}`}</Text>
+                    <Text isMuted size="xs">
+                        {'Set to '}
+                        <a
+                            href={`https://musicbrainz.org/release/${row.releaseMbid}`}
+                            rel="noreferrer"
+                            target="_blank"
+                        >
+                            {row.releaseMbid}
+                        </a>
+                        {setOn(row.setAt) ? ` · ${setOn(row.setAt)}` : ''}
+                        {row.state !== 'applied' ? ` · ${row.state}` : ''}
+                    </Text>
+                </Stack>
+                <Button
+                    disabled={!available || busy || phase === 'polling'}
+                    loading={busy}
+                    onClick={() => void undo()}
+                    size="compact-sm"
+                    variant="default"
+                >
+                    Undo
+                </Button>
+            </Group>
+            {phase === 'polling' && (
+                <Text isMuted size="xs">
+                    {`Putting the previous tags back… ${progress.done}/${progress.total} files`}
+                </Text>
+            )}
+            {phase === 'failed' && (
+                <Text c="red" size="xs">
+                    lb-bot could not put all the previous tags back.
+                </Text>
+            )}
+            {phase === 'timeout' && (
+                <Text isMuted size="xs">
+                    Still working — check again shortly.
+                </Text>
+            )}
+            {error && (
+                <Text c="red" size="xs">
+                    {error}
+                </Text>
+            )}
+        </Stack>
+    );
+};
+
+// I-023: two spellings of one artist that lb-bot retagged to one name.
+const MergeRowView = ({ available, row }: { available: boolean; row: LbBotMergeRow }) => {
+    const poll = useMergeJobPoll();
+    const [error, setError] = useState('');
+    const [busy, setBusy] = useState(false);
+    const phase = poll.state?.phase ?? null;
+    const progress = poll.state?.row ?? row;
+    const undo = async () => {
+        setBusy(true);
+        setError('');
+        const result = await undoArtistMerge(row.id);
+        setBusy(false);
+        if (!result.ok || !result.data) {
+            setError(result.error || 'lb-bot did not accept that.');
+            return;
+        }
+        poll.start(result.data.id, UNDO_SPEC);
+    };
+    return (
+        <Stack gap={2}>
+            <Group justify="space-between" wrap="nowrap">
+                <Stack gap={0}>
+                    <Text size="sm">{`${row.from.name || 'Unknown'} → ${row.into.name || 'Unknown'}`}</Text>
+                    <Text isMuted size="xs">
+                        {`${row.total} ${row.total === 1 ? 'file' : 'files'}`}
+                        {setOn(row.setAt) ? ` · ${setOn(row.setAt)}` : ''}
+                        {row.state !== 'merged' ? ` · ${row.state}` : ''}
+                    </Text>
+                </Stack>
+                <Button
+                    disabled={!available || busy || phase === 'polling'}
+                    loading={busy}
+                    onClick={() => void undo()}
+                    size="compact-sm"
+                    variant="default"
+                >
+                    Undo
+                </Button>
+            </Group>
+            {phase === 'polling' && (
+                <Text isMuted size="xs">
+                    {`Putting the previous names back… ${progress.done}/${progress.total} files`}
+                </Text>
+            )}
+            {phase === 'failed' && (
+                <Text c="red" size="xs">
+                    lb-bot could not put all the previous names back.
+                </Text>
+            )}
+            {phase === 'timeout' && (
+                <Text isMuted size="xs">
+                    Still working — check again shortly.
+                </Text>
+            )}
+            {error && (
+                <Text c="red" size="xs">
+                    {error}
                 </Text>
             )}
         </Stack>
@@ -172,6 +329,8 @@ export const LbBotDataSettings = memo(() => {
     const older = useOverridesOlder();
     const listeningSupported = useListeningSupported();
     const list = useLbBotOverrideList();
+    const albumControls = useAlbumOverrideControls();
+    const mergeControls = useMergeControls();
     const listening = useListeningStatus();
     const mirror = useSyncExternalStore(subscribeIndexMirror, getIndexMirrorSnapshot);
     const mirrorSync = useSyncExternalStore(subscribeMirrorSyncState, getMirrorSyncState);
@@ -280,6 +439,8 @@ export const LbBotDataSettings = memo(() => {
     const data = list.data;
     const overrides = data ? sortOverrides(data.byNdId) : [];
     const toCheck = data?.toCheck ?? null;
+    const albums = data?.albums ?? null;
+    const merges = data?.merges ?? null;
 
     return (
         <SettingsSection
@@ -323,6 +484,43 @@ export const LbBotDataSettings = memo(() => {
                                     key={row.ndArtistId}
                                     row={row}
                                 />
+                            ))}
+                        </Stack>
+                    )}
+
+                    {albumControls && albums !== null && (
+                        <Stack gap="xs">
+                            <TextTitle fw={600} order={5}>
+                                {`Album matches changed by lb-bot (${albums.length})`}
+                            </TextTitle>
+                            {albums.length === 0 && (
+                                <Text isMuted size="sm">
+                                    None. Use “Fix album match…” on an album to choose its
+                                    MusicBrainz release.
+                                </Text>
+                            )}
+                            {albums.map((row) => (
+                                <AlbumOverrideRowView
+                                    available={available}
+                                    key={row.id}
+                                    row={row}
+                                />
+                            ))}
+                        </Stack>
+                    )}
+
+                    {mergeControls && merges !== null && (
+                        <Stack gap="xs">
+                            <TextTitle fw={600} order={5}>
+                                {`Merged artist names (${merges.length})`}
+                            </TextTitle>
+                            {merges.length === 0 && (
+                                <Text isMuted size="sm">
+                                    None that can still be undone.
+                                </Text>
+                            )}
+                            {merges.map((row) => (
+                                <MergeRowView available={available} key={row.id} row={row} />
                             ))}
                         </Stack>
                     )}

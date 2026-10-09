@@ -36,6 +36,9 @@ import type {
     LbBotListeningState,
     LbBotListeningStatus,
     LbBotListeningSummary,
+    LbBotMergeJob,
+    LbBotMergePreview,
+    LbBotMergeRow,
     LbBotMeta,
     LbBotMetaCredit,
     LbBotMetaLink,
@@ -77,7 +80,16 @@ import { BrowserWindow, ipcMain, Notification } from 'electron';
 
 import { getHubConfig } from '../hub';
 
-import { toAlbumState, toCovers, toPreview } from '/@/shared/utils/lbbot-album-wire';
+import {
+    toAlbumRows,
+    toAlbumState,
+    toCovers,
+    toMergePreview,
+    toMergeRow,
+    toMergeRows,
+    toPreview,
+    toSiblingGroups,
+} from '/@/shared/utils/lbbot-album-wire';
 import { hasMetaFields, normalizeLbBotWebUrl } from '/@/shared/utils/lbbot-wire';
 
 /**
@@ -533,7 +545,11 @@ ipcMain.handle('lbbot-overrides', async (): Promise<LbBotResult<LbBotOverrideLis
     }
     return {
         data: {
+            // I-022 / I-023: each is absent -> null (unknown), [] -> [] (none).
+            albums: toAlbumRows(result.data.albums),
             artists: result.data.artists.flatMap(toOverride),
+            merges: toMergeRows(result.data.merges),
+            siblings: toSiblingGroups(result.data.siblings),
             toCheck: Array.isArray(result.data.toCheck)
                 ? result.data.toCheck.flatMap(toCheckRow)
                 : null,
@@ -764,6 +780,97 @@ ipcMain.handle(
         if (!result.ok) return albumFailed<LbBotAlbumJob>(result);
         if (result.data?.ok !== true || !str(result.data.id)) {
             return failed<LbBotAlbumJob>(
+                result.status,
+                str(result.data?.error) || 'lb-bot refused the request.',
+            );
+        }
+        return {
+            data: { id: str(result.data.id), state: str(result.data.state) },
+            error: '',
+            ok: true,
+            status: result.status,
+        };
+    },
+);
+
+// ---------------------------------------------------------------------------
+// Artist name merge (I-023): "Merge into one name"
+// ---------------------------------------------------------------------------
+
+// Two library artists with the same effective MusicBrainz id but different
+// spellings: lb-bot retags the variant's files to the kept name, undoably. Same
+// result-shaped contract as the album routes above (`different_artists`,
+// `unknown_artist`, `busy`, `in_progress`, retryable 502; a code-less 404 / 405 =
+// older). `nd_id` is the entry whose name is kept, `from_nd_id` the one rewritten.
+
+ipcMain.handle(
+    'lbbot-merge-preview',
+    async (
+        _event,
+        args: { fromNdId: string; ndId: string },
+    ): Promise<LbBotResult<LbBotMergePreview>> => {
+        if (!args.ndId || !args.fromNdId) {
+            return failed<LbBotMergePreview>(0, 'Two artists are needed.');
+        }
+        const result = await request('GET', '/lb/artist/merge/preview', {
+            params: { from_nd_id: args.fromNdId, nd_id: args.ndId },
+        });
+        if (!result.ok) return albumFailed<LbBotMergePreview>(result);
+        return { data: toMergePreview(result.data), error: '', ok: true, status: result.status };
+    },
+);
+
+ipcMain.handle(
+    'lbbot-merge-start',
+    async (
+        _event,
+        args: { fromNdId: string; ndId: string },
+    ): Promise<LbBotResult<LbBotMergeJob>> => {
+        if (!args.ndId || !args.fromNdId)
+            return failed<LbBotMergeJob>(0, 'Two artists are needed.');
+        const result = await request('POST', '/lb/artist/merge', {
+            body: { from_nd_id: args.fromNdId, nd_id: args.ndId },
+        });
+        if (!result.ok) return albumFailed<LbBotMergeJob>(result);
+        if (result.data?.ok !== true || !str(result.data.id)) {
+            return failed<LbBotMergeJob>(
+                result.status,
+                str(result.data?.error) || 'lb-bot refused the request.',
+            );
+        }
+        return {
+            data: { id: str(result.data.id), state: str(result.data.state) },
+            error: '',
+            ok: true,
+            status: result.status,
+        };
+    },
+);
+
+// The poll. A 404 `no_merge` is lb-bot's answer after an undo has finished.
+ipcMain.handle(
+    'lbbot-merge-get',
+    async (_event, args: { id: string }): Promise<LbBotResult<LbBotMergeRow>> => {
+        if (!args.id) return failed<LbBotMergeRow>(0, 'No merge to look up.');
+        const result = await request('GET', '/lb/artist/merge', {
+            params: { id: args.id },
+            timeoutMs: POLL_TIMEOUT_MS,
+        });
+        if (!result.ok) return albumFailed<LbBotMergeRow>(result);
+        const row = toMergeRow(result.data);
+        if (!row) return failed<LbBotMergeRow>(result.status, 'lb-bot answered with no merge.');
+        return { data: row, error: '', ok: true, status: result.status };
+    },
+);
+
+ipcMain.handle(
+    'lbbot-merge-undo',
+    async (_event, args: { id: string }): Promise<LbBotResult<LbBotMergeJob>> => {
+        if (!args.id) return failed<LbBotMergeJob>(0, 'No merge to undo.');
+        const result = await request('POST', '/lb/artist/merge/undo', { body: { id: args.id } });
+        if (!result.ok) return albumFailed<LbBotMergeJob>(result);
+        if (result.data?.ok !== true || !str(result.data.id)) {
+            return failed<LbBotMergeJob>(
                 result.status,
                 str(result.data?.error) || 'lb-bot refused the request.',
             );

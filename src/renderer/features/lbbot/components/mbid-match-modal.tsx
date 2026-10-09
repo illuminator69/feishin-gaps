@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import styles from './mbid-match-modal.module.css';
 
+import { ArtistMergeBlock } from '/@/renderer/features/lbbot/components/artist-merge-block';
 import {
     useArtistOverrideActions,
     useArtistOverrideKind,
@@ -187,6 +188,7 @@ const MbidMatchModal = ({
                     );
                 })}
             </div>
+            <ArtistMergeBlock ndId={ndId} />
             <Stack className={styles.footer} gap="xs">
                 <Group align="flex-end" gap="xs" wrap="nowrap">
                     <TextInput

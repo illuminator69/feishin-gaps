@@ -20,6 +20,9 @@ import type {
     LbBotIndexStart,
     LbBotListeningStatus,
     LbBotListeningSummary,
+    LbBotMergeJob,
+    LbBotMergePreview,
+    LbBotMergeRow,
     LbBotMeta,
     LbBotOverrideList,
     LbBotOverrideRemoved,
@@ -132,6 +135,21 @@ const albumCoverSet = (
 
 const albumOverrideRemove = (id: string): Promise<LbBotResult<LbBotAlbumJob>> =>
     ipcRenderer.invoke('lbbot-album-override-remove', { id });
+
+/** Artist name merge (I-023). Result-shaped like the album routes: `code`
+ *  (`different_artists`, `unknown_artist`, `busy`, `in_progress`, `no_merge`) and
+ *  `retryable` tell the answers apart; a code-less 404 / a 405 means older. */
+const mergePreview = (ndId: string, fromNdId: string): Promise<LbBotResult<LbBotMergePreview>> =>
+    ipcRenderer.invoke('lbbot-merge-preview', { fromNdId, ndId });
+
+const mergeStart = (ndId: string, fromNdId: string): Promise<LbBotResult<LbBotMergeJob>> =>
+    ipcRenderer.invoke('lbbot-merge-start', { fromNdId, ndId });
+
+const mergeGet = (id: string): Promise<LbBotResult<LbBotMergeRow>> =>
+    ipcRenderer.invoke('lbbot-merge-get', { id });
+
+const mergeUndo = (id: string): Promise<LbBotResult<LbBotMergeJob>> =>
+    ipcRenderer.invoke('lbbot-merge-undo', { id });
 
 /** Listening history (I-006). All result-shaped: a failed read must keep the
  *  cached body, and a 404 means lb-bot is older than the hub. */
@@ -387,6 +405,10 @@ export const lbBot = {
     listeningSummary,
     listeningSync,
     listeningUnowned,
+    mergeGet,
+    mergePreview,
+    mergeStart,
+    mergeUndo,
     metaAlbum,
     metaArtist,
     metaRefresh,

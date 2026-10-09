@@ -217,6 +217,10 @@ export interface LbBotAlbumCandidate {
     year: string;
 }
 
+// Album override (I-022) types - LbBotAlbum* (from here), LbBotCover and
+// LbBotPreview* (further down): camelCase as lb-bot answers; nothing here is a
+// path. The lint keeps interfaces alphabetical, so they sit with their neighbours.
+
 /** The answer to a cover-only change (synchronous). */
 export interface LbBotAlbumCoverSet {
     id: string;
@@ -233,11 +237,6 @@ export interface LbBotAlbumJob {
     id: string;
     state: string;
 }
-
-// There is deliberately no `year`: Deezer's chart and editorial rows carry
-// `record_type` and a position, and no release date at all. A field that is
-// structurally always empty would later read as a bug in the marking rather
-// than as an absence in the source.
 
 /** The override row for an album: "lb-bot rewrote this album's tags to release R at T". */
 export interface LbBotAlbumOverrideRow {
@@ -347,6 +346,11 @@ export interface LbBotBrowseAlbum {
     rgid: string;
     title: string;
 }
+
+// There is deliberately no `year`: Deezer's chart and editorial rows carry
+// `record_type` and a position, and no release date at all. A field that is
+// structurally always empty would later read as a bug in the marking rather
+// than as an absence in the source.
 
 export interface LbBotBrowseArtist {
     /** Navidrome artist id, when owned. */
@@ -812,6 +816,49 @@ export interface LbBotListeningSummary {
     tz: string;
 }
 
+/** One library artist as the merge surfaces name it. */
+export interface LbBotMergeArtist {
+    name: string;
+    ndArtistId: string;
+}
+
+export interface LbBotMergeFailure {
+    album: string;
+    reason: string;
+    title: string;
+}
+
+/** The answer to a merge or an undo: lb-bot works on in the background. */
+export interface LbBotMergeJob {
+    id: string;
+    state: string;
+}
+
+/** `GET /lb/artist/merge/preview`. */
+export interface LbBotMergePreview {
+    albums: number;
+    files: number;
+    from: LbBotMergeArtist;
+    into: LbBotMergeArtist;
+    mbid: string;
+    sample: { album: string; tracks: number }[];
+}
+
+/** `GET /lb/artist/merge`: "lb-bot retagged the files of <from> to <into>". */
+export interface LbBotMergeRow {
+    done: number;
+    failures: LbBotMergeFailure[];
+    /** Only the spelling's name: its Navidrome id is gone once the merge landed. */
+    from: { name: string };
+    id: string;
+    into: LbBotMergeArtist;
+    mbid: string;
+    setAt: number;
+    /** merging | merged | failed | undoing; an unknown state is kept as sent. */
+    state: string;
+    total: number;
+}
+
 /**
  * Editorial metadata for an artist or an album: real, attributed, full-length
  * text instead of the Last.fm summary that dead-ends in a "Read more on
@@ -913,7 +960,14 @@ export interface LbBotOverride {
 
 /** `GET /lb/overrides`. `toCheck` is null when the lb-bot sent no such field. */
 export interface LbBotOverrideList {
+    /** I-022: every album override, newest first. null = lb-bot sent no such field
+     *  (older, or it could not work it out); [] = there are none. */
+    albums: LbBotAlbumOverrideRow[] | null;
     artists: LbBotOverride[];
+    /** I-023: merges that can still be undone, newest first. null/[] as `albums`. */
+    merges: LbBotMergeRow[] | null;
+    /** I-023: groups of library artists whose effective MBID is equal. null/[] as `albums`. */
+    siblings: LbBotSiblingGroup[] | null;
     toCheck: LbBotToCheck[] | null;
 }
 
@@ -1078,6 +1132,12 @@ export interface LbBotResolvedLink {
     title: string;
 }
 
+/** A group of two or more library artists whose effective MBID is equal. */
+export interface LbBotSiblingGroup {
+    artists: { albums: number; name: string; ndArtistId: string }[];
+    mbid: string;
+}
+
 export interface LbBotSimilarAlbum {
     /** Navidrome album id. Every row on this shelf is a record the library
      *  already holds, so this is normally present and is what a tap should
@@ -1166,10 +1226,6 @@ export interface LbBotSourceFiles {
     filesTruncated: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Album override (I-022) - camelCase as lb-bot answers it; nothing here is a path.
-// ---------------------------------------------------------------------------
-
 export interface LbBotSourceMatch {
     /** exact | prefix | contained | fuzzy | duration | position — lb-bot grades
      *  its own confidence, and the weak tiers are worth chipping. */
@@ -1223,6 +1279,10 @@ export interface LbBotTrack {
     present?: boolean;
     title: string;
 }
+
+// ---------------------------------------------------------------------------
+// Artist name merge (I-023)
+// ---------------------------------------------------------------------------
 
 export interface LbBotTracklist {
     presenceKnown: boolean;

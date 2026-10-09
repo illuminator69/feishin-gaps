@@ -1,6 +1,9 @@
 import type {
+    LbBotAlbumOverrideRow,
     LbBotListeningStatus,
+    LbBotMergeRow,
     LbBotOverride,
+    LbBotSiblingGroup,
     LbBotToCheck,
 } from '/@/shared/types/lbbot-types';
 
@@ -13,25 +16,38 @@ import type {
  *  I-021 list. `toCheck: null` = the lb-bot sent no such field (older), which
  *  is NOT the same as an empty list. */
 export interface OverridesData {
+    /** I-022 album overrides; null = unknown (older lb-bot), [] = none. */
+    albums: LbBotAlbumOverrideRow[] | null;
     byNdId: Record<string, LbBotOverride>;
+    /** I-023 merges that can be undone; null = unknown, [] = none. */
+    merges: LbBotMergeRow[] | null;
+    /** I-023 same-MBID artist groups; null = unknown, [] = none. */
+    siblings: LbBotSiblingGroup[] | null;
     toCheck: LbBotToCheck[] | null;
 }
 
-/** Tolerates a body persisted before `toCheck` existed (a bare map). */
+const listOrNull = <T>(value: unknown): null | T[] =>
+    Array.isArray(value) ? (value as T[]) : null;
+
+/** Tolerates a body persisted before these lists existed (a bare map, or no new fields). */
 export const normalizeOverridesData = (raw: unknown): OverridesData => {
     if (raw && typeof raw === 'object' && 'byNdId' in raw) {
-        const r = raw as { byNdId?: unknown; toCheck?: unknown };
+        const r = raw as Record<string, unknown>;
         return {
+            albums: listOrNull(r.albums),
             byNdId: (r.byNdId && typeof r.byNdId === 'object'
                 ? r.byNdId
                 : {}) as OverridesData['byNdId'],
-            toCheck: Array.isArray(r.toCheck) ? (r.toCheck as LbBotToCheck[]) : null,
+            merges: listOrNull(r.merges),
+            siblings: listOrNull(r.siblings),
+            toCheck: listOrNull(r.toCheck),
         };
     }
+    const none = { albums: null, merges: null, siblings: null, toCheck: null };
     if (raw && typeof raw === 'object') {
-        return { byNdId: raw as OverridesData['byNdId'], toCheck: null };
+        return { ...none, byNdId: raw as OverridesData['byNdId'] };
     }
-    return { byNdId: {}, toCheck: null };
+    return { ...none, byNdId: {} };
 };
 
 /** Overrides by name, case-blind; a nameless (orphaned) one last. */

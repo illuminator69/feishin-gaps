@@ -1,0 +1,131 @@
+import type { LbBotMergeRow, LbBotSiblingGroup } from '/@/shared/types/lbbot-types';
+
+import type { PollSpec } from './album-override';
+
+/**
+ * I-023 "Merge into one name": the logic that has no React in it. Navic mirrors it
+ * by hand (`.superpowers/sdd/album-override-2026-10-09/contract.md`).
+ */
+
+type Sibling = LbBotSiblingGroup['artists'][number];
+
+/** The group holding this artist, if lb-bot sent groups at all. null = no merge block. */
+export const siblingGroupFor = (
+    siblings: LbBotSiblingGroup[] | null | undefined,
+    ndId: string,
+): LbBotSiblingGroup | null =>
+    ndId
+        ? (siblings?.find((group) => group.artists.some((a) => a.ndArtistId === ndId)) ?? null)
+        : null;
+
+/** The name to keep unless the user says otherwise: the spelling with the most albums, first on a tie. */
+export const defaultKeep = (artists: readonly Sibling[]): string => {
+    let best: Sibling | undefined;
+    for (const artist of artists) {
+        if (!best || artist.albums > best.albums) best = artist;
+    }
+    return best?.ndArtistId ?? '';
+};
+
+/** `nd_id` is the entry whose name is kept; `from_nd_id` the spelling that is rewritten. */
+export const planMerge = (
+    thisId: string,
+    otherId: string,
+    keepId: string,
+): null | { fromNdId: string; ndId: string } => {
+    if (!thisId || !otherId || thisId === otherId) return null;
+    if (keepId === thisId) return { fromNdId: otherId, ndId: thisId };
+    if (keepId === otherId) return { fromNdId: thisId, ndId: otherId };
+    return null;
+};
+
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+export const previewSentence = (files: number, albums: number): string =>
+    `${plural(files, 'file', 'files')} in ${plural(albums, 'album', 'albums')}`;
+
+/** Merge: `merging` -> `merged` | `failed`. */
+export const MERGE_SPEC: PollSpec = {
+    active: ['merging'],
+    failed: ['failed'],
+    failedNeedsActive: false,
+    goneCode: 'no_merge',
+    goneIsDone: false,
+    settled: ['merged'],
+};
+
+/** Undo: `undoing`, then the row is deleted - 404 `no_merge` is the finish. */
+export const UNDO_SPEC: PollSpec = {
+    active: ['undoing'],
+    failed: ['merged', 'failed'],
+    failedNeedsActive: true,
+    goneCode: 'no_merge',
+    goneIsDone: true,
+    settled: [],
+};
+
+/**
+ * After a merge the rewritten spelling's Navidrome id is dead. Only when the user
+ * is on that artist's own page does the app move, to the kept artist.
+ */
+export const decideMergeLeave = (input: {
+    fromNdId: string;
+    intoNdId: string;
+    pathname: string;
+}): { id: string; kind: 'artist' } | { kind: 'stay' } =>
+    input.fromNdId && input.intoNdId && input.pathname.split('/').includes(input.fromNdId)
+        ? { id: input.intoNdId, kind: 'artist' }
+        : { kind: 'stay' };
+
+export interface MergeFailure {
+    code: string;
+    kind: 'answer' | 'older' | 'retry';
+    message: string;
+    status: number;
+}
+
+/** Older = 405 or a code-less 404; everything else relays lb-bot's `error` (`different_artists`,
+ *  `unknown_artist`, `busy`, `in_progress`, 400s). */
+export const describeMergeFailure = (result: {
+    code?: string;
+    error?: string;
+    retryable?: boolean;
+    status: number;
+}): MergeFailure => {
+    const base = { code: result.code ?? '', status: result.status };
+    const text = (result.error ?? '').trim();
+    if (result.status === 405 || (result.status === 404 && !result.code)) {
+        return {
+            ...base,
+            kind: 'older',
+            message: 'This lb-bot is older and cannot merge artist names yet.',
+        };
+    }
+    if (result.status === 0 || result.status === 502 || result.status === 504) {
+        return {
+            ...base,
+            kind: 'retry',
+            message: text || 'lb-bot did not answer. Nothing was changed.',
+        };
+    }
+    return { ...base, kind: 'answer', message: text || 'lb-bot did not accept that.' };
+};
+
+export const mergeOutcomeSentence = (
+    kind: 'merge' | 'undo',
+    row: null | Pick<LbBotMergeRow, 'done' | 'failures' | 'state' | 'total'>,
+): string => {
+    if (kind === 'undo') {
+        return row && (row.state === 'failed' || row.state === 'merged')
+            ? 'lb-bot could not put all the previous names back.'
+            : 'lb-bot put the previous names back.';
+    }
+    if (!row) return 'lb-bot retagged the files.';
+    if (row.state === 'failed') {
+        return `lb-bot did not finish retagging (${row.done} of ${plural(row.total, 'file', 'files')} written).`;
+    }
+    if (row.failures.length > 0) {
+        return `lb-bot retagged ${row.done} of ${plural(row.total, 'file', 'files')}; ${row.failures.length} could not be written.`;
+    }
+    return `lb-bot retagged ${plural(row.done, 'file', 'files')}.`;
+};
