@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { generatePath, useNavigate } from 'react-router';
+import { generatePath } from 'react-router';
 
 import {
     startArtistMerge,
@@ -16,12 +16,14 @@ import {
     defaultKeep,
     describeMergeFailure,
     MERGE_SPEC,
+    mergeBlockView,
     mergeOutcomeSentence,
     planMerge,
     previewSentence,
     siblingGroupFor,
     UNDO_SPEC,
 } from '/@/renderer/features/lbbot/utils/artist-merge';
+import { currentRoutePath, leaveTo } from '/@/renderer/features/lbbot/utils/leave-page';
 import { AppRoute } from '/@/renderer/router/routes';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
@@ -40,7 +42,6 @@ import { LbBotMergeRow } from '/@/shared/types/lbbot-types';
  */
 
 export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
-    const navigate = useNavigate();
     const available = useLbBotAvailable();
     const controls = useMergeControls();
     const group = siblingGroupFor(useLbBotSiblings(), ndId);
@@ -67,7 +68,14 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
         preview.data && !preview.data.ok ? describeMergeFailure(preview.data) : null;
     const counts = preview.data?.ok ? preview.data.data : null;
 
-    if (!group || !controls || others.length === 0) return null;
+    const view = mergeBlockView({
+        controls,
+        hasOthers: !!group && others.length > 0,
+        poll: poll.state
+            ? { kind: poll.state.spec === UNDO_SPEC ? 'undo' : 'merge', row: poll.state.row }
+            : null,
+    });
+    if (view.kind === 'hidden') return null;
 
     const phase = poll.state?.phase ?? null;
     const row: LbBotMergeRow | null = poll.state?.row ?? null;
@@ -92,14 +100,13 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
             const decision = decideMergeLeave({
                 fromNdId: from,
                 intoNdId: into,
-                pathname: window.location.hash.replace(/^#/, '').split(/[?#]/)[0],
+                pathname: currentRoutePath(),
             });
             if (decision.kind === 'artist') {
-                navigate(
+                leaveTo(
                     generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, {
                         albumArtistId: decision.id,
                     }),
-                    { replace: true },
                 );
             }
         });
@@ -123,7 +130,7 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
             <Text fw={600} size="sm">
                 Merge into one name
             </Text>
-            {!poll.state && (
+            {view.kind === 'form' && (
                 <>
                     <Text isMuted size="sm">
                         Your library lists this artist under more than one spelling, all with the
@@ -199,8 +206,15 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
                     </Group>
                 </>
             )}
-            {poll.state && (
+            {view.kind === 'job' && poll.state && (
                 <Stack gap="xs">
+                    {view.from && view.into && (
+                        <Text isMuted size="sm">
+                            {poll.state.spec === UNDO_SPEC
+                                ? `${view.into} → ${view.from}`
+                                : `${view.from} → ${view.into}`}
+                        </Text>
+                    )}
                     {phase === 'polling' && (
                         <>
                             <Text size="sm">lb-bot is retagging the files…</Text>

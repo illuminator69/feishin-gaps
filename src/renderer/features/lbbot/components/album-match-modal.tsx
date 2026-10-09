@@ -36,6 +36,7 @@ import {
     STILL_WORKING,
     summarizePreview,
 } from '/@/renderer/features/lbbot/utils/album-override';
+import { currentRoutePath, leaveTo } from '/@/renderer/features/lbbot/utils/leave-page';
 import { AppRoute } from '/@/renderer/router/routes';
 import { Badge } from '/@/shared/components/badge/badge';
 import { Button } from '/@/shared/components/button/button';
@@ -233,19 +234,16 @@ const AlbumMatchModal = ({
             deadAlbumId: albumId,
             kind,
             newAlbumId: ended.row?.albumId ?? '',
-            pathname: window.location.hash.replace(/^#/, '').split(/[?#]/)[0],
+            pathname: currentRoutePath(),
         });
         if (decision.kind === 'album') {
-            navigate(generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, { albumId: decision.id }), {
-                replace: true,
-            });
+            leaveTo(generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, { albumId: decision.id }));
         } else if (decision.kind === 'artist') {
-            navigate(
+            leaveTo(
                 generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, { albumArtistId: decision.id }),
-                { replace: true },
             );
         } else if (decision.kind === 'albums') {
-            navigate(AppRoute.LIBRARY_ALBUMS, { replace: true });
+            leaveTo(AppRoute.LIBRARY_ALBUMS);
         }
     };
 

@@ -7,6 +7,7 @@ import {
     defaultKeep,
     describeMergeFailure,
     MERGE_SPEC,
+    mergeBlockView,
     mergeOutcomeSentence,
     planMerge,
     previewSentence,
@@ -186,4 +187,57 @@ test('mergeOutcomeSentence: states only what the row says', () => {
     );
     assert.match(mergeOutcomeSentence('merge', row('failed', { done: 1 })), /did not finish/);
     assert.equal(mergeOutcomeSentence('undo', null), 'lb-bot put the previous names back.');
+});
+
+// --- fix round 1: what the block shows ----------------------------------------
+
+const poll = (kind: 'merge' | 'undo', r: null | ReturnType<typeof row>) => ({ kind, row: r });
+const merged = row('merged', {
+    from: { name: 'Belle and Sebastian' },
+    into: { name: 'Belle & Sebastian', ndArtistId: 'a' },
+});
+
+test('mergeBlockView: no advert / older means hidden, even with a group', () => {
+    assert.deepEqual(mergeBlockView({ controls: false, hasOthers: true, poll: null }), {
+        kind: 'hidden',
+    });
+});
+
+test('mergeBlockView: a group with another spelling shows the form', () => {
+    assert.deepEqual(mergeBlockView({ controls: true, hasOthers: true, poll: null }), {
+        kind: 'form',
+    });
+    assert.deepEqual(mergeBlockView({ controls: true, hasOthers: false, poll: null }), {
+        kind: 'hidden',
+    });
+});
+
+test('mergeBlockView: group gone, poll says merged - the result stays, names from the row', () => {
+    assert.deepEqual(
+        mergeBlockView({ controls: true, hasOthers: false, poll: poll('merge', merged) }),
+        {
+            from: 'Belle and Sebastian',
+            into: 'Belle & Sebastian',
+            kind: 'job',
+        },
+    );
+});
+
+test('mergeBlockView: group gone, poll says failed with failures - still shown', () => {
+    const failed = row('failed', { failures: [{ album: 'A', reason: 'ro', title: 'T' }] });
+    assert.equal(
+        mergeBlockView({ controls: true, hasOthers: false, poll: poll('merge', failed) }).kind,
+        'job',
+    );
+});
+
+test('mergeBlockView: a poll that has no row yet is still the job (progress), and survives the advert flapping', () => {
+    assert.equal(
+        mergeBlockView({ controls: true, hasOthers: false, poll: poll('merge', null) }).kind,
+        'job',
+    );
+    assert.equal(
+        mergeBlockView({ controls: false, hasOthers: false, poll: poll('undo', merged) }).kind,
+        'job',
+    );
 });

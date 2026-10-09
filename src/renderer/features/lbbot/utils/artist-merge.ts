@@ -129,3 +129,31 @@ export const mergeOutcomeSentence = (
     }
     return `lb-bot retagged ${plural(row.done, 'file', 'files')}.`;
 };
+
+export type MergeBlockView =
+    | { from: string; into: string; kind: 'job' }
+    | { kind: 'form' }
+    | { kind: 'hidden' };
+
+/**
+ * What the merge block shows. A job in flight or finished stays on screen for as
+ * long as the dialog is open - once Navidrome re-indexes a merge lb-bot drops the
+ * now-same-name group from `siblings`, and the result, its failures and Undo must
+ * not vanish with it - so its names come from the poll's row, never from `siblings`.
+ * Otherwise the form, when the hub advertises merging (`controls`) and the artist's
+ * group has another spelling (`hasOthers`).
+ */
+export const mergeBlockView = (input: {
+    controls: boolean;
+    hasOthers: boolean;
+    poll: null | { kind: 'merge' | 'undo'; row: null | Pick<LbBotMergeRow, 'from' | 'into'> };
+}): MergeBlockView => {
+    if (input.poll) {
+        return {
+            from: input.poll.row?.from.name ?? '',
+            into: input.poll.row?.into.name ?? '',
+            kind: 'job',
+        };
+    }
+    return input.controls && input.hasOthers ? { kind: 'form' } : { kind: 'hidden' };
+};
