@@ -6,18 +6,21 @@ import {
     albumTarget,
     artistCardView,
     artistTarget,
+    DAILY_CAP,
     dailyForPeriod,
     dailyNote,
     DEFAULT_TAB,
-    describeListeningStatus,
+    describeStoredListens,
     formatListeningTime,
     genresNote,
     heatmapCaption,
     heatmapGrid,
+    historyMenuTarget,
     hoursBars,
     importFinished,
     LISTENING_TABS,
     listeningTimeNote,
+    matchSongByTitle,
     PERIOD_OPTIONS,
     periodPhrase,
     playsLabel,
@@ -104,19 +107,17 @@ const days = (start: string, n: number, countOf = (i: number) => i) =>
         return { count: countOf(i), date: d.toISOString().slice(0, 10) };
     });
 
-test('heatmapGrid: 112 days become Monday-first week columns, padded at the front only', () => {
-    // 2026-09-30 is a Wednesday: 112 days earlier is a Wednesday too -> offset 2.
+test('heatmapGrid: whole weeks - the leading days before the first Monday are not drawn', () => {
+    // 2026-06-10 is a Wednesday: the first Monday inside the data is 2026-06-15.
     const grid = heatmapGrid(days('2026-06-10', 112));
     assert.ok(grid.columns.every((c) => c.length === 7));
-    assert.equal(grid.columns.length, 17);
-    assert.equal(grid.columns[0][0], null);
-    assert.equal(grid.columns[0][1], null);
-    assert.equal(grid.columns[0][2]?.date, '2026-06-10');
+    assert.equal(grid.columns[0][0]?.date, '2026-06-15');
+    assert.ok(grid.columns[0].every((c) => c !== null));
+    // 112 days minus the 5 leading ones = 107 drawn, ending 2026-09-29 (a Tuesday).
     const cells = grid.columns.flat().filter((c) => c !== null);
-    assert.equal(cells.length, 112);
-    assert.equal(cells[111]?.date, '2026-09-29');
-    // Row index is the weekday, Monday = 0.
-    assert.equal(grid.columns[1][0]?.date, '2026-06-15');
+    assert.equal(cells.length, 107);
+    assert.equal(cells[106]?.date, '2026-09-29');
+    assert.equal(grid.columns.length, 16);
 });
 
 test('heatmapGrid: levels are 0 for no plays and 1..4 scaled to the busiest day', () => {
@@ -256,48 +257,60 @@ test('playsLabel and rangeText wording', () => {
 
 const weekdayOf = (iso: string): number => (new Date(`${iso}T00:00:00Z`).getUTCDay() + 6) % 7;
 
-test('L3 heatmapGrid: for a 112-day span ending on EVERY weekday each date sits in its weekday row', () => {
+test('L3 heatmapGrid: a 112-day span STARTING on each weekday is a clean rectangle of whole weeks', () => {
     for (let shift = 0; shift < 7; shift += 1) {
-        const end = Date.UTC(2026, 9, 5 + shift); // a Monday plus `shift` days
-        const span = Array.from({ length: 112 }, (_, i) => ({
-            count: 1,
-            date: new Date(end - (111 - i) * 86_400_000).toISOString().slice(0, 10),
-        }));
+        const start = new Date(Date.UTC(2026, 5, 15 + shift)).toISOString().slice(0, 10); // Mon + shift
+        const span = days(start, 112);
+        const startWeekday = weekdayOf(start);
+        const leading = (7 - startWeekday) % 7; // days before the first Monday
         const grid = heatmapGrid(span);
-        const lastWeekday = weekdayOf(span[111].date);
+        const label = `starting on weekday ${startWeekday}`;
+        // The first column starts on a Monday and every column but the last is seven real days.
+        assert.equal(weekdayOf(grid.columns[0][0]?.date ?? ''), 0, label);
+        grid.columns.slice(0, -1).forEach((column) => {
+            assert.equal(column.filter((c) => c !== null).length, 7, label);
+        });
+        // Cells sit in their weekday's row.
         grid.columns.forEach((column) => {
-            assert.equal(column.length, 7);
             column.forEach((cell, row) => {
-                if (cell)
-                    assert.equal(weekdayOf(cell.date), row, `ending on weekday ${lastWeekday}`);
+                if (cell) assert.equal(weekdayOf(cell.date), row, label);
             });
         });
-        // The final column ends at the span's own weekday; everything after is trailing pad.
+        // Nothing before the first Monday is drawn; everything after it is.
+        const drawn = grid.columns.flat().filter((c) => c !== null);
+        assert.equal(drawn.length, 112 - leading, label);
+        assert.equal(drawn[0]?.date, span[leading].date, label);
+        assert.equal(drawn[drawn.length - 1]?.date, span[111].date, label);
+        // Only the last column can hold placeholders, after its last real day.
         const lastColumn = grid.columns[grid.columns.length - 1];
-        assert.equal(lastColumn[lastWeekday]?.date, span[111].date);
-        assert.ok(lastColumn.slice(lastWeekday + 1).every((c) => c === null));
-        assert.equal(grid.padAfter, 6 - lastWeekday);
-        assert.equal(grid.padBefore + 112 + grid.padAfter, grid.columns.length * 7);
+        const lastWeekday = weekdayOf(span[111].date);
+        assert.ok(
+            lastColumn.slice(lastWeekday + 1).every((c) => c === null),
+            label,
+        );
+        assert.equal(lastColumn[lastWeekday]?.date, span[111].date, label);
+        // The caption names exactly the drawn range and the week count.
+        const caption = heatmapCaption(span);
+        assert.ok(caption.includes(span[leading].date), label);
+        assert.ok(caption.includes(span[111].date), label);
+        assert.ok(caption.includes(`${grid.columns.length} weeks`), label);
+        if (leading > 0) assert.ok(!caption.includes(span[0].date), label);
     }
 });
 
-test('L3 heatmapGrid: a span that ends on a Sunday has no trailing pad; every row then ends in the same column', () => {
-    const span = days('2026-06-15', 112); // starts Monday, ends Sunday
-    const grid = heatmapGrid(span);
-    assert.equal(grid.padBefore, 0);
-    assert.equal(grid.padAfter, 0);
+test('L3 the screenshot case: 2026-06-21 (a Sunday) to 2026-10-10 starts on 2026-06-22, not with a lone Sunday', () => {
+    const grid = heatmapGrid(days('2026-06-21', 112));
+    assert.equal(grid.columns[0][0]?.date, '2026-06-22');
     assert.equal(grid.columns.length, 16);
+    assert.match(heatmapCaption(days('2026-06-21', 112)), /2026-06-22 to 2026-10-10 \(16 weeks\)/);
 });
 
-test('L3 heatmapCaption names the span it shows and says the picker does not change it', () => {
+test('L3 heatmapCaption names the drawn span, says the picker does not change it, and never claims a year', () => {
     const caption = heatmapCaption(days('2026-06-15', 112));
-    assert.match(caption, /2026-06-15/);
-    assert.match(caption, /2026-10-04/);
-    assert.match(caption, /16 weeks/);
     assert.match(caption, /does not change/i);
     assert.equal(heatmapCaption([]), '');
-    // Not a whole number of weeks: said in days, never rounded into "a year".
-    assert.match(heatmapCaption(days('2026-06-15', 10)), /10 days/);
+    // Less than a week with no Monday inside is said in days.
+    assert.match(heatmapCaption(days('2026-06-16', 3)), /3 days/);
 });
 
 test('L3 dailyForPeriod: the picked period is the tail of the daily series; longer periods get what there is, and say so', () => {
@@ -313,6 +326,18 @@ test('L3 dailyForPeriod: the picked period is the tail of the daily series; long
     assert.match(dailyNote('365d', 90), /last 90 days/i);
     assert.match(dailyNote('all', 90), /last 90 days/i);
     assert.equal(dailyNote('90d', 90), '');
+});
+
+test('finding 2: the cap sentence only when the cap is what cut the series', () => {
+    assert.equal(DAILY_CAP, 90);
+    // All time with a short history: the history is that short, not capped - nothing false is said.
+    assert.equal(dailyNote('all', 20), '');
+    assert.equal(dailyNote('365d', 20), '');
+    // All time / a year with the series at its 90-day maximum: the cap is the reason.
+    assert.match(dailyNote('all', 90), /last 90 days.*longest daily series/i);
+    assert.match(dailyNote('365d', 90), /last 90 days.*longest daily series/i);
+    // A period the series covers needs no note.
+    assert.equal(dailyNote('30d', 90), '');
 });
 
 test('L2 the period picker is drawn on Overview, Activity and Not in library - not on History', () => {
@@ -357,8 +382,22 @@ test('L8 the status is shown once: a banner for importing/error/off, a plain lin
     assert.equal(ready.banner, null);
     assert.match(ready.line, /100 listens stored/);
     assert.match(ready.meta, /last sync t1000/);
-    // describeListeningStatus is the one wording for the line
-    assert.equal(ready.line, describeListeningStatus(stat()));
+    assert.equal(ready.line, describeStoredListens(stat()));
+});
+
+test('finding 1: the error banner keeps the stored-listens count the old line had', () => {
+    const block = statusLines(stat({ count: 4321, error: 'boom', state: 'error' }), when);
+    assert.match(block.banner?.detail ?? '', /4321 listens stored/);
+    assert.match(block.banner?.detail ?? '', /boom/);
+});
+
+test("describeStoredListens: the count, and ListenBrainz's own total when it differs", () => {
+    assert.equal(describeStoredListens(stat()), '100 listens stored.');
+    assert.equal(
+        describeStoredListens(stat({ total: 120 })),
+        '100 listens stored of 120 on ListenBrainz.',
+    );
+    assert.equal(describeStoredListens(stat({ total: null })), '100 listens stored.');
 });
 
 test('L4 card views: rank and plays in the text, the Navidrome id (or none) for the picture', () => {
@@ -367,33 +406,52 @@ test('L4 card views: rank and plays in the text, the Navidrome id (or none) for 
         ndAlbumId: 'al1',
         owned: true,
         plays: 274,
+        rgid: 'rg1',
         title: 'Imaginal Disk',
     };
     assert.deepEqual(albumCardView(album, 1), {
         imageId: 'al1',
+        imageRgid: null,
+        linked: true,
         subtitle: 'Magdalena Bay · 274 plays',
         title: '1. Imaginal Disk',
     });
     assert.deepEqual(albumCardView({ ...album, ndAlbumId: '', owned: false, plays: 1 }, 7), {
         imageId: null,
+        imageRgid: 'rg1',
+        linked: true,
         subtitle: 'Magdalena Bay · 1 play · not in your library',
         title: '7. Imaginal Disk',
     });
-    assert.deepEqual(artistCardView({ name: 'Geese', ndArtistId: 'ar1', plays: 414 }, 3), {
-        imageId: 'ar1',
-        subtitle: '414 plays',
-        title: '3. Geese',
-    });
-    assert.equal(artistCardView({ name: 'X', ndArtistId: '', plays: 2 }, 1).imageId, null);
     assert.deepEqual(
-        trackCardView(
-            { artist: 'Wet Leg', ndAlbumId: 'al9', plays: 50, title: 'Chaise Longue' },
-            2,
-        ),
-        { imageId: 'al9', subtitle: 'Wet Leg · 50 plays', title: '2. Chaise Longue' },
+        artistCardView({ mbid: 'm', name: 'Geese', ndArtistId: 'ar1', plays: 414 }, 3),
+        {
+            imageId: 'ar1',
+            imageRgid: null,
+            linked: true,
+            subtitle: '414 plays',
+            title: '3. Geese',
+        },
     );
     assert.equal(
-        trackCardView({ artist: 'A', ndAlbumId: '', plays: 1, title: 'T' }, 1).imageId,
+        artistCardView({ mbid: 'm', name: 'X', ndArtistId: '', plays: 2 }, 1).imageId,
+        null,
+    );
+    assert.deepEqual(
+        trackCardView(
+            { artist: 'Wet Leg', ndAlbumId: 'al9', plays: 50, rgid: '', title: 'Chaise Longue' },
+            2,
+        ),
+        {
+            imageId: 'al9',
+            imageRgid: null,
+            linked: true,
+            subtitle: 'Wet Leg · 50 plays',
+            title: '2. Chaise Longue',
+        },
+    );
+    assert.equal(
+        trackCardView({ artist: 'A', ndAlbumId: '', plays: 1, rgid: '', title: 'T' }, 1).imageId,
         null,
     );
 });
@@ -423,4 +481,110 @@ test('periodPhrase: the reason line of a ranking names the period it covers', ()
     assert.equal(periodPhrase('90d'), 'in the last 90 days');
     assert.equal(periodPhrase('365d'), 'in the last year');
     assert.equal(periodPhrase('all'), 'of all time');
+});
+
+test('finding 3: a ranking album/track the library lacks shows its Cover Art Archive cover by rgid; artists keep the placeholder', () => {
+    const unowned = { artist: 'A', ndAlbumId: '', owned: false, plays: 3, rgid: 'rg9', title: 'T' };
+    assert.equal(albumCardView(unowned, 1).imageRgid, 'rg9');
+    assert.equal(albumCardView(unowned, 1).imageId, null);
+    // a library id always wins: no external image for an album the library holds
+    assert.equal(albumCardView({ ...unowned, ndAlbumId: 'al1', owned: true }, 1).imageRgid, null);
+    assert.equal(
+        trackCardView({ artist: 'A', ndAlbumId: '', plays: 1, rgid: 'rg9', title: 'T' }, 1)
+            .imageRgid,
+        'rg9',
+    );
+    // nothing to ask for without an rgid
+    assert.equal(albumCardView({ ...unowned, rgid: '' }, 1).imageRgid, null);
+    assert.equal(
+        artistCardView({ mbid: 'm', name: 'X', ndArtistId: '', plays: 1 }, 1).imageRgid,
+        null,
+    );
+});
+
+test('finding 2: a card links only where it has somewhere to go', () => {
+    const base = { artist: 'A', ndAlbumId: '', owned: false, plays: 1, rgid: '', title: 'T' };
+    // no library id and no rgid: nowhere
+    assert.equal(albumCardView(base, 1).linked, false);
+    // owned but Navidrome has no id yet: plain, as the old rows were
+    assert.equal(albumCardView({ ...base, owned: true }, 1).linked, false);
+    assert.equal(albumCardView({ ...base, rgid: 'rg1' }, 1).linked, true);
+    assert.equal(albumCardView({ ...base, ndAlbumId: 'al1', owned: true }, 1).linked, true);
+    assert.equal(
+        trackCardView({ artist: 'A', ndAlbumId: '', plays: 1, rgid: '', title: 'T' }, 1).linked,
+        false,
+    );
+    assert.equal(
+        trackCardView({ artist: 'A', ndAlbumId: '', plays: 1, rgid: 'rg1', title: 'T' }, 1).linked,
+        true,
+    );
+    // an artist with neither a library id nor an MBID goes nowhere
+    assert.equal(
+        artistCardView({ mbid: '', name: 'X', ndArtistId: '', plays: 1 }, 1).linked,
+        false,
+    );
+    assert.equal(
+        artistCardView({ mbid: 'm', name: 'X', ndArtistId: '', plays: 1 }, 1).linked,
+        true,
+    );
+    assert.equal(
+        artistCardView({ mbid: '', name: 'X', ndArtistId: 'ar1', plays: 1 }, 1).linked,
+        true,
+    );
+});
+
+// --- item 7: which song a history row's context menu is for ------------------------------
+
+const song = (id: string, name: string, mbzRecordingId: null | string = null) => ({
+    id,
+    mbzRecordingId,
+    name,
+});
+
+test('item 7 matchSongByTitle: an exact title is that song', () => {
+    const songs = [song('s1', 'Glimpse of Us'), song('s2', 'Slow Dancing in the Dark')];
+    assert.equal(matchSongByTitle({ recordingMbid: '', track: 'Glimpse of Us' }, songs), 's1');
+});
+
+test('item 7 matchSongByTitle: case and punctuation do not matter', () => {
+    const songs = [song('s1', "Don't Look Back In Anger"), song('s2', 'Wonderwall')];
+    assert.equal(
+        matchSongByTitle({ recordingMbid: '', track: 'dont look back in anger!' }, songs),
+        's1',
+    );
+    assert.equal(matchSongByTitle({ recordingMbid: '', track: 'WONDERWALL' }, songs), 's2');
+});
+
+test('item 7 matchSongByTitle: two tracks with one title is no guess', () => {
+    const songs = [song('s1', 'Intro'), song('s2', 'Intro'), song('s3', 'Other')];
+    assert.equal(matchSongByTitle({ recordingMbid: '', track: 'Intro' }, songs), null);
+});
+
+test("item 7 matchSongByTitle: the recording id decides when the app's song carries one", () => {
+    const songs = [song('s1', 'Intro', 'rec-a'), song('s2', 'Intro', 'rec-b')];
+    assert.equal(matchSongByTitle({ recordingMbid: 'rec-b', track: 'Intro' }, songs), 's2');
+    // a recording id nobody carries falls back to the title, which is ambiguous here
+    assert.equal(matchSongByTitle({ recordingMbid: 'rec-z', track: 'Intro' }, songs), null);
+});
+
+test('item 7 matchSongByTitle: nothing matching, an empty title or no songs is null', () => {
+    assert.equal(matchSongByTitle({ recordingMbid: '', track: 'Nope' }, [song('s1', 'Yes')]), null);
+    assert.equal(matchSongByTitle({ recordingMbid: '', track: '' }, [song('s1', '')]), null);
+    assert.equal(matchSongByTitle({ recordingMbid: '', track: 'X' }, []), null);
+});
+
+test('item 7 historyMenuTarget: the song when matched, else the album, else the artist, else none', () => {
+    const ids = { ndAlbumId: 'al1', ndArtistId: 'ar1' };
+    assert.deepEqual(historyMenuTarget(ids, 's1'), { id: 's1', kind: 'song' });
+    assert.deepEqual(historyMenuTarget(ids, null), { id: 'al1', kind: 'album' });
+    assert.deepEqual(historyMenuTarget({ ndAlbumId: '', ndArtistId: 'ar1' }, null), {
+        id: 'ar1',
+        kind: 'artist',
+    });
+    assert.deepEqual(historyMenuTarget({ ndAlbumId: '', ndArtistId: '' }, null), { kind: 'none' });
+    // a matched song is only ever possible through the album; never acted on without one
+    assert.deepEqual(historyMenuTarget({ ndAlbumId: '', ndArtistId: 'ar1' }, 's1'), {
+        id: 'ar1',
+        kind: 'artist',
+    });
 });

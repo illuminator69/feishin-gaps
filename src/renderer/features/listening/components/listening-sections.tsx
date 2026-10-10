@@ -7,11 +7,13 @@ import { ItemImage } from '/@/renderer/components/item-image/item-image';
 import { DiscoverRow } from '/@/renderer/features/discover/components/discover-row';
 import { DiscoverTile } from '/@/renderer/features/discover/components/discover-tile';
 import { MissingAlbumTile } from '/@/renderer/features/lbbot/components/missing-album-tile';
+import { caaCoverUrl } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { useActiveFill } from '/@/renderer/features/lbbot/stores/active-fills.store';
 import {
     externalAlbumPathFor,
     externalArtistPath,
 } from '/@/renderer/features/lbbot/utils/external-paths';
+import { useHistoryContextMenu } from '/@/renderer/features/listening/hooks/use-history-menu';
 import {
     albumCardView,
     AlbumTarget,
@@ -84,7 +86,7 @@ const MaybeLink = ({ children, to }: { children: ReactNode; to?: string }) =>
         </Text>
     );
 
-export const Section = ({
+const Section = ({
     children,
     note,
     title,
@@ -149,7 +151,6 @@ export const StatTiles = ({ summary }: { summary: LbBotListeningSummary }) => {
 export const Heatmap = ({ summary }: { summary: LbBotListeningSummary }) => {
     const { columns } = heatmapGrid(summary.heatmap);
     if (columns.length === 0) return null;
-    const lastColumn = columns.length - 1;
     return (
         <Section note={heatmapCaption(summary.heatmap)} title="Activity">
             <div className={styles.heatmap}>
@@ -164,7 +165,7 @@ export const Heatmap = ({ summary }: { summary: LbBotListeningSummary }) => {
                             />
                         ) : (
                             <div
-                                className={`${styles.cell} ${w === lastColumn ? styles.future : styles.pad}`}
+                                className={`${styles.cell} ${styles.future}`}
                                 key={`pad-${w}-${d}`}
                             />
                         ),
@@ -248,6 +249,10 @@ const RankingRow = ({
     />
 );
 
+/** The Cover Art Archive front cover the app already builds for a release group
+ *  (`caaCoverUrl`, as Fresh and the missing-album tile do): a URL, no request to learn it. */
+const coverFor = (rgid: null | string): null | string => (rgid ? caaCoverUrl(rgid) : null);
+
 const useGo = () => {
     const navigate = useNavigate();
     return (path: string | undefined) => () => {
@@ -272,17 +277,26 @@ export const TopLists = ({
                         content: (
                             <DiscoverTile
                                 imageId={view.imageId}
+                                imageUrl={coverFor(view.imageRgid)}
                                 itemType={LibraryItem.ALBUM}
-                                onClick={go(
-                                    albumPath(
-                                        albumTarget(album.ndAlbumId, album.rgid, album.owned),
-                                        {
-                                            artist: album.artist,
-                                            artistMbid: album.artistMbid,
-                                            title: album.title,
-                                        },
-                                    ),
-                                )}
+                                onClick={
+                                    view.linked
+                                        ? go(
+                                              albumPath(
+                                                  albumTarget(
+                                                      album.ndAlbumId,
+                                                      album.rgid,
+                                                      album.owned,
+                                                  ),
+                                                  {
+                                                      artist: album.artist,
+                                                      artistMbid: album.artistMbid,
+                                                      title: album.title,
+                                                  },
+                                              ),
+                                          )
+                                        : undefined
+                                }
                                 subtitle={view.subtitle}
                                 title={view.title}
                             />
@@ -303,12 +317,16 @@ export const TopLists = ({
                                 imageId={view.imageId}
                                 isRound
                                 itemType={LibraryItem.ALBUM_ARTIST}
-                                onClick={go(
-                                    artistPath(
-                                        artistTarget(artist.ndArtistId, artist.mbid),
-                                        artist.name,
-                                    ),
-                                )}
+                                onClick={
+                                    view.linked
+                                        ? go(
+                                              artistPath(
+                                                  artistTarget(artist.ndArtistId, artist.mbid),
+                                                  artist.name,
+                                              ),
+                                          )
+                                        : undefined
+                                }
                                 subtitle={view.subtitle}
                                 title={view.title}
                             />
@@ -327,12 +345,17 @@ export const TopLists = ({
                         content: (
                             <DiscoverTile
                                 imageId={view.imageId}
+                                imageUrl={coverFor(view.imageRgid)}
                                 itemType={LibraryItem.ALBUM}
-                                onClick={go(
-                                    albumPath(albumTarget(track.ndAlbumId, track.rgid), {
-                                        artist: track.artist,
-                                    }),
-                                )}
+                                onClick={
+                                    view.linked
+                                        ? go(
+                                              albumPath(albumTarget(track.ndAlbumId, track.rgid), {
+                                                  artist: track.artist,
+                                              }),
+                                          )
+                                        : undefined
+                                }
                                 subtitle={view.subtitle}
                                 title={view.title}
                             />
@@ -486,12 +509,13 @@ export const UnownedSection = ({
                           isRound
                           isUnowned={!row.artistOwned}
                           itemType={LibraryItem.ALBUM_ARTIST}
-                          onClick={go(
-                              artistPath(
+                          onClick={(() => {
+                              const path = artistPath(
                                   artistTarget(row.artistOwned ? row.artistId : '', row.artistMbid),
                                   row.artist,
-                              ),
-                          )}
+                              );
+                              return path ? go(path) : undefined;
+                          })()}
                           subtitle={playsLabel(row.plays)}
                           title={`${i + 1}. ${row.artist}`}
                       />
@@ -561,68 +585,72 @@ export const RecentSection = ({
     onRetry: () => void;
     read: ReadState;
     rows: LbBotRecentRow[];
-}) => (
-    <Stack gap="sm">
-        <ReadLine
-            emptyText="No plays yet."
-            onRetry={onRetry}
-            read={read}
-            unreachableText="lb-bot is not reachable, so recent plays cannot be read."
-        />
-        <div className={styles.history}>
-            {rows.map((row, index) => {
-                const view = recentRowView(row);
-                return (
-                    // The index too: two plays in the same second with no recording MBID
-                    // share every other part of the key. Pages only append, so it is stable.
-                    <div
-                        className={styles.entry}
-                        key={`${row.listenedAt}-${row.recordingMbid}-${row.track}-${index}`}
-                    >
-                        <ItemImage
-                            className={styles.photo}
-                            containerClassName={styles.thumb}
-                            id={view.imageId}
-                            itemType={LibraryItem.ALBUM}
-                            type="table"
-                        />
-                        <Stack gap={0} style={{ minWidth: 0 }}>
-                            <MaybeLink
-                                to={albumPath(albumTarget(row.ndAlbumId, row.rgid), {
-                                    artist: row.artist,
-                                    artistMbid: row.artistMbid,
-                                    title: row.release,
-                                })}
-                            >
-                                {view.title}
-                            </MaybeLink>
-                            <Group gap={4} wrap="nowrap">
+}) => {
+    const openMenu = useHistoryContextMenu();
+    return (
+        <Stack gap="sm">
+            <ReadLine
+                emptyText="No plays yet."
+                onRetry={onRetry}
+                read={read}
+                unreachableText="lb-bot is not reachable, so recent plays cannot be read."
+            />
+            <div className={styles.history}>
+                {rows.map((row, index) => {
+                    const view = recentRowView(row);
+                    return (
+                        // The index too: two plays in the same second with no recording MBID
+                        // share every other part of the key. Pages only append, so it is stable.
+                        <div
+                            className={styles.entry}
+                            key={`${row.listenedAt}-${row.recordingMbid}-${row.track}-${index}`}
+                            onContextMenu={(event) => void openMenu(event, row)}
+                        >
+                            <ItemImage
+                                className={styles.photo}
+                                containerClassName={styles.thumb}
+                                id={view.imageId}
+                                itemType={LibraryItem.ALBUM}
+                                type="table"
+                            />
+                            <Stack gap={0} style={{ minWidth: 0 }}>
                                 <MaybeLink
-                                    to={artistPath(
-                                        artistTarget(row.ndArtistId, row.artistMbid),
-                                        row.artist,
-                                    )}
+                                    to={albumPath(albumTarget(row.ndAlbumId, row.rgid), {
+                                        artist: row.artist,
+                                        artistMbid: row.artistMbid,
+                                        title: row.release,
+                                    })}
                                 >
-                                    {row.artist}
+                                    {view.title}
                                 </MaybeLink>
-                                {row.release && (
-                                    <Text className={styles.clip} isMuted size="sm">
-                                        {`· ${row.release}`}
-                                    </Text>
-                                )}
-                            </Group>
-                        </Stack>
-                        <Text isMuted size="xs">
-                            {timeOf(row.listenedAt)}
-                        </Text>
-                    </div>
-                );
-            })}
-        </div>
-        {hasMore && (
-            <Button loading={loadingMore} onClick={onMore} size="compact-md" variant="default">
-                Show more
-            </Button>
-        )}
-    </Stack>
-);
+                                <Group gap={4} wrap="nowrap">
+                                    <MaybeLink
+                                        to={artistPath(
+                                            artistTarget(row.ndArtistId, row.artistMbid),
+                                            row.artist,
+                                        )}
+                                    >
+                                        {row.artist}
+                                    </MaybeLink>
+                                    {row.release && (
+                                        <Text className={styles.clip} isMuted size="sm">
+                                            {`· ${row.release}`}
+                                        </Text>
+                                    )}
+                                </Group>
+                            </Stack>
+                            <Text isMuted size="xs">
+                                {timeOf(row.listenedAt)}
+                            </Text>
+                        </div>
+                    );
+                })}
+            </div>
+            {hasMore && (
+                <Button loading={loadingMore} onClick={onMore} size="compact-md" variant="default">
+                    Show more
+                </Button>
+            )}
+        </Stack>
+    );
+};

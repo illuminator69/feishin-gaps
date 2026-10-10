@@ -56,7 +56,8 @@ interface DiscoverTileProps {
     /** Faded and dashed, the same grammar the missing-album tiles use. */
     isUnowned?: boolean;
     itemType: LibraryItem;
-    onClick: () => void;
+    /** Absent: the card goes nowhere, so it is drawn as a plain card, not a button. */
+    onClick?: () => void;
     subtitle?: string;
     title: string;
 }
@@ -73,15 +74,9 @@ export const DiscoverTile = ({
     onClick,
     subtitle,
     title,
-}: DiscoverTileProps) => (
-    <div className={styles.wrapper}>
-        <button
-            aria-busy={isBusy || undefined}
-            className={styles.tile}
-            disabled={isBusy}
-            onClick={onClick}
-            type="button"
-        >
+}: DiscoverTileProps) => {
+    const content = (
+        <>
             {cover ?? (
                 <ItemImage
                     className={styles.image}
@@ -103,7 +98,25 @@ export const DiscoverTile = ({
                     {subtitle}
                 </Text>
             )}
-        </button>
-        {action}
-    </div>
-);
+        </>
+    );
+    return (
+        <div className={styles.wrapper}>
+            {onClick ? (
+                <button
+                    aria-busy={isBusy || undefined}
+                    className={styles.tile}
+                    disabled={isBusy}
+                    onClick={onClick}
+                    type="button"
+                >
+                    {content}
+                </button>
+            ) : (
+                // Nowhere to go: no button role, no pointer.
+                <div className={clsx(styles.tile, styles.inert)}>{content}</div>
+            )}
+            {action}
+        </div>
+    );
+};

@@ -113,25 +113,13 @@ export const DEFAULT_TAB: ListeningTab = 'overview';
 /** L2: the period picker is drawn where the period changes what is shown - not on History. */
 export const showsPeriodPicker = (tab: ListeningTab): boolean => tab !== 'history';
 
-/** The status in words, for the plain line shown when the history is ready. */
-export const describeListeningStatus = (status: LbBotListeningStatus): string => {
-    switch (status.state) {
-        case 'error':
-            return `${status.count} listens stored. The last sync failed: ${status.error || 'no reason given'}.`;
-        case 'importing':
-            return status.total !== null
-                ? `Importing ${status.count} of ${status.total} listens.`
-                : `Importing, ${status.count} listens so far.`;
-        case 'off':
-            return 'Listening history is not set up: lb-bot has no ListenBrainz user.';
-        default:
-            return `${status.count} listens stored${
-                status.total !== null && status.total !== status.count
-                    ? ` of ${status.total} on ListenBrainz`
-                    : ''
-            }.`;
-    }
-};
+/** The stored count in words: the ready line, and the error banner's lead-in. */
+export const describeStoredListens = (status: LbBotListeningStatus): string =>
+    `${status.count} listens stored${
+        status.total !== null && status.total !== status.count
+            ? ` of ${status.total} on ListenBrainz`
+            : ''
+    }.`;
 
 /**
  * L8: the status shown ONCE. A state with something to say (importing, error, off)
@@ -149,9 +137,11 @@ export const statusLines = (
     ]
         .filter(Boolean)
         .join(' · ');
-    return view.kind === 'ready'
-        ? { banner: null, line: describeListeningStatus(status), meta }
-        : { banner: { detail: view.detail, headline: view.headline }, line: '', meta };
+    if (view.kind === 'ready') return { banner: null, line: describeStoredListens(status), meta };
+    // An error keeps the stored count the plain line used to carry.
+    const detail =
+        view.kind === 'error' ? `${describeStoredListens(status)} ${view.detail}` : view.detail;
+    return { banner: { detail, headline: view.headline }, line: '', meta };
 };
 
 export interface HeatmapCell {
@@ -162,48 +152,56 @@ export interface HeatmapCell {
 }
 
 /**
- * `columns[week][weekday]`, Monday = row 0. `padBefore` / `padAfter` count the null
- * cells at the start of the first column and the end of the last: a span that does
- * not end on a Sunday leaves the last column short, so the bottom rows end one
- * column before the top ones - the "last row sits one square to the left" the user
- * saw. The cells are right (every date is in its weekday's row, for a span ending
- * on any weekday - the harness pins it); the renderer draws the trailing pad as
- * faint placeholders so every row visibly runs to the same end.
+ * The days that are drawn: from the first Monday inside the data, so the grid is
+ * whole weeks (the leading days before it - at most six - are not drawn). With no
+ * Monday inside (under a week of data) everything is kept.
+ */
+const wholeWeeks = (days: readonly LbBotDayCount[]): readonly LbBotDayCount[] => {
+    // Date strings are zone-local calendar days; read them as UTC so the weekday
+    // is the one printed, whatever zone this machine is in.
+    const monday = days.findIndex(
+        (d) => (((Date.parse(`${d.date}T00:00:00Z`) / 86_400_000 + 3) % 7) + 7) % 7 === 0,
+    );
+    return monday < 0 ? days : days.slice(monday);
+};
+
+/**
+ * `columns[week][weekday]`, Monday = row 0: whole weeks. The first column starts on
+ * a Monday; every column but the last is seven real days; the current week's days
+ * not yet reached are null (drawn as placeholders), so the map is always a clean
+ * rectangle. (lb-bot's 112-day span rarely starts on a Monday: drawing the partial
+ * leading week hidden was the "bottom row starts one column to the left" the user saw.)
  */
 export const heatmapGrid = (
     days: readonly LbBotDayCount[],
-): { columns: (HeatmapCell | null)[][]; max: number; padAfter: number; padBefore: number } => {
-    if (days.length === 0) return { columns: [], max: 0, padAfter: 0, padBefore: 0 };
-    const max = days.reduce((m, d) => Math.max(m, d.count), 0);
-    const cells: (HeatmapCell | null)[] = days.map((d) => ({
+): { columns: (HeatmapCell | null)[][]; max: number } => {
+    const drawn = wholeWeeks(days);
+    if (drawn.length === 0) return { columns: [], max: 0 };
+    const max = drawn.reduce((m, d) => Math.max(m, d.count), 0);
+    const cells: (HeatmapCell | null)[] = drawn.map((d) => ({
         count: d.count,
         date: d.date,
         level:
             d.count <= 0 || max <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((d.count / max) * 4))),
     }));
-    // Date strings are zone-local calendar days; read them as UTC so the weekday
-    // is the one printed, whatever zone this machine is in.
-    const weekday = (Date.parse(`${days[0].date}T00:00:00Z`) / 86_400_000 + 3) % 7;
-    const offset = Number.isFinite(weekday) ? Math.floor(((weekday % 7) + 7) % 7) : 0;
-    const padded = [...Array<null>(offset).fill(null), ...cells];
     const columns: (HeatmapCell | null)[][] = [];
-    let padAfter = 0;
-    for (let i = 0; i < padded.length; i += 7) {
-        const week = padded.slice(i, i + 7);
-        while (week.length < 7) {
-            week.push(null);
-            padAfter += 1;
-        }
+    for (let i = 0; i < cells.length; i += 7) {
+        const week = cells.slice(i, i + 7);
+        while (week.length < 7) week.push(null);
         columns.push(week);
     }
-    return { columns, max, padAfter, padBefore: offset };
+    return { columns, max };
 };
 
-/** What the heat map says it shows: its own span, and that the picker does not change it. */
+/** What the heat map says it shows: the range actually drawn, its weeks, and that the picker does not change it. */
 export const heatmapCaption = (days: readonly LbBotDayCount[]): string => {
-    if (days.length === 0) return '';
-    const span = days.length % 7 === 0 ? `${days.length / 7} weeks` : `${days.length} days`;
-    return `Plays per day, ${days[0].date} to ${days[days.length - 1].date} (${span}). The period below does not change it.`;
+    const drawn = wholeWeeks(days);
+    if (drawn.length === 0) return '';
+    const first = drawn[0].date;
+    const last = drawn[drawn.length - 1].date;
+    const weeks = Math.ceil(drawn.length / 7);
+    const span = drawn.length < 7 ? `${drawn.length} days` : `${weeks} weeks`;
+    return `Plays per day, ${first} to ${last} (${span}). The period below does not change it.`;
 };
 
 const PERIOD_DAYS: Record<LbBotListeningPeriod, null | number> = {
@@ -225,10 +223,17 @@ export const dailyForPeriod = (
         : daily.slice(daily.length - wanted);
 };
 
-/** lb-bot's daily series is capped; a longer period says what is actually drawn. */
+/** lb-bot's daily series holds at most this many days (`LISTENS_DAILY_MAX_DAYS`). */
+export const DAILY_CAP = 90;
+
+/**
+ * Said only when the cap is what cut the series: a period longer than the series
+ * AND a series at its maximum. A short history on "All time" is just short - no note.
+ */
 export const dailyNote = (period: LbBotListeningPeriod, available: number): string => {
     const wanted = PERIOD_DAYS[period];
-    return (wanted === null || wanted > available) && available > 0
+    const capped = available >= DAILY_CAP && (wanted === null || wanted > available);
+    return capped
         ? `Showing the last ${available} days, the longest daily series lb-bot sends.`
         : '';
 };
@@ -350,33 +355,50 @@ export const rangeText = (
 
 export interface CardView {
     imageId: null | string;
+    /** A release group whose Cover Art Archive cover stands in for an album the library lacks. */
+    imageRgid: null | string;
+    /** Whether the card goes anywhere: a card that does not is plain, not a button. */
+    linked: boolean;
     subtitle: string;
     title: string;
 }
 
 export const albumCardView = (
-    album: { artist: string; ndAlbumId: string; owned: boolean; plays: number; title: string },
+    album: {
+        artist: string;
+        ndAlbumId: string;
+        owned: boolean;
+        plays: number;
+        rgid: string;
+        title: string;
+    },
     rank: number,
 ): CardView => ({
     imageId: album.ndAlbumId || null,
+    imageRgid: !album.ndAlbumId && album.rgid ? album.rgid : null,
+    linked: albumTarget(album.ndAlbumId, album.rgid, album.owned) !== null,
     subtitle: `${album.artist} · ${playsLabel(album.plays)}${album.owned ? '' : ' · not in your library'}`,
     title: `${rank}. ${album.title}`,
 });
 
 export const artistCardView = (
-    artist: { name: string; ndArtistId: string; plays: number },
+    artist: { mbid: string; name: string; ndArtistId: string; plays: number },
     rank: number,
 ): CardView => ({
     imageId: artist.ndArtistId || null,
+    imageRgid: null,
+    linked: artistTarget(artist.ndArtistId, artist.mbid) !== null,
     subtitle: playsLabel(artist.plays),
     title: `${rank}. ${artist.name}`,
 });
 
 export const trackCardView = (
-    track: { artist: string; ndAlbumId: string; plays: number; title: string },
+    track: { artist: string; ndAlbumId: string; plays: number; rgid: string; title: string },
     rank: number,
 ): CardView => ({
     imageId: track.ndAlbumId || null,
+    imageRgid: !track.ndAlbumId && track.rgid ? track.rgid : null,
+    linked: albumTarget(track.ndAlbumId, track.rgid) !== null,
     subtitle: `${track.artist} · ${playsLabel(track.plays)}`,
     title: `${rank}. ${track.title}`,
 });
@@ -386,8 +408,56 @@ export const recentRowView = (row: {
     ndAlbumId: string;
     release: string;
     track: string;
-}): CardView => ({
+}): { imageId: null | string; subtitle: string; title: string } => ({
     imageId: row.ndAlbumId || null,
     subtitle: row.release ? `${row.artist} · ${row.release}` : row.artist,
     title: row.track,
 });
+
+// ---------------------------------------------------------------------------
+// A history row's context menu: which song, album or artist it is for
+// ---------------------------------------------------------------------------
+
+const titleKey = (title: string): string => title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+/**
+ * The song of an album a recent play is, or null. A recent play carries no Navidrome
+ * song id, so it is matched against the album's own songs: by recording id when the
+ * app's song carries one (a unique hit wins), else by title with case and
+ * punctuation ignored - and only when exactly ONE song has that title. Two tracks
+ * with one title is no guess: a menu acting on the wrong song is worse than none.
+ */
+export const matchSongByTitle = <
+    T extends { id: string; mbzRecordingId?: null | string; name: string },
+>(
+    row: { recordingMbid: string; track: string },
+    songs: readonly T[],
+): null | string => {
+    if (row.recordingMbid) {
+        const byRecording = songs.filter((s) => s.mbzRecordingId === row.recordingMbid);
+        if (byRecording.length === 1) return byRecording[0].id;
+    }
+    const key = titleKey(row.track);
+    if (!key) return null;
+    const byTitle = songs.filter((s) => titleKey(s.name) === key);
+    return byTitle.length === 1 ? byTitle[0].id : null;
+};
+
+export type HistoryMenuTarget =
+    | { id: string; kind: 'album' | 'artist' | 'song' }
+    | { kind: 'none' };
+
+/**
+ * What a history row's context menu opens: the matched song's, else its album's,
+ * else its artist's, else none. A song is only ever resolved through the album, so a
+ * row without an album id never gets a song menu.
+ */
+export const historyMenuTarget = (
+    row: { ndAlbumId: string; ndArtistId: string },
+    matchedSongId: null | string,
+): HistoryMenuTarget => {
+    if (row.ndAlbumId && matchedSongId) return { id: matchedSongId, kind: 'song' };
+    if (row.ndAlbumId) return { id: row.ndAlbumId, kind: 'album' };
+    if (row.ndArtistId) return { id: row.ndArtistId, kind: 'artist' };
+    return { kind: 'none' };
+};

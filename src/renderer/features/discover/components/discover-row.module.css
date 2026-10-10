@@ -47,6 +47,10 @@
     border-radius: var(--theme-radius-md);
 }
 
+.tile.inert {
+    cursor: default;
+}
+
 .cover {
     position: relative;
     width: 100%;

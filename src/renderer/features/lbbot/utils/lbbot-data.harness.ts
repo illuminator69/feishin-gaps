@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { hasMetaFields } from '../../../../shared/utils/lbbot-wire.ts';
-import { describeListeningStatus } from '../../listening/listening-logic.ts';
 import {
     classifyRefresh,
     describeToCheck,
@@ -72,18 +71,6 @@ test('sortOverrides: by name, case-blind, nameless last', () => {
         ),
         ['c', 'a', 'b'],
     );
-});
-
-test('describeListeningStatus in words, per state', () => {
-    assert.match(
-        describeListeningStatus(listen({ count: 0, state: 'off', total: null })),
-        /not set up/i,
-    );
-    const importing = describeListeningStatus(listen({ count: 20, state: 'importing', total: 90 }));
-    assert.match(importing, /Importing 20 of 90/);
-    const ready = describeListeningStatus(listen());
-    assert.match(ready, /100 listens/);
-    assert.match(describeListeningStatus(listen({ error: 'boom', state: 'error' })), /boom/);
 });
 
 const idle = { id: 4, phase: 'idle' as const };

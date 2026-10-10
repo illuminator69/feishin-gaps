@@ -52,10 +52,6 @@
     background: var(--theme-colors-primary);
 }
 
-.pad {
-    visibility: hidden;
-}
-
 /* The days after today in the current week: drawn faintly so every row runs to the
    same end instead of the bottom rows stopping one square short. */
 .future {
