@@ -155,6 +155,7 @@ const AlbumOverrideRowView = ({
                     deadAlbumId: row.albumId,
                     ended,
                     kind: 'remove',
+                    startRow: row,
                 }),
             seedState: result.data.state,
         });

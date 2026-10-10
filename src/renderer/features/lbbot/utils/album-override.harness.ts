@@ -9,6 +9,7 @@ import {
     commitSentence,
     coverQuery,
     decideLeave,
+    decideLeaveAfterJob,
     describeAlbumFailure,
     editionRows,
     extractReleaseMbid,
@@ -518,6 +519,14 @@ test('X1: the same row without a seed keeps polling (the old behaviour, now only
     assert.equal(s.phase, 'polling');
 });
 
+test('a POST that itself answers failed is seeded too: a remove/undo already failed is seen', () => {
+    assert.equal(pollStart(REMOVE_SPEC, 0, 'failed').sawActive, true);
+    const ended = pollStep(pollStart(REMOVE_SPEC, 0, 'failed'), ok(row('failed')), 2000);
+    assert.equal(ended.phase, 'failed');
+    // an unrelated state still seeds nothing
+    assert.equal(pollStart(REMOVE_SPEC, 0, 'applied').sawActive, false);
+});
+
 test('X1: a seed that is not an active state seeds nothing', () => {
     assert.equal(pollStart(REMOVE_SPEC, 0, 'applied').sawActive, false);
     assert.equal(pollStart(REMOVE_SPEC, 0, undefined).sawActive, false);
@@ -820,5 +829,81 @@ test('Minor 8: counts agree in number', () => {
             '0 files have no place on this release',
             '0 tracks of the release have no file',
         ],
+    );
+});
+
+// --- X7 when the undo ends before the first row was ever read -----------------------
+
+const dead = { artistId: 'ar', deadAlbumId: 'al-1', pathname: '/library/albums/al-1' };
+
+test('X7: a remove that ends with no row stays for a cover-only override (decided from the row held at the start)', () => {
+    assert.deepEqual(
+        decideLeaveAfterJob({
+            ...dead,
+            ended: { phase: 'settled', row: null },
+            kind: 'remove',
+            startRow: { prevReleaseMbid: 'r1', releaseMbid: 'r1' },
+        }),
+        { kind: 'stay' },
+    );
+});
+
+test('X7: the same with no row leaves for an override that changed the release', () => {
+    assert.deepEqual(
+        decideLeaveAfterJob({
+            ...dead,
+            ended: { phase: 'settled', row: null },
+            kind: 'remove',
+            startRow: { prevReleaseMbid: 'r0', releaseMbid: 'r1' },
+        }),
+        { id: 'ar', kind: 'artist' },
+    );
+});
+
+test('X7: with no start row the last polled row decides; with neither, the page is left', () => {
+    assert.deepEqual(
+        decideLeaveAfterJob({
+            ...dead,
+            ended: {
+                phase: 'settled',
+                row: { albumId: '', prevReleaseMbid: 'r1', releaseMbid: 'r1' },
+            },
+            kind: 'remove',
+            startRow: null,
+        }),
+        { kind: 'stay' },
+    );
+    assert.deepEqual(
+        decideLeaveAfterJob({
+            ...dead,
+            ended: { phase: 'settled', row: null },
+            kind: 'remove',
+            startRow: null,
+        }),
+        { id: 'ar', kind: 'artist' },
+    );
+});
+
+test('decideLeaveAfterJob: only a settled end moves anyone; an apply goes to the new album', () => {
+    assert.deepEqual(
+        decideLeaveAfterJob({
+            ...dead,
+            ended: { phase: 'failed', row: null },
+            kind: 'remove',
+            startRow: { prevReleaseMbid: 'r0', releaseMbid: 'r1' },
+        }),
+        { kind: 'stay' },
+    );
+    assert.deepEqual(
+        decideLeaveAfterJob({
+            ...dead,
+            ended: {
+                phase: 'settled',
+                row: { albumId: 'al-2', prevReleaseMbid: 'r0', releaseMbid: 'r1' },
+            },
+            kind: 'apply',
+            startRow: null,
+        }),
+        { id: 'al-2', kind: 'album' },
     );
 });

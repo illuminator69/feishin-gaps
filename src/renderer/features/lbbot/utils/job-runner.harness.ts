@@ -159,21 +159,21 @@ test('X3: a job that ended at rest is remembered as id@setAt and never followed 
     const h = harness([ok(row('applied', { done: 10 }))]);
     const end = await runJob({ ...h.input, id: 'ov', isCurrent: () => true, spec: APPLY_SPEC });
     assert.equal(end.phase, 'settled');
-    assert.equal(wasFinished({ id: 'ov', setAt: 7 }), true);
+    assert.equal(wasFinished({ id: 'ov', setAt: 7 }, APPLY_SPEC), true);
     // a different set of the same id is a different job
-    assert.equal(wasFinished({ id: 'ov', setAt: 8 }), false);
+    assert.equal(wasFinished({ id: 'ov', setAt: 8 }, APPLY_SPEC), false);
 });
 
 test('X3: a failed end is at rest too; a timeout is not remembered (it may be picked up again)', async () => {
     forgetFinishedJobs();
     const failed = harness([ok(row('failed', { id: 'a', setAt: 1 }))]);
     await runJob({ ...failed.input, id: 'a', isCurrent: () => true, spec: APPLY_SPEC });
-    assert.equal(wasFinished({ id: 'a', setAt: 1 }), true);
+    assert.equal(wasFinished({ id: 'a', setAt: 1 }, APPLY_SPEC), true);
 
     const frozen = harness([ok(row('applying', { id: 'b', setAt: 2 }))]);
     const end = await runJob({ ...frozen.input, id: 'b', isCurrent: () => true, spec: APPLY_SPEC });
     assert.equal(end.phase, 'timeout');
-    assert.equal(wasFinished({ id: 'b', setAt: 2 }), false);
+    assert.equal(wasFinished({ id: 'b', setAt: 2 }, APPLY_SPEC), false);
 });
 
 test('onEnd runs once, with the final state', async () => {
@@ -188,4 +188,13 @@ test('onEnd runs once, with the final state', async () => {
         spec: APPLY_SPEC,
     });
     assert.deepEqual(phases, ['settled']);
+});
+
+test('an apply marked finished does not hide a running remove of the same row', async () => {
+    forgetFinishedJobs();
+    const h = harness([ok(row('applied', { done: 10 }))]);
+    await runJob({ ...h.input, id: 'ov', isCurrent: () => true, spec: APPLY_SPEC });
+    assert.equal(wasFinished({ id: 'ov', setAt: 7 }, APPLY_SPEC), true);
+    // the undo keeps the row's id and setAt: a different job
+    assert.equal(wasFinished({ id: 'ov', setAt: 7 }, REMOVE_SPEC), false);
 });

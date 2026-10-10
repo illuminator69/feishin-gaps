@@ -170,7 +170,13 @@ export const pollStart = <TRow extends PollRow = LbBotAlbumOverrideRow>(
     phase: 'polling',
     quietSince: now,
     row: null,
-    sawActive: !!seedState && spec.active.includes(seedState),
+    // A POST that itself answers `failed` has already been through the active state.
+    // Only that literal: the spec's other "failed" states (a remove's old `applied`)
+    // are exactly the stale answers the guard exists for.
+    sawActive:
+        !!seedState &&
+        (spec.active.includes(seedState) ||
+            (seedState === 'failed' && spec.failed.includes(seedState))),
     spec,
 });
 
@@ -521,6 +527,36 @@ export const nextAfterOverride = (albumId: string, artistId: string): AfterOverr
     return { kind: 'none' };
 };
 
+/**
+ * {@link decideLeave} for a job that has ended. Whether the release changed comes
+ * from the row the CALLER held before starting the job (`startRow`): an undo that
+ * ends before the first poll read has `ended.row === null`, and deciding from the
+ * last polled row alone would send the user off a live page (X7). The last polled
+ * row is only the fallback. Only a settled end moves anyone.
+ */
+export const decideLeaveAfterJob = (input: {
+    artistId: string;
+    deadAlbumId: string;
+    ended: {
+        phase: string;
+        row: null | { albumId: string; prevReleaseMbid: string; releaseMbid: string };
+    };
+    kind: 'apply' | 'remove';
+    pathname: string;
+    startRow: null | { prevReleaseMbid: string; releaseMbid: string };
+}): LeaveDecision => {
+    if (input.ended.phase !== 'settled') return { kind: 'stay' };
+    const basis = input.startRow ?? input.ended.row;
+    return decideLeave({
+        artistId: input.artistId,
+        deadAlbumId: input.deadAlbumId,
+        kind: input.kind,
+        newAlbumId: input.ended.row?.albumId ?? '',
+        pathname: input.pathname,
+        releaseUnchanged: !!basis && releaseUnchanged(basis),
+    });
+};
+
 // ---------------------------------------------------------------------------
 // Editions
 // ---------------------------------------------------------------------------
@@ -654,11 +690,14 @@ export const decideLeave = (input: {
 
 const finished = new Set<string>();
 
-const jobKey = (row: { id: string; setAt: number }): string => `${row.id}@${row.setAt}`;
+// The job kind joins the key: an undo keeps its row's id and setAt, so `id@setAt`
+// alone would let an apply that ended hide a running remove of the same row.
+const jobKey = (row: { id: string; setAt: number }, spec: PollSpec): string =>
+    `${row.id}@${row.setAt}@${spec.active.join('|')}`;
 
 /** A job that ended at rest (settled or failed) is not followed again in this process. */
-export const wasFinished = (row: { id: string; setAt: number }): boolean =>
-    finished.has(jobKey(row));
+export const wasFinished = (row: { id: string; setAt: number }, spec: PollSpec): boolean =>
+    finished.has(jobKey(row, spec));
 
 export const forgetFinishedJobs = (): void => finished.clear();
 
@@ -687,7 +726,7 @@ export const runJob = async <TRow extends PollRow>(input: {
     }
     // A timeout is not at rest: lb-bot may still be working, and a dismissed one may be picked up again.
     if ((state.phase === 'settled' || state.phase === 'failed') && state.row) {
-        finished.add(jobKey(state.row));
+        finished.add(jobKey(state.row, input.spec));
     }
     input.onEnd?.(state);
     return state;

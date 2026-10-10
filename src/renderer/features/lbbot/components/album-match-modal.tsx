@@ -256,8 +256,18 @@ const AlbumMatchModal = ({
 
     // Leaving the dead page happens where the poll ends (it outlives this dialog),
     // not in an effect here. The route is read at that moment, not at render.
-    const leave = (ended: PollState, kind: 'apply' | 'remove') =>
-        leaveAfterAlbumJob({ artistId: artistId ?? '', deadAlbumId: albumId, ended, kind });
+    const leave = (
+        ended: PollState,
+        kind: 'apply' | 'remove',
+        startRow: LbBotAlbumOverrideRow | null,
+    ) =>
+        leaveAfterAlbumJob({
+            artistId: artistId ?? '',
+            deadAlbumId: albumId,
+            ended,
+            kind,
+            startRow,
+        });
 
     // An override that is still being worked on when the dialog opens is followed,
     // not offered a second apply - unless it already ended at rest and was dismissed
@@ -265,18 +275,18 @@ const AlbumMatchModal = ({
     const resumed = useRef(false);
     useEffect(() => {
         const row = state?.override;
-        if (!row || resumed.current || job || wasFinished(row)) return;
+        if (!row || resumed.current || job) return;
         const spec = REMOVE_SPEC.active.includes(row.state)
             ? REMOVE_SPEC
             : APPLY_SPEC.active.includes(row.state)
               ? APPLY_SPEC
               : null;
-        if (!spec) return;
+        if (!spec || wasFinished(row, spec)) return;
         resumed.current = true;
         const kind = spec === REMOVE_SPEC ? 'remove' : 'apply';
         setJob({ kind, spec });
         poll.start(row.id, spec, {
-            onEnd: (ended) => leave(ended, kind),
+            onEnd: (ended) => leave(ended, kind, row),
             seedState: row.state,
         });
         // `leave` only closes over props that do not change while the dialog is open.
@@ -303,10 +313,15 @@ const AlbumMatchModal = ({
         }
     };
     // `seedState` is the state of the POST's own 200 (X1).
-    const begin = (kind: 'apply' | 'remove', id: string, seedState: string) => {
+    const begin = (
+        kind: 'apply' | 'remove',
+        id: string,
+        seedState: string,
+        startRow: LbBotAlbumOverrideRow | null,
+    ) => {
         const spec = kind === 'apply' ? APPLY_SPEC : REMOVE_SPEC;
         setJob({ kind, spec });
-        poll.start(id, spec, { onEnd: (ended) => leave(ended, kind), seedState });
+        poll.start(id, spec, { onEnd: (ended) => leave(ended, kind, startRow), seedState });
     };
 
     // A confirmation only counts for the release it was asked about.
@@ -346,7 +361,7 @@ const AlbumMatchModal = ({
             return;
         }
         setConfirm(null);
-        begin('apply', result.data.id, result.data.state);
+        begin('apply', result.data.id, result.data.state, null);
     };
 
     // The cover alone: the release stays and no tag is rewritten. The POST is
@@ -373,17 +388,18 @@ const AlbumMatchModal = ({
         void stateQuery.refetch();
     };
 
-    const undo = async (id: string) => {
+    const undo = async (target: LbBotAlbumOverrideRow) => {
         setBusy(true);
         setFailure(null);
         setCoverSaved(false);
-        const result = await removeAlbumOverride(id);
+        const result = await removeAlbumOverride(target.id);
         setBusy(false);
         if (!result.ok || !result.data) {
             setFailure(describeAlbumFailure(result));
             return;
         }
-        begin('remove', result.data.id, result.data.state);
+        // The row held NOW decides whether the undo moves the album's id (X7).
+        begin('remove', result.data.id, result.data.state, target);
     };
 
     const when = (epochSeconds: number): string =>
@@ -483,7 +499,7 @@ const AlbumMatchModal = ({
                                         </Text>
                                         <Button
                                             disabled={busy || isRunning(state.override.state)}
-                                            onClick={() => void undo(state.override!.id)}
+                                            onClick={() => void undo(state.override!)}
                                             size="compact-sm"
                                             variant="default"
                                         >
@@ -554,7 +570,7 @@ const AlbumMatchModal = ({
                                             <Button
                                                 disabled={busy}
                                                 onClick={() => {
-                                                    void undo(row.id);
+                                                    void undo(row);
                                                 }}
                                                 size="compact-sm"
                                                 variant="default"
