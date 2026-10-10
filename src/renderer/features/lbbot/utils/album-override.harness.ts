@@ -175,7 +175,7 @@ test('constants: 2 s interval, 3 minute give-up, the contract sentence', () => {
     assert.equal(GIVE_UP_MS, 180_000);
     assert.equal(
         STILL_WORKING,
-        'lb-bot is still working. The result will show under “lb-bot data” in Settings.',
+        'lb-bot is still working. The result will show on the Library Matches page.',
     );
 });
 

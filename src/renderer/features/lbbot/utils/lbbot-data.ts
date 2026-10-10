@@ -8,7 +8,7 @@ import type {
 } from '/@/shared/types/lbbot-types';
 
 /**
- * I-020 / I-021: wording and bookkeeping for the "lb-bot data" settings panel,
+ * I-020 / I-021: wording and bookkeeping for the Library Matches page and the My Listening sync,
  * as pure functions (`lbbot-data.harness.ts` runs them).
  */
 
@@ -113,11 +113,115 @@ const describePullFailure = (status: number | undefined): string => {
 };
 
 /**
- * What "Sync now" has visibly done so far. The click is not the answer: the
- * answer is the mirror's cursor moving and the listening status changing, read
- * from the same sources the rest of the app reads. The mirror part judges the
- * pull's OWN outcome (a run that started after the click), never a timeout:
- * "up to date" only after a pull that finished with the cursor unchanged.
+ * What the index mirror has visibly done since a refresh was asked for. The click is
+ * not the answer: the answer is the mirror's cursor moving, read from the same
+ * source the rest of the app reads. This judges the pull's OWN outcome (a run that
+ * started after the click), never a timeout: "up to date" only after a pull that
+ * finished with the cursor unchanged. It says nothing about listens.
+ */
+export const mirrorReport = (
+    before: SyncSnapshot,
+    now: SyncSnapshot,
+    elapsedMs: number,
+): { done: boolean; text: string } => {
+    let text: string;
+    let done = true;
+    const ownRun = now.sync.id > before.sync.id;
+    if (now.epoch !== before.epoch) {
+        text = 'Index mirror: lb-bot rebuilt its index, so the mirror started over.';
+    } else if (now.cursor !== before.cursor) {
+        text = `Index mirror moved: cursor ${before.cursor} to ${now.cursor}.`;
+        // The pull may still be running; the cursor already moved, which is the answer.
+    } else if (!ownRun) {
+        if (elapsedMs < MIRROR_START_MS) {
+            text = 'Index mirror: waiting for the pull to start...';
+            done = false;
+        } else {
+            text =
+                'Index mirror: no pull has started (one may be queued, or backing off after an earlier failure).';
+        }
+    } else if (now.sync.phase === 'running') {
+        text = 'Index mirror: the pull is still running...';
+        done = false;
+    } else if (now.sync.phase === 'failed') {
+        text = `Index mirror: the pull failed (${describePullFailure(now.sync.status)}). The mirror is unchanged.`;
+    } else if (now.sync.phase === 'skipped') {
+        text = `Index mirror: the pull was not run (${now.sync.reason || 'lb-bot is not available'}).`;
+    } else {
+        text = `Index mirror: already up to date (cursor ${now.cursor}).`;
+    }
+    return { done, text };
+};
+
+/**
+ * What a listening sync has visibly done since it was asked for. `before` is a
+ * status read taken right BEFORE the POST (null when that read failed); `now` is
+ * the status as it is now (null when it cannot be read). "Synced" is only ever said
+ * for `ready` with `lastSyncAt` moved past the baseline: a count or state
+ * difference against a cached read proves nothing about this tap, and with no
+ * baseline nothing can be proved at all. It says nothing about the mirror.
+ */
+export const listeningReport = (
+    before: LbBotListeningStatus | null,
+    now: LbBotListeningStatus | null,
+    elapsedMs: number,
+): { done: boolean; text: string } => {
+    const a = before;
+    const b = now;
+    if (!b) return { done: true, text: 'Listening: no status from lb-bot.' };
+    if (b.state === 'off') {
+        return {
+            done: true,
+            text: 'Listening: lb-bot has no ListenBrainz user, so there is nothing to sync.',
+        };
+    }
+    if (b.state === 'importing') {
+        return {
+            done: false,
+            text:
+                b.total !== null
+                    ? `Listening: Importing ${b.count} of ${b.total}.`
+                    : `Listening: Importing ${b.count} listens so far.`,
+        };
+    }
+    if (b.state === 'error') {
+        // lb-bot's `error` persists until the next success, which is exactly
+        // when a user presses the button: a failure already there with the same
+        // text and an unmoved lastSyncAt is the earlier one, not this tap's.
+        const earlier =
+            !!a && a.state === 'error' && a.error === b.error && a.lastSyncAt === b.lastSyncAt;
+        if (!a || earlier) {
+            if (elapsedMs < LISTENING_GIVE_UP_MS) {
+                return { done: false, text: 'Listening: waiting for lb-bot...' };
+            }
+            return {
+                done: true,
+                text: a
+                    ? `Listening: lb-bot still reports the earlier failure: ${b.error || 'no reason given'}.`
+                    : 'Listening: could not confirm a sync (there was no earlier reading to compare with).',
+            };
+        }
+        return { done: true, text: `Listening: the sync failed: ${b.error || 'no reason given'}.` };
+    }
+    if (a && b.lastSyncAt !== null && (a.lastSyncAt === null || b.lastSyncAt > a.lastSyncAt)) {
+        return { done: true, text: `Listening: synced, ${b.count} listens stored.` };
+    }
+    if (elapsedMs < LISTENING_GIVE_UP_MS) {
+        return { done: false, text: 'Listening: waiting for lb-bot...' };
+    }
+    return {
+        done: true,
+        text: a
+            ? 'Listening: no change reported (already up to date, or lb-bot is still working).'
+            : 'Listening: could not confirm a sync (there was no earlier reading to compare with).',
+    };
+};
+
+/**
+ * Both halves side by side - what the old single "Sync now" reported. The
+ * surfaces no longer use it (Library Matches reports {@link mirrorReport}, My
+ * Listening {@link listeningReport}); it stays as the composition the original
+ * cases pin.
  */
 export const syncReport = (
     before: SyncSnapshot,
@@ -125,86 +229,11 @@ export const syncReport = (
     listeningRequested: boolean,
     elapsedMs: number,
 ): { done: boolean; listening: string; mirror: string } => {
-    let mirror: string;
-    let mirrorDone = true;
-    const ownRun = now.sync.id > before.sync.id;
-    if (now.epoch !== before.epoch) {
-        mirror = 'Index mirror: lb-bot rebuilt its index, so the mirror started over.';
-    } else if (now.cursor !== before.cursor) {
-        mirror = `Index mirror moved: cursor ${before.cursor} to ${now.cursor}.`;
-        // The pull may still be running; the cursor already moved, which is the answer.
-    } else if (!ownRun) {
-        if (elapsedMs < MIRROR_START_MS) {
-            mirror = 'Index mirror: waiting for the pull to start...';
-            mirrorDone = false;
-        } else {
-            mirror =
-                'Index mirror: no pull has started (one may be queued, or backing off after an earlier failure).';
-        }
-    } else if (now.sync.phase === 'running') {
-        mirror = 'Index mirror: the pull is still running...';
-        mirrorDone = false;
-    } else if (now.sync.phase === 'failed') {
-        mirror = `Index mirror: the pull failed (${describePullFailure(now.sync.status)}). The mirror is unchanged.`;
-    } else if (now.sync.phase === 'skipped') {
-        mirror = `Index mirror: the pull was not run (${now.sync.reason || 'lb-bot is not available'}).`;
-    } else {
-        mirror = `Index mirror: already up to date (cursor ${now.cursor}).`;
-    }
-
-    let listening = '';
-    let listeningDone = true;
-    if (listeningRequested) {
-        // `a` is a status read taken right BEFORE the POST (null when that read
-        // failed). "Synced" is only ever said for `ready` with `lastSyncAt` moved
-        // past it: a count or state difference against a cached read proves nothing
-        // about this tap, and with no baseline nothing can be proved at all.
-        const a = before.listening;
-        const b = now.listening;
-        if (!b) {
-            listening = 'Listening: no status from lb-bot.';
-        } else if (b.state === 'off') {
-            listening = 'Listening: lb-bot has no ListenBrainz user, so there is nothing to sync.';
-        } else if (b.state === 'importing') {
-            listening =
-                b.total !== null
-                    ? `Listening: Importing ${b.count} of ${b.total}.`
-                    : `Listening: Importing ${b.count} listens so far.`;
-            listeningDone = false;
-        } else if (b.state === 'error') {
-            // lb-bot's `error` persists until the next success, which is exactly
-            // when a user presses the button: a failure already there with the same
-            // text and an unmoved lastSyncAt is the earlier one, not this tap's.
-            const earlier =
-                !!a && a.state === 'error' && a.error === b.error && a.lastSyncAt === b.lastSyncAt;
-            if (!a || earlier) {
-                if (elapsedMs < LISTENING_GIVE_UP_MS) {
-                    listening = 'Listening: waiting for lb-bot...';
-                    listeningDone = false;
-                } else {
-                    listening = a
-                        ? `Listening: lb-bot still reports the earlier failure: ${b.error || 'no reason given'}.`
-                        : 'Listening: could not confirm a sync (there was no earlier reading to compare with).';
-                }
-            } else {
-                listening = `Listening: the sync failed: ${b.error || 'no reason given'}.`;
-            }
-        } else if (
-            a &&
-            b.lastSyncAt !== null &&
-            (a.lastSyncAt === null || b.lastSyncAt > a.lastSyncAt)
-        ) {
-            listening = `Listening: synced, ${b.count} listens stored.`;
-        } else if (elapsedMs < LISTENING_GIVE_UP_MS) {
-            listening = 'Listening: waiting for lb-bot...';
-            listeningDone = false;
-        } else {
-            listening = a
-                ? 'Listening: no change reported (already up to date, or lb-bot is still working).'
-                : 'Listening: could not confirm a sync (there was no earlier reading to compare with).';
-        }
-    }
-    return { done: mirrorDone && listeningDone, listening, mirror };
+    const mirror = mirrorReport(before, now, elapsedMs);
+    const listening = listeningRequested
+        ? listeningReport(before.listening, now.listening, elapsedMs)
+        : { done: true, text: '' };
+    return { done: mirror.done && listening.done, listening: listening.text, mirror: mirror.text };
 };
 
 /** Whether an About body holds anything to show. `found` is not content: lb-bot

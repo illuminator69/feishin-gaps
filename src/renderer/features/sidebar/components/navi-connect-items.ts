@@ -2,6 +2,7 @@ import { useDiscoverCapabilities } from '/@/renderer/features/discover/use-disco
 import {
     useLbBotAvailable,
     useListeningSupported,
+    useOverridesSupported,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { AppRoute } from '/@/renderer/router/routes';
 import { useHubConnected } from '/@/renderer/store/hub.store';
@@ -25,6 +26,7 @@ export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
     const lbBotAvailable = useLbBotAvailable();
     const hubConnected = useHubConnected();
     const listeningSupported = useListeningSupported();
+    const overridesSupported = useOverridesSupported();
     const { hasSources } = useDiscoverCapabilities();
 
     const items: SidebarItemType[] = [];
@@ -49,6 +51,17 @@ export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
             { disabled: false, id: 'Fresh', label: 'Fresh', route: AppRoute.FRESH },
             { disabled: false, id: 'Downloads', label: 'Downloads', route: AppRoute.DOWNLOADS },
         );
+        // I-024: Library Matches, under the gate its lists already use - the hub
+        // advertises the artist-override routes (`useOverridesSupported`). Each
+        // section inside then hides itself for an lb-bot that lacks its list.
+        if (overridesSupported) {
+            items.push({
+                disabled: false,
+                id: 'LibraryMatches',
+                label: 'Library Matches',
+                route: AppRoute.LIBRARY_MATCHES,
+            });
+        }
         // I-006: only when the hub advertises the listening routes (a non-empty
         // advert that includes them) — an older hub or lb-bot has no such page.
         if (listeningSupported) {

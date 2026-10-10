@@ -84,9 +84,12 @@ export const poorMatchSentence = (matched: number, total: number): string =>
 export const POLL_INTERVAL_MS = 2000;
 export const GIVE_UP_MS = 180_000;
 /** X3: a job that stopped advancing for three minutes is not failed - lb-bot may
- *  still be working - and the result is where the data panel lists it. */
+ *  still be working - and the result is where the Library Matches page lists it. */
 export const STILL_WORKING =
-    'lb-bot is still working. The result will show under “lb-bot data” in Settings.';
+    'lb-bot is still working. The result will show on the Library Matches page.';
+
+/** The page's name inside {@link STILL_WORKING}, where a surface makes it a link. */
+export const MATCHES_PAGE_NAME = 'Library Matches';
 
 /**
  * What a poll of `GET /lb/album/override?id=` (or, in F2, `GET /lb/artist/merge?id=`)

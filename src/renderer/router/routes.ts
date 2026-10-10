@@ -36,6 +36,10 @@ export enum AppRoute {
     LIBRARY_FOLDERS = '/library/folders',
     LIBRARY_GENRES = '/library/genres',
     LIBRARY_GENRES_DETAIL = '/library/genres/:genreId',
+    /** navi-connect: Library Matches - the MusicBrainz matches lb-bot holds for
+     *  the library (artist overrides, artists to check, album matches, merged
+     *  names), with the artwork and the actions to correct them. */
+    LIBRARY_MATCHES = '/library-matches',
     LIBRARY_SONGS = '/library/songs',
     /** navi-connect: My Listening — aggregates over the user's ListenBrainz
      *  history, mirrored by lb-bot. */

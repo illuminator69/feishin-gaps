@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { generatePath } from 'react-router';
 
-import { JobFailures } from '/@/renderer/features/lbbot/components/job-failures';
+import { JobFailures, StillWorking } from '/@/renderer/features/lbbot/components/job-failures';
 import {
     startArtistMerge,
     undoArtistMerge,
@@ -11,11 +11,7 @@ import {
     useMergeJobPoll,
     useMergePreview,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
-import {
-    canTryAgain,
-    jobProgress,
-    STILL_WORKING,
-} from '/@/renderer/features/lbbot/utils/album-override';
+import { canTryAgain, jobProgress } from '/@/renderer/features/lbbot/utils/album-override';
 import {
     decideMergeLeave,
     defaultKeep,
@@ -44,7 +40,7 @@ import { LbBotMergeRow } from '/@/shared/types/lbbot-types';
  * (`siblings`) and the hub advertises the merge route. Pick the other spelling
  * (when there are several), which name to keep (default: the one with the most
  * albums), read lb-bot's "N files in M albums", apply, follow, done. Undo is in the
- * "lb-bot data" panel. Every sentence is a field of an answer.
+ * Library Matches page. Every sentence is a field of an answer.
  */
 
 export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
@@ -243,7 +239,7 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
                             lb-bot no longer has this merge.
                         </Text>
                     )}
-                    {phase === 'timeout' && <Text size="sm">{STILL_WORKING}</Text>}
+                    {phase === 'timeout' && <StillWorking />}
                     {/* Whenever the row failed or carries any problem, merge and undo alike. */}
                     {row && <JobFailures failures={row.failures} />}
                     {phase === 'failed' && !isUndo && (

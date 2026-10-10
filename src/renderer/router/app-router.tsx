@@ -98,6 +98,9 @@ const DiscoverRoute = lazy(() => import('/@/renderer/features/discover/routes/di
 
 const LbBotFreshRoute = lazy(() => import('/@/renderer/features/lbbot/routes/lbbot-fresh-route'));
 
+const LibraryMatchesRoute = lazy(
+    () => import('/@/renderer/features/library-matches/routes/library-matches-route'),
+);
 const ListeningRoute = lazy(() => import('/@/renderer/features/listening/routes/listening-route'));
 
 const LbBotExternalArtistRoute = lazy(
@@ -349,6 +352,10 @@ export const AppRouter = () => {
                                         <Route
                                             element={<LbBotFreshRoute />}
                                             path={AppRoute.FRESH}
+                                        />
+                                        <Route
+                                            element={<LibraryMatchesRoute />}
+                                            path={AppRoute.LIBRARY_MATCHES}
                                         />
                                         <Route
                                             element={<ListeningRoute />}

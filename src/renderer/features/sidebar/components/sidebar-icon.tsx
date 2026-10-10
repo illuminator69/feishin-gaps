@@ -17,6 +17,8 @@ import {
     RiHeartLine,
     RiHome6Fill,
     RiHome6Line,
+    RiLinksFill,
+    RiLinksLine,
     RiMusic2Fill,
     RiMusic2Line,
     RiPlayFill,
@@ -81,6 +83,10 @@ export const SidebarIcon = ({ active, route, size }: SidebarIconProps) => {
             case AppRoute.LIBRARY_GENRES:
                 if (isActive) return <RiFlag2Fill size={size} />;
                 return <RiFlag2Line size={size} />;
+            // navi-connect: Library Matches (I-024).
+            case AppRoute.LIBRARY_MATCHES:
+                if (isActive) return <RiLinksFill size={size} />;
+                return <RiLinksLine size={size} />;
             case AppRoute.LIBRARY_SONGS:
                 if (isActive) return <RiMusic2Fill size={size} />;
                 return <RiMusic2Line size={size} />;

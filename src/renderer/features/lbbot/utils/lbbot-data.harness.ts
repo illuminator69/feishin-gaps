@@ -6,14 +6,16 @@ import {
     classifyRefresh,
     describeListeningStatus,
     describeToCheck,
+    listeningReport,
     metaHasContent,
+    mirrorReport,
     normalizeOverridesData,
     sortOverrides,
     syncReport,
 } from './lbbot-data.ts';
 
 /**
- * I-020 / I-021: the "lb-bot data" panel's wording and its "Sync now" watcher.
+ * I-020 / I-021: the "Library Matches" page's and My Listening's wording and its "Sync now" watcher.
  *
  *     node --test src/renderer/features/lbbot/utils/lbbot-data.harness.ts
  */
@@ -338,4 +340,73 @@ test('normalizeOverridesData keeps absent (null) apart from empty ([]) for the I
     // a body persisted before these existed (a bare map) reads as unknown
     assert.equal(normalizeOverridesData({ nd1: { mbid: 'x' } }).siblings, null);
     assert.equal(normalizeOverridesData(undefined).albums, null);
+});
+
+// --- P3: each surface's button reports only its own half ---------------------------------
+
+test('P3 mirrorReport alone: the Refresh on Library Matches says nothing about listens', () => {
+    const moved = mirrorReport(before, at({ id: 5, phase: 'finished' }, { cursor: 14 }), 1000);
+    assert.match(moved.text, /Index mirror moved: cursor 10 to 14/);
+    assert.equal(moved.done, true);
+    assert.doesNotMatch(moved.text, /listen/i);
+    const waiting = mirrorReport(before, at({ id: 5, phase: 'running' }), 9000);
+    assert.equal(waiting.done, false);
+    assert.match(waiting.text, /still running/);
+    const upToDate = mirrorReport(before, at({ id: 5, phase: 'finished' }), 300);
+    assert.match(upToDate.text, /already up to date/);
+});
+
+test("P3 mirrorReport: a run that began before the click is not this click's answer", () => {
+    const stale = at({ id: 4, phase: 'finished' });
+    assert.match(mirrorReport(before, stale, 500).text, /waiting for the pull to start/i);
+    assert.match(mirrorReport(before, stale, 6000).text, /no pull has started/i);
+});
+
+test('P3 listeningReport alone: Sync now on My Listening says nothing about the mirror', () => {
+    const after = listen({ count: 120, lastSyncAt: 1_700_000_100 });
+    const base = listen({ count: 100, lastSyncAt: 1_700_000_000 });
+    const r = listeningReport(base, after, 4000);
+    assert.match(r.text, /Listening: synced, 120 listens stored/);
+    assert.equal(r.done, true);
+    assert.doesNotMatch(r.text, /mirror|cursor/i);
+});
+
+test('P3 listeningReport: no baseline never reads "synced"; importing is not done; a stale baseline is not a sync', () => {
+    const after = listen({ lastSyncAt: 1_700_000_100 });
+    assert.doesNotMatch(listeningReport(null, after, 4000).text, /synced/);
+    const importing = listeningReport(
+        listen(),
+        listen({ count: 5, state: 'importing', total: 50 }),
+        4000,
+    );
+    assert.equal(importing.done, false);
+    assert.match(importing.text, /Importing 5 of 50/);
+    const same = listeningReport(listen(), listen(), 25_000);
+    assert.doesNotMatch(same.text, /synced/);
+    assert.match(same.text, /no change reported/);
+});
+
+test("P3 listeningReport: a failure already standing is not this tap's; a new one is", () => {
+    const err = listen({ error: 'boom', lastSyncAt: 5, state: 'error' });
+    assert.equal(listeningReport(err, err, 4000).done, false);
+    assert.match(listeningReport(err, err, 25_000).text, /earlier failure/);
+    const fresh = listeningReport(listen(), err, 4000);
+    assert.match(fresh.text, /the sync failed: boom/);
+    assert.equal(listeningReport(listen(), listen({ state: 'off' }), 4000).done, true);
+    assert.match(listeningReport(listen(), null, 4000).text, /no status from lb-bot/);
+});
+
+test('P3: syncReport is still the two halves side by side', () => {
+    const now = at(
+        { id: 5, phase: 'finished' },
+        { cursor: 14, listening: listen({ lastSyncAt: 1_700_000_100 }) },
+    );
+    const both = syncReport(before, now, true, 4000);
+    assert.equal(both.mirror, mirrorReport(before, now, 4000).text);
+    assert.equal(both.listening, listeningReport(before.listening, now.listening, 4000).text);
+    assert.equal(
+        both.done,
+        mirrorReport(before, now, 4000).done &&
+            listeningReport(before.listening, now.listening, 4000).done,
+    );
 });

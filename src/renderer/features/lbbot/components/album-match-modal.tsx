@@ -5,7 +5,7 @@ import { generatePath, useNavigate } from 'react-router';
 
 import styles from './album-match-modal.module.css';
 
-import { JobFailures } from '/@/renderer/features/lbbot/components/job-failures';
+import { JobFailures, StillWorking } from '/@/renderer/features/lbbot/components/job-failures';
 import {
     applyAlbumOverride,
     removeAlbumOverride,
@@ -45,7 +45,6 @@ import {
     REMOVE_SPEC,
     rowStatusWords,
     slotLabel,
-    STILL_WORKING,
     summarizePreview,
     tagLineFor,
     wasFinished,
@@ -535,7 +534,7 @@ const AlbumMatchModal = ({
                                     lb-bot no longer has this change.
                                 </Text>
                             )}
-                            {phase === 'timeout' && <Text size="sm">{STILL_WORKING}</Text>}
+                            {phase === 'timeout' && <StillWorking />}
                             {/* Whenever the row failed or carries any problem, for both
                             kinds: lb-bot's reasons say what a second Undo will do. */}
                             {row && <JobFailures failures={row.failures} />}

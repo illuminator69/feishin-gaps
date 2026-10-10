@@ -13,6 +13,8 @@ import {
     useListeningSupported,
     useListeningUnowned,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { useListeningSync } from '/@/renderer/features/lbbot/hooks/use-sync-watch';
+import { describeListeningStatus } from '/@/renderer/features/lbbot/utils/lbbot-data';
 import {
     Genres,
     Heatmap,
@@ -25,6 +27,7 @@ import {
 import {
     DEFAULT_PERIOD,
     PERIOD_OPTIONS,
+    rangeText,
     readState,
     statusView,
 } from '/@/renderer/features/listening/listening-logic';
@@ -57,6 +60,10 @@ const errorOf = (error: Error | null): null | { message: string; status: number 
         ? { message: error.message, status: error instanceof LbBotReadError ? error.status : 0 }
         : null;
 
+/** A stored epoch-seconds timestamp as the status line shows it. */
+const when = (epochSeconds: null | number): string =>
+    epochSeconds ? new Date(epochSeconds * 1000).toLocaleString() : 'never';
+
 const ListeningRoute = () => {
     const { windowBarStyle } = useWindowSettings();
     const [period, setPeriod] = useState<LbBotListeningPeriod>(DEFAULT_PERIOD);
@@ -85,6 +92,13 @@ const ListeningRoute = () => {
     );
     const unavailable = [statusQuery.error, summaryQuery.error].some(isListeningUnavailable);
     const loading = supported && !summary && !off && summaryQuery.isPending;
+    const listeningSync = useListeningSync();
+    // A status that could not be read is no status (a failed re-read leaves the last
+    // data in place); the line says what the read is doing instead.
+    const status = statusQuery.isError ? null : (statusQuery.data ?? null);
+    // Asked for only where lb-bot can do it: the routes exist, this lb-bot is not
+    // older, and a ListenBrainz user is configured (`off` has nothing to pull).
+    const canSync = supported && !older && !off;
 
     return (
         <NativeScrollArea
@@ -105,9 +119,61 @@ const ListeningRoute = () => {
                     pt={windowBarStyle === Platform.WEB ? '5rem' : '3rem'}
                     px="2rem"
                 >
-                    <Text size="xl" weight={700}>
-                        My Listening
-                    </Text>
+                    <Group justify="space-between">
+                        <Text size="xl" weight={700}>
+                            My Listening
+                        </Text>
+                        {canSync && (
+                            <Button
+                                disabled={
+                                    !available || listeningSync.watching || listeningSync.starting
+                                }
+                                loading={listeningSync.watching || listeningSync.starting}
+                                onClick={() => void listeningSync.sync()}
+                                size="compact-md"
+                                variant="default"
+                            >
+                                Sync now
+                            </Button>
+                        )}
+                    </Group>
+                    {supported && !older && (
+                        <Stack gap={2}>
+                            {status ? (
+                                <>
+                                    <Text isMuted size="sm">
+                                        {describeListeningStatus(status)}
+                                    </Text>
+                                    <Text isMuted size="xs">
+                                        {[
+                                            rangeText(status.oldest, status.newest, when),
+                                            `last sync ${when(status.lastSyncAt)}`,
+                                        ]
+                                            .filter(Boolean)
+                                            .join(' · ')}
+                                    </Text>
+                                </>
+                            ) : (
+                                <Text isMuted size="sm">
+                                    {!available
+                                        ? 'lb-bot is needed for this and is not reachable.'
+                                        : statusQuery.isError
+                                          ? 'Could not read the listening status.'
+                                          : 'Loading…'}
+                                </Text>
+                            )}
+                            {listeningSync.text && <Text size="sm">{listeningSync.text}</Text>}
+                            {listeningSync.error && (
+                                <Text
+                                    c={listeningSync.error.older ? undefined : 'red'}
+                                    isMuted={listeningSync.error.older}
+                                    size="sm"
+                                >
+                                    {`Listening: ${listeningSync.error.message}`}
+                                </Text>
+                            )}
+                        </Stack>
+                    )}
                     <SegmentedControl
                         data={PERIOD_OPTIONS}
                         onChange={(value) => setPeriod(value as LbBotListeningPeriod)}

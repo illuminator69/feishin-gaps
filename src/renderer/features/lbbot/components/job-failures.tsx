@@ -1,4 +1,12 @@
-import { problemsHeading } from '/@/renderer/features/lbbot/utils/album-override';
+import { Link } from 'react-router';
+
+import {
+    MATCHES_PAGE_NAME,
+    problemsHeading,
+    STILL_WORKING,
+} from '/@/renderer/features/lbbot/utils/album-override';
+import { AppRoute } from '/@/renderer/router/routes';
+import { closeAllModals } from '/@/shared/components/modal/modal';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
 
@@ -31,5 +39,22 @@ export const JobFailures = ({
                 </Text>
             )}
         </Stack>
+    );
+};
+
+/**
+ * X3: "lb-bot is still working. The result will show on the Library Matches page."
+ * with the page's name as the link that goes there (closing the dialog it sits in).
+ */
+export const StillWorking = () => {
+    const [lead, tail] = STILL_WORKING.split(MATCHES_PAGE_NAME);
+    return (
+        <Text size="sm">
+            {lead}
+            <Link onClick={() => closeAllModals()} to={AppRoute.LIBRARY_MATCHES}>
+                {MATCHES_PAGE_NAME}
+            </Link>
+            {tail}
+        </Text>
     );
 };
