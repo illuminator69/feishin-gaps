@@ -1,11 +1,11 @@
+import type { QueueSong } from '/@/shared/types/domain-types';
+import type { PlayerRepeat, PlayerShuffle } from '/@/shared/types/types';
+
 import merge from 'lodash/merge';
 import { devtools, persist } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import { shallow } from 'zustand/shallow';
 import { createWithEqualityFn } from 'zustand/traditional';
-
-import { QueueSong } from '/@/shared/types/domain-types';
-import { PlayerRepeat, PlayerShuffle } from '/@/shared/types/types';
 
 // navi-connect: Symfonium-style "saved queues" + Continue Listening. A rolling, per-client history
 // of automatically-captured queue snapshots. Mirrors Navic's SavedQueueRepository model (see
@@ -77,7 +77,7 @@ interface SavedQueuesState {
 export const useSavedQueuesStore = createWithEqualityFn<SavedQueuesSlice>()(
     persist(
         devtools(
-            immer((set) => ({
+            immer((set, get) => ({
                 actions: {
                     clearAll: () => {
                         set((state) => {
@@ -91,9 +91,16 @@ export const useSavedQueuesStore = createWithEqualityFn<SavedQueuesSlice>()(
                     // whose top-up lands just before each track boundary. Not a new write:
                     // `updatedAt` stays, so the history's order is the hub's.
                     followCursor: (id, cursor) => {
+                        // Called on every ~1 Hz hub `progress` frame, so "nothing moved" must
+                        // be decided BEFORE `set`: persist and devtools both act on every
+                        // `set` call, changed or not - one stringifies the whole history into
+                        // localStorage, the other ships it to the Redux DevTools extension
+                        // (~300 KB a second; its worker held 3.8 GB after 4.5 h of `pnpm dev`).
+                        const current = get().queues.find((q) => q.id === id);
+                        if (!current || current.currentIndex === cursor.currentIndex) return;
                         set((state) => {
                             const entry = state.queues.find((q) => q.id === id);
-                            if (!entry || entry.currentIndex === cursor.currentIndex) return;
+                            if (!entry) return;
                             entry.currentIndex = cursor.currentIndex;
                             entry.currentSongId = cursor.currentSongId;
                             entry.currentSongName = cursor.currentSongName;
