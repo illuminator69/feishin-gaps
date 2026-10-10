@@ -103,8 +103,14 @@
     flex-shrink: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 1.45;
+    line-height: 1.3;
     white-space: nowrap;
+}
+
+/* The two text lines read as one caption: the tile's gap is for the cover and
+   the caption, not for the lines of the caption. */
+.name + .name {
+    margin-top: calc(var(--theme-spacing-xs) * -1);
 }
 
 /* A tile whose tap started a request — the unmarked Deezer rows look one MBID

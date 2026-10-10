@@ -71,21 +71,22 @@
     min-width: 2px;
 }
 
+/* Genres are a ranking read down the page, as the app's own lists are: the
+   rank, the genre over its bar, the plays. Capped in width, so a bar is never
+   a page wide. (It was one sideways-scrolling row of boxes for a day; the user
+   asked for the ranking back.) */
 .genres {
     display: flex;
-    gap: var(--theme-spacing-md);
-    padding-bottom: var(--theme-spacing-xs);
-    overflow-x: auto;
+    flex-direction: column;
+    max-width: 36rem;
 }
 
 .genre {
-    display: flex;
-    flex: 0 0 150px;
-    flex-direction: column;
-    gap: var(--theme-spacing-xs);
-    padding: var(--theme-spacing-sm) var(--theme-spacing-md);
-    border: 1px solid var(--theme-colors-border);
-    border-radius: var(--theme-radius-md);
+    display: grid;
+    grid-template-columns: 1.6rem 1fr auto;
+    gap: var(--theme-spacing-sm);
+    align-items: baseline;
+    padding: 2px 0;
 }
 
 .history {

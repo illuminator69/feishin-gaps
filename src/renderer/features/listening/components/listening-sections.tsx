@@ -378,18 +378,26 @@ export const Genres = ({ summary }: { summary: LbBotListeningSummary }) => {
     return (
         <Section note={genresNote(summary.genrePlays, summary.totals.plays)} title="Genres">
             <div className={styles.genres}>
-                {summary.genres.map((genre) => (
+                {summary.genres.map((genre, index) => (
                     <div className={styles.genre} key={genre.genre}>
-                        <Text className={styles.clip} size="sm">
-                            {genre.genre}
+                        <Text isMuted size="sm">
+                            {index + 1}
                         </Text>
-                        <Text isMuted size="xs">
-                            {playsLabel(genre.plays)}
+                        <Stack gap={2}>
+                            <Text className={styles.clip} size="sm">
+                                {genre.genre}
+                            </Text>
+                            <div
+                                className={styles.bar}
+                                style={{
+                                    height: 4,
+                                    width: `${max ? (genre.plays / max) * 100 : 0}%`,
+                                }}
+                            />
+                        </Stack>
+                        <Text isMuted size="sm">
+                            {genre.plays.toLocaleString()}
                         </Text>
-                        <div
-                            className={styles.bar}
-                            style={{ height: 4, width: `${max ? (genre.plays / max) * 100 : 0}%` }}
-                        />
                     </div>
                 ))}
             </div>
