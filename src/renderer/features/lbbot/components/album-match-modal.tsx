@@ -1,9 +1,11 @@
+import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { generatePath, useNavigate } from 'react-router';
 
 import styles from './album-match-modal.module.css';
 
+import { JobFailures } from '/@/renderer/features/lbbot/components/job-failures';
 import {
     applyAlbumOverride,
     removeAlbumOverride,
@@ -18,25 +20,37 @@ import {
     useLbBotAvailable,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
+    albumCommit,
     AlbumFailure,
     APPLY_SPEC,
+    canTryAgain,
     commitSentence,
-    decideLeave,
+    coverQuery,
     describeAlbumFailure,
     editionRows,
     extractReleaseMbid,
     forceAllowed,
+    isRunning,
+    jobProgress,
+    landingNote,
     nextAfterOverride,
     outcomeSentence,
     PendingConfirm,
     PollPhase,
     PollSpec,
     PollState,
+    previewCounts,
+    releaseUnchanged,
+    releaseUrl,
     REMOVE_SPEC,
+    rowStatusWords,
+    slotLabel,
     STILL_WORKING,
     summarizePreview,
+    tagLineFor,
+    wasFinished,
 } from '/@/renderer/features/lbbot/utils/album-override';
-import { currentRoutePath, leaveTo } from '/@/renderer/features/lbbot/utils/leave-page';
+import { leaveAfterAlbumJob } from '/@/renderer/features/lbbot/utils/leave-album';
 import { AppRoute } from '/@/renderer/router/routes';
 import { Badge } from '/@/shared/components/badge/badge';
 import { Button } from '/@/shared/components/button/button';
@@ -47,7 +61,7 @@ import { Skeleton } from '/@/shared/components/skeleton/skeleton';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextInput } from '/@/shared/components/text-input/text-input';
 import { Text } from '/@/shared/components/text/text';
-import { LbBotAlbumOverrideRow, LbBotPreview, LbBotPreviewSlot } from '/@/shared/types/lbbot-types';
+import { LbBotAlbumOverrideRow, LbBotPreview } from '/@/shared/types/lbbot-types';
 
 /**
  * "Fix album match" (I-022): tell lb-bot which MusicBrainz release an owned album
@@ -65,9 +79,6 @@ interface AlbumMatchModalProps {
     /** The artist page to land on when the album's new id is not known yet. */
     artistId?: string;
 }
-
-const slotText = (slot: LbBotPreviewSlot): string =>
-    `${slot.disc > 0 ? `${slot.disc}-` : ''}${String(slot.track).padStart(2, '0')}  ${slot.title}`;
 
 const releaseLine = (release: LbBotPreview['release']): string =>
     [
@@ -108,6 +119,10 @@ const Failure = ({
 const PreviewTable = ({ preview }: { preview: LbBotPreview }) => {
     const [showAll, setShowAll] = useState(false);
     const summary = summarizePreview(preview);
+    // The disc only when there is more than one: "1-02" on a single-disc album is noise.
+    const multiDisc =
+        preview.release.discCount > 1 ||
+        preview.files.some((file) => file.from.disc > 1 || (file.to?.disc ?? 0) > 1);
     const rows = showAll
         ? preview.files
         : preview.files.filter((file) => file.to === null || file.changed);
@@ -115,8 +130,7 @@ const PreviewTable = ({ preview }: { preview: LbBotPreview }) => {
         <Stack gap="xs">
             <Text size="sm">{releaseLine(preview.release)}</Text>
             <Text isMuted size="sm">
-                {summary.changing} files change · {summary.noSlot} files have no place on this
-                release · {summary.missing} tracks of the release have no file
+                {previewCounts(summary).join(' · ')}
             </Text>
             {summary.noSlot > 0 && (
                 <Text isMuted size="xs">
@@ -134,11 +148,11 @@ const PreviewTable = ({ preview }: { preview: LbBotPreview }) => {
                             key={`${file.from.disc}-${file.from.track}-${file.from.title}-${index}`}
                             style={{ display: 'contents' }}
                         >
-                            <span className={dim}>{slotText(file.from)}</span>
+                            <span className={dim}>{slotLabel(file.from, multiDisc)}</span>
                             <span className={dim}>→</span>
                             <span className={dim}>
                                 {file.to
-                                    ? slotText(file.to)
+                                    ? slotLabel(file.to, multiDisc)
                                     : 'no place on this release — left as is'}
                             </span>
                             <span className={styles.dim}>{file.basis}</span>
@@ -164,7 +178,8 @@ const PreviewTable = ({ preview }: { preview: LbBotPreview }) => {
             )}
             {preview.missing.length > 0 && (
                 <Text isMuted size="xs">
-                    No file for: {preview.missing.map((slot) => slotText(slot).trim()).join('; ')}
+                    No file for:{' '}
+                    {preview.missing.map((slot) => slotLabel(slot, multiDisc)).join('; ')}
                 </Text>
             )}
         </Stack>
@@ -177,6 +192,7 @@ const AlbumMatchModal = ({
     modalId,
 }: AlbumMatchModalProps & { modalId: string }) => {
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const available = useLbBotAvailable();
     const controls = useAlbumOverrideControls();
     const poll = useAlbumJobPoll();
@@ -191,7 +207,8 @@ const AlbumMatchModal = ({
     const needsLookup = !!state && !state.rgid;
     const lookup = useAlbumRgidLookup(state?.artist ?? '', state?.album ?? '', needsLookup);
     const rgid = state?.rgid || lookup.data?.rgid || '';
-    const lookupDeclined = needsLookup && !lookup.isFetching && lookup.data === null;
+    const lookupDeclined =
+        needsLookup && !lookup.isFetching && !lookup.isError && lookup.data === null;
 
     const editions = useLbBotAlbumReleases(rgid || null);
     const rows = useMemo(
@@ -202,6 +219,7 @@ const AlbumMatchModal = ({
     const [picked, setPicked] = useState<null | string>(null);
     const [pasted, setPasted] = useState('');
     const [coverUrl, setCoverUrl] = useState('');
+    const [coverSaved, setCoverSaved] = useState(false);
     const [busy, setBusy] = useState(false);
     const [failure, setFailure] = useState<AlbumFailure | null>(null);
     const [confirm, setConfirm] = useState<null | PendingConfirm>(null);
@@ -213,8 +231,19 @@ const AlbumMatchModal = ({
         preview.data && !preview.data.ok ? describeAlbumFailure(preview.data) : null;
     const summary = previewData ? summarizePreview(previewData) : null;
 
-    const coverRelease = picked ?? state?.releaseMbid ?? '';
-    const covers = useAlbumCovers(rgid, coverRelease, !!state && !job && (!!picked || !!rgid));
+    // X8: a release that is not one of the listed editions (a pasted id) is asked
+    // for by its own id alone; the album's old release group is not its group.
+    const coverAsk = coverQuery({
+        current: state?.releaseMbid ?? '',
+        listed: new Set(rows.map((edition) => edition.releaseMbid)),
+        picked,
+        rgid,
+    });
+    const covers = useAlbumCovers(
+        coverAsk.rgid,
+        coverAsk.releaseMbid,
+        !!state && !job && (!!picked || !!rgid),
+    );
     const coverList = covers.data?.ok ? (covers.data.data ?? []) : null;
     const coverFailure = covers.data && !covers.data.ok ? describeAlbumFailure(covers.data) : null;
     // Changing the release invalidates a cover chosen for the previous one.
@@ -226,33 +255,17 @@ const AlbumMatchModal = ({
     }, [picked]);
 
     // Leaving the dead page happens where the poll ends (it outlives this dialog),
-    // not in an effect here. Read the route at that moment, not at render.
-    const leave = (ended: PollState, kind: 'apply' | 'remove') => {
-        if (ended.phase !== 'settled') return;
-        const decision = decideLeave({
-            artistId: artistId ?? '',
-            deadAlbumId: albumId,
-            kind,
-            newAlbumId: ended.row?.albumId ?? '',
-            pathname: currentRoutePath(),
-        });
-        if (decision.kind === 'album') {
-            leaveTo(generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, { albumId: decision.id }));
-        } else if (decision.kind === 'artist') {
-            leaveTo(
-                generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, { albumArtistId: decision.id }),
-            );
-        } else if (decision.kind === 'albums') {
-            leaveTo(AppRoute.LIBRARY_ALBUMS);
-        }
-    };
+    // not in an effect here. The route is read at that moment, not at render.
+    const leave = (ended: PollState, kind: 'apply' | 'remove') =>
+        leaveAfterAlbumJob({ artistId: artistId ?? '', deadAlbumId: albumId, ended, kind });
 
     // An override that is still being worked on when the dialog opens is followed,
-    // not offered a second apply.
+    // not offered a second apply - unless it already ended at rest and was dismissed
+    // (X3). Seeded from the row's state so a job already failed ends at the first tick.
     const resumed = useRef(false);
     useEffect(() => {
         const row = state?.override;
-        if (!row || resumed.current || job) return;
+        if (!row || resumed.current || job || wasFinished(row)) return;
         const spec = REMOVE_SPEC.active.includes(row.state)
             ? REMOVE_SPEC
             : APPLY_SPEC.active.includes(row.state)
@@ -260,10 +273,12 @@ const AlbumMatchModal = ({
               : null;
         if (!spec) return;
         resumed.current = true;
-        setJob({ kind: spec === REMOVE_SPEC ? 'remove' : 'apply', spec });
-        poll.start(row.id, spec, (ended) =>
-            leave(ended, spec === REMOVE_SPEC ? 'remove' : 'apply'),
-        );
+        const kind = spec === REMOVE_SPEC ? 'remove' : 'apply';
+        setJob({ kind, spec });
+        poll.start(row.id, spec, {
+            onEnd: (ended) => leave(ended, kind),
+            seedState: row.state,
+        });
         // `leave` only closes over props that do not change while the dialog is open.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [job, poll, state?.override]);
@@ -287,14 +302,22 @@ const AlbumMatchModal = ({
             );
         }
     };
-    const begin = (kind: 'apply' | 'remove', id: string) => {
+    // `seedState` is the state of the POST's own 200 (X1).
+    const begin = (kind: 'apply' | 'remove', id: string, seedState: string) => {
         const spec = kind === 'apply' ? APPLY_SPEC : REMOVE_SPEC;
         setJob({ kind, spec });
-        poll.start(id, spec, (ended) => leave(ended, kind));
+        poll.start(id, spec, { onEnd: (ended) => leave(ended, kind), seedState });
     };
 
     // A confirmation only counts for the release it was asked about.
     const pending = forceAllowed(confirm, picked ?? '') ? confirm : null;
+
+    const commit = albumCommit({
+        changing: summary ? summary.changing : null,
+        coverChosen: !!coverUrl,
+        current: state?.releaseMbid ?? '',
+        picked,
+    });
 
     const apply = async (wantForce: boolean) => {
         if (!picked) return;
@@ -323,35 +346,44 @@ const AlbumMatchModal = ({
             return;
         }
         setConfirm(null);
-        begin('apply', result.data.id);
+        begin('apply', result.data.id, result.data.state);
     };
 
-    // The cover alone: the release stays, lb-bot creates or updates the override row.
+    // The cover alone: the release stays and no tag is rewritten. The POST is
+    // synchronous, so its own 200 is the answer - the row is not followed (it would
+    // read as an apply of 0 files, or show an older row's counts).
     const saveCoverOnly = async () => {
         if (!coverUrl) return;
         setBusy(true);
         setFailure(null);
+        setCoverSaved(false);
         const result = await setAlbumCover(albumId, coverUrl);
         setBusy(false);
         if (!result.ok || !result.data) {
             setFailure(describeAlbumFailure(result));
             return;
         }
-        // Synchronous on lb-bot's side: follow the row it made to see the final state.
-        setJob({ kind: 'apply', spec: APPLY_SPEC });
-        poll.start(result.data.id, APPLY_SPEC, (ended) => leave(ended, 'apply'));
+        setCoverSaved(true);
+        setCoverUrl('');
+        // The row it created (or updated) is what Undo needs; the lists follow.
+        void queryClient.invalidateQueries({
+            queryKey: ['lbbot', 'overrides'],
+            refetchType: 'all',
+        });
+        void stateQuery.refetch();
     };
 
     const undo = async (id: string) => {
         setBusy(true);
         setFailure(null);
+        setCoverSaved(false);
         const result = await removeAlbumOverride(id);
         setBusy(false);
         if (!result.ok || !result.data) {
             setFailure(describeAlbumFailure(result));
             return;
         }
-        begin('remove', result.data.id);
+        begin('remove', result.data.id, result.data.state);
     };
 
     const when = (epochSeconds: number): string =>
@@ -369,8 +401,19 @@ const AlbumMatchModal = ({
     }
 
     const inFlight = job && phase === 'polling';
+    const progress = jobProgress(job?.kind ?? 'apply', row);
+    const landing =
+        job?.kind === 'apply' && phase === 'settled' && where.kind === 'artist'
+            ? landingNote('apply', poll.state?.row?.albumId ?? '')
+            : null;
     const showPicker = !job && !!state;
     const currentRow = rows.find((edition) => edition.current);
+    const tagLine = tagLineFor({
+        files: state?.tracks.length ?? 0,
+        job: !!job,
+        listed: currentRow ?? null,
+        releaseMbid: state?.releaseMbid ?? '',
+    });
 
     return (
         <div className={styles.root}>
@@ -403,40 +446,52 @@ const AlbumMatchModal = ({
                             <Text fw={600} size="sm">
                                 {state.artist} — {state.album}
                             </Text>
-                            <Text isMuted size="sm">
-                                {state.releaseMbid
-                                    ? currentRow
-                                        ? `Tagged as ${[
-                                              currentRow.title,
-                                              currentRow.year,
-                                              currentRow.country,
-                                              currentRow.format,
-                                              currentRow.trackCount > 0
-                                                  ? `${currentRow.trackCount} tracks`
-                                                  : '',
-                                          ]
-                                              .filter(Boolean)
-                                              .join(' · ')}.`
-                                        : 'Tagged with a MusicBrainz release id.'
-                                    : 'Not tagged with a MusicBrainz release.'}{' '}
-                                {state.tracks.length > 0 ? `${state.tracks.length} files.` : ''}
-                            </Text>
+                            {tagLine.kind !== 'none' && (
+                                <Text isMuted size="sm">
+                                    {tagLine.kind === 'untagged' &&
+                                        'Not tagged with a MusicBrainz release.'}
+                                    {tagLine.kind === 'edition' && `Tagged as ${tagLine.text}.`}
+                                    {tagLine.kind === 'id' && (
+                                        <>
+                                            {'Tagged with MusicBrainz release '}
+                                            <a
+                                                href={releaseUrl(tagLine.releaseMbid)}
+                                                rel="noreferrer"
+                                                target="_blank"
+                                            >
+                                                {tagLine.releaseMbid}
+                                            </a>
+                                            {'.'}
+                                        </>
+                                    )}
+                                    {tagLine.files > 0 ? ` ${tagLine.files} files.` : ''}
+                                </Text>
+                            )}
                             {state.override && !job && (
-                                <Group gap="sm">
-                                    <Text isMuted size="sm">
-                                        {state.override.state === 'failed'
-                                            ? `A change lb-bot made on ${when(state.override.setAt)} did not finish (${state.override.done} of ${state.override.total} files written).`
-                                            : `Changed by lb-bot on ${when(state.override.setAt)}.`}
-                                    </Text>
-                                    <Button
-                                        disabled={busy}
-                                        onClick={() => void undo(state.override!.id)}
-                                        size="compact-sm"
-                                        variant="default"
-                                    >
-                                        Undo
-                                    </Button>
-                                </Group>
+                                <Stack gap="xs">
+                                    <Group gap="sm">
+                                        <Text isMuted size="sm">
+                                            {state.override.state === 'failed'
+                                                ? `A change lb-bot made on ${when(state.override.setAt)} did not finish (${state.override.done} of ${state.override.total} files written).`
+                                                : releaseUnchanged(state.override)
+                                                  ? `Cover changed by lb-bot on ${when(state.override.setAt)}.`
+                                                  : `Changed by lb-bot on ${when(state.override.setAt)}.`}
+                                            {rowStatusWords('album', state.override) &&
+                                            state.override.state !== 'failed'
+                                                ? ` (${rowStatusWords('album', state.override)})`
+                                                : ''}
+                                        </Text>
+                                        <Button
+                                            disabled={busy || isRunning(state.override.state)}
+                                            onClick={() => void undo(state.override!.id)}
+                                            size="compact-sm"
+                                            variant="default"
+                                        >
+                                            Undo
+                                        </Button>
+                                    </Group>
+                                    <JobFailures failures={state.override.failures} />
+                                </Stack>
                             )}
                         </Stack>
                     </div>
@@ -447,19 +502,8 @@ const AlbumMatchModal = ({
                         <Stack gap="xs">
                             {inFlight && (
                                 <>
-                                    <Text size="sm">
-                                        {job.kind === 'remove'
-                                            ? 'lb-bot is putting the previous tags back…'
-                                            : 'lb-bot is writing the tags…'}
-                                    </Text>
-                                    {row && row.total > 0 && (
-                                        <>
-                                            <Text isMuted size="sm">
-                                                {row.done}/{row.total} files
-                                            </Text>
-                                            <Progress value={(row.done / row.total) * 100} />
-                                        </>
-                                    )}
+                                    <Text size="sm">{progress.text}</Text>
+                                    {progress.bar && <Progress value={progress.percent} />}
                                 </>
                             )}
                             {phase === 'settled' && (
@@ -476,42 +520,37 @@ const AlbumMatchModal = ({
                                 </Text>
                             )}
                             {phase === 'timeout' && <Text size="sm">{STILL_WORKING}</Text>}
-                            {row && row.failures.length > 0 && job.kind === 'apply' && (
-                                <Stack gap={2}>
-                                    <Text size="sm">
-                                        {row.failures.length} files could not be written:
-                                    </Text>
-                                    {row.failures.slice(0, 10).map((item) => (
-                                        <Text isMuted key={item.title} size="xs">
-                                            {item.title}
-                                            {item.reason ? ` — ${item.reason}` : ''}
-                                        </Text>
-                                    ))}
-                                    {row.failures.length > 10 && (
-                                        <Text isMuted size="xs">
-                                            and {row.failures.length - 10} more
-                                        </Text>
-                                    )}
-                                </Stack>
-                            )}
+                            {/* Whenever the row failed or carries any problem, for both
+                            kinds: lb-bot's reasons say what a second Undo will do. */}
+                            {row && <JobFailures failures={row.failures} />}
                             {phase === 'failed' && job.kind === 'apply' && (
                                 <Text isMuted size="xs">
                                     Undo restores the tags that were written.
                                 </Text>
                             )}
+                            {landing && (
+                                <Text isMuted size="xs">
+                                    {landing}
+                                </Text>
+                            )}
                             {phase !== null && phase !== 'polling' && (
                                 <Group gap="sm">
-                                    {where.kind !== 'none' && phase === 'settled' && (
-                                        <Button onClick={open} size="compact-sm" variant="filled">
-                                            {where.kind === 'album'
-                                                ? 'Open the album'
-                                                : 'Open the artist'}
-                                        </Button>
-                                    )}
-                                    {job.kind === 'apply' &&
-                                        row &&
-                                        phase !== 'gone' &&
-                                        phase !== 'timeout' && (
+                                    {where.kind !== 'none' &&
+                                        phase === 'settled' &&
+                                        job.kind === 'apply' && (
+                                            <Button
+                                                onClick={open}
+                                                size="compact-sm"
+                                                variant="filled"
+                                            >
+                                                {where.kind === 'album'
+                                                    ? 'Open the album'
+                                                    : 'Open the artist'}
+                                            </Button>
+                                        )}
+                                    {row &&
+                                        ((phase === 'settled' && job.kind === 'apply') ||
+                                            phase === 'failed') && (
                                             <Button
                                                 disabled={busy}
                                                 onClick={() => {
@@ -547,6 +586,15 @@ const AlbumMatchModal = ({
                                 <Text isMuted size="sm">
                                     Looking up this album on MusicBrainz…
                                 </Text>
+                            )}
+                            {needsLookup && lookup.isError && (
+                                <Failure
+                                    failure={{
+                                        message:
+                                            'The release-group lookup failed, so the editions could not be listed.',
+                                    }}
+                                    onRetry={() => void lookup.refetch()}
+                                />
                             )}
                             {lookupDeclined && (
                                 <Text isMuted size="sm">
@@ -658,7 +706,7 @@ const AlbumMatchModal = ({
                                 <Failure
                                     failure={previewFailure}
                                     onRetry={
-                                        previewFailure.kind === 'retry'
+                                        canTryAgain(previewFailure)
                                             ? () => void preview.refetch()
                                             : undefined
                                     }
@@ -734,12 +782,22 @@ const AlbumMatchModal = ({
 
             {showPicker && (
                 <Stack className={styles.footer} gap="xs">
-                    {summary && picked && !pending && summary.changing > 0 && (
+                    {coverSaved && (
+                        <Text size="sm">
+                            The cover was saved. You can undo it at the top of this dialog.
+                        </Text>
+                    )}
+                    {summary && picked && !pending && commit === 'apply' && (
                         <Text size="sm">{commitSentence(summary.changing)}</Text>
                     )}
-                    {summary && picked && summary.changing === 0 && (
+                    {summary && picked && summary.changing === 0 && commit === 'nothing' && (
                         <Text isMuted size="sm">
                             No file would change.
+                        </Text>
+                    )}
+                    {commit === 'cover-only' && (
+                        <Text isMuted size="sm">
+                            No file would change. Only the cover is saved; the release stays.
                         </Text>
                     )}
                     {pending && (
@@ -767,9 +825,9 @@ const AlbumMatchModal = ({
                                 Apply anyway
                             </Button>
                         )}
-                        {picked && !pending && (
+                        {picked && !pending && commit !== 'cover-only' && (
                             <Button
-                                disabled={busy || !summary || summary.changing === 0}
+                                disabled={busy || commit !== 'apply'}
                                 loading={busy}
                                 onClick={() => void apply(false)}
                                 variant="filled"
@@ -777,7 +835,7 @@ const AlbumMatchModal = ({
                                 Apply
                             </Button>
                         )}
-                        {!picked && coverUrl && (
+                        {commit === 'cover-only' && (
                             <Button
                                 disabled={busy}
                                 loading={busy}

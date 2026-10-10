@@ -181,7 +181,7 @@ export const toMergeRow = (row: unknown): LbBotMergeRow | null => {
                   return title ? [{ album: str(item.album), reason: str(item.reason), title }] : [];
               })
             : [],
-        from: { name: str(isObject(row.from) ? row.from.name : '') },
+        from: toMergeArtist(row.from),
         id,
         into: toMergeArtist(row.into),
         mbid: str(row.mbid),
@@ -209,7 +209,14 @@ export const toSiblingGroups = (value: unknown): LbBotSiblingGroup[] | null =>
                   if (!isObject(artist)) return [];
                   const ndArtistId = str(artist.ndArtistId);
                   return ndArtistId
-                      ? [{ albums: num(artist.albums), name: str(artist.name), ndArtistId }]
+                      ? [
+                            {
+                                albums: num(artist.albums),
+                                collab: artist.collab === true,
+                                name: str(artist.name),
+                                ndArtistId,
+                            },
+                        ]
                       : [];
               });
               return artists.length >= 2 ? [{ artists, mbid: str(group.mbid) }] : [];
@@ -231,3 +238,16 @@ export const toMergePreview = (body: unknown): LbBotMergePreview => {
             : [],
     };
 };
+
+// The kept artist is `nd_id`, the rewritten spelling `from_nd_id`. Both request
+// shapes are built here, from the one object `planMerge` returns, so a swap shows
+// in a harness (`album-wire.harness.ts`) instead of hiding as two positional strings.
+export const mergeStartBody = (plan: {
+    fromNdId: string;
+    ndId: string;
+}): { from_nd_id: string; nd_id: string } => ({ from_nd_id: plan.fromNdId, nd_id: plan.ndId });
+
+export const mergePreviewParams = (plan: {
+    fromNdId: string;
+    ndId: string;
+}): { from_nd_id: string; nd_id: string } => ({ from_nd_id: plan.fromNdId, nd_id: plan.ndId });

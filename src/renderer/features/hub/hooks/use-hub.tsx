@@ -1350,6 +1350,11 @@ export const useHub = () => {
                     ndAlbumIds: Array.isArray(msg.ndAlbumIds) ? msg.ndAlbumIds : undefined,
                     ndArtistId: typeof msg.ndArtistId === 'string' ? msg.ndArtistId : undefined,
                 });
+                // A finished album override or merge announces itself here too (the
+                // hub flushes its copy of /lb/overrides on this frame): the album and
+                // merge lists and the sibling groups are re-read, trailing and
+                // throttled like the `index` frame's.
+                refreshLbBotOverrides(1500);
             } else if (msg.t === 'fill') {
                 // A fill moved: lb-bot pushed its state or progress through the
                 // hub. Nothing in the library changed, so nothing is refetched —

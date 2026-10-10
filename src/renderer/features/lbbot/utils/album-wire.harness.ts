@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    mergePreviewParams,
+    mergeStartBody,
     toAlbumRows,
     toAlbumState,
     toCovers,
@@ -253,4 +255,45 @@ test('toMergePreview reads the counts and both names', () => {
     assert.equal(p.files, 31);
     assert.equal(p.into.name, 'I');
     assert.deepEqual(p.sample, [{ album: 'X', tracks: 10 }]);
+});
+
+// --- final fix wave ---------------------------------------------------------------
+
+test('X5: collab is read off each sibling entry; absent is false', () => {
+    const groups = toSiblingGroups([
+        {
+            artists: [
+                { albums: 7, name: 'Prince', ndArtistId: 'a' },
+                { albums: 2, collab: true, name: 'Prince & The Revolution', ndArtistId: 'b' },
+                { albums: 1, collab: 'yes', name: 'Prince and Co', ndArtistId: 'c' },
+            ],
+            mbid: 'mb',
+        },
+    ]);
+    assert.deepEqual(
+        groups?.[0].artists.map((a) => [a.ndArtistId, a.collab]),
+        [
+            ['a', false],
+            ['b', true],
+            // only a real boolean true counts
+            ['c', false],
+        ],
+    );
+});
+
+test('item 14: the merge row names the rewritten spelling by id as well when lb-bot sends it', () => {
+    const merged = toMergeRow({
+        from: { name: 'F', ndArtistId: 'nd-f' },
+        id: 'm1',
+        into: { name: 'I', ndArtistId: 'nd-i' },
+        state: 'merged',
+    });
+    assert.equal(merged?.from.ndArtistId, 'nd-f');
+    assert.equal(toMergeRow({ from: { name: 'F' }, id: 'm2' })?.from.ndArtistId, '');
+});
+
+test('Minor 13: the kept artist is nd_id, the rewritten one from_nd_id, in both bodies', () => {
+    const plan = { fromNdId: 'rewritten', ndId: 'kept' };
+    assert.deepEqual(mergeStartBody(plan), { from_nd_id: 'rewritten', nd_id: 'kept' });
+    assert.deepEqual(mergePreviewParams(plan), { from_nd_id: 'rewritten', nd_id: 'kept' });
 });

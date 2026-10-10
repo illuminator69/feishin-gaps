@@ -93,13 +93,11 @@ import {
     sameArtist,
 } from '/@/renderer/features/lbbot/utils/album-match';
 import {
-    POLL_INTERVAL_MS,
     PollAnswer,
     PollRow,
     PollSpec,
-    pollStart,
     PollState,
-    pollStep,
+    runJob,
 } from '/@/renderer/features/lbbot/utils/album-override';
 import {
     describeOverrideFailure,
@@ -278,6 +276,12 @@ export const adoptLbBotWelcome = (lb: unknown): void => {
             : null;
     useHubStore.getState().actions.setStore({ lbStatus });
     void queryClient.invalidateQueries({ queryKey: ['lbbot', 'status'] });
+    // "This lb-bot is older" was learned from the lb-bot of the last connection; an
+    // upgraded one must be asked again. The album and merge flags have no successful
+    // read to clear them (unlike the override list's), so a welcome does.
+    for (const key of [ALBUM_OVERRIDE_OLDER_KEY, MERGE_OLDER_KEY]) {
+        if (queryClient.getQueryData(key)) queryClient.setQueryData(key, false);
+    }
 };
 
 /**
@@ -982,7 +986,7 @@ export const useAlbumOverrideState = (albumId: string, enabled = true) =>
  * A release group for an album lb-bot could not name (`rgid: ""`): one fielded
  * lookup, the answer validated against what was asked ({@link pickAlbumCandidate} -
  * never the first hit). `null` is "declined", a correct outcome; undefined while
- * unread. A lookup that fails reads as declined, like the browse resolver.
+ * unread; a failed lookup is an ERROR (`isError`), never an answer.
  */
 export const useAlbumRgidLookup = (artist: string, title: string, enabled: boolean) =>
     useQuery<LbBotAlbumCandidate | null>({
@@ -991,8 +995,11 @@ export const useAlbumRgidLookup = (artist: string, title: string, enabled: boole
         queryFn: async () => {
             const query = fieldedAlbumQuery(artist, title);
             if (!query) return null;
-            const candidates = await lbBot!.albumLookup(query).catch(() => []);
-            return pickAlbumCandidate(candidates, { artist, title });
+            const result = await lbBot!.albumLookupChecked(query);
+            // A failed lookup THROWS: an error is not kept as an answer, and the
+            // modal says the lookup failed (not that lb-bot does not know the album).
+            if (!result.ok || !result.data) throw new LbBotReadError(result);
+            return pickAlbumCandidate(result.data, { artist, title });
         },
         queryKey: ['lbbot', 'album-rgid-lookup', artist, title],
         refetchOnWindowFocus: false,
@@ -1062,28 +1069,37 @@ const useJobPoll = <TRow extends PollRow>(read: (id: string) => Promise<PollAnsw
         };
     }, []);
 
+    /**
+     * `seedState` is the state lb-bot already gave the row - the POST's own 200, or
+     * the row of a job being picked up - so a remove/undo that failed before the
+     * first tick is seen (X1). `onEnd` runs mounted or not.
+     */
     const start = useCallback(
-        (id: string, spec: PollSpec, onEnd?: (ended: PollState<TRow>) => void) => {
+        (
+            id: string,
+            spec: PollSpec,
+            options: { onEnd?: (ended: PollState<TRow>) => void; seedState?: string } = {},
+        ) => {
             const mine = ++token.current;
-            let current: PollState<TRow> = pollStart<TRow>(spec, Date.now());
-            setState(current);
-            const tick = async () => {
-                const answer = await read(id);
-                if (mine !== token.current) return;
-                current = pollStep(current, answer, Date.now());
-                if (mounted.current) setState(current);
-                if (current.phase === 'polling') {
-                    window.setTimeout(() => void tick(), POLL_INTERVAL_MS);
-                } else {
+            void runJob<TRow>({
+                id,
+                isCurrent: () => mine === token.current,
+                now: () => Date.now(),
+                onEnd: (ended) => {
                     void queryClient.invalidateQueries({
                         queryKey: OVERRIDES_KEY,
                         refetchType: 'all',
                     });
-                    // Runs mounted or not: the dialog may be gone by now.
-                    onEnd?.(current);
-                }
-            };
-            window.setTimeout(() => void tick(), POLL_INTERVAL_MS);
+                    options.onEnd?.(ended);
+                },
+                onState: (next) => {
+                    if (mine === token.current && mounted.current) setState(next);
+                },
+                read,
+                seedState: options.seedState,
+                spec,
+                wait: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
+            });
         },
         [read],
     );
@@ -1155,22 +1171,27 @@ const noteMergeResult = <T>(result: LbBotResult<T>): LbBotResult<T> => {
 export const useLbBotSiblings = (): LbBotSiblingGroup[] | null | undefined =>
     useLbBotOverrideList().data?.siblings;
 
-/** "N files in M albums" for keeping `ndId`'s name. Writes nothing. */
-export const useMergePreview = (ndId: string, fromNdId: string, enabled: boolean) =>
+export interface MergePlan {
+    /** The spelling that is rewritten (`from_nd_id`). */
+    fromNdId: string;
+    /** The artist whose name is kept (`nd_id`). */
+    ndId: string;
+}
+
+/** "N files in M albums" for keeping `plan.ndId`'s name. Writes nothing. */
+export const useMergePreview = (plan: MergePlan | null, enabled: boolean) =>
     useQuery<LbBotResult<LbBotMergePreview>>({
-        enabled: !!lbBot && enabled && !!ndId && !!fromNdId,
+        enabled: !!lbBot && enabled && !!plan,
         gcTime: 60 * 1000,
-        queryFn: async () => noteMergeResult(await lbBot!.mergePreview(ndId, fromNdId)),
-        queryKey: ['lbbot', 'merge-preview', ndId, fromNdId],
+        queryFn: async () => noteMergeResult(await lbBot!.mergePreview(plan as MergePlan)),
+        queryKey: ['lbbot', 'merge-preview', plan?.ndId ?? '', plan?.fromNdId ?? ''],
         refetchOnWindowFocus: false,
         retry: false,
         staleTime: 0,
     });
 
-export const startArtistMerge = async (
-    ndId: string,
-    fromNdId: string,
-): Promise<LbBotResult<LbBotMergeJob>> => noteMergeResult(await lbBot!.mergeStart(ndId, fromNdId));
+export const startArtistMerge = async (plan: MergePlan): Promise<LbBotResult<LbBotMergeJob>> =>
+    noteMergeResult(await lbBot!.mergeStart(plan));
 
 export const undoArtistMerge = async (id: string): Promise<LbBotResult<LbBotMergeJob>> =>
     noteMergeResult(await lbBot!.mergeUndo(id));

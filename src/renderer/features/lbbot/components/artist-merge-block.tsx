@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { generatePath } from 'react-router';
 
+import { JobFailures } from '/@/renderer/features/lbbot/components/job-failures';
 import {
     startArtistMerge,
     undoArtistMerge,
@@ -10,12 +11,17 @@ import {
     useMergeJobPoll,
     useMergePreview,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
-import { STILL_WORKING } from '/@/renderer/features/lbbot/utils/album-override';
+import {
+    canTryAgain,
+    jobProgress,
+    STILL_WORKING,
+} from '/@/renderer/features/lbbot/utils/album-override';
 import {
     decideMergeLeave,
     defaultKeep,
     describeMergeFailure,
     MERGE_SPEC,
+    mergeableOthers,
     mergeBlockView,
     mergeOutcomeSentence,
     planMerge,
@@ -47,7 +53,8 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
     const group = siblingGroupFor(useLbBotSiblings(), ndId);
     const poll = useMergeJobPoll();
 
-    const others = group?.artists.filter((a) => a.ndArtistId !== ndId) ?? [];
+    // X5: collaboration credits are not spellings - never offered, never merged.
+    const others = mergeableOthers(group, ndId);
     const [otherPick, setOtherPick] = useState('');
     const [keepPick, setKeepPick] = useState('');
     const [busy, setBusy] = useState(false);
@@ -63,7 +70,7 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
     const keepId = pair.some((a) => a.ndArtistId === keepPick) ? keepPick : defaultKeep(pair);
     const plan = planMerge(ndId, otherId, keepId);
 
-    const preview = useMergePreview(plan?.ndId ?? '', plan?.fromNdId ?? '', !!plan && !started);
+    const preview = useMergePreview(plan, !!plan && !started);
     const previewFailure =
         preview.data && !preview.data.ok ? describeMergeFailure(preview.data) : null;
     const counts = preview.data?.ok ? preview.data.data : null;
@@ -79,12 +86,14 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
 
     const phase = poll.state?.phase ?? null;
     const row: LbBotMergeRow | null = poll.state?.row ?? null;
+    const isUndo = poll.state?.spec === UNDO_SPEC;
+    const progress = jobProgress(isUndo ? 'undo' : 'merge', row);
 
     const merge = async () => {
         if (!plan) return;
         setBusy(true);
         setError('');
-        const result = await startArtistMerge(plan.ndId, plan.fromNdId);
+        const result = await startArtistMerge(plan);
         setBusy(false);
         if (!result.ok || !result.data) {
             setError(describeMergeFailure(result).message);
@@ -95,20 +104,23 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
         const from = plan.fromNdId;
         // The rewritten spelling's id is dead once the merge lands; if that is the
         // page being shown, move to the kept artist when the poll ends (dialog open or not).
-        poll.start(result.data.id, MERGE_SPEC, (ended) => {
-            if (ended.phase !== 'settled') return;
-            const decision = decideMergeLeave({
-                fromNdId: from,
-                intoNdId: into,
-                pathname: currentRoutePath(),
-            });
-            if (decision.kind === 'artist') {
-                leaveTo(
-                    generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, {
-                        albumArtistId: decision.id,
-                    }),
-                );
-            }
+        poll.start(result.data.id, MERGE_SPEC, {
+            onEnd: (ended) => {
+                if (ended.phase !== 'settled') return;
+                const decision = decideMergeLeave({
+                    fromNdId: from,
+                    intoNdId: into,
+                    pathname: currentRoutePath(),
+                });
+                if (decision.kind === 'artist') {
+                    leaveTo(
+                        generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, {
+                            albumArtistId: decision.id,
+                        }),
+                    );
+                }
+            },
+            seedState: result.data.state,
         });
     };
 
@@ -122,7 +134,7 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
             setError(describeMergeFailure(result).message);
             return;
         }
-        poll.start(result.data.id, UNDO_SPEC);
+        poll.start(result.data.id, UNDO_SPEC, { seedState: result.data.state });
     };
 
     return (
@@ -178,7 +190,7 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
                             <Text c="red" size="sm">
                                 {previewFailure.message}
                             </Text>
-                            {previewFailure.kind === 'retry' && (
+                            {canTryAgain(previewFailure) && (
                                 <Button
                                     onClick={() => void preview.refetch()}
                                     size="compact-sm"
@@ -217,23 +229,13 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
                     )}
                     {phase === 'polling' && (
                         <>
-                            <Text size="sm">lb-bot is retagging the files…</Text>
-                            {row && row.total > 0 && (
-                                <>
-                                    <Text isMuted size="sm">
-                                        {row.done}/{row.total} files
-                                    </Text>
-                                    <Progress value={(row.done / row.total) * 100} />
-                                </>
-                            )}
+                            <Text size="sm">{progress.text}</Text>
+                            {progress.bar && <Progress value={progress.percent} />}
                         </>
                     )}
                     {(phase === 'settled' || phase === 'failed') && (
                         <Text c={phase === 'failed' ? 'red' : undefined} size="sm">
-                            {mergeOutcomeSentence(
-                                poll.state.spec === UNDO_SPEC ? 'undo' : 'merge',
-                                row,
-                            )}
+                            {mergeOutcomeSentence(isUndo ? 'undo' : 'merge', row)}
                         </Text>
                     )}
                     {phase === 'gone' && (
@@ -242,21 +244,15 @@ export const ArtistMergeBlock = ({ ndId }: { ndId: string }) => {
                         </Text>
                     )}
                     {phase === 'timeout' && <Text size="sm">{STILL_WORKING}</Text>}
-                    {row && row.failures.length > 0 && poll.state.spec === MERGE_SPEC && (
-                        <Stack gap={2}>
-                            <Text size="sm">{row.failures.length} files could not be written:</Text>
-                            {row.failures.slice(0, 10).map((item) => (
-                                <Text isMuted key={`${item.album}-${item.title}`} size="xs">
-                                    {`${item.album ? `${item.album} — ` : ''}${item.title}${item.reason ? ` — ${item.reason}` : ''}`}
-                                </Text>
-                            ))}
-                        </Stack>
+                    {/* Whenever the row failed or carries any problem, merge and undo alike. */}
+                    {row && <JobFailures failures={row.failures} />}
+                    {phase === 'failed' && !isUndo && (
+                        <Text isMuted size="xs">
+                            Undo puts back the names that were written.
+                        </Text>
                     )}
-                    {phase === 'settled' && poll.state.spec === MERGE_SPEC && (
+                    {row && ((phase === 'settled' && !isUndo) || phase === 'failed') && (
                         <Group gap="sm">
-                            <Text isMuted size="xs">
-                                Undo is in Settings, under lb-bot data.
-                            </Text>
                             <Button
                                 disabled={busy}
                                 onClick={() => void undo()}

@@ -251,7 +251,11 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                         <Group gap="xs">
                             <Button
                                 onClick={() =>
-                                    openAlbumMatchModal({ albumId: gap.albumId, title: gap.album })
+                                    openAlbumMatchModal({
+                                        albumId: gap.albumId,
+                                        artistId: gap.artistId || undefined,
+                                        title: gap.album,
+                                    })
                                 }
                                 size="compact-xs"
                                 variant="subtle"

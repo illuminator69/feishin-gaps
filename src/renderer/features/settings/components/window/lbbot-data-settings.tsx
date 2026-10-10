@@ -2,6 +2,7 @@ import isElectron from 'is-electron';
 import { memo, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { generatePath, Link } from 'react-router';
 
+import { JobFailures } from '/@/renderer/features/lbbot/components/job-failures';
 import { openMbidMatchModal } from '/@/renderer/features/lbbot/components/mbid-match-modal';
 import {
     removeAlbumOverride,
@@ -28,8 +29,16 @@ import {
     subscribeMirrorSyncState,
     useMirrorShown,
 } from '/@/renderer/features/lbbot/index-mirror/index-mirror';
-import { REMOVE_SPEC } from '/@/renderer/features/lbbot/utils/album-override';
-import { UNDO_SPEC } from '/@/renderer/features/lbbot/utils/artist-merge';
+import {
+    isRunning,
+    jobProgress,
+    outcomeSentence,
+    releaseUnchanged,
+    releaseUrl,
+    REMOVE_SPEC,
+    rowStatusWords,
+} from '/@/renderer/features/lbbot/utils/album-override';
+import { mergeOutcomeSentence, UNDO_SPEC } from '/@/renderer/features/lbbot/utils/artist-merge';
 import {
     describeListeningStatus,
     describeToCheck,
@@ -38,6 +47,7 @@ import {
     syncReport,
     SyncSnapshot,
 } from '/@/renderer/features/lbbot/utils/lbbot-data';
+import { leaveAfterAlbumJob } from '/@/renderer/features/lbbot/utils/leave-album';
 import { rangeText } from '/@/renderer/features/listening/listening-logic';
 import { SettingsSection } from '/@/renderer/features/settings/components/settings-section';
 import { AppRoute } from '/@/renderer/router/routes';
@@ -113,8 +123,9 @@ const OverrideRow = ({ available, row }: { available: boolean; row: LbBotOverrid
 const setOn = (epochSeconds: number): string =>
     epochSeconds > 0 ? new Date(epochSeconds * 1000).toLocaleDateString() : '';
 
-// I-022: an album whose tags lb-bot rewrote. Undo restores them in the background;
-// the row follows that and leaves the list when lb-bot has finished.
+// I-022: an album whose tags lb-bot rewrote (or whose cover it changed). Undo restores
+// them in the background; the row follows that and leaves the list when lb-bot has
+// finished. A dead album page left underneath is left, like the dialog's Undo does.
 const AlbumOverrideRowView = ({
     available,
     row,
@@ -126,7 +137,8 @@ const AlbumOverrideRowView = ({
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
     const phase = poll.state?.phase ?? null;
-    const progress = poll.state?.row ?? row;
+    const shown = poll.state?.row ?? row;
+    const status = rowStatusWords('album', shown);
     const undo = async () => {
         setBusy(true);
         setError('');
@@ -136,7 +148,16 @@ const AlbumOverrideRowView = ({
             setError(result.error || 'lb-bot did not accept that.');
             return;
         }
-        poll.start(result.data.id, REMOVE_SPEC);
+        poll.start(result.data.id, REMOVE_SPEC, {
+            onEnd: (ended) =>
+                leaveAfterAlbumJob({
+                    artistId: '',
+                    deadAlbumId: row.albumId,
+                    ended,
+                    kind: 'remove',
+                }),
+            seedState: result.data.state,
+        });
     };
     return (
         <Stack gap={2}>
@@ -144,20 +165,26 @@ const AlbumOverrideRowView = ({
                 <Stack gap={0}>
                     <Text size="sm">{`${row.artist || 'Unknown artist'} – ${row.album || 'Unknown album'}`}</Text>
                     <Text isMuted size="xs">
-                        {'Set to '}
-                        <a
-                            href={`https://musicbrainz.org/release/${row.releaseMbid}`}
-                            rel="noreferrer"
-                            target="_blank"
-                        >
-                            {row.releaseMbid}
-                        </a>
+                        {releaseUnchanged(row) || !row.releaseMbid ? (
+                            'Cover changed'
+                        ) : (
+                            <>
+                                {'Set to '}
+                                <a
+                                    href={releaseUrl(row.releaseMbid)}
+                                    rel="noreferrer"
+                                    target="_blank"
+                                >
+                                    {row.releaseMbid}
+                                </a>
+                            </>
+                        )}
                         {setOn(row.setAt) ? ` · ${setOn(row.setAt)}` : ''}
-                        {row.state !== 'applied' ? ` · ${row.state}` : ''}
+                        {status ? ` · ${status}` : ''}
                     </Text>
                 </Stack>
                 <Button
-                    disabled={!available || busy || phase === 'polling'}
+                    disabled={!available || busy || phase === 'polling' || isRunning(shown.state)}
                     loading={busy}
                     onClick={() => void undo()}
                     size="compact-sm"
@@ -168,19 +195,20 @@ const AlbumOverrideRowView = ({
             </Group>
             {phase === 'polling' && (
                 <Text isMuted size="xs">
-                    {`Putting the previous tags back… ${progress.done}/${progress.total} files`}
+                    {jobProgress('remove', shown).text}
                 </Text>
             )}
             {phase === 'failed' && (
                 <Text c="red" size="xs">
-                    lb-bot could not put all the previous tags back.
+                    {outcomeSentence('remove', shown)}
                 </Text>
             )}
             {phase === 'timeout' && (
                 <Text isMuted size="xs">
-                    Still working — check again shortly.
+                    lb-bot is still working. This list shows the result when it finishes.
                 </Text>
             )}
+            <JobFailures failures={shown.failures} />
             {error && (
                 <Text c="red" size="xs">
                     {error}
@@ -196,7 +224,8 @@ const MergeRowView = ({ available, row }: { available: boolean; row: LbBotMergeR
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
     const phase = poll.state?.phase ?? null;
-    const progress = poll.state?.row ?? row;
+    const shown = poll.state?.row ?? row;
+    const status = rowStatusWords('merge', shown);
     const undo = async () => {
         setBusy(true);
         setError('');
@@ -206,7 +235,7 @@ const MergeRowView = ({ available, row }: { available: boolean; row: LbBotMergeR
             setError(result.error || 'lb-bot did not accept that.');
             return;
         }
-        poll.start(result.data.id, UNDO_SPEC);
+        poll.start(result.data.id, UNDO_SPEC, { seedState: result.data.state });
     };
     return (
         <Stack gap={2}>
@@ -216,11 +245,11 @@ const MergeRowView = ({ available, row }: { available: boolean; row: LbBotMergeR
                     <Text isMuted size="xs">
                         {`${row.total} ${row.total === 1 ? 'file' : 'files'}`}
                         {setOn(row.setAt) ? ` · ${setOn(row.setAt)}` : ''}
-                        {row.state !== 'merged' ? ` · ${row.state}` : ''}
+                        {status ? ` · ${status}` : ''}
                     </Text>
                 </Stack>
                 <Button
-                    disabled={!available || busy || phase === 'polling'}
+                    disabled={!available || busy || phase === 'polling' || isRunning(shown.state)}
                     loading={busy}
                     onClick={() => void undo()}
                     size="compact-sm"
@@ -231,19 +260,20 @@ const MergeRowView = ({ available, row }: { available: boolean; row: LbBotMergeR
             </Group>
             {phase === 'polling' && (
                 <Text isMuted size="xs">
-                    {`Putting the previous names back… ${progress.done}/${progress.total} files`}
+                    {jobProgress('undo', shown).text}
                 </Text>
             )}
             {phase === 'failed' && (
                 <Text c="red" size="xs">
-                    lb-bot could not put all the previous names back.
+                    {mergeOutcomeSentence('undo', shown)}
                 </Text>
             )}
             {phase === 'timeout' && (
                 <Text isMuted size="xs">
-                    Still working — check again shortly.
+                    lb-bot is still working. This list shows the result when it finishes.
                 </Text>
             )}
+            <JobFailures failures={shown.failures} />
             {error && (
                 <Text c="red" size="xs">
                     {error}

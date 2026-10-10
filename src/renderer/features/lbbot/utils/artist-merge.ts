@@ -18,6 +18,18 @@ export const siblingGroupFor = (
         ? (siblings?.find((group) => group.artists.some((a) => a.ndArtistId === ndId)) ?? null)
         : null;
 
+/**
+ * The spellings this artist can be merged with (X5): the group's other entries that
+ * are not collaboration credits. Empty when this artist's own entry is a credit
+ * ("A & B" is not a spelling of A) or when only credits remain - then the block is
+ * hidden. `collab` absent reads as false.
+ */
+export const mergeableOthers = (group: LbBotSiblingGroup | null, ndId: string): Sibling[] => {
+    const self = group?.artists.find((a) => a.ndArtistId === ndId);
+    if (!group || !self || self.collab === true) return [];
+    return group.artists.filter((a) => a.ndArtistId !== ndId && a.collab !== true);
+};
+
 /** The name to keep unless the user says otherwise: the spelling with the most albums, first on a tie. */
 export const defaultKeep = (artists: readonly Sibling[]): string => {
     let best: Sibling | undefined;
@@ -101,7 +113,12 @@ export const describeMergeFailure = (result: {
             message: 'This lb-bot is older and cannot merge artist names yet.',
         };
     }
-    if (result.status === 0 || result.status === 502 || result.status === 504) {
+    if (
+        result.status === 0 ||
+        result.status === 502 ||
+        result.status === 503 ||
+        result.status === 504
+    ) {
         return {
             ...base,
             kind: 'retry',
@@ -123,9 +140,6 @@ export const mergeOutcomeSentence = (
     if (!row) return 'lb-bot retagged the files.';
     if (row.state === 'failed') {
         return `lb-bot did not finish retagging (${row.done} of ${plural(row.total, 'file', 'files')} written).`;
-    }
-    if (row.failures.length > 0) {
-        return `lb-bot retagged ${row.done} of ${plural(row.total, 'file', 'files')}; ${row.failures.length} could not be written.`;
     }
     return `lb-bot retagged ${plural(row.done, 'file', 'files')}.`;
 };

@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { pollStart, pollStep } from './album-override.ts';
+import { canTryAgain, pollStart, pollStep } from './album-override.ts';
 import {
     decideMergeLeave,
     defaultKeep,
     describeMergeFailure,
     MERGE_SPEC,
+    mergeableOthers,
     mergeBlockView,
     mergeOutcomeSentence,
     planMerge,
@@ -173,71 +174,116 @@ test('describeMergeFailure: older, lb-bot own text for coded answers, retry for 
     );
 });
 
-test('mergeOutcomeSentence: states only what the row says', () => {
+test('mergeOutcomeSentence: states only what the row says; problems are counted apart (X9)', () => {
     assert.equal(
         mergeOutcomeSentence('merge', row('merged', { done: 5 })),
         'lb-bot retagged 5 files.',
     );
-    assert.match(
+    assert.equal(
         mergeOutcomeSentence(
             'merge',
-            row('merged', { done: 4, failures: [{ album: 'a', reason: 'r', title: 't' }] }),
+            row('merged', {
+                done: 5,
+                failures: [{ album: 'a', reason: 'r', title: 'Cover image' }],
+            }),
         ),
-        /4 of 5 files; 1 could not be written/,
+        'lb-bot retagged 5 files.',
     );
     assert.match(mergeOutcomeSentence('merge', row('failed', { done: 1 })), /did not finish/);
     assert.equal(mergeOutcomeSentence('undo', null), 'lb-bot put the previous names back.');
 });
 
-// --- fix round 1: what the block shows ----------------------------------------
+// =============================================================================
+// Final fix wave
+// =============================================================================
 
-const poll = (kind: 'merge' | 'undo', r: null | ReturnType<typeof row>) => ({ kind, row: r });
-const merged = row('merged', {
-    from: { name: 'Belle and Sebastian' },
-    into: { name: 'Belle & Sebastian', ndArtistId: 'a' },
+const credit = (id: string, albums = 1, collab = true) => ({
+    albums,
+    collab,
+    name: id,
+    ndArtistId: id,
+});
+const plain = (id: string, albums = 1) => ({ albums, collab: false, name: id, ndArtistId: id });
+
+test('X5: a group whose others are all collaboration credits offers no merge', () => {
+    const group = { artists: [plain('a', 9), credit('c1'), credit('c2')], mbid: 'mb' };
+    assert.deepEqual(mergeableOthers(group, 'a'), []);
+    assert.equal(
+        mergeBlockView({
+            controls: true,
+            hasOthers: mergeableOthers(group, 'a').length > 0,
+            poll: null,
+        }).kind,
+        'hidden',
+    );
 });
 
-test('mergeBlockView: no advert / older means hidden, even with a group', () => {
-    assert.deepEqual(mergeBlockView({ controls: false, hasOthers: true, poll: null }), {
-        kind: 'hidden',
-    });
+test('X5: this artist is itself the credit - nothing to merge it into', () => {
+    const group = { artists: [plain('a', 9), credit('c1'), plain('b', 2)], mbid: 'mb' };
+    assert.deepEqual(mergeableOthers(group, 'c1'), []);
 });
 
-test('mergeBlockView: a group with another spelling shows the form', () => {
-    assert.deepEqual(mergeBlockView({ controls: true, hasOthers: true, poll: null }), {
-        kind: 'form',
-    });
-    assert.deepEqual(mergeBlockView({ controls: true, hasOthers: false, poll: null }), {
-        kind: 'hidden',
-    });
-});
-
-test('mergeBlockView: group gone, poll says merged - the result stays, names from the row', () => {
+test('X5: a mixed group of three offers only the non-credit spelling', () => {
+    const group = { artists: [plain('a', 9), credit('c1'), plain('b', 2)], mbid: 'mb' };
     assert.deepEqual(
-        mergeBlockView({ controls: true, hasOthers: false, poll: poll('merge', merged) }),
+        mergeableOthers(group, 'a').map((x) => x.ndArtistId),
+        ['b'],
+    );
+    assert.deepEqual(
+        mergeableOthers(group, 'b').map((x) => x.ndArtistId),
+        ['a'],
+    );
+});
+
+test('X5: the field absent reads as not a credit', () => {
+    const group = {
+        artists: [
+            { albums: 5, name: 'a', ndArtistId: 'a' },
+            { albums: 2, name: 'b', ndArtistId: 'b' },
+        ],
+        mbid: 'mb',
+    };
+    assert.deepEqual(
+        mergeableOthers(group as never, 'a').map((x) => x.ndArtistId),
+        ['b'],
+    );
+});
+
+test('X5: no group, or an artist that is not in it, has nothing', () => {
+    assert.deepEqual(mergeableOthers(null, 'a'), []);
+    assert.deepEqual(mergeableOthers({ artists: [plain('a'), plain('b')], mbid: 'm' }, 'zzz'), []);
+});
+
+test('X1: an undo whose row is already failed at the first tick ends failed when seeded', () => {
+    const s = pollStep(
+        pollStart(UNDO_SPEC, 0, 'undoing'),
         {
-            from: 'Belle and Sebastian',
-            into: 'Belle & Sebastian',
-            kind: 'job',
+            ok: true,
+            row: row('failed', { failures: [{ album: 'A', reason: 'moved', title: 'T' }] }),
         },
+        2000,
     );
+    assert.equal(s.phase, 'failed');
 });
 
-test('mergeBlockView: group gone, poll says failed with failures - still shown', () => {
-    const failed = row('failed', { failures: [{ album: 'A', reason: 'ro', title: 'T' }] });
-    assert.equal(
-        mergeBlockView({ controls: true, hasOthers: false, poll: poll('merge', failed) }).kind,
-        'job',
-    );
+test('item 14: collaboration and files_unreachable come through as lb-bot text; both can be tried again', () => {
+    const collab = describeMergeFailure({
+        code: 'collaboration',
+        error: 'These two are a credit and its act.',
+        status: 409,
+    });
+    assert.equal(collab.kind, 'answer');
+    assert.equal(collab.message, 'These two are a credit and its act.');
+    const unreachable = describeMergeFailure({
+        code: 'files_unreachable',
+        error: 'lb-bot cannot read 3 of the 12 files.',
+        status: 409,
+    });
+    assert.equal(unreachable.message, 'lb-bot cannot read 3 of the 12 files.');
+    assert.equal(canTryAgain(unreachable), true);
+    assert.equal(canTryAgain(describeMergeFailure({ error: 'x', status: 405 })), false);
 });
 
-test('mergeBlockView: a poll that has no row yet is still the job (progress), and survives the advert flapping', () => {
-    assert.equal(
-        mergeBlockView({ controls: true, hasOthers: false, poll: poll('merge', null) }).kind,
-        'job',
-    );
-    assert.equal(
-        mergeBlockView({ controls: false, hasOthers: false, poll: poll('undo', merged) }).kind,
-        'job',
-    );
+test('Minor 2: a hub 503 on a merge route is retryable', () => {
+    assert.equal(describeMergeFailure({ error: 'busy', status: 503 }).kind, 'retry');
 });

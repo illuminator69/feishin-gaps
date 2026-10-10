@@ -1,6 +1,7 @@
 import type {
     LbBotAlbumOverrideRow,
     LbBotPreview,
+    LbBotPreviewSlot,
     LbBotVariant,
 } from '/@/shared/types/lbbot-types';
 
@@ -82,7 +83,10 @@ export const poorMatchSentence = (matched: number, total: number): string =>
 
 export const POLL_INTERVAL_MS = 2000;
 export const GIVE_UP_MS = 180_000;
-export const STILL_WORKING = 'Still working — check the lb-bot data panel.';
+/** X3: a job that stopped advancing for three minutes is not failed - lb-bot may
+ *  still be working - and the result is where the data panel lists it. */
+export const STILL_WORKING =
+    'lb-bot is still working. The result will show under “lb-bot data” in Settings.';
 
 /**
  * What a poll of `GET /lb/album/override?id=` (or, in F2, `GET /lb/artist/merge?id=`)
@@ -135,28 +139,49 @@ export type PollPhase = 'failed' | 'gone' | 'polling' | 'settled' | 'timeout';
 export interface PollRow {
     done: number;
     failures: unknown[];
+    id: string;
+    setAt: number;
     state: string;
     total: number;
 }
 
 export interface PollState<TRow extends PollRow = LbBotAlbumOverrideRow> {
     phase: PollPhase;
+    /** The silence clock (X2): when the row last moved (`state` or `done`), else when the job began. */
+    quietSince: number;
     /** The last row lb-bot answered, kept across failed polls so progress does not blink. */
     row: null | TRow;
+    /** The active state has been seen - from the POST's own answer, a resumed row, or a poll. */
     sawActive: boolean;
     spec: PollSpec;
-    startedAt: number;
 }
 
+/**
+ * `seedState` is the state lb-bot already put on the row when the job began: the
+ * `state` of the POST's own 200 (lb-bot flips a remove/undo to `removing` /
+ * `undoing` before it answers, and can reach `failed` before the first tick), or
+ * the row's state when a running job is picked up (X1).
+ */
 export const pollStart = <TRow extends PollRow = LbBotAlbumOverrideRow>(
     spec: PollSpec,
     now: number,
-): PollState<TRow> => ({ phase: 'polling', row: null, sawActive: false, spec, startedAt: now });
+    seedState?: string,
+): PollState<TRow> => ({
+    phase: 'polling',
+    quietSince: now,
+    row: null,
+    sawActive: !!seedState && spec.active.includes(seedState),
+    spec,
+});
 
 /**
  * One tick. An answer is judged before the clock, so a reply that lands at the
  * deadline still counts. A failed poll (no hub, a 5xx, a timeout, a code-less
- * 404) is NOT an answer and changes nothing but the clock.
+ * 404) is NOT an answer and changes nothing but the clock. The clock measures
+ * silence (X2): it restarts whenever the row's `state` or `done` differs from the
+ * previous answer, so a job that advances never times out and one that stops
+ * gives up three minutes after it stopped. Timed out is final (X3): lb-bot may
+ * still finish, and the data panel is where that shows.
  */
 export const pollStep = <TRow extends PollRow>(
     prev: PollState<TRow>,
@@ -180,8 +205,15 @@ export const pollStep = <TRow extends PollRow>(
     const sawActive = answer.ok
         ? prev.sawActive || spec.active.includes(answer.row.state)
         : prev.sawActive;
-    if (now - prev.startedAt >= GIVE_UP_MS) return { ...prev, phase: 'timeout', row, sawActive };
-    return { ...prev, row, sawActive };
+    const moved =
+        answer.ok &&
+        prev.row !== null &&
+        (answer.row.state !== prev.row.state || answer.row.done !== prev.row.done);
+    const quietSince = moved ? now : prev.quietSince;
+    if (now - quietSince >= GIVE_UP_MS) {
+        return { ...prev, phase: 'timeout', quietSince, row, sawActive };
+    }
+    return { ...prev, quietSince, row, sawActive };
 };
 
 // ---------------------------------------------------------------------------
@@ -236,7 +268,12 @@ export const describeAlbumFailure = (result: {
             total: result.total,
         };
     }
-    if (result.status === 0 || result.status === 502 || result.status === 504) {
+    if (
+        result.status === 0 ||
+        result.status === 502 ||
+        result.status === 503 ||
+        result.status === 504
+    ) {
         return {
             ...base,
             kind: 'retry',
@@ -246,7 +283,16 @@ export const describeAlbumFailure = (result: {
     return { ...base, kind: 'answer', message: text || 'lb-bot did not accept that.' };
 };
 
-/** What a finished job says it did, from the row alone. */
+/** X6: every refusal offers Try again except "this lb-bot is older" - a refusal like
+ *  `files_unreachable` tells the user to change something "then try again". */
+export const canTryAgain = (failure: { kind: string }): boolean => failure.kind !== 'older';
+
+/** X9: the heading above a list of `failures`. A cover that could not be saved is
+ *  a problem, not "a file that could not be written", so problems are counted as such. */
+export const problemsHeading = (n: number): string => plural(n, 'problem', 'problems');
+
+/** What a finished job says it did, from the row alone. Problems are listed apart
+ *  under {@link problemsHeading}; this counts only what was written. */
 export const outcomeSentence = (
     kind: 'apply' | 'remove',
     row: null | Pick<LbBotAlbumOverrideRow, 'done' | 'failures' | 'state' | 'total'>,
@@ -260,11 +306,207 @@ export const outcomeSentence = (
     if (row.state === 'failed') {
         return `lb-bot did not finish writing the tags (${row.done} of ${plural(row.total, 'file', 'files')} written).`;
     }
-    if (row.failures.length > 0) {
-        return `lb-bot wrote ${row.done} of ${plural(row.total, 'file', 'files')}; ${row.failures.length} could not be written.`;
-    }
     return `lb-bot wrote the tags of ${plural(row.done, 'file', 'files')}.`;
 };
+
+// ---------------------------------------------------------------------------
+// The wait for Navidrome, and how a running row reads (X4)
+// ---------------------------------------------------------------------------
+
+/** The states in which lb-bot is still working on a row, of any kind. */
+const RUNNING_STATES: readonly string[] = ['applying', 'removing', 'merging', 'undoing'];
+
+export const isRunning = (state: string): boolean => RUNNING_STATES.includes(state);
+
+/**
+ * The writes are over but lb-bot still holds the row active until Navidrome has
+ * scanned (up to a minute). `done` counts successes only, so "done >= total" is the
+ * wrong test (one failed file keeps it below forever): the writes are over when
+ * successes plus failures reach the total, and the state is still an active one.
+ */
+export const awaitingIndex = (
+    row: null | Pick<PollRow, 'done' | 'failures' | 'state' | 'total'>,
+): boolean =>
+    !!row && row.total > 0 && row.done + row.failures.length >= row.total && isRunning(row.state);
+
+export type JobKind = 'apply' | 'merge' | 'remove' | 'undo';
+
+const WAIT_PREFIX: Record<JobKind, string> = {
+    apply: 'The tags are written.',
+    merge: 'The files are retagged.',
+    remove: 'The previous tags are back in the files.',
+    undo: 'The previous names are back in the files.',
+};
+
+export const waitSentence = (kind: JobKind): string =>
+    `${WAIT_PREFIX[kind]} lb-bot is waiting for Navidrome to index them, which can take up to a minute.`;
+
+const RUNNING_SENTENCE: Record<JobKind, string> = {
+    apply: 'lb-bot is writing the tags…',
+    merge: 'lb-bot is retagging the files…',
+    remove: 'lb-bot is putting the previous tags back…',
+    undo: 'lb-bot is putting the previous names back…',
+};
+
+/** What a running job shows: the wait sentence with no bar, or progress with one. */
+export const jobProgress = (
+    kind: JobKind,
+    row: null | Pick<PollRow, 'done' | 'failures' | 'state' | 'total'>,
+): { bar: boolean; percent: number; text: string } => {
+    if (awaitingIndex(row)) return { bar: false, percent: 0, text: waitSentence(kind) };
+    if (row && row.total > 0) {
+        return {
+            bar: true,
+            percent: Math.round((row.done / row.total) * 100),
+            text: `${RUNNING_SENTENCE[kind]} ${row.done}/${row.total} files`,
+        };
+    }
+    return { bar: false, percent: 0, text: RUNNING_SENTENCE[kind] };
+};
+
+/** A panel row's state in words ('' when it is simply done). Never a raw state token. */
+export const rowStatusWords = (
+    kind: 'album' | 'merge',
+    row: Pick<PollRow, 'done' | 'failures' | 'state' | 'total'>,
+): string => {
+    const counts = `${row.done} of ${plural(row.total, 'file', 'files')}`;
+    switch (row.state) {
+        case 'applied':
+        case 'merged':
+            return '';
+        case 'applying':
+        case 'merging':
+        case 'removing':
+        case 'undoing': {
+            if (awaitingIndex(row)) return 'waiting for Navidrome to index';
+            if (row.state === 'applying') return `writing tags (${counts})`;
+            if (row.state === 'merging') return `retagging (${counts})`;
+            return `putting the previous ${kind === 'merge' ? 'names' : 'tags'} back (${counts})`;
+        }
+        case 'failed':
+            return 'did not finish';
+        default:
+            return 'in a state this app does not know';
+    }
+};
+
+/** An override whose release never changed was a cover change. Blank is unknown (X7). */
+export const releaseUnchanged = (row: { prevReleaseMbid: string; releaseMbid: string }): boolean =>
+    !!row.releaseMbid && row.releaseMbid === row.prevReleaseMbid;
+
+export const releaseUrl = (releaseMbid: string): string =>
+    `https://musicbrainz.org/release/${releaseMbid}`;
+
+export type TagLine =
+    | { files: number; kind: 'edition'; text: string }
+    | { files: number; kind: 'id'; releaseMbid: string }
+    | { files: number; kind: 'untagged' }
+    | { kind: 'none' };
+
+/**
+ * The "tagged now" line. None once a job has run (it would still name the old
+ * edition). The listed edition when the tagged release is among them; else the
+ * id itself (lb-bot's list keeps one release per format, so this is the common case).
+ */
+export const tagLineFor = (input: {
+    files: number;
+    job: boolean;
+    listed: null | {
+        country: string;
+        format: string;
+        title: string;
+        trackCount: number;
+        year: string;
+    };
+    releaseMbid: string;
+}): TagLine => {
+    if (input.job) return { kind: 'none' };
+    if (!input.releaseMbid) return { files: input.files, kind: 'untagged' };
+    if (input.listed) {
+        const l = input.listed;
+        return {
+            files: input.files,
+            kind: 'edition',
+            text: [
+                l.title,
+                l.year,
+                l.country,
+                l.format,
+                l.trackCount > 0 ? `${l.trackCount} tracks` : '',
+            ]
+                .filter(Boolean)
+                .join(' · '),
+        };
+    }
+    return { files: input.files, kind: 'id', releaseMbid: input.releaseMbid };
+};
+
+/** Why "Open" lands on the artist page: the retagged album has no id to open yet. */
+export const landingNote = (kind: 'apply' | 'remove', albumId: string): null | string =>
+    kind === 'apply' && !albumId
+        ? 'Navidrome has not indexed the retagged album yet, so this opens the artist page instead.'
+        : null;
+
+// ---------------------------------------------------------------------------
+// What the commit button does, and which covers to ask for
+// ---------------------------------------------------------------------------
+
+export type AlbumCommit = 'apply' | 'cover-only' | 'nothing';
+
+/**
+ * Mirrors Navic's `albumCommit`: the album's own release with nothing to change and
+ * a cover chosen is a cover-only save (`POST /lb/album/cover`), so it stays
+ * reachable after an edition was previewed. One divergence, kept on purpose: a
+ * DIFFERENT release with zero changes is `nothing` here (Navic asks lb-bot).
+ * `changing` is null until the preview is in.
+ */
+export const albumCommit = (input: {
+    changing: null | number;
+    coverChosen: boolean;
+    current: string;
+    picked: null | string;
+}): AlbumCommit => {
+    if (!input.picked) return input.coverChosen ? 'cover-only' : 'nothing';
+    if (input.changing === null) return 'nothing';
+    if (input.changing > 0) return 'apply';
+    return input.picked === input.current && input.coverChosen ? 'cover-only' : 'nothing';
+};
+
+/**
+ * The cover lookup's parameters (X8). A release that is not one of the listed
+ * editions (a pasted id) belongs to a group this client does not know: ask by
+ * `release_mbid` alone and lb-bot derives its own group. Sending the album's old
+ * `rgid` would list the wrong group's covers as "Release group".
+ */
+export const coverQuery = (input: {
+    current: string;
+    listed: ReadonlySet<string>;
+    picked: null | string;
+    rgid: string;
+}): { releaseMbid: string; rgid: string } => {
+    if (!input.picked) return { releaseMbid: input.current, rgid: input.rgid };
+    return {
+        releaseMbid: input.picked,
+        rgid: input.listed.has(input.picked) ? input.rgid : '',
+    };
+};
+
+// ---------------------------------------------------------------------------
+// The preview, in words
+// ---------------------------------------------------------------------------
+
+/** "02  Title"; the disc only on a multi-disc album; no number for a track without one. */
+export const slotLabel = (slot: LbBotPreviewSlot, multiDisc: boolean): string => {
+    if (slot.track <= 0) return slot.title;
+    const disc = multiDisc && slot.disc > 0 ? `${slot.disc}-` : '';
+    return `${disc}${String(slot.track).padStart(2, '0')}  ${slot.title}`;
+};
+
+export const previewCounts = (summary: PreviewSummary): [string, string, string] => [
+    `${plural(summary.changing, 'file', 'files')} ${summary.changing === 1 ? 'changes' : 'change'}`,
+    `${plural(summary.noSlot, 'file', 'files')} ${summary.noSlot === 1 ? 'has' : 'have'} no place on this release`,
+    `${plural(summary.missing, 'track', 'tracks')} of the release ${summary.missing === 1 ? 'has' : 'have'} no file`,
+];
 
 export type AfterOverride = { id: string; kind: 'album' | 'artist' } | { kind: 'none' };
 
@@ -383,10 +625,13 @@ export const decideLeave = (input: {
     kind: 'apply' | 'remove';
     newAlbumId: string;
     pathname: string;
+    /** The last row kept its release (a cover-only change): undoing it does not move the id (X7). */
+    releaseUnchanged?: boolean;
 }): LeaveDecision => {
     if (!input.deadAlbumId || !input.pathname.split('/').includes(input.deadAlbumId)) {
         return { kind: 'stay' };
     }
+    if (input.kind === 'remove' && input.releaseUnchanged) return { kind: 'stay' };
     if (input.kind === 'apply' && input.newAlbumId) {
         return input.newAlbumId === input.deadAlbumId
             ? { kind: 'stay' }
@@ -394,4 +639,56 @@ export const decideLeave = (input: {
     }
     if (input.artistId) return { id: input.artistId, kind: 'artist' };
     return { kind: 'albums' };
+};
+
+// ---------------------------------------------------------------------------
+// The poll as a plain async loop
+// ---------------------------------------------------------------------------
+//
+// So the seed (X1), the silence clock (X2) and what is remembered afterwards (X3)
+// are testable with a fake clock and a scripted server (`job-runner.harness.ts`);
+// the React hook only supplies the real clock and the real read. Lives here, not in
+// its own module, because the harness runs under Node's type stripping, where a
+// relative import between two of these modules cannot carry the `.ts` suffix tsc
+// refuses.
+
+const finished = new Set<string>();
+
+const jobKey = (row: { id: string; setAt: number }): string => `${row.id}@${row.setAt}`;
+
+/** A job that ended at rest (settled or failed) is not followed again in this process. */
+export const wasFinished = (row: { id: string; setAt: number }): boolean =>
+    finished.has(jobKey(row));
+
+export const forgetFinishedJobs = (): void => finished.clear();
+
+export const runJob = async <TRow extends PollRow>(input: {
+    id: string;
+    /** False once a newer job superseded this one or it was reset: stop without reporting. */
+    isCurrent: () => boolean;
+    now: () => number;
+    onEnd?: (ended: PollState<TRow>) => void;
+    onState: (state: PollState<TRow>) => void;
+    read: (id: string) => Promise<PollAnswer<TRow>>;
+    /** The state lb-bot already gave the row: the POST's own, or a resumed row's. */
+    seedState?: string;
+    spec: PollSpec;
+    wait: (ms: number) => Promise<void>;
+}): Promise<PollState<TRow>> => {
+    let state = pollStart<TRow>(input.spec, input.now(), input.seedState);
+    input.onState(state);
+    while (state.phase === 'polling') {
+        await input.wait(POLL_INTERVAL_MS);
+        if (!input.isCurrent()) return state;
+        const answer = await input.read(input.id);
+        if (!input.isCurrent()) return state;
+        state = pollStep(state, answer, input.now());
+        input.onState(state);
+    }
+    // A timeout is not at rest: lb-bot may still be working, and a dismissed one may be picked up again.
+    if ((state.phase === 'settled' || state.phase === 'failed') && state.row) {
+        finished.add(jobKey(state.row));
+    }
+    input.onEnd?.(state);
+    return state;
 };

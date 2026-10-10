@@ -107,8 +107,9 @@ const overrideRemove = (ndId: string): Promise<LbBotResult<LbBotOverrideRemoved>
     ipcRenderer.invoke('lbbot-override-remove', { ndId });
 
 /** Album override (I-022), "Fix album match". All result-shaped: `status` + `code`
- *  (+ `matched` / `total` on a 409 `poor_match`, `retryable` on a 502) tell the
- *  answers apart, and a code-less 404 / a 405 means lb-bot is older. */
+ *  (+ `matched` / `total` on a 409 `poor_match`, a `total` alone on `files_unreachable`,
+ *  `retryable` on a 502) tell the answers apart, and a code-less 404 / a 405 means
+ *  lb-bot is older. Other coded refusals are lb-bot's own sentence. */
 const albumOverride = (query: LbBotAlbumStateQuery): Promise<LbBotResult<LbBotAlbumState>> =>
     ipcRenderer.invoke('lbbot-album-override-get', query);
 
@@ -137,13 +138,19 @@ const albumOverrideRemove = (id: string): Promise<LbBotResult<LbBotAlbumJob>> =>
     ipcRenderer.invoke('lbbot-album-override-remove', { id });
 
 /** Artist name merge (I-023). Result-shaped like the album routes: `code`
- *  (`different_artists`, `unknown_artist`, `busy`, `in_progress`, `no_merge`) and
- *  `retryable` tell the answers apart; a code-less 404 / a 405 means older. */
-const mergePreview = (ndId: string, fromNdId: string): Promise<LbBotResult<LbBotMergePreview>> =>
-    ipcRenderer.invoke('lbbot-merge-preview', { fromNdId, ndId });
+ *  (`different_artists`, `collaboration`, `files_unreachable`, `unknown_artist`,
+ *  `busy`, `in_progress`, `no_merge`) and `retryable` tell the answers apart; a
+ *  code-less 404 / a 405 means older. A plan is ONE object, `ndId` the kept artist
+ *  and `fromNdId` the rewritten spelling, so the two cannot be swapped unseen. */
+const mergePreview = (plan: {
+    fromNdId: string;
+    ndId: string;
+}): Promise<LbBotResult<LbBotMergePreview>> => ipcRenderer.invoke('lbbot-merge-preview', plan);
 
-const mergeStart = (ndId: string, fromNdId: string): Promise<LbBotResult<LbBotMergeJob>> =>
-    ipcRenderer.invoke('lbbot-merge-start', { fromNdId, ndId });
+const mergeStart = (plan: {
+    fromNdId: string;
+    ndId: string;
+}): Promise<LbBotResult<LbBotMergeJob>> => ipcRenderer.invoke('lbbot-merge-start', plan);
 
 const mergeGet = (id: string): Promise<LbBotResult<LbBotMergeRow>> =>
     ipcRenderer.invoke('lbbot-merge-get', { id });
@@ -271,6 +278,10 @@ const artistSearch = (q: string): Promise<LbBotResult<LbBotArtistCandidate[]>> =
 
 /** MusicBrainz album search, with each hit marked owned or not. Same empty-array
  *  contract as `artistLookup`. */
+/** The same lookup, result-shaped: a failure is not an empty answer. */
+const albumLookupChecked = (q: string): Promise<LbBotResult<LbBotAlbumCandidate[]>> =>
+    ipcRenderer.invoke('lbbot-album-lookup-checked', { q });
+
 const albumLookup = (q: string): Promise<LbBotAlbumCandidate[]> =>
     ipcRenderer.invoke('lbbot-album-lookup', { q });
 
@@ -367,6 +378,7 @@ export const lbBot = {
     albumCovers,
     albumCoverSet,
     albumLookup,
+    albumLookupChecked,
     albumOverride,
     albumOverrideApply,
     albumOverrideRemove,

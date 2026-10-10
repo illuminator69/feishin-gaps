@@ -81,6 +81,8 @@ import { BrowserWindow, ipcMain, Notification } from 'electron';
 import { getHubConfig } from '../hub';
 
 import {
+    mergePreviewParams,
+    mergeStartBody,
     toAlbumRows,
     toAlbumState,
     toCovers,
@@ -636,7 +638,9 @@ ipcMain.handle(
 // retags the files, keeps the previous tags, and can undo. Every route here is
 // result-shaped: `status` / `code` / `matched` / `total` / `retryable` tell the
 // 400, the 404s (`unknown_album`, `no_override`, `unknown_release`), the 409s
-// (`busy`, `in_progress`, `poor_match`) and the retryable 502 apart, and an
+// (`busy`, `in_progress`, `poor_match` with matched/total, `files_unreachable`
+// with a total only) and the retryable 502 apart; every other coded refusal is
+// lb-bot's own sentence, relayed as is. An
 // older hub or lb-bot answers a code-less 404 (GET) or a 405 (POST), which the
 // renderer reads as "older" and hides the control. Nothing here carries a path.
 
@@ -800,8 +804,10 @@ ipcMain.handle(
 // Two library artists with the same effective MusicBrainz id but different
 // spellings: lb-bot retags the variant's files to the kept name, undoably. Same
 // result-shaped contract as the album routes above (`different_artists`,
-// `unknown_artist`, `busy`, `in_progress`, retryable 502; a code-less 404 / 405 =
-// older). `nd_id` is the entry whose name is kept, `from_nd_id` the one rewritten.
+// `unknown_artist`, `busy`, `in_progress`, `collaboration`, `files_unreachable`,
+// retryable 502; a code-less 404 / 405 = older). `nd_id` is the entry whose name
+// is kept, `from_nd_id` the one rewritten - both built from ONE plan object by
+// `mergeStartBody` / `mergePreviewParams`, never as two loose strings.
 
 ipcMain.handle(
     'lbbot-merge-preview',
@@ -813,7 +819,7 @@ ipcMain.handle(
             return failed<LbBotMergePreview>(0, 'Two artists are needed.');
         }
         const result = await request('GET', '/lb/artist/merge/preview', {
-            params: { from_nd_id: args.fromNdId, nd_id: args.ndId },
+            params: mergePreviewParams(args),
         });
         if (!result.ok) return albumFailed<LbBotMergePreview>(result);
         return { data: toMergePreview(result.data), error: '', ok: true, status: result.status };
@@ -829,7 +835,7 @@ ipcMain.handle(
         if (!args.ndId || !args.fromNdId)
             return failed<LbBotMergeJob>(0, 'Two artists are needed.');
         const result = await request('POST', '/lb/artist/merge', {
-            body: { from_nd_id: args.fromNdId, nd_id: args.ndId },
+            body: mergeStartBody(args),
         });
         if (!result.ok) return albumFailed<LbBotMergeJob>(result);
         if (result.data?.ok !== true || !str(result.data.id)) {
@@ -1615,32 +1621,54 @@ ipcMain.handle(
 // release-group id rather than by a name match — so the renderer can show an
 // owned hit as a library row that opens the album instead of offering to fetch
 // a record already on disk.
+const toAlbumCandidates = (data: Json | null): LbBotAlbumCandidate[] => {
+    const rows = Array.isArray(data?.candidates) ? data.candidates : [];
+    return rows.flatMap((row): LbBotAlbumCandidate[] => {
+        if (!row || typeof row !== 'object') return [];
+        const r = row as Json;
+        const rgid = str(r.rgid);
+        if (!rgid) return [];
+        return [
+            {
+                artist: str(r.artist),
+                coverUrl: str(r.coverUrl),
+                primaryType: str(r.primary_type),
+                releaseAlbumId: str(r.releaseAlbumId),
+                releaseOwned: r.releaseOwned === true,
+                rgid,
+                score: num(r.score),
+                title: str(r.title),
+                year: str(r.year),
+            },
+        ];
+    });
+};
+
 ipcMain.handle(
     'lbbot-album-lookup',
     async (_event, args: { q: string }): Promise<LbBotAlbumCandidate[]> => {
         const q = (args.q ?? '').trim();
         if (!q) return [];
-        const data = await get('/lb/album/lookup', { q });
-        const rows = Array.isArray(data?.candidates) ? data.candidates : [];
-        return rows.flatMap((row): LbBotAlbumCandidate[] => {
-            if (!row || typeof row !== 'object') return [];
-            const r = row as Json;
-            const rgid = str(r.rgid);
-            if (!rgid) return [];
-            return [
-                {
-                    artist: str(r.artist),
-                    coverUrl: str(r.coverUrl),
-                    primaryType: str(r.primary_type),
-                    releaseAlbumId: str(r.releaseAlbumId),
-                    releaseOwned: r.releaseOwned === true,
-                    rgid,
-                    score: num(r.score),
-                    title: str(r.title),
-                    year: str(r.year),
-                },
-            ];
-        });
+        return toAlbumCandidates(await get('/lb/album/lookup', { q }));
+    },
+);
+
+// The same lookup for a caller that must tell "lb-bot found nothing" from "the
+// lookup failed" (the Fix album match release-group fallback): a failure is not an
+// empty answer and must not be kept as one.
+ipcMain.handle(
+    'lbbot-album-lookup-checked',
+    async (_event, args: { q: string }): Promise<LbBotResult<LbBotAlbumCandidate[]>> => {
+        const q = (args.q ?? '').trim();
+        if (!q) return { data: [], error: '', ok: true, status: 200 };
+        const result = await request('GET', '/lb/album/lookup', { params: { q } });
+        if (!result.ok) return failed<LbBotAlbumCandidate[]>(result.status, result.error);
+        return {
+            data: toAlbumCandidates(result.data),
+            error: '',
+            ok: true,
+            status: result.status,
+        };
     },
 );
 
@@ -2203,6 +2231,8 @@ const toGap = (d: Json, groupId: string): LbBotGap => ({
     albumId: str(d.albumId),
     allowMp3: d.allowMp3 === true,
     artist: str(d.artist),
+    // lb-bot sends the album artist's Navidrome id; "Wrong edition?" falls back to that page.
+    artistId: str(d.artistId),
     canonicalMbid: str(d.canonicalMbid),
     extra: num(d.extra),
     failDetail: str(d.failDetail),

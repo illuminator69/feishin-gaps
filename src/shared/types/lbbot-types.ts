@@ -150,7 +150,8 @@ export interface LbBotResult<T> {
      *  translated transport failure — see `describeFailure` in the main client. */
     error: string;
     /** `poor_match` (album override, 409): how many of the album's files have a slot
-     *  on the chosen release, out of how many. Absent on every other failure. */
+     *  on the chosen release, out of how many. Absent on every other failure
+     *  (`files_unreachable` carries a `total` but no `matched`; it is not a poor match). */
     matched?: number;
     ok: boolean;
     /** lb-bot said the same request may succeed later (`retryable: true` on its
@@ -165,7 +166,7 @@ export interface LbBotResult<T> {
      *  that retries on a timer, where this is deterministic and retrying it
      *  forever never helps (B-013). False/absent on every other failure. */
     tooLarge?: boolean;
-    /** The other half of `matched`. */
+    /** The other half of `matched` on a `poor_match`; `files_unreachable` carries it too. */
     total?: number;
 }
 
@@ -600,6 +601,8 @@ export interface LbBotGap {
     /** The per-album MP3 opt-in is already set. Global policy stays flac/opus. */
     allowMp3: boolean;
     artist: string;
+    /** The album artist's Navidrome id ("" when lb-bot sent none): the page "Wrong edition?" falls back to. */
+    artistId: string;
     /**
      * The release the gap is MEASURED AGAINST, taken from your own Navidrome tag.
      * A library tagged as a 17-track deluxe reports 17 slots even when every
@@ -848,8 +851,9 @@ export interface LbBotMergePreview {
 export interface LbBotMergeRow {
     done: number;
     failures: LbBotMergeFailure[];
-    /** Only the spelling's name: its Navidrome id is gone once the merge landed. */
-    from: { name: string };
+    /** The rewritten spelling. Its Navidrome id is "" when lb-bot sent none, and dead
+     *  once the merge landed. */
+    from: LbBotMergeArtist;
     id: string;
     into: LbBotMergeArtist;
     mbid: string;
@@ -1134,7 +1138,14 @@ export interface LbBotResolvedLink {
 
 /** A group of two or more library artists whose effective MBID is equal. */
 export interface LbBotSiblingGroup {
-    artists: { albums: number; name: string; ndArtistId: string }[];
+    artists: {
+        albums: number;
+        /** A collaboration credit ("A & B"), not a spelling of the artist: never merged
+         *  into anything. Absent on the wire = false. */
+        collab: boolean;
+        name: string;
+        ndArtistId: string;
+    }[];
     mbid: string;
 }
 
