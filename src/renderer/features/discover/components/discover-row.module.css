@@ -93,9 +93,17 @@
     opacity: 1;
 }
 
+/* A text line keeps its full height. The tile is a flex column in a cell the
+   carousel sizes, and a line that hides its overflow may be shrunk below its
+   own height: in a cell a few pixels short both lines gave up a pixel or two
+   and lost their descenders ("g", "q"). The cover gives instead. The line
+   height is stated so the box is tall enough for the descenders whatever the
+   page around it sets. */
 .name {
+    flex-shrink: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    line-height: 1.45;
     white-space: nowrap;
 }
 
