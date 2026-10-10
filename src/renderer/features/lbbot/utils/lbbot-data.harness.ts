@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { hasMetaFields } from '../../../../shared/utils/lbbot-wire.ts';
+import { describeListeningStatus } from '../../listening/listening-logic.ts';
 import {
     classifyRefresh,
-    describeListeningStatus,
     describeToCheck,
     listeningReport,
     metaHasContent,

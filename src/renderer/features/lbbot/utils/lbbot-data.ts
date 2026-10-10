@@ -63,25 +63,6 @@ export const describeToCheck = (row: Pick<LbBotToCheck, 'albums' | 'kind'>): str
         ? `lb-bot guessed a MusicBrainz artist that matches none of your ${row.albums} ${row.albums === 1 ? 'album' : 'albums'}`
         : 'No MusicBrainz artist found';
 
-export const describeListeningStatus = (status: LbBotListeningStatus): string => {
-    switch (status.state) {
-        case 'error':
-            return `${status.count} listens stored. The last sync failed: ${status.error || 'no reason given'}.`;
-        case 'importing':
-            return status.total !== null
-                ? `Importing ${status.count} of ${status.total} listens.`
-                : `Importing, ${status.count} listens so far.`;
-        case 'off':
-            return 'Listening history is not set up: lb-bot has no ListenBrainz user.';
-        default:
-            return `${status.count} listens stored${
-                status.total !== null && status.total !== status.count
-                    ? ` of ${status.total} on ListenBrainz`
-                    : ''
-            }.`;
-    }
-};
-
 /**
  * The index mirror's last sync run, read-only (`getMirrorSyncState`). `id` counts
  * runs, so a caller can tell a run that began after its click from one that was

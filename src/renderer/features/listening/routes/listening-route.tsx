@@ -14,8 +14,8 @@ import {
     useListeningUnowned,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { useListeningSync } from '/@/renderer/features/lbbot/hooks/use-sync-watch';
-import { describeListeningStatus } from '/@/renderer/features/lbbot/utils/lbbot-data';
 import {
+    DailyChart,
     Genres,
     Heatmap,
     HoursChart,
@@ -26,9 +26,13 @@ import {
 } from '/@/renderer/features/listening/components/listening-sections';
 import {
     DEFAULT_PERIOD,
+    DEFAULT_TAB,
+    LISTENING_TABS,
+    ListeningTab,
     PERIOD_OPTIONS,
-    rangeText,
     readState,
+    showsPeriodPicker,
+    statusLines,
     statusView,
 } from '/@/renderer/features/listening/listening-logic';
 import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
@@ -64,9 +68,25 @@ const errorOf = (error: Error | null): null | { message: string; status: number 
 const when = (epochSeconds: null | number): string =>
     epochSeconds ? new Date(epochSeconds * 1000).toLocaleString() : 'never';
 
+/** The one period control: drawn on the tabs whose content it changes (L2). */
+const PeriodPicker = ({
+    onChange,
+    value,
+}: {
+    onChange: (period: LbBotListeningPeriod) => void;
+    value: LbBotListeningPeriod;
+}) => (
+    <SegmentedControl
+        data={PERIOD_OPTIONS}
+        onChange={(next) => onChange(next as LbBotListeningPeriod)}
+        value={value}
+    />
+);
+
 const ListeningRoute = () => {
     const { windowBarStyle } = useWindowSettings();
     const [period, setPeriod] = useState<LbBotListeningPeriod>(DEFAULT_PERIOD);
+    const [tab, setTab] = useState<ListeningTab>(DEFAULT_TAB);
     const [unownedKind, setUnownedKind] = useState<'album' | 'artist'>('album');
 
     const available = useLbBotAvailable();
@@ -78,8 +98,13 @@ const ListeningRoute = () => {
     // Nothing to read when the mirror is off, or an answer said this lb-bot is older.
     const readable = !off && !older;
     const summaryQuery = useListeningSummary(period, view?.poll === true, readable);
-    const unownedQuery = useListeningUnowned(period, unownedKind, readable);
-    const recentQuery = useListeningRecent(readable);
+    // Only the tab that shows a list reads it.
+    const unownedQuery = useListeningUnowned(
+        period,
+        unownedKind,
+        readable && tab === 'not-in-library',
+    );
+    const recentQuery = useListeningRecent(readable && tab === 'history');
 
     // `keepPreviousData` holds the PREVIOUS period's body while the new one loads:
     // it is not this period's answer, so it is dimmed while fetching and dropped
@@ -96,9 +121,12 @@ const ListeningRoute = () => {
     // A status that could not be read is no status (a failed re-read leaves the last
     // data in place); the line says what the read is doing instead.
     const status = statusQuery.isError ? null : (statusQuery.data ?? null);
+    const statusBlock = status ? statusLines(status, when) : null;
     // Asked for only where lb-bot can do it: the routes exist, this lb-bot is not
     // older, and a ListenBrainz user is configured (`off` has nothing to pull).
     const canSync = supported && !older && !off;
+    const summaryTab = tab === 'overview' || tab === 'activity';
+    const picker = showsPeriodPicker(tab) && !!summary && !off;
 
     return (
         <NativeScrollArea
@@ -137,23 +165,29 @@ const ListeningRoute = () => {
                             </Button>
                         )}
                     </Group>
+                    {/* The status, ONCE (L8): a banner when there is something to say
+                    (importing, error, off), a plain line only when ready. */}
                     {supported && !older && (
                         <Stack gap={2}>
-                            {status ? (
-                                <>
+                            {statusBlock?.banner && (
+                                <div className={styles.banner}>
+                                    <Text weight={600}>{statusBlock.banner.headline}</Text>
                                     <Text isMuted size="sm">
-                                        {describeListeningStatus(status)}
+                                        {statusBlock.banner.detail}
                                     </Text>
-                                    <Text isMuted size="xs">
-                                        {[
-                                            rangeText(status.oldest, status.newest, when),
-                                            `last sync ${when(status.lastSyncAt)}`,
-                                        ]
-                                            .filter(Boolean)
-                                            .join(' · ')}
-                                    </Text>
-                                </>
-                            ) : (
+                                </div>
+                            )}
+                            {statusBlock?.line && (
+                                <Text isMuted size="sm">
+                                    {statusBlock.line}
+                                </Text>
+                            )}
+                            {statusBlock?.meta && (
+                                <Text isMuted size="xs">
+                                    {statusBlock.meta}
+                                </Text>
+                            )}
+                            {!statusBlock && (
                                 <Text isMuted size="sm">
                                     {!available
                                         ? 'lb-bot is needed for this and is not reachable.'
@@ -174,11 +208,6 @@ const ListeningRoute = () => {
                             )}
                         </Stack>
                     )}
-                    <SegmentedControl
-                        data={PERIOD_OPTIONS}
-                        onChange={(value) => setPeriod(value as LbBotListeningPeriod)}
-                        value={period}
-                    />
 
                     {unavailable || (!supported && !summary && available) ? (
                         <Text isMuted>
@@ -198,60 +227,100 @@ const ListeningRoute = () => {
                         </Text>
                     )}
 
-                    {view && view.kind !== 'ready' && (
-                        <div className={styles.banner}>
-                            <Text weight={600}>{view.headline}</Text>
-                            <Text isMuted size="sm">
-                                {view.detail}
-                            </Text>
-                        </div>
-                    )}
-
-                    {loading && <Spinner container />}
-
-                    {/* A failure is not "nothing here": no body, not a 404 (that has
-                        its own sentence), and the read errored. */}
-                    {supported && !summary && !unavailable && !off && summaryQuery.isError && (
-                        <Group gap="sm">
-                            <Text isMuted>
-                                {summaryQuery.error.message || 'Could not load listening history.'}
-                            </Text>
-                            {!(
-                                summaryQuery.error instanceof LbBotReadError &&
-                                summaryQuery.error.status === 400
-                            ) && (
+                    {supported && !off && !unavailable && (
+                        <Group gap="xs">
+                            {LISTENING_TABS.map((item) => (
                                 <Button
-                                    onClick={() => void summaryQuery.refetch()}
-                                    size="compact-sm"
-                                    variant="default"
+                                    key={item.id}
+                                    onClick={() => setTab(item.id)}
+                                    variant={tab === item.id ? 'filled' : 'subtle'}
                                 >
-                                    Retry
+                                    {item.label}
                                 </Button>
-                            )}
+                            ))}
                         </Group>
                     )}
 
-                    {summary && !off && (
-                        <div
-                            style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 'var(--theme-spacing-xl)',
-                                opacity: placeholder ? 0.5 : 1,
-                            }}
-                        >
+                    {summaryTab && loading && <Spinner container />}
+
+                    {/* A failure is not "nothing here": no body, not a 404 (that has
+                        its own sentence), and the read errored. */}
+                    {summaryTab &&
+                        supported &&
+                        !summary &&
+                        !unavailable &&
+                        !off &&
+                        summaryQuery.isError && (
+                            <Group gap="sm">
+                                <Text isMuted>
+                                    {summaryQuery.error.message ||
+                                        'Could not load listening history.'}
+                                </Text>
+                                {!(
+                                    summaryQuery.error instanceof LbBotReadError &&
+                                    summaryQuery.error.status === 400
+                                ) && (
+                                    <Button
+                                        onClick={() => void summaryQuery.refetch()}
+                                        size="compact-sm"
+                                        variant="default"
+                                    >
+                                        Retry
+                                    </Button>
+                                )}
+                            </Group>
+                        )}
+
+                    {tab === 'overview' && picker && (
+                        <PeriodPicker onChange={setPeriod} value={period} />
+                    )}
+
+                    {tab === 'overview' && summary && !off && (
+                        <div className={styles.stack} style={{ opacity: placeholder ? 0.5 : 1 }}>
                             {summary.totals.plays === 0 && view?.kind !== 'importing' && (
                                 <Text isMuted>No listens in this period.</Text>
                             )}
                             <StatTiles summary={summary} />
-                            <Heatmap summary={summary} />
-                            <HoursChart summary={summary} />
-                            <TopLists summary={summary} />
+                            <TopLists period={period} summary={summary} />
                             <Genres summary={summary} />
+                        </div>
+                    )}
+
+                    {tab === 'activity' && summary && !off && (
+                        <div className={styles.stack} style={{ opacity: placeholder ? 0.5 : 1 }}>
+                            <Heatmap summary={summary} />
+                            {picker && <PeriodPicker onChange={setPeriod} value={period} />}
+                            <DailyChart period={period} summary={summary} />
+                            <HoursChart summary={summary} />
+                        </div>
+                    )}
+
+                    {tab === 'history' && supported && !off && !unavailable && (
+                        <RecentSection
+                            hasMore={recentQuery.hasNextPage}
+                            loadingMore={recentQuery.isFetchingNextPage}
+                            onMore={() => void recentQuery.fetchNextPage()}
+                            onRetry={() => void recentQuery.refetch()}
+                            read={readState({
+                                available,
+                                error: errorOf(recentQuery.error),
+                                fetching: recentQuery.isFetching,
+                                hasData: recentQuery.data !== undefined,
+                                rowCount: recentRows.length,
+                                supported,
+                            })}
+                            rows={recentRows}
+                        />
+                    )}
+
+                    {tab === 'not-in-library' && supported && !off && !unavailable && (
+                        <>
+                            <PeriodPicker onChange={setPeriod} value={period} />
                             <UnownedSection
                                 kind={unownedKind}
                                 onKind={setUnownedKind}
                                 onRetry={() => void unownedQuery.refetch()}
+                                period={period}
                                 read={readState({
                                     available,
                                     error: errorOf(unownedQuery.error),
@@ -262,22 +331,7 @@ const ListeningRoute = () => {
                                 })}
                                 rows={unownedQuery.data?.rows}
                             />
-                            <RecentSection
-                                hasMore={recentQuery.hasNextPage}
-                                loadingMore={recentQuery.isFetchingNextPage}
-                                onMore={() => void recentQuery.fetchNextPage()}
-                                onRetry={() => void recentQuery.refetch()}
-                                read={readState({
-                                    available,
-                                    error: errorOf(recentQuery.error),
-                                    fetching: recentQuery.isFetching,
-                                    hasData: recentQuery.data !== undefined,
-                                    rowCount: recentRows.length,
-                                    supported,
-                                })}
-                                rows={recentRows}
-                            />
-                        </div>
+                        </>
                     )}
                 </Stack>
             </LibraryContainer>

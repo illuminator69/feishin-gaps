@@ -1,8 +1,11 @@
 import { ReactNode } from 'react';
-import { generatePath, Link } from 'react-router';
+import { generatePath, Link, useNavigate } from 'react-router';
 
 import styles from './listening.module.css';
 
+import { ItemImage } from '/@/renderer/components/item-image/item-image';
+import { DiscoverRow } from '/@/renderer/features/discover/components/discover-row';
+import { DiscoverTile } from '/@/renderer/features/discover/components/discover-tile';
 import { MissingAlbumTile } from '/@/renderer/features/lbbot/components/missing-album-tile';
 import { useActiveFill } from '/@/renderer/features/lbbot/stores/active-fills.store';
 import {
@@ -10,17 +13,25 @@ import {
     externalArtistPath,
 } from '/@/renderer/features/lbbot/utils/external-paths';
 import {
+    albumCardView,
     AlbumTarget,
     albumTarget,
+    artistCardView,
     ArtistTarget,
     artistTarget,
+    dailyForPeriod,
+    dailyNote,
     formatListeningTime,
     genresNote,
+    heatmapCaption,
     heatmapGrid,
     hoursBars,
     listeningTimeNote,
+    periodPhrase,
     playsLabel,
     ReadState,
+    recentRowView,
+    trackCardView,
     unownedAlbumRelease,
 } from '/@/renderer/features/listening/listening-logic';
 import { AppRoute } from '/@/renderer/router/routes';
@@ -28,7 +39,9 @@ import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
+import { LibraryItem } from '/@/shared/types/domain-types';
 import {
+    LbBotListeningPeriod,
     LbBotListeningSummary,
     LbBotRecentRow,
     LbBotUnownedRow,
@@ -127,11 +140,18 @@ export const StatTiles = ({ summary }: { summary: LbBotListeningSummary }) => {
     );
 };
 
+/**
+ * The year-ish at a glance: lb-bot's `heatmap` is always the last 112 days ending
+ * today, whatever period is picked, so it does not follow the picker and says so.
+ * The cells after today in the last week are faint placeholders, not gaps: they
+ * keep every row running to the same end.
+ */
 export const Heatmap = ({ summary }: { summary: LbBotListeningSummary }) => {
     const { columns } = heatmapGrid(summary.heatmap);
     if (columns.length === 0) return null;
+    const lastColumn = columns.length - 1;
     return (
-        <Section note="Plays per day, the last 16 weeks." title="Activity">
+        <Section note={heatmapCaption(summary.heatmap)} title="Activity">
             <div className={styles.heatmap}>
                 {columns.flatMap((week, w) =>
                     week.map((cell, d) =>
@@ -143,10 +163,40 @@ export const Heatmap = ({ summary }: { summary: LbBotListeningSummary }) => {
                                 title={`${cell.date}: ${playsLabel(cell.count)}`}
                             />
                         ) : (
-                            <div className={`${styles.cell} ${styles.pad}`} key={`pad-${w}-${d}`} />
+                            <div
+                                className={`${styles.cell} ${w === lastColumn ? styles.future : styles.pad}`}
+                                key={`pad-${w}-${d}`}
+                            />
                         ),
                     ),
                 )}
+            </div>
+        </Section>
+    );
+};
+
+/** Plays per day over the picked period: the tail of lb-bot's daily series. */
+export const DailyChart = ({
+    period,
+    summary,
+}: {
+    period: LbBotListeningPeriod;
+    summary: LbBotListeningSummary;
+}) => {
+    const days = dailyForPeriod(summary.daily, period);
+    if (days.length === 0) return null;
+    const max = days.reduce((m, d) => Math.max(m, d.count), 0);
+    return (
+        <Section note={dailyNote(period, summary.daily.length)} title="Plays over time">
+            <div className={styles.daily}>
+                {days.map((day) => (
+                    <div
+                        className={styles.bar}
+                        key={day.date}
+                        style={{ height: `${max > 0 ? Math.round((day.count / max) * 100) : 0}%` }}
+                        title={`${day.date}: ${playsLabel(day.count)}`}
+                    />
+                ))}
             </div>
         </Section>
     );
@@ -177,124 +227,149 @@ export const HoursChart = ({ summary }: { summary: LbBotListeningSummary }) => {
     );
 };
 
-const RankRow = ({
-    children,
-    plays,
-    rank,
-    sub,
+/** One ranking as a horizontal carousel of cards, the Discover rows' own shell
+ *  (`DiscoverRow` over the Home page's `GridCarousel`): arrows, paging, card sizing. */
+const RankingRow = ({
+    cards,
+    period,
+    subject,
+    title,
 }: {
-    children: ReactNode;
-    plays: number;
-    rank: number;
-    sub?: string;
+    cards: { content: ReactNode; id: string }[];
+    period: LbBotListeningPeriod;
+    subject: string;
+    title: string;
 }) => (
-    <div className={styles.row}>
-        <Text isMuted size="sm">
-            {rank}
-        </Text>
-        <Stack gap={0}>
-            {children}
-            {sub && (
-                <Text className={styles.clip} isMuted size="xs">
-                    {sub}
-                </Text>
-            )}
+    <DiscoverRow
+        because={`Your most played ${subject} ${periodPhrase(period)}.`}
+        cards={cards}
+        isEmpty={cards.length === 0}
+        title={title}
+    />
+);
+
+const useGo = () => {
+    const navigate = useNavigate();
+    return (path: string | undefined) => () => {
+        if (path) navigate(path);
+    };
+};
+
+export const TopLists = ({
+    period,
+    summary,
+}: {
+    period: LbBotListeningPeriod;
+    summary: LbBotListeningSummary;
+}) => {
+    const go = useGo();
+    return (
+        <Stack gap="xl">
+            <RankingRow
+                cards={summary.topAlbums.map((album, i) => {
+                    const view = albumCardView(album, i + 1);
+                    return {
+                        content: (
+                            <DiscoverTile
+                                imageId={view.imageId}
+                                itemType={LibraryItem.ALBUM}
+                                onClick={go(
+                                    albumPath(
+                                        albumTarget(album.ndAlbumId, album.rgid, album.owned),
+                                        {
+                                            artist: album.artist,
+                                            artistMbid: album.artistMbid,
+                                            title: album.title,
+                                        },
+                                    ),
+                                )}
+                                subtitle={view.subtitle}
+                                title={view.title}
+                            />
+                        ),
+                        id: `album-${album.rgid}-${album.title}-${i}`,
+                    };
+                })}
+                period={period}
+                subject="albums"
+                title="Top albums"
+            />
+            <RankingRow
+                cards={summary.topArtists.map((artist, i) => {
+                    const view = artistCardView(artist, i + 1);
+                    return {
+                        content: (
+                            <DiscoverTile
+                                imageId={view.imageId}
+                                isRound
+                                itemType={LibraryItem.ALBUM_ARTIST}
+                                onClick={go(
+                                    artistPath(
+                                        artistTarget(artist.ndArtistId, artist.mbid),
+                                        artist.name,
+                                    ),
+                                )}
+                                subtitle={view.subtitle}
+                                title={view.title}
+                            />
+                        ),
+                        id: `artist-${artist.mbid}-${artist.name}-${i}`,
+                    };
+                })}
+                period={period}
+                subject="artists"
+                title="Top artists"
+            />
+            <RankingRow
+                cards={summary.topTracks.map((track, i) => {
+                    const view = trackCardView(track, i + 1);
+                    return {
+                        content: (
+                            <DiscoverTile
+                                imageId={view.imageId}
+                                itemType={LibraryItem.ALBUM}
+                                onClick={go(
+                                    albumPath(albumTarget(track.ndAlbumId, track.rgid), {
+                                        artist: track.artist,
+                                    }),
+                                )}
+                                subtitle={view.subtitle}
+                                title={view.title}
+                            />
+                        ),
+                        id: `track-${track.recordingMbid}-${track.title}-${i}`,
+                    };
+                })}
+                period={period}
+                subject="tracks"
+                title="Top tracks"
+            />
         </Stack>
-        <Text isMuted size="sm">
-            {plays.toLocaleString()}
-        </Text>
-    </div>
-);
+    );
+};
 
-export const TopLists = ({ summary }: { summary: LbBotListeningSummary }) => (
-    <div className={styles.columns}>
-        {summary.topArtists.length > 0 && (
-            <Section title="Top artists">
-                {summary.topArtists.map((artist, i) => (
-                    <RankRow
-                        key={`${artist.mbid}-${artist.name}`}
-                        plays={artist.plays}
-                        rank={i + 1}
-                    >
-                        <MaybeLink
-                            to={artistPath(
-                                artistTarget(artist.ndArtistId, artist.mbid),
-                                artist.name,
-                            )}
-                        >
-                            {artist.name}
-                        </MaybeLink>
-                    </RankRow>
-                ))}
-            </Section>
-        )}
-        {summary.topAlbums.length > 0 && (
-            <Section title="Top albums">
-                {summary.topAlbums.map((album, i) => (
-                    <RankRow
-                        key={`${album.rgid}-${album.title}`}
-                        plays={album.plays}
-                        rank={i + 1}
-                        sub={album.owned ? album.artist : `${album.artist} · not in your library`}
-                    >
-                        <MaybeLink
-                            to={albumPath(albumTarget(album.ndAlbumId, album.rgid, album.owned), {
-                                artist: album.artist,
-                                artistMbid: album.artistMbid,
-                                title: album.title,
-                            })}
-                        >
-                            {album.title}
-                        </MaybeLink>
-                    </RankRow>
-                ))}
-            </Section>
-        )}
-        {summary.topTracks.length > 0 && (
-            <Section title="Top tracks">
-                {summary.topTracks.map((track, i) => (
-                    <RankRow
-                        key={`${track.recordingMbid}-${track.title}-${i}`}
-                        plays={track.plays}
-                        rank={i + 1}
-                        sub={track.artist}
-                    >
-                        <MaybeLink
-                            to={albumPath(albumTarget(track.ndAlbumId, track.rgid), {
-                                artist: track.artist,
-                            })}
-                        >
-                            {track.title}
-                        </MaybeLink>
-                    </RankRow>
-                ))}
-            </Section>
-        )}
-    </div>
-);
-
+/** Genres: one row that scrolls sideways. */
 export const Genres = ({ summary }: { summary: LbBotListeningSummary }) => {
     if (summary.genres.length === 0) return null;
     const max = summary.genres.reduce((m, g) => Math.max(m, g.plays), 0);
     return (
         <Section note={genresNote(summary.genrePlays, summary.totals.plays)} title="Genres">
-            {summary.genres.map((genre) => (
-                <div className={styles.row} key={genre.genre}>
-                    <span />
-                    <Stack gap={2}>
+            <div className={styles.genres}>
+                {summary.genres.map((genre) => (
+                    <div className={styles.genre} key={genre.genre}>
                         <Text className={styles.clip} size="sm">
                             {genre.genre}
+                        </Text>
+                        <Text isMuted size="xs">
+                            {playsLabel(genre.plays)}
                         </Text>
                         <div
                             className={styles.bar}
                             style={{ height: 4, width: `${max ? (genre.plays / max) * 100 : 0}%` }}
                         />
-                    </Stack>
-                    <Text isMuted size="sm">
-                        {genre.plays.toLocaleString()}
-                    </Text>
-                </div>
-            ))}
+                    </div>
+                ))}
+            </div>
         </Section>
     );
 };
@@ -373,67 +448,91 @@ const ReadLine = ({
     }
 };
 
+/**
+ * Most played and not in the library, as cover cards in one carousel. lb-bot lists
+ * albums and artists here - not single songs - and the row says so. Albums keep the
+ * shared missing-album tile (the cover the app uses for an album it does not hold,
+ * with its reviewed acquire flow); artists are round cards that open their page.
+ */
 export const UnownedSection = ({
     kind,
     onKind,
     onRetry,
+    period,
     read,
     rows,
 }: {
     kind: 'album' | 'artist';
     onKind: (kind: 'album' | 'artist') => void;
     onRetry: () => void;
+    period: LbBotListeningPeriod;
     read: ReadState;
     rows: LbBotUnownedRow[] | undefined;
-}) => (
-    <Section note="Only things the library does not hold." title="Most played, not in your library">
-        <div style={{ display: 'flex', gap: 8 }}>
-            <Button
-                onClick={() => onKind('album')}
-                size="compact-sm"
-                variant={kind === 'album' ? 'filled' : 'default'}
-            >
-                Albums
-            </Button>
-            <Button
-                onClick={() => onKind('artist')}
-                size="compact-sm"
-                variant={kind === 'artist' ? 'filled' : 'default'}
-            >
-                Artists
-            </Button>
-        </div>
-        <ReadLine
-            emptyText="Nothing here for this period."
-            onRetry={onRetry}
-            read={read}
-            unreachableText="lb-bot is not reachable, so this list cannot be read."
-        />
-        {read.kind === 'rows' &&
-            (kind === 'album' ? (
-                <div className={styles.grid}>
-                    {(rows ?? [])
-                        .filter((row) => row.rgid)
-                        .map((row) => (
-                            <UnownedAlbumTile key={row.rgid} row={row} />
-                        ))}
-                </div>
-            ) : (
-                (rows ?? []).map((row, i) => (
-                    <RankRow key={`${row.artistMbid}-${row.artist}`} plays={row.plays} rank={i + 1}>
-                        <MaybeLink
-                            to={artistPath(
-                                artistTarget(row.artistOwned ? row.artistId : '', row.artistMbid),
-                                row.artist,
-                            )}
-                        >
-                            {row.artist}
-                        </MaybeLink>
-                    </RankRow>
-                ))
-            ))}
-    </Section>
-);
+}) => {
+    const go = useGo();
+    const shown = read.kind === 'rows' ? (rows ?? []) : [];
+    const cards =
+        kind === 'album'
+            ? shown
+                  .filter((row) => row.rgid)
+                  .map((row) => ({
+                      content: <UnownedAlbumTile row={row} />,
+                      id: row.rgid,
+                  }))
+            : shown.map((row, i) => ({
+                  content: (
+                      <DiscoverTile
+                          imageId={row.artistOwned ? row.artistId : null}
+                          isRound
+                          isUnowned={!row.artistOwned}
+                          itemType={LibraryItem.ALBUM_ARTIST}
+                          onClick={go(
+                              artistPath(
+                                  artistTarget(row.artistOwned ? row.artistId : '', row.artistMbid),
+                                  row.artist,
+                              ),
+                          )}
+                          subtitle={playsLabel(row.plays)}
+                          title={`${i + 1}. ${row.artist}`}
+                      />
+                  ),
+                  id: `${row.artistMbid}-${row.artist}`,
+              }));
+    return (
+        <Stack gap="md">
+            <Group gap="xs">
+                <Button
+                    onClick={() => onKind('album')}
+                    size="compact-sm"
+                    variant={kind === 'album' ? 'filled' : 'default'}
+                >
+                    Albums
+                </Button>
+                <Button
+                    onClick={() => onKind('artist')}
+                    size="compact-sm"
+                    variant={kind === 'artist' ? 'filled' : 'default'}
+                >
+                    Artists
+                </Button>
+            </Group>
+            <ReadLine
+                emptyText="Nothing here for this period."
+                onRetry={onRetry}
+                read={read}
+                unreachableText="lb-bot is not reachable, so this list cannot be read."
+            />
+            <DiscoverRow
+                because={`The ${kind === 'album' ? 'albums' : 'artists'} you played most ${periodPhrase(period)} that your library does not hold. lb-bot lists albums and artists here, not single songs.`}
+                cards={cards}
+                isEmpty={cards.length === 0}
+                title={
+                    kind === 'album' ? 'Albums not in your library' : 'Artists not in your library'
+                }
+            />
+        </Stack>
+    );
+};
 
 const timeOf = (epochSeconds: number): string =>
     new Date(epochSeconds * 1000).toLocaleString(undefined, {
@@ -443,6 +542,11 @@ const timeOf = (epochSeconds: number): string =>
         month: 'short',
     });
 
+/**
+ * Recent plays as song rows in the look of the play queue: cover, title, artist and
+ * album, when it was played. The cover is the album's, from the Navidrome id the row
+ * carries (the placeholder when there is none); nothing is requested per row.
+ */
 export const RecentSection = ({
     hasMore,
     loadingMore,
@@ -458,43 +562,67 @@ export const RecentSection = ({
     read: ReadState;
     rows: LbBotRecentRow[];
 }) => (
-    <Section title="Recent plays">
+    <Stack gap="sm">
         <ReadLine
             emptyText="No plays yet."
             onRetry={onRetry}
             read={read}
             unreachableText="lb-bot is not reachable, so recent plays cannot be read."
         />
-        {rows.map((row, index) => (
-            // The index too: two plays in the same second with no recording MBID
-            // share every other part of the key. Pages only append, so it is stable.
-            <div
-                className={styles.recent}
-                key={`${row.listenedAt}-${row.recordingMbid}-${row.track}-${index}`}
-            >
-                <MaybeLink
-                    to={albumPath(albumTarget(row.ndAlbumId, row.rgid), {
-                        artist: row.artist,
-                        artistMbid: row.artistMbid,
-                        title: row.release,
-                    })}
-                >
-                    {row.track}
-                </MaybeLink>
-                <MaybeLink
-                    to={artistPath(artistTarget(row.ndArtistId, row.artistMbid), row.artist)}
-                >
-                    {row.artist}
-                </MaybeLink>
-                <Text isMuted size="xs">
-                    {timeOf(row.listenedAt)}
-                </Text>
-            </div>
-        ))}
+        <div className={styles.history}>
+            {rows.map((row, index) => {
+                const view = recentRowView(row);
+                return (
+                    // The index too: two plays in the same second with no recording MBID
+                    // share every other part of the key. Pages only append, so it is stable.
+                    <div
+                        className={styles.entry}
+                        key={`${row.listenedAt}-${row.recordingMbid}-${row.track}-${index}`}
+                    >
+                        <ItemImage
+                            className={styles.photo}
+                            containerClassName={styles.thumb}
+                            id={view.imageId}
+                            itemType={LibraryItem.ALBUM}
+                            type="table"
+                        />
+                        <Stack gap={0} style={{ minWidth: 0 }}>
+                            <MaybeLink
+                                to={albumPath(albumTarget(row.ndAlbumId, row.rgid), {
+                                    artist: row.artist,
+                                    artistMbid: row.artistMbid,
+                                    title: row.release,
+                                })}
+                            >
+                                {view.title}
+                            </MaybeLink>
+                            <Group gap={4} wrap="nowrap">
+                                <MaybeLink
+                                    to={artistPath(
+                                        artistTarget(row.ndArtistId, row.artistMbid),
+                                        row.artist,
+                                    )}
+                                >
+                                    {row.artist}
+                                </MaybeLink>
+                                {row.release && (
+                                    <Text className={styles.clip} isMuted size="sm">
+                                        {`· ${row.release}`}
+                                    </Text>
+                                )}
+                            </Group>
+                        </Stack>
+                        <Text isMuted size="xs">
+                            {timeOf(row.listenedAt)}
+                        </Text>
+                    </div>
+                );
+            })}
+        </div>
         {hasMore && (
             <Button loading={loadingMore} onClick={onMore} size="compact-md" variant="default">
                 Show more
             </Button>
         )}
-    </Section>
+    </Stack>
 );

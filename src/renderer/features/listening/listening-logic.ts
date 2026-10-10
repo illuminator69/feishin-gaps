@@ -22,6 +22,17 @@ export const PERIOD_OPTIONS: { label: string; value: LbBotListeningPeriod }[] = 
     { label: 'All time', value: 'all' },
 ];
 
+const PERIOD_PHRASES: Record<LbBotListeningPeriod, string> = {
+    '7d': 'in the last 7 days',
+    '30d': 'in the last 30 days',
+    '90d': 'in the last 90 days',
+    '365d': 'in the last year',
+    all: 'of all time',
+};
+
+/** "in the last 30 days" - the period as a phrase for a ranking's reason line. */
+export const periodPhrase = (period: LbBotListeningPeriod): string => PERIOD_PHRASES[period];
+
 export const DEFAULT_PERIOD: LbBotListeningPeriod = '30d';
 
 export const formatListeningTime = (seconds: number): string => {
@@ -87,6 +98,62 @@ export const statusView = (status: LbBotListeningStatus): StatusView => {
     }
 };
 
+/** The page's four tabs (L1). */
+export type ListeningTab = 'activity' | 'history' | 'not-in-library' | 'overview';
+
+export const LISTENING_TABS: { id: ListeningTab; label: string }[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'activity', label: 'Activity' },
+    { id: 'history', label: 'History' },
+    { id: 'not-in-library', label: 'Not in library' },
+];
+
+export const DEFAULT_TAB: ListeningTab = 'overview';
+
+/** L2: the period picker is drawn where the period changes what is shown - not on History. */
+export const showsPeriodPicker = (tab: ListeningTab): boolean => tab !== 'history';
+
+/** The status in words, for the plain line shown when the history is ready. */
+export const describeListeningStatus = (status: LbBotListeningStatus): string => {
+    switch (status.state) {
+        case 'error':
+            return `${status.count} listens stored. The last sync failed: ${status.error || 'no reason given'}.`;
+        case 'importing':
+            return status.total !== null
+                ? `Importing ${status.count} of ${status.total} listens.`
+                : `Importing, ${status.count} listens so far.`;
+        case 'off':
+            return 'Listening history is not set up: lb-bot has no ListenBrainz user.';
+        default:
+            return `${status.count} listens stored${
+                status.total !== null && status.total !== status.count
+                    ? ` of ${status.total} on ListenBrainz`
+                    : ''
+            }.`;
+    }
+};
+
+/**
+ * L8: the status shown ONCE. A state with something to say (importing, error, off)
+ * is the banner and nothing else; only `ready` is a plain line. The range and last
+ * sync ride along either way, as one muted line.
+ */
+export const statusLines = (
+    status: LbBotListeningStatus,
+    when: (epochSeconds: null | number) => string,
+): { banner: null | { detail: string; headline: string }; line: string; meta: string } => {
+    const view = statusView(status);
+    const meta = [
+        rangeText(status.oldest, status.newest, when),
+        `last sync ${when(status.lastSyncAt)}`,
+    ]
+        .filter(Boolean)
+        .join(' · ');
+    return view.kind === 'ready'
+        ? { banner: null, line: describeListeningStatus(status), meta }
+        : { banner: { detail: view.detail, headline: view.headline }, line: '', meta };
+};
+
 export interface HeatmapCell {
     count: number;
     date: string;
@@ -94,11 +161,19 @@ export interface HeatmapCell {
     level: number;
 }
 
-/** `columns[week][weekday]`, Monday = row 0; null pads the first week. */
+/**
+ * `columns[week][weekday]`, Monday = row 0. `padBefore` / `padAfter` count the null
+ * cells at the start of the first column and the end of the last: a span that does
+ * not end on a Sunday leaves the last column short, so the bottom rows end one
+ * column before the top ones - the "last row sits one square to the left" the user
+ * saw. The cells are right (every date is in its weekday's row, for a span ending
+ * on any weekday - the harness pins it); the renderer draws the trailing pad as
+ * faint placeholders so every row visibly runs to the same end.
+ */
 export const heatmapGrid = (
     days: readonly LbBotDayCount[],
-): { columns: (HeatmapCell | null)[][]; max: number } => {
-    if (days.length === 0) return { columns: [], max: 0 };
+): { columns: (HeatmapCell | null)[][]; max: number; padAfter: number; padBefore: number } => {
+    if (days.length === 0) return { columns: [], max: 0, padAfter: 0, padBefore: 0 };
     const max = days.reduce((m, d) => Math.max(m, d.count), 0);
     const cells: (HeatmapCell | null)[] = days.map((d) => ({
         count: d.count,
@@ -112,12 +187,50 @@ export const heatmapGrid = (
     const offset = Number.isFinite(weekday) ? Math.floor(((weekday % 7) + 7) % 7) : 0;
     const padded = [...Array<null>(offset).fill(null), ...cells];
     const columns: (HeatmapCell | null)[][] = [];
+    let padAfter = 0;
     for (let i = 0; i < padded.length; i += 7) {
         const week = padded.slice(i, i + 7);
-        while (week.length < 7) week.push(null);
+        while (week.length < 7) {
+            week.push(null);
+            padAfter += 1;
+        }
         columns.push(week);
     }
-    return { columns, max };
+    return { columns, max, padAfter, padBefore: offset };
+};
+
+/** What the heat map says it shows: its own span, and that the picker does not change it. */
+export const heatmapCaption = (days: readonly LbBotDayCount[]): string => {
+    if (days.length === 0) return '';
+    const span = days.length % 7 === 0 ? `${days.length / 7} weeks` : `${days.length} days`;
+    return `Plays per day, ${days[0].date} to ${days[days.length - 1].date} (${span}). The period below does not change it.`;
+};
+
+const PERIOD_DAYS: Record<LbBotListeningPeriod, null | number> = {
+    '7d': 7,
+    '30d': 30,
+    '90d': 90,
+    '365d': 365,
+    all: null,
+};
+
+/** The plays-over-time series for the picked period: the tail of lb-bot's daily series. */
+export const dailyForPeriod = (
+    daily: readonly LbBotDayCount[],
+    period: LbBotListeningPeriod,
+): LbBotDayCount[] => {
+    const wanted = PERIOD_DAYS[period];
+    return wanted === null || wanted >= daily.length
+        ? [...daily]
+        : daily.slice(daily.length - wanted);
+};
+
+/** lb-bot's daily series is capped; a longer period says what is actually drawn. */
+export const dailyNote = (period: LbBotListeningPeriod, available: number): string => {
+    const wanted = PERIOD_DAYS[period];
+    return (wanted === null || wanted > available) && available > 0
+        ? `Showing the last ${available} days, the longest daily series lb-bot sends.`
+        : '';
 };
 
 export const hoursBars = (
@@ -229,3 +342,52 @@ export const rangeText = (
     if (newest !== null) return `Range up to ${format(newest)}`;
     return '';
 };
+
+// ---------------------------------------------------------------------------
+// What a card or a row shows (L4, L6): text and the Navidrome id for the picture.
+// No id means the placeholder - never a request to find one.
+// ---------------------------------------------------------------------------
+
+export interface CardView {
+    imageId: null | string;
+    subtitle: string;
+    title: string;
+}
+
+export const albumCardView = (
+    album: { artist: string; ndAlbumId: string; owned: boolean; plays: number; title: string },
+    rank: number,
+): CardView => ({
+    imageId: album.ndAlbumId || null,
+    subtitle: `${album.artist} · ${playsLabel(album.plays)}${album.owned ? '' : ' · not in your library'}`,
+    title: `${rank}. ${album.title}`,
+});
+
+export const artistCardView = (
+    artist: { name: string; ndArtistId: string; plays: number },
+    rank: number,
+): CardView => ({
+    imageId: artist.ndArtistId || null,
+    subtitle: playsLabel(artist.plays),
+    title: `${rank}. ${artist.name}`,
+});
+
+export const trackCardView = (
+    track: { artist: string; ndAlbumId: string; plays: number; title: string },
+    rank: number,
+): CardView => ({
+    imageId: track.ndAlbumId || null,
+    subtitle: `${track.artist} · ${playsLabel(track.plays)}`,
+    title: `${rank}. ${track.title}`,
+});
+
+export const recentRowView = (row: {
+    artist: string;
+    ndAlbumId: string;
+    release: string;
+    track: string;
+}): CardView => ({
+    imageId: row.ndAlbumId || null,
+    subtitle: row.release ? `${row.artist} · ${row.release}` : row.artist,
+    title: row.track,
+});
