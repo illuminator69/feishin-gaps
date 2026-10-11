@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { albumDownloadBody } from '../../../../shared/utils/lbbot-album-wire.ts';
-import { allFilesConfirmation, extraFilesView, leftOutText } from './album-download.ts';
+import {
+    allFilesConfirmation,
+    extraFilesView,
+    leftOutText,
+    nextFillExtras,
+} from './album-download.ts';
 
 /**
  * B-084: "N more files in this folder" and "Download all M files" on the album source
@@ -128,4 +133,57 @@ test('status line: leftOut 0 or absent adds nothing; > 0 says how many were left
     assert.equal(leftOutText(-1), '');
     assert.equal(leftOutText(1), '1 other file in the folder was left out');
     assert.equal(leftOutText(6), '6 other files in the folder were left out');
+});
+
+// --- fix round 1 (I1): a frame that lacks leftOut / allFiles keeps what the row had ------------
+
+/** Applies what `nextFillExtras` says to write onto a stored row, as `describe` does. */
+const apply = (
+    stored: { allFiles?: boolean; leftOut?: number; source?: string },
+    status: { allFiles?: boolean; leftOut?: number; source: string },
+    sameFill = true,
+) => ({ ...stored, ...nextFillExtras(stored, status, { sameFill }) });
+
+test('I1: a frame without the keys, after a poll that said leftOut 6, leaves 6', () => {
+    const polled = { allFiles: false, leftOut: 6, source: 'bob' };
+    const next = apply(polled, { source: 'bob' });
+    assert.equal(next.leftOut, 6);
+    assert.equal(leftOutText(next.leftOut), '6 other files in the folder were left out');
+});
+
+test('I1: a frame that carries the key sets it - 0 and false included', () => {
+    const polled = { allFiles: true, leftOut: 6, source: 'bob' };
+    assert.equal(apply(polled, { allFiles: false, leftOut: 0, source: 'bob' }).leftOut, 0);
+    assert.equal(apply(polled, { allFiles: false, leftOut: 0, source: 'bob' }).allFiles, false);
+    assert.equal(apply(polled, { leftOut: 3, source: 'bob' }).leftOut, 3);
+    // each key is judged on its own
+    const half = apply(polled, { leftOut: 3, source: 'bob' });
+    assert.equal(half.allFiles, true);
+});
+
+test("I1: a frame for ANOTHER source without the key is not the old source's 6", () => {
+    const polled = { allFiles: true, leftOut: 6, source: 'bob' };
+    const next = apply(polled, { source: 'carol' });
+    assert.equal(next.leftOut, 0);
+    assert.equal(next.allFiles, false);
+    // an empty source (not queued yet) says nothing about a switch: the value stays
+    assert.equal(apply(polled, { source: '' }).leftOut, 6);
+    // a row that never knew its source cannot claim a switch: the value stays
+    assert.equal(apply({ leftOut: 6 }, { source: 'carol' }).leftOut, 6);
+});
+
+test("I1: a reopened row (a new fill of the same release) drops the old fill's numbers", () => {
+    const polled = { allFiles: true, leftOut: 6, source: 'bob' };
+    const next = apply(polled, { source: 'bob' }, false);
+    assert.equal(next.leftOut, 0);
+    assert.equal(next.allFiles, false);
+    // ...unless the new fill's own status carries them
+    assert.equal(apply(polled, { leftOut: 2, source: 'bob' }, false).leftOut, 2);
+});
+
+test('I1: an old lb-bot (no keys anywhere) shows nothing', () => {
+    const next = apply({ source: '' }, { source: 'bob' });
+    assert.equal(next.leftOut, undefined);
+    assert.equal(leftOutText(next.leftOut), '');
+    assert.equal(next.allFiles, undefined);
 });

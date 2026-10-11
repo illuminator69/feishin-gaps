@@ -66,3 +66,30 @@ export const leftOutText = (leftOut: number | undefined): string =>
     typeof leftOut === 'number' && leftOut > 0
         ? `${leftOut} other ${leftOut === 1 ? 'file' : 'files'} in the folder ${leftOut === 1 ? 'was' : 'were'} left out`
         : '';
+
+/**
+ * Which of a fill's `leftOut` / `allFiles` to write onto its ledger row for a status
+ * (a poll, a hub `fill` frame, `/lb/fills`). A key the status CARRIES sets the value,
+ * 0 and false included. A key it does not carry is not 0 or false - an older hub
+ * rebuilds the frame without it - so the stored value stays, with two exceptions
+ * where it would be a stale claim: the status is a NEW fill of the release
+ * (`sameFill: false`, a reopened row), or it names a different source than the one
+ * the stored numbers were read for (a switch: lb-bot recomputes both for the new
+ * source). An empty source (not queued yet) says nothing about a switch. An old
+ * lb-bot carries neither key ever, so nothing is written and nothing is shown.
+ * Returns only the keys to write.
+ */
+export const nextFillExtras = (
+    stored: { allFiles?: boolean; leftOut?: number; source?: string },
+    status: { allFiles?: boolean; leftOut?: number; source: string },
+    options: { sameFill: boolean },
+): { allFiles?: boolean; leftOut?: number } => {
+    const switched = !!status.source && !!stored.source && status.source !== stored.source;
+    const stale = !options.sameFill || switched;
+    const out: { allFiles?: boolean; leftOut?: number } = {};
+    if (status.leftOut !== undefined) out.leftOut = status.leftOut;
+    else if (stale) out.leftOut = 0;
+    if (status.allFiles !== undefined) out.allFiles = status.allFiles;
+    else if (stale) out.allFiles = false;
+    return out;
+};

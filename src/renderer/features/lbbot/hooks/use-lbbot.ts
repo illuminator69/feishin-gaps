@@ -84,6 +84,7 @@ import {
     useActiveFillsStore,
     useActiveGap,
 } from '/@/renderer/features/lbbot/stores/active-fills.store';
+import { nextFillExtras } from '/@/renderer/features/lbbot/utils/album-download';
 import {
     fieldedAlbumQuery,
     normalizeAlbumTitle,
@@ -1785,7 +1786,8 @@ export const fillFrameToStatus = (frame: LbBotFillFrame): LbBotFillStatus => {
     return {
         activeFiles: num(frame.activeFiles),
         album: str(frame.album),
-        allFiles: frame.allFiles === true,
+        // B-084: a frame without the key (an older hub rebuilds it) leaves it undefined.
+        ...(typeof frame.allFiles === 'boolean' ? { allFiles: frame.allFiles } : {}),
         allowMp3: frame.allowMp3 === true,
         artist: str(frame.artist),
         attempts: num(frame.attempts),
@@ -1799,7 +1801,9 @@ export const fillFrameToStatus = (frame: LbBotFillFrame): LbBotFillStatus => {
         failed: num(frame.failed),
         failureKind: str(frame.failureKind) as LbBotFillStatus['failureKind'],
         groupId: str(frame.groupId),
-        leftOut: num(frame.leftOut),
+        ...(typeof frame.leftOut === 'number' && Number.isFinite(frame.leftOut)
+            ? { leftOut: frame.leftOut }
+            : {}),
         mp3WouldHelp: frame.mp3WouldHelp === true,
         percent: num(frame.percent),
         quality: str(frame.quality),
@@ -1839,8 +1843,26 @@ export const applyFillStatus = (rgid: string, status: LbBotFillStatus, now = Dat
     const { actions, fills } = useActiveFillsStore.getState();
     const fill = fills[rgid];
     const mbid = status.releaseMbid || fill?.releaseMbid;
+    // B-084: `leftOut` / `allFiles` that this status does not carry are what the row
+    // already knew (see `nextFillExtras`), so a frame never blanks them.
+    const known = {
+        allFiles: fill?.allFiles,
+        leftOut: fill?.leftOut,
+        source: fill?.lastSource,
+    };
+    const carried = nextFillExtras(known, status, { sameFill: true });
     // Keep an open modal's single-item read in step with what the ledger heard.
-    if (mbid) registry.queryClient?.setQueryData(['lbbot', 'album-status', mbid], status);
+    if (mbid) {
+        registry.queryClient?.setQueryData(['lbbot', 'album-status', mbid], {
+            ...status,
+            ...((carried.allFiles ?? known.allFiles) !== undefined
+                ? { allFiles: carried.allFiles ?? known.allFiles }
+                : {}),
+            ...((carried.leftOut ?? known.leftOut) !== undefined
+                ? { leftOut: carried.leftOut ?? known.leftOut }
+                : {}),
+        });
+    }
     if (!fill) return;
     actions.noteCheck(rgid, '');
 
@@ -1858,6 +1880,8 @@ export const applyFillStatus = (rgid: string, status: LbBotFillStatus, now = Dat
         return;
     }
 
+    // A reopened row is a new fill of the release: the old fill's numbers go with it.
+    let reopened = false;
     // A settled row whose server side has come back to life — lb-bot's own
     // automatic retry, a wishlist re-search, a retry from the other client —
     // re-opens, so the ledger follows the fill rather than its last verdict.
@@ -1872,6 +1896,7 @@ export const applyFillStatus = (rgid: string, status: LbBotFillStatus, now = Dat
             return;
         }
         actions.reopen(rgid, status.releaseMbid);
+        reopened = true;
     }
 
     const moved =
@@ -1881,7 +1906,7 @@ export const applyFillStatus = (rgid: string, status: LbBotFillStatus, now = Dat
         status.bytesDone !== (fill.bytesDone ?? 0);
     actions.describe(rgid, {
         album: status.album,
-        allFiles: status.allFiles,
+        ...nextFillExtras(known, status, { sameFill: !reopened }),
         allowMp3: status.allowMp3,
         artist: status.artist,
         attempts: status.attempts,
@@ -1893,7 +1918,6 @@ export const applyFillStatus = (rgid: string, status: LbBotFillStatus, now = Dat
         failureKind: status.failureKind,
         groupId: status.groupId,
         lastSource: status.source,
-        leftOut: status.leftOut,
         mp3WouldHelp: status.mp3WouldHelp,
         percent: status.percent,
         retryable: status.retryable,

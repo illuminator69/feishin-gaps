@@ -491,9 +491,13 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
                             <SourceList
                                 downloadDisabled={busy || !release.rgid}
                                 filesFor={filesFor}
-                                onDownloadAll={(source) =>
-                                    void handleDownload({ allFiles: true, source })
-                                }
+                                onDownloadAll={(source) => {
+                                    // The row being downloaded is the selected one, so the
+                                    // highlight and the footer describe what is happening.
+                                    setChosen(source);
+                                    setPickedManually(true);
+                                    void handleDownload({ allFiles: true, source });
+                                }}
                                 onSelect={(source) => {
                                     setChosen(source);
                                     setPickedManually(true);

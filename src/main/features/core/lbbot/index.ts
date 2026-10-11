@@ -1793,7 +1793,6 @@ const toFailureKind = (value: unknown): LbBotFailureKind => {
 const UNKNOWN_STATUS: LbBotFillStatus = {
     activeFiles: 0,
     album: '',
-    allFiles: false,
     allowMp3: false,
     artist: '',
     attempts: 0,
@@ -1804,7 +1803,6 @@ const UNKNOWN_STATUS: LbBotFillStatus = {
     failed: 0,
     failureKind: '',
     groupId: '',
-    leftOut: 0,
     mp3WouldHelp: false,
     percent: 0,
     quality: '',
@@ -1855,7 +1853,8 @@ export const toFillStatus = (data: Json | null): LbBotFillStatus => {
     return {
         activeFiles: num(data.activeFiles),
         album: str(data.album),
-        allFiles: data.allFiles === true,
+        // B-084: a key lb-bot did not send stays absent - not false, not 0.
+        ...(typeof data.allFiles === 'boolean' ? { allFiles: data.allFiles } : {}),
         allowMp3: data.allowMp3 === true,
         artist: str(data.artist),
         attempts: num(data.attempts),
@@ -1866,8 +1865,9 @@ export const toFillStatus = (data: Json | null): LbBotFillStatus => {
         failed: num(data.failed),
         failureKind: legacyCancel ? '' : toFailureKind(data.failureKind),
         groupId: str(data.groupId),
-        // B-084: an old row or lb-bot sends nothing, which reads as 0.
-        leftOut: num(data.leftOut),
+        ...(typeof data.leftOut === 'number' && Number.isFinite(data.leftOut)
+            ? { leftOut: data.leftOut }
+            : {}),
         mp3WouldHelp: data.mp3WouldHelp === true,
         percent: num(data.percent),
         quality: str(data.quality),

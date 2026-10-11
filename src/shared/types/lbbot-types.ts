@@ -485,8 +485,10 @@ export interface LbBotFillStatus {
     activeFiles: number;
     album: string;
     /** B-084: the fill's CURRENT source was asked for every audio file at the user's
-     *  request; false after a switch to another source, and on old rows. */
-    allFiles: boolean;
+     *  request; false after a switch to another source. UNDEFINED when the status does
+     *  not carry the key (an older hub's `fill` frame, an older lb-bot): absent is not
+     *  false, and the ledger keeps what it had. */
+    allFiles?: boolean;
     /** This fill was started with the MP3 opt-in (whole-album counterpart of a
      *  gap group's `allowMp3`). */
     allowMp3: boolean;
@@ -510,7 +512,7 @@ export interface LbBotFillStatus {
     /** B-084: audio files of the current source's folder (the peer's full listing,
      *  read at the download) that were NOT asked for; 0 when the folder was asked
      *  whole, and on old rows. */
-    leftOut: number;
+    leftOut?: number;
     /** The search rejected mp3s and would have found something with them. */
     mp3WouldHelp: boolean;
     percent: number;
