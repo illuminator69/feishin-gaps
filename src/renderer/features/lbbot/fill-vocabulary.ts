@@ -1,4 +1,5 @@
 import { LedgerRow } from '/@/renderer/features/lbbot/stores/active-fills.store';
+import { leftOutText } from '/@/renderer/features/lbbot/utils/album-download';
 import { LbBotFillState } from '/@/shared/types/lbbot-types';
 
 /**
@@ -112,6 +113,8 @@ export const describeFill = (row: LedgerRow, now: number = Date.now()): FillPres
             if (row.speedBps > 0) parts.push(formatSpeed(row.speedBps));
             if (row.lastSourcePeer) parts.push(`@${row.lastSourcePeer}`);
             if (row.failed > 0) parts.push(`${row.failed} failed`);
+            // B-084: files of the folder that were not asked for (lb-bot's `leftOut`).
+            if (leftOutText(row.leftOut)) parts.push(leftOutText(row.leftOut));
             if (parts.length) sublines.push(parts.join(' · '));
             progress = row.bytesTotal > 0 || row.total > 0 ? 'determinate' : 'indeterminate';
             percent = row.percent;
@@ -145,6 +148,7 @@ export const describeFill = (row: LedgerRow, now: number = Date.now()): FillPres
             headline = row.verifyGaveUp
                 ? "Added — Navidrome hasn't indexed it yet"
                 : 'In your library';
+            if (leftOutText(row.leftOut)) sublines.push(leftOutText(row.leftOut));
             if (row.rgid) buttons.push('openAlbum');
             break;
         case 'gaveUp':

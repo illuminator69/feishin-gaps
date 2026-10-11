@@ -214,8 +214,11 @@ const downloadAlbum = (
     edition?: LbBotResolvedEdition,
     excludeUsers?: string[],
     allowMp3?: boolean,
+    /** B-084: ask the picked folder for every audio file (needs `source`). */
+    allFiles?: boolean,
 ): Promise<LbBotDownloadResult> =>
     ipcRenderer.invoke('lbbot-download-album', {
+        allFiles,
         allowMp3,
         artist: edition?.artist,
         excludeUsers,

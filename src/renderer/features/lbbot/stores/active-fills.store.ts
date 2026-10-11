@@ -35,6 +35,8 @@ export interface ActiveFill {
      *  later, on a page with no artist behind it, and by then lb-bot may have
      *  forgotten the fill entirely — its own record of these is in memory. */
     album?: string;
+    /** B-084: the current source was asked for every file (lb-bot's `allFiles`). */
+    allFiles?: boolean;
     /** Started with the MP3 opt-in, so a Retry re-sends it. */
     allowMp3?: boolean;
     artist?: string;
@@ -83,6 +85,8 @@ export interface ActiveFill {
     /** The peer lb-bot actually queued from, learned from a status poll — the one
      *  to exclude when the user asks for another source. */
     lastSource?: string;
+    /** B-084: audio files of the current source's folder that were not asked for. */
+    leftOut?: number;
     /** The search rejected mp3s and would have found something with them. */
     mp3WouldHelp?: boolean;
     outcome?: FillOutcome;
@@ -476,6 +480,8 @@ export const usePreferredQuality = (): string =>
  *  same shape, since the view renders them side by side and only the retry differs. */
 export interface LedgerRow {
     album: string;
+    /** B-084: see `ActiveFill.allFiles`; false for a gap. */
+    allFiles: boolean;
     artist: string;
     /** lb-bot's own attempt count, including its automatic retries. 0 when it
      *  predates the field, which is why the view only shows it above 1. */
@@ -501,6 +507,8 @@ export interface LedgerRow {
     lastErrorTicks: number;
     /** The peer the current transfer is from, for the sub-line. */
     lastSourcePeer: string;
+    /** B-084: files of the folder not asked for; 0 for a gap and for old rows. */
+    leftOut: number;
     mp3WouldHelp: boolean;
     /** Peers a "Try another source" would exclude: the one lb-bot queued from and
      *  any ruled out before. Empty when no peer is known yet, or for a gap. */
@@ -527,6 +535,7 @@ export interface LedgerRow {
 
 const toRow = (entry: ActiveFill | ActiveGap, isGap: boolean): LedgerRow => ({
     album: entry.album ?? '',
+    allFiles: isGap ? false : ((entry as ActiveFill).allFiles ?? false),
     artist: entry.artist ?? '',
     attempts: isGap ? 0 : ((entry as ActiveFill).attempts ?? 0),
     bytesDone: isGap ? 0 : ((entry as ActiveFill).bytesDone ?? 0),
@@ -548,6 +557,7 @@ const toRow = (entry: ActiveFill | ActiveGap, isGap: boolean): LedgerRow => ({
     lastError: entry.lastError ?? '',
     lastErrorTicks: entry.lastErrorTicks ?? 0,
     lastSourcePeer: isGap ? '' : ((entry as ActiveFill).lastSource ?? ''),
+    leftOut: isGap ? 0 : ((entry as ActiveFill).leftOut ?? 0),
     mp3WouldHelp: entry.mp3WouldHelp ?? false,
     otherSourceExcludes: isGap
         ? []

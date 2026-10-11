@@ -251,3 +251,41 @@ export const mergePreviewParams = (plan: {
     fromNdId: string;
     ndId: string;
 }): { from_nd_id: string; nd_id: string } => ({ from_nd_id: plan.fromNdId, nd_id: plan.ndId });
+
+/**
+ * The body of `POST /lb/album/download`. `allFiles` (B-084) rides only when it is
+ * `true` AND a source was picked (`sourceUsername`): lb-bot answers 400 to all-files
+ * without a pick, so the client never sends one. The hub drops unlisted keys, so
+ * every key here is in its allowlist.
+ */
+export const albumDownloadBody = (args: {
+    allFiles?: boolean;
+    allowMp3?: boolean;
+    artist?: string;
+    excludeUsers?: string[];
+    quality?: string;
+    releaseMbid?: string;
+    rgid: string;
+    sourceFolder?: string;
+    sourceUsername?: string;
+    title?: string;
+    totalTracks?: number;
+}): Record<string, unknown> => ({
+    rgid: args.rgid,
+    // The edition the user picked, which lb-bot now honours instead of re-resolving
+    // the group to "official, earliest"; `rgid` still rides along (placement uses it).
+    ...(args.releaseMbid
+        ? {
+              artist: args.artist ?? '',
+              release_mbid: args.releaseMbid,
+              title: args.title ?? '',
+              total_tracks: args.totalTracks ?? 0,
+          }
+        : {}),
+    ...(args.quality ? { quality: args.quality } : {}),
+    ...(args.sourceUsername ? { sourceUsername: args.sourceUsername } : {}),
+    ...(args.sourceFolder ? { sourceFolder: args.sourceFolder } : {}),
+    ...(args.excludeUsers?.length ? { excludeUsers: args.excludeUsers } : {}),
+    ...(args.allowMp3 ? { allowMp3: true } : {}),
+    ...(args.allFiles === true && args.sourceUsername ? { allFiles: true } : {}),
+});

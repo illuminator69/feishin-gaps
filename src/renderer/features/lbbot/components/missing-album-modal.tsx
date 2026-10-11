@@ -23,6 +23,7 @@ import {
     useActiveFillsActions,
     usePreferredQuality,
 } from '/@/renderer/features/lbbot/stores/active-fills.store';
+import { allFilesConfirmation, leftOutText } from '/@/renderer/features/lbbot/utils/album-download';
 import { PreviewButton } from '/@/renderer/features/preview/components/preview-button';
 import { Badge } from '/@/shared/components/badge/badge';
 import { Button } from '/@/shared/components/button/button';
@@ -224,22 +225,28 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
         [openFiles],
     );
 
-    const handleDownload = async (options: { allowMp3?: boolean } = {}) => {
+    const handleDownload = async (
+        options: { allFiles?: boolean; allowMp3?: boolean; source?: LbBotGapSource } = {},
+    ) => {
         // A source is required — the picker is the whole point of the review
         // step, and "Download" with none selected posted a blind fill that
         // lb-bot ranked on its own. The one-tap acquire is the deliberate
         // shortcut for the unambiguous case; this is not it.
-        if (busy || !selected) return;
+        // `source` is the row whose own "Download all" was pressed - that folder, not the
+        // selected one; every other download is the selected source, tracks only.
+        const source = options.source ?? selected;
+        if (busy || !source) return;
         setStarting(true);
         try {
             const result = await startAlbumDownload(
                 release.rgid,
                 preferredQuality,
-                { folder: selected.folder, peer: selected.peer },
+                { folder: source.folder, peer: source.peer },
                 resolvedEdition,
                 undefined,
                 undefined,
                 options.allowMp3 === true,
+                options.allFiles === true,
             );
             if (!result.ok) {
                 // lb-bot writes its errors for humans, so this is its own
@@ -252,8 +259,18 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
             // sent above, so the two normally agree — but its answer is still
             // the authority on what to poll.
             setWatchedMbid(result.releaseMbid || releaseMbid);
-            if (result.existing) {
+            // The echo decides what is said (B-084): all files only when lb-bot says so.
+            const confirmation = allFilesConfirmation({
+                asked: options.allFiles === true,
+                echo: result.allFiles,
+                existing: result.existing,
+                fileCount: source.fileCount,
+                peer: source.peer,
+            });
+            if (confirmation.kind === 'existing') {
                 toast.show({ message: 'Already downloading this album' });
+            } else if (confirmation.text) {
+                toast.show({ message: confirmation.text });
             }
         } finally {
             setStarting(false);
@@ -472,7 +489,11 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
 
                         {sourcesQuery.sources && sourcesQuery.sources.length > 0 && (
                             <SourceList
+                                downloadDisabled={busy || !release.rgid}
                                 filesFor={filesFor}
+                                onDownloadAll={(source) =>
+                                    void handleDownload({ allFiles: true, source })
+                                }
                                 onSelect={(source) => {
                                     setChosen(source);
                                     setPickedManually(true);
@@ -513,6 +534,9 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
                             {status.data?.total ? (
                                 <Text isMuted size="sm">
                                     {status.data.done}/{status.data.total} files
+                                    {leftOutText(status.data.leftOut)
+                                        ? ` · ${leftOutText(status.data.leftOut)}`
+                                        : ''}
                                 </Text>
                             ) : null}
                         </Group>

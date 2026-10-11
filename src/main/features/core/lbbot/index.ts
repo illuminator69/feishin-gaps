@@ -81,6 +81,7 @@ import { BrowserWindow, ipcMain, Notification } from 'electron';
 import { getHubConfig } from '../hub';
 
 import {
+    albumDownloadBody,
     mergePreviewParams,
     mergeStartBody,
     toAlbumRows,
@@ -1792,6 +1793,7 @@ const toFailureKind = (value: unknown): LbBotFailureKind => {
 const UNKNOWN_STATUS: LbBotFillStatus = {
     activeFiles: 0,
     album: '',
+    allFiles: false,
     allowMp3: false,
     artist: '',
     attempts: 0,
@@ -1802,6 +1804,7 @@ const UNKNOWN_STATUS: LbBotFillStatus = {
     failed: 0,
     failureKind: '',
     groupId: '',
+    leftOut: 0,
     mp3WouldHelp: false,
     percent: 0,
     quality: '',
@@ -1852,6 +1855,7 @@ export const toFillStatus = (data: Json | null): LbBotFillStatus => {
     return {
         activeFiles: num(data.activeFiles),
         album: str(data.album),
+        allFiles: data.allFiles === true,
         allowMp3: data.allowMp3 === true,
         artist: str(data.artist),
         attempts: num(data.attempts),
@@ -1862,6 +1866,8 @@ export const toFillStatus = (data: Json | null): LbBotFillStatus => {
         failed: num(data.failed),
         failureKind: legacyCancel ? '' : toFailureKind(data.failureKind),
         groupId: str(data.groupId),
+        // B-084: an old row or lb-bot sends nothing, which reads as 0.
+        leftOut: num(data.leftOut),
         mp3WouldHelp: data.mp3WouldHelp === true,
         percent: num(data.percent),
         quality: str(data.quality),
@@ -1891,6 +1897,8 @@ ipcMain.handle(
     async (
         _event,
         args: {
+            /** B-084: ask the picked folder for every audio file in it (needs a source). */
+            allFiles?: boolean;
             /** Widen this one album's search to MP3 — the whole-album counterpart
              *  of a gap group's opt-in, for a `format_rejected` fill with no group. */
             allowMp3?: boolean;
@@ -1914,31 +1922,14 @@ ipcMain.handle(
         // this download look like an override in its own status view. Same for
         // the chosen source — absent means "let lb-bot rank".
         const result = await request('POST', '/lb/album/download', {
-            body: {
-                rgid: args.rgid,
-                // The edition the user picked, which lb-bot now honours instead
-                // of re-resolving the group to "official, earliest" — and which
-                // also sidesteps its MusicBrainz failure cooldown. `rgid` still
-                // rides along: placement uses it to flip the index row.
-                ...(args.releaseMbid
-                    ? {
-                          artist: args.artist ?? '',
-                          release_mbid: args.releaseMbid,
-                          title: args.title ?? '',
-                          total_tracks: args.totalTracks ?? 0,
-                      }
-                    : {}),
-                ...(args.quality ? { quality: args.quality } : {}),
-                ...(args.sourceUsername ? { sourceUsername: args.sourceUsername } : {}),
-                ...(args.sourceFolder ? { sourceFolder: args.sourceFolder } : {}),
-                ...(args.excludeUsers?.length ? { excludeUsers: args.excludeUsers } : {}),
-                ...(args.allowMp3 ? { allowMp3: true } : {}),
-            },
+            body: albumDownloadBody(args),
         });
         const data = result.data;
         const resolved = (data?.resolved ?? {}) as Json;
         const ok = result.ok && data?.ok === true;
         return {
+            // B-084: the echo of `allFiles`; absent stays undefined (an older hub or lb-bot).
+            ...(typeof data?.allFiles === 'boolean' ? { allFiles: data.allFiles } : {}),
             // A 200 carrying `ok: false` is lb-bot refusing for its own reason —
             // which it states in `error`, and which is the sentence worth showing.
             error: ok ? '' : result.error || str(data?.error) || 'lb-bot refused the download.',
@@ -2122,6 +2113,10 @@ const toSource = (row: unknown): LbBotGapSource[] => {
             coverage: str(r.coverage),
             coverageDetail: toCoverage(r.coverageDetail),
             coverageFull: r.coverageFull === true,
+            // B-084: absent stays absent (unknown), never 0 - and a gap-fill row has none.
+            ...(typeof r.extraFiles === 'number' && Number.isFinite(r.extraFiles)
+                ? { extraFiles: r.extraFiles }
+                : {}),
             fileCount: num(r.fileCount),
             files: Array.isArray(r.files) ? r.files.flatMap(toSourceFile) : [],
             filesTruncated: r.filesTruncated === true,

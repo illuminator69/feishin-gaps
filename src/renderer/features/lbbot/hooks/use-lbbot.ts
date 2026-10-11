@@ -1785,6 +1785,7 @@ export const fillFrameToStatus = (frame: LbBotFillFrame): LbBotFillStatus => {
     return {
         activeFiles: num(frame.activeFiles),
         album: str(frame.album),
+        allFiles: frame.allFiles === true,
         allowMp3: frame.allowMp3 === true,
         artist: str(frame.artist),
         attempts: num(frame.attempts),
@@ -1798,6 +1799,7 @@ export const fillFrameToStatus = (frame: LbBotFillFrame): LbBotFillStatus => {
         failed: num(frame.failed),
         failureKind: str(frame.failureKind) as LbBotFillStatus['failureKind'],
         groupId: str(frame.groupId),
+        leftOut: num(frame.leftOut),
         mp3WouldHelp: frame.mp3WouldHelp === true,
         percent: num(frame.percent),
         quality: str(frame.quality),
@@ -1879,6 +1881,7 @@ export const applyFillStatus = (rgid: string, status: LbBotFillStatus, now = Dat
         status.bytesDone !== (fill.bytesDone ?? 0);
     actions.describe(rgid, {
         album: status.album,
+        allFiles: status.allFiles,
         allowMp3: status.allowMp3,
         artist: status.artist,
         attempts: status.attempts,
@@ -1890,6 +1893,7 @@ export const applyFillStatus = (rgid: string, status: LbBotFillStatus, now = Dat
         failureKind: status.failureKind,
         groupId: status.groupId,
         lastSource: status.source,
+        leftOut: status.leftOut,
         mp3WouldHelp: status.mp3WouldHelp,
         percent: status.percent,
         retryable: status.retryable,
@@ -2207,6 +2211,10 @@ export const startAlbumDownload = async (
     /** Widen this one album's search to MP3 — the whole-album counterpart of a
      *  gap group's opt-in. */
     allowMp3?: boolean,
+    /** B-084: ask the picked folder for every audio file in it (needs `source`). The
+     *  retry and "another source" paths never pass it: all files is consent for one
+     *  folder, once. */
+    allFiles?: boolean,
 ): Promise<LbBotDownloadResult> => {
     if (!lbBot) {
         return {
@@ -2224,6 +2232,7 @@ export const startAlbumDownload = async (
         edition,
         excludeUsers,
         allowMp3,
+        allFiles,
     );
     if (result.ok) {
         // Registered here rather than in the sheet: the fill takes minutes, and

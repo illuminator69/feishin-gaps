@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next';
 
 import styles from './source-list.module.css';
 
+import { extraFilesView } from '/@/renderer/features/lbbot/utils/album-download';
 import { Badge } from '/@/shared/components/badge/badge';
+import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
 import { Skeleton } from '/@/shared/components/skeleton/skeleton';
 import { Stack } from '/@/shared/components/stack/stack';
@@ -34,8 +36,13 @@ interface SourceFilesView {
 }
 
 interface SourceListProps {
+    /** The "Download all M files" action is offered only where a caller supplies this -
+     *  the whole-album download. The gap-fill picker passes none, so its rows show
+     *  nothing new even if a source carried `extraFiles`. */
+    downloadDisabled?: boolean;
     /** Null when the row is collapsed. */
     filesFor: (source: LbBotGapSource) => null | SourceFilesView;
+    onDownloadAll?: (source: LbBotGapSource) => void;
     onSelect: (source: LbBotGapSource) => void;
     onToggleFiles: (source: LbBotGapSource) => void;
     selectedId: null | number;
@@ -164,7 +171,9 @@ const SourceFiles = ({ view }: { view: SourceFilesView }) => {
 };
 
 export const SourceList = ({
+    downloadDisabled,
     filesFor,
+    onDownloadAll,
     onSelect,
     onToggleFiles,
     selectedId,
@@ -176,6 +185,7 @@ export const SourceList = ({
         <div className={styles.list}>
             {sources.map((source) => {
                 const view = filesFor(source);
+                const extra = onDownloadAll ? extraFilesView(source) : null;
                 return (
                     <div
                         className={clsx(styles.source, {
@@ -262,6 +272,27 @@ export const SourceList = ({
                                 {view ? 'Hide files' : `Show files (${source.fileCount})`}
                             </Text>
                         </button>
+
+                        {/* B-084: only when lb-bot said this folder holds more than a plain
+                        download asks for. Quiet line, then a secondary action: the
+                        primary one (the footer's Download) still means "the album's
+                        tracks". Wraps, so a long folder name or a narrow modal never
+                        pushes it off the row. */}
+                        {extra && onDownloadAll && (
+                            <Group gap="sm" wrap="wrap">
+                                <Text isMuted size="xs">
+                                    {extra.line}
+                                </Text>
+                                <Button
+                                    disabled={downloadDisabled}
+                                    onClick={() => onDownloadAll(source)}
+                                    size="compact-xs"
+                                    variant="subtle"
+                                >
+                                    {extra.action}
+                                </Button>
+                            </Group>
+                        )}
 
                         {view && <SourceFiles view={view} />}
                     </div>

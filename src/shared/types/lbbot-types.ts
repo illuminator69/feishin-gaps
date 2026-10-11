@@ -34,6 +34,11 @@ export interface LbBotDiscography {
 }
 
 export interface LbBotDownloadResult {
+    /** B-084: what lb-bot understood of `allFiles` - the echo on every 200 (for an
+     *  `existing` fill, what THAT fill was started with). Undefined when the answer
+     *  carries none (an older hub or lb-bot): a client that asked for all files and
+     *  reads this as not-true must not claim "all files". */
+    allFiles?: boolean;
     /** Empty when ok. lb-bot's own sentence where it wrote one — it writes them
      *  for humans, so it is shown verbatim rather than paraphrased. */
     error: string;
@@ -479,6 +484,9 @@ export interface LbBotFillStatus {
     /** Transfers slskd reports as in progress right now. */
     activeFiles: number;
     album: string;
+    /** B-084: the fill's CURRENT source was asked for every audio file at the user's
+     *  request; false after a switch to another source, and on old rows. */
+    allFiles: boolean;
     /** This fill was started with the MP3 opt-in (whole-album counterpart of a
      *  gap group's `allowMp3`). */
     allowMp3: boolean;
@@ -499,6 +507,10 @@ export interface LbBotFillStatus {
     failureKind: LbBotFailureKind;
     /** lb-bot review group, when the album has one — required for Allow MP3. */
     groupId: string;
+    /** B-084: audio files of the current source's folder (the peer's full listing,
+     *  read at the download) that were NOT asked for; 0 when the folder was asked
+     *  whole, and on old rows. */
+    leftOut: number;
     /** The search rejected mp3s and would have found something with them. */
     mp3WouldHelp: boolean;
     percent: number;
@@ -677,6 +689,9 @@ export interface LbBotGapSource {
      *  album as a complete match. */
     coverageDetail: LbBotSourceCoverage;
     coverageFull: boolean;
+    /** B-084 (album sources only - a gap-fill row carries none): seen audio files a plain
+     *  download of this source will not ask for. Absent = unknown, never shown as 0. */
+    extraFiles?: number;
     fileCount: number;
     /**
      * Populated on `/lb/album/sources` and **always empty on a gap poll**: the
