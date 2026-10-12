@@ -9,7 +9,7 @@ import type {
  * I-022 "Fix album match": the logic that has no React in it.
  *
  * Pure, so `album-override.harness.ts` can run it. Navic mirrors this by hand
- * (`navi-connect/CLAUDE.md`, the contract in `.superpowers/sdd/album-override-*`):
+ * (`navi-connect/CLAUDE.md`, PROTOCOL §15.5):
  * the sentences and the poll's rules below are the shared behaviour.
  */
 

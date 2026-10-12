@@ -4,7 +4,7 @@ import type { PollSpec } from './album-override';
 
 /**
  * I-023 "Merge into one name": the logic that has no React in it. Navic mirrors it
- * by hand (`.superpowers/sdd/album-override-2026-10-09/contract.md`).
+ * by hand (PROTOCOL §15.5).
  */
 
 type Sibling = LbBotSiblingGroup['artists'][number];

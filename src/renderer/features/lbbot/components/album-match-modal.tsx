@@ -70,7 +70,7 @@ import { LbBotAlbumOverrideRow, LbBotPreview } from '/@/shared/types/lbbot-types
  * Every sentence states only what lb-bot answered. In particular nothing here says
  * whether a favourite, rating or play count survives - that is not measured. The
  * one fixed sentence before apply is {@link commitSentence}. Navic mirrors the
- * steps and states by hand (`.superpowers/sdd/album-override-2026-10-09/contract.md`).
+ * steps and states by hand (PROTOCOL §15.5).
  */
 
 interface AlbumMatchModalProps {
