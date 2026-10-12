@@ -25,6 +25,7 @@ import {
     useLbBotWebUrl,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { useActiveFillsActions } from '/@/renderer/features/lbbot/stores/active-fills.store';
+import { gapPositionLabel, gapShowsDisc } from '/@/renderer/features/lbbot/utils/gap-position';
 import { Badge } from '/@/shared/components/badge/badge';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
@@ -90,6 +91,9 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
     const searching = gap?.sourceTask?.status === 'queued' || gap?.sourceTask?.status === 'running';
     const sources = gap?.sources ?? [];
     const progress = gapProgress(gap);
+    // B-071: `position` restarts on every disc, so a gap with a row past its
+    // first disc numbers every row "<disc>-<position>".
+    const showDisc = gapShowsDisc(gap?.tracks ?? []);
     // lb-bot's own Fill-gaps page for this album, when the hub says where lb-bot
     // is. Its SPA routes on the hash, and `#/gaps/<groupId>` opens exactly this
     // group — the same handle this modal is reading.
@@ -276,11 +280,12 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                         <div
                             className={clsx(styles.track, {
                                 [styles.present]: track.state === 'present',
+                                [styles.withDisc]: showDisc,
                             })}
-                            key={`${track.position}-${track.title}`}
+                            key={`${track.disc}-${track.position}-${track.title}`}
                         >
                             <Text isMuted size="sm">
-                                {track.position}
+                                {gapPositionLabel(track, showDisc)}
                             </Text>
                             <Text className={styles.title} size="sm">
                                 {track.title}

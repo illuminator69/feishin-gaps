@@ -2193,6 +2193,8 @@ const toGapTrack = (row: unknown): LbBotGapTrack[] => {
     const r = row as Json;
     return [
         {
+            // B-071: a missing field (an lb-bot older than S-022) is 0, "not known".
+            disc: num(r.disc),
             downloadError: str(r.downloadError),
             position: num(r.position),
             state: (str(r.state) || 'missing') as LbBotGapTrackState,

@@ -742,6 +742,11 @@ export interface LbBotGapTask {
 }
 
 export interface LbBotGapTrack {
+    /** B-071: the disc this slot is on (lb-bot sends it since S-022). 0 = not
+     *  known, which is also what an older lb-bot's missing field decodes to.
+     *  `position` restarts on every disc, so a row is numbered through
+     *  `gapPositionLabel` (utils/gap-position.ts), never by `position` alone. */
+    disc: number;
     downloadError: string;
     position: number;
     state: LbBotGapTrackState;
