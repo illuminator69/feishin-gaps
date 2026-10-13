@@ -8,6 +8,11 @@ import {
     useRemoteAwarePlayerSong,
     useRemoteAwareVolume,
 } from '/@/renderer/features/hub/hooks/use-remote-aware';
+import {
+    SliderHold,
+    sliderHoldRemaining,
+    VOLUME_HOLD_MS,
+} from '/@/renderer/features/hub/utils/volume-hold';
 import { PopoverPlayQueue } from '/@/renderer/features/now-playing/components/popover-play-queue';
 import { audioMuseConfigured } from '/@/renderer/features/player/auto-dj/audio-muse-source';
 import { DlnaCastButton } from '/@/renderer/features/player/components/dlna-cast-button';
@@ -35,6 +40,8 @@ import {
     useCurrentServer,
     useFullScreenPlayerStore,
     useHotkeySettings,
+    useHubActiveDeviceId,
+    useHubIsRemoteActive,
     useHubSettings,
     usePlaybackSettings,
     usePlaybackType,
@@ -67,32 +74,8 @@ import { TextInput } from '/@/shared/components/text-input/text-input';
 import { Text } from '/@/shared/components/text/text';
 import { useMediaQuery } from '/@/shared/hooks/use-media-query';
 import { useThrottledCallback } from '/@/shared/hooks/use-throttled-callback';
-import { useThrottledValue } from '/@/shared/hooks/use-throttled-value';
 import { LibraryItem, QueueSong, ServerType } from '/@/shared/types/domain-types';
 import { PlayerType } from '/@/shared/types/types';
-
-const calculateVolumeUp = (volume: number, volumeWheelStep: number) => {
-    let volumeToSet: number;
-    const newVolumeGreaterThanHundred = volume + volumeWheelStep > 100;
-    if (newVolumeGreaterThanHundred) {
-        volumeToSet = 100;
-    } else {
-        volumeToSet = volume + volumeWheelStep;
-    }
-
-    return volumeToSet;
-};
-const calculateVolumeDown = (volume: number, volumeWheelStep: number) => {
-    let volumeToSet: number;
-    const newVolumeLessThanZero = volume - volumeWheelStep < 0;
-    if (newVolumeLessThanZero) {
-        volumeToSet = 0;
-    } else {
-        volumeToSet = volume - volumeWheelStep;
-    }
-
-    return volumeToSet;
-};
 
 export const RightControls = () => {
     const showRatings = useShowRatings();
@@ -681,6 +664,10 @@ const RatingButton = () => {
 const VolumeButton = () => {
     const { bindings } = useHotkeySettings();
     const volume = useRemoteAwareVolume();
+    // Whose volume that is: the active remote device's, or (null) this machine's.
+    const isRemote = useHubIsRemoteActive();
+    const activeDeviceId = useHubActiveDeviceId();
+    const volumeScope = isRemote ? activeDeviceId : null;
     const muted = usePlayerMuted();
     const volumeWheelStep = useVolumeWheelStep();
     const volumeWidth = useVolumeWidth();
@@ -709,19 +696,29 @@ const VolumeButton = () => {
         [playbackType, setSettings],
     );
 
-    const [sliderValue, setSliderValue] = useState(volume);
+    // navi-connect: the slider shows its own value only while it is being dragged, and once let
+    // go until the level it asked for is observed (or 2.5 s pass); the rest of the time it shows
+    // `volume`. It used to be a copy of `volume`, kept in step by one effect while a second
+    // effect sent every change of the copy. On a remote device `volume` is the hub's echo of
+    // what was sent, so each echo overwrote the drag and was then sent back, anything changed
+    // elsewhere was sent back once, and mounting sent one too. Now the slider is the only thing
+    // that sends, and only when it is moved (volume-hold.ts).
+    const [sliderHold, setSliderHold] = useState<null | SliderHold>(null);
+    const sendVolume = useThrottledCallback(setVolume, 100);
 
-    const throttledVolume = useThrottledValue(sliderValue, 100);
-
-    // Sync throttled value to actual volume
     useEffect(() => {
-        setVolume(throttledVolume);
-    }, [throttledVolume, setVolume]);
+        if (!sliderHold) return undefined;
+        const left = sliderHoldRemaining(sliderHold, volumeScope, volume, Date.now());
+        if (left === 0) {
+            setSliderHold(null);
+            return undefined;
+        }
+        const timer = setTimeout(() => setSliderHold(null), left);
+        return () => clearTimeout(timer);
+    }, [sliderHold, volume, volumeScope]);
 
-    // Sync external volume changes to local state
-    useEffect(() => {
-        setSliderValue(volume);
-    }, [volume]);
+    // A hold made on another device's volume is not shown for even one frame.
+    const sliderValue = sliderHold && sliderHold.scope === volumeScope ? sliderHold.value : volume;
 
     const handleVolumeDown = useCallback(() => {
         decreaseVolume(volumeWheelStep);
@@ -731,26 +728,49 @@ const VolumeButton = () => {
         increaseVolume(volumeWheelStep);
     }, [increaseVolume, volumeWheelStep]);
 
-    const handleVolumeSlider = useCallback((e: number) => {
-        setSliderValue(e);
-    }, []);
+    const handleVolumeSlider = useCallback(
+        (e: number) => {
+            setSliderHold({
+                dragging: true,
+                scope: volumeScope,
+                until: Date.now() + VOLUME_HOLD_MS,
+                value: e,
+            });
+            sendVolume(e);
+        },
+        [sendVolume, volumeScope],
+    );
+
+    // The value itself was sent by the change before it - the throttle always delivers the last.
+    const handleVolumeSliderEnd = useCallback(
+        (e: number) => {
+            setSliderHold({
+                dragging: false,
+                scope: volumeScope,
+                until: Date.now() + VOLUME_HOLD_MS,
+                value: e,
+            });
+        },
+        [volumeScope],
+    );
 
     const handleMute = useCallback(() => {
         mediaToggleMute();
     }, [mediaToggleMute]);
 
+    // navi-connect: through the player context, like the hotkeys below. On this machine that is
+    // the same step from the same volume as before. On a remote device it steps from the level
+    // last asked for instead of a `devices` frame that has not caught up, so notches inside one
+    // round trip add up rather than each repeating the first.
     const handleVolumeWheel = useCallback(
         (e: WheelEvent<HTMLButtonElement | HTMLDivElement>) => {
-            let volumeToSet;
             if (e.deltaY > 0 || e.deltaX > 0) {
-                volumeToSet = calculateVolumeDown(volume, volumeWheelStep);
+                handleVolumeDown();
             } else {
-                volumeToSet = calculateVolumeUp(volume, volumeWheelStep);
+                handleVolumeUp();
             }
-
-            setVolume(volumeToSet);
         },
-        [setVolume, volume, volumeWheelStep],
+        [handleVolumeDown, handleVolumeUp],
     );
 
     const handleVolumeDownThrottled = useThrottledCallback(handleVolumeDown, 100);
@@ -817,6 +837,7 @@ const VolumeButton = () => {
                     max={100}
                     min={0}
                     onChange={handleVolumeSlider}
+                    onChangeEnd={handleVolumeSliderEnd}
                     onClick={(e) => {
                         e.stopPropagation();
                     }}

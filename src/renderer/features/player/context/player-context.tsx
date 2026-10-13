@@ -10,6 +10,7 @@ import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
 import { notePauseRequest, notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
 import {
     addToQueueTypeToRemoteMode,
+    commandedRemoteVolume,
     enqueueToRemote,
     isRemoteSessionActive,
     remoteAct,
@@ -149,10 +150,18 @@ export const PlayerContext = createContext<PlayerContext>({
     toggleShuffle: () => {},
 });
 
-/** Current volume (0-100) of the active remote device, for relative changes. */
+/**
+ * Current volume (0-100) of the active remote device, for relative changes.
+ *
+ * The level this client last asked for outranks the device's row while the `devices` frame that
+ * answers it is still on its way: stepping from the row made a second wheel notch, hotkey press
+ * or mute click inside the round trip start from the level before the first.
+ */
 const remoteActiveVolume = (): number => {
     const s = useHubStore.getState();
-    return s.devices.find((d) => d.id === s.activeDeviceId)?.volume ?? 100;
+    return (
+        commandedRemoteVolume() ?? s.devices.find((d) => d.id === s.activeDeviceId)?.volume ?? 100
+    );
 };
 
 /** How far the skip buttons jump, per the user's settings. */

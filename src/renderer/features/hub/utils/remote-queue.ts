@@ -2,6 +2,7 @@ import isElectron from 'is-electron';
 
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
+import { commandedVolume, VolumeCommand } from '/@/renderer/features/hub/utils/volume-hold';
 import { isPreviewId, previewHubTrack } from '/@/renderer/features/preview/preview-track';
 import { useHubStore, useSettingsStore } from '/@/renderer/store';
 import { AddToQueueType } from '/@/renderer/store';
@@ -89,6 +90,14 @@ export const buildHubTracksForSongs = async (
 };
 
 /**
+ * The last `act:volume` sent from here. Marked in remoteAct, which every volume change to a
+ * remote device goes through (slider, wheel, hotkeys, mute), so there is one record of what was
+ * asked for while the `devices` frame that answers it is still a round trip away - see
+ * volume-hold.ts.
+ */
+let lastVolumeCommand: null | VolumeCommand = null;
+
+/**
  * Fire an `act` directive at the hub when a remote session is active. Returns
  * true when it handled the command (caller should NOT also drive the local
  * player), false otherwise. Usable outside React (e.g. the player context),
@@ -98,8 +107,20 @@ export const buildHubTracksForSongs = async (
 export const remoteAct = (action: string, extra?: Record<string, unknown>): boolean => {
     if (!hub || !isRemoteSessionActive()) return false;
     hub.send({ action, t: 'act', ...extra });
+    const deviceId = useHubStore.getState().activeDeviceId;
+    if (action === 'volume' && typeof extra?.level === 'number' && deviceId !== null) {
+        lastVolumeCommand = { at: Date.now(), deviceId, level: extra.level };
+    }
     return true;
 };
+
+/**
+ * The level last asked of the active remote device, while that is newer than anything its
+ * `devices` row can show - what a relative volume change steps from. Null when the row is the
+ * truth again.
+ */
+export const commandedRemoteVolume = (): null | number =>
+    commandedVolume(lastVolumeCommand, useHubStore.getState().activeDeviceId, Date.now());
 
 /**
  * Fire an `act` at the hub whenever we're CONNECTED (independent of who's the active
