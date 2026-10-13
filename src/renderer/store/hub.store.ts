@@ -18,6 +18,12 @@ export interface HubDevice {
     caps: string[];
     id: string;
     isActive: boolean;
+    /**
+     * What the device is, as it said in `hello`: `computer`, `phone`, `tablet`, `speaker`, `tv`
+     * or `group`. Absent from a client that does not say, and a later protocol may add values:
+     * the picker draws its generic icon for both (device-rows.ts).
+     */
+    kind?: null | string;
     name: string;
     /**
      * A WebSocket claiming this id is attached. For a bridged Chromecast that is the
@@ -31,6 +37,7 @@ export interface HubDevice {
      * which is every ordinary client, since a client IS its own hardware.
      */
     reachable?: boolean | null;
+    /** 0..100: the level the device last reported, else the one it was last told. */
     volume?: number;
 }
 

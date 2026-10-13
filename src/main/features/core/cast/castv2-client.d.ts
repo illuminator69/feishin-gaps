@@ -25,9 +25,14 @@ declare module 'castv2-client' {
         // sender taking the receiver over, or the speaker leaving the network.
         on(event: 'close', listener: () => void): void;
         on(event: 'error', listener: (err: Error) => void): void;
+        // 'status' fires for every RECEIVER_STATUS the device broadcasts to its senders: its
+        // volume changed (from anywhere), or an application started or stopped.
+        on(event: 'status', listener: (status?: { volume?: unknown }) => void): void;
+        // The callback's second argument is `status.volume` of the RECEIVER_STATUS that
+        // answered: the volume the receiver is at after the command.
         setVolume(
             volume: { level?: number; muted?: boolean },
-            callback?: (err: Error | null) => void,
+            callback?: (err: Error | null, volume?: unknown) => void,
         ): void;
     }
 

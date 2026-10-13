@@ -13,7 +13,10 @@ import {
     JoinedArtists,
 } from '/@/renderer/features/albums/components/joined-artists';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
-import { useRemoteAwarePlayerSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
+import {
+    useRemoteAwarePlayerSong,
+    useRemoteAwareStatus,
+} from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { RadioMetadataDisplay } from '/@/renderer/features/player/components/radio-metadata-display';
 import {
     useIsRadioActive,
@@ -41,6 +44,7 @@ import { Text } from '/@/shared/components/text/text';
 import { Tooltip } from '/@/shared/components/tooltip/tooltip';
 import { PlaybackSelectors } from '/@/shared/constants/playback-selectors';
 import { LibraryItem } from '/@/shared/types/domain-types';
+import { PlayerStatus } from '/@/shared/types/types';
 
 export const LeftControls = () => {
     const { t } = useTranslation();
@@ -63,6 +67,9 @@ export const LeftControls = () => {
     const motionEnabled = useExpressiveMotion();
     const isRemote = useHubIsRemoteActive();
     const remoteDeviceName = useHubActiveDeviceName();
+    // navi-connect: the play state the play button shows. A paused device still holds the
+    // session, and the line under the cover must not call that "playing".
+    const remoteIsPlaying = useRemoteAwareStatus() === PlayerStatus.PLAYING;
     const isRadioActive = useIsRadioActive();
     const { currentStationArt } = useRadioPlayer();
     const { bindings } = useHotkeySettings();
@@ -237,10 +244,15 @@ export const LeftControls = () => {
                                     <Group align="center" gap="xs" wrap="nowrap">
                                         <Icon color="success" icon="radio" size="sm" />
                                         <Text isMuted overflow="hidden" size="xs">
-                                            {t('player.playingOnDevice', {
-                                                defaultValue: 'Playing on {{device}}',
-                                                device: remoteDeviceName,
-                                            })}
+                                            {remoteIsPlaying
+                                                ? t('player.playingOnDevice', {
+                                                      defaultValue: 'Playing on {{device}}',
+                                                      device: remoteDeviceName,
+                                                  })
+                                                : t('player.pausedOnDevice', {
+                                                      defaultValue: 'Paused on {{device}}',
+                                                      device: remoteDeviceName,
+                                                  })}
                                         </Text>
                                     </Group>
                                 </div>

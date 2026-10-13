@@ -81,6 +81,7 @@ import { logger } from '/@/renderer/utils/logger';
 import { toast } from '/@/shared/components/toast/toast';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
+import { levelReportStep, NO_LEVEL_REPORT, toLevel } from '/@/shared/utils/level-report';
 
 /**
  * B-053: adopting an orphaned session seeks to the hub's cursor - at launch usually our own
@@ -237,6 +238,10 @@ const readPlayer = (): { index: number; isPlaying: boolean; positionMs: number }
     };
 };
 
+/** This device's volume as its row in every picker shows it: 0 while muted. */
+const volumeLevel = (player: { muted: boolean; volume: number }): number =>
+    player.muted ? 0 : toLevel(player.volume);
+
 /** The adopt guard's window (see `adoptPauseGuard`), opened now. */
 const openAdoptPauseGuard = (): GuardWindow => {
     const now = Date.now();
@@ -251,7 +256,8 @@ const openAdoptPauseGuard = (): GuardWindow => {
  * receiver - plus one report whenever a numbered directive has ended, whoever is
  * active (`applied`, do-echo.ts). A report is read from the stores when it is sent
  * (`readPlayer`); the refs fed by player events serve the guards and the queue
- * publications. Transport lives in the main process
+ * publications. This device's volume goes out on its own, as `deviceState`, active
+ * or not (`reportVolume`). Transport lives in the main process
  * (src/main/features/core/hub/index.ts).
  */
 export const useHub = () => {
@@ -264,6 +270,7 @@ export const useHub = () => {
         mediaPlayByIndex,
         mediaSeekToTimestamp,
         mediaStop,
+        mediaToggleMute,
         reconcileQueue,
         setQueue,
         setRepeat,
@@ -282,6 +289,10 @@ export const useHub = () => {
     const playing = useRef(false);
     // I-031: the hub's numbered directives this connection has carried out - see do-echo.ts.
     const doEcho = useRef(NO_ECHO);
+    // I-033: the volume this device last told the hub on this connection, and the one timer
+    // that asks again when a change came too soon after it - see level-report.ts.
+    const volumeReport = useRef(NO_LEVEL_REPORT);
+    const volumeReportTimer = useRef<null | ReturnType<typeof setTimeout>>(null);
     const lastQueueSig = useRef('');
     // Stable saved-queue history identity for what we publish — see resolveSavedQueueId.
     // It survives every edit to the queue we're listening to; only a new play (or an
@@ -459,6 +470,30 @@ export const useHub = () => {
             t: 'report',
             ...overrides,
         });
+    }, []);
+
+    // I-033: tell the hub this device's volume, so its row in every picker shows the level it
+    // is really at - set here, by the OS (MPRIS), by a DLNA renderer or by a `do:setVolume`
+    // alike, since all of them write the store this reads. Called at `welcome`, on every
+    // change, and by its own timer; whether anything is sent is level-report.ts's rule (the
+    // level last sent is not repeated, and reports keep 250 ms apart with the last one kept).
+    // Not gated on being the active device: a row has a volume whoever is playing.
+    const reportVolume = useCallback(function tell(): void {
+        if (volumeReportTimer.current !== null) {
+            clearTimeout(volumeReportTimer.current);
+            volumeReportTimer.current = null;
+        }
+        if (!hub || !useHubStore.getState().connected) return;
+        const level = volumeLevel(usePlayerStore.getState().player);
+        const now = Date.now();
+        const step = levelReportStep(volumeReport.current, level, now);
+        if (step === null) return;
+        if (step === 'send') {
+            volumeReport.current = { at: now, level };
+            hub.send({ t: 'deviceState', volume: level });
+            return;
+        }
+        volumeReportTimer.current = setTimeout(tell, step);
     }, []);
 
     // Track metadata published to the hub. streamUrl/mime let URL-based
@@ -1118,7 +1153,13 @@ export const useHub = () => {
                     setShuffle(msg.on ? PlayerShuffle.TRACK : PlayerShuffle.NONE);
                     break;
                 case 'setVolume':
+                    if (typeof msg.level !== 'number' || !Number.isFinite(msg.level)) break;
                     setVolume(msg.level);
+                    // I-033: muted, the level would be set and nothing heard, and this device
+                    // would go on reporting 0. A level above 0 is somebody turning it up.
+                    if (msg.level > 0 && usePlayerStore.getState().player.muted) {
+                        mediaToggleMute();
+                    }
                     break;
                 default:
                     break;
@@ -1134,6 +1175,7 @@ export const useHub = () => {
             mediaPlayByIndex,
             mediaSeekToTimestamp,
             mediaStop,
+            mediaToggleMute,
             reconcileQueue,
             report,
             resolveSongs,
@@ -1392,6 +1434,11 @@ export const useHub = () => {
                     remoteShuffle: msg.session?.shuffle ?? false,
                     savedQueueId: msg.session?.savedQueueId ?? null,
                 });
+                // I-033: the hub's row for this device holds the level it was last told, or
+                // one it kept from before a restart. Say the real one, whatever was sent on
+                // the connection before this.
+                volumeReport.current = NO_LEVEL_REPORT;
+                reportVolume();
                 reconcileRemoteActive();
                 // Reconcile saved-queue history. Capture our LOCAL (possibly offline-
                 // accumulated) rows FIRST, then adopt the hub's authoritative list (a
@@ -1529,6 +1576,11 @@ export const useHub = () => {
                 activeId.current = null;
                 hubDrivenUntil.current = 0;
                 lastQueueSig.current = '';
+                // A volume report waiting for its turn has nowhere to go; `welcome` sends one.
+                if (volumeReportTimer.current !== null) {
+                    clearTimeout(volumeReportTimer.current);
+                    volumeReportTimer.current = null;
+                }
                 // Mixes live on the hub and are not cached locally, so a lost
                 // socket means there are none — the alternative is a list of
                 // cards whose every button silently does nothing.
@@ -1562,7 +1614,24 @@ export const useHub = () => {
             }
         });
         return () => dispose();
-    }, [adoptIfNoLiveReceiver, publishQueue, reconcileRemoteActive, runDirective]);
+    }, [adoptIfNoLiveReceiver, publishQueue, reconcileRemoteActive, reportVolume, runDirective]);
+
+    // I-033: report the volume when it changes. The selector is what the hub is told (0 while
+    // muted), so muting and unmuting are changes and a slider dragged under mute is not.
+    useEffect(() => {
+        if (!hub) return undefined;
+        const unsubscribe = usePlayerStoreBase.subscribe(
+            (state) => volumeLevel(state.player),
+            () => reportVolume(),
+        );
+        return () => {
+            unsubscribe();
+            if (volumeReportTimer.current !== null) {
+                clearTimeout(volumeReportTimer.current);
+                volumeReportTimer.current = null;
+            }
+        };
+    }, [reportVolume]);
 
     // Deleting the history record we're publishing into restarts the session, so the queue
     // still playing gets a fresh card instead of disappearing from Continue Listening.

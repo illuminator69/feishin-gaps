@@ -1,6 +1,12 @@
 import isElectron from 'is-electron';
 import { useState } from 'react';
 
+import {
+    deviceIcon,
+    deviceStatus,
+    deviceStatusLabel,
+    sortDeviceRows,
+} from '/@/renderer/features/hub/utils/device-rows';
 import { sendAct } from '/@/renderer/features/hub/utils/remote-queue';
 import { usePreviewCastBlocked } from '/@/renderer/features/preview/hooks/use-preview-cast-guard';
 import {
@@ -15,6 +21,7 @@ import {
 } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
+import { Icon } from '/@/shared/components/icon/icon';
 import { Text } from '/@/shared/components/text/text';
 import { toast } from '/@/shared/components/toast/toast';
 
@@ -36,7 +43,9 @@ const platformLabel = (platform: string): string => {
 /**
  * Spotify-style "Connect to a device" picker. Lists hub devices and transfers
  * playback to the chosen one (the hub resumes it from the same spot). Each row
- * shows the device name + platform + status so two clients are distinguishable.
+ * shows an icon for what the device is, its name, platform and status, so two
+ * clients are distinguishable; the icon, the order of the rows and the status
+ * are decided in device-rows.ts.
  * Offline devices auto-hide and manually-hidden ones are tucked behind a toggle.
  * Hidden unless navi-connect is enabled.
  *
@@ -81,33 +90,25 @@ export const HubDevicePicker = () => {
         setSettings({ hub: { hiddenDeviceIds: Array.from(next) } });
     };
 
+    const session = { activeDeviceId: activeId, isPlaying: remoteIsPlaying, myDeviceId: myId };
+
     // Visible by default = online AND not manually hidden. Offline (auto-hidden)
     // and manually-hidden devices live behind the "Show offline & hidden" toggle.
-    const visible = devices.filter((d) => d.online && !hidden.has(d.id));
-    const extra = devices.filter((d) => !d.online || hidden.has(d.id));
+    // Each list in the picker's order: the playing device, this one, the rest by name.
+    const visible = sortDeviceRows(
+        devices.filter((d) => d.online && !hidden.has(d.id)),
+        session,
+    );
+    const extra = sortDeviceRows(
+        devices.filter((d) => !d.online || hidden.has(d.id)),
+        session,
+    );
     const hasActive = devices.some((d) => d.id === activeId);
 
     const renderRow = (device: HubDevice) => {
-        const isSelf = device.id === myId;
-        // The active device is only "playing" when the session actually is — it stays
-        // the active receiver while paused, and claiming otherwise made a paused
-        // session look live in every picker.
-        const unreachable = device.online && device.reachable === false;
         const castBlocked = Boolean(previewBlocked) && isCastTarget(device);
-        const statusText =
-            device.id === activeId
-                ? remoteIsPlaying
-                    ? 'playing'
-                    : 'paused'
-                : isSelf
-                  ? 'this device'
-                  : unreachable
-                    ? 'not responding'
-                    : castBlocked
-                      ? 'no preview support'
-                      : device.online
-                        ? 'available'
-                        : 'offline';
+        const status = deviceStatus(device, session, castBlocked);
+        const statusText = status === 'blocked' ? 'no preview support' : deviceStatusLabel(status);
         const isHidden = hidden.has(device.id);
         return (
             // The hide/unhide control is a SIBLING of the menu item, not its child: a
@@ -122,6 +123,7 @@ export const HubDevicePicker = () => {
                     disabled={
                         !isHubDeviceTransferable(device) || device.id === activeId || castBlocked
                     }
+                    leftSection={<Icon icon={deviceIcon(device.kind)} />}
                     onClick={() => transfer(device.id)}
                     rightSection={
                         <Text isMuted size="xs">

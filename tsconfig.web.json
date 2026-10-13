@@ -12,7 +12,8 @@
     "package.json"
   ],
   "exclude": [
-    "src/renderer/**/*.harness.ts"
+    "src/renderer/**/*.harness.ts",
+    "src/shared/**/*.harness.ts"
   ],
   "compilerOptions": {
     "composite": true,

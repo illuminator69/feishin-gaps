@@ -148,6 +148,9 @@ function connect(): void {
                 // bridge's own hello does not take this cap.
                 caps: ['receiver', 'controller', 'loadAck', 'transferAckV2', 'cmdEcho'],
                 id: deviceId(),
+                // What this device is, for the icon its row gets in every picker. An older
+                // hub ignores the key.
+                kind: 'computer',
                 name: config.name || 'Feishin',
                 platform: 'desktop',
             },

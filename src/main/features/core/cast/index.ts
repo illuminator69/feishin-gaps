@@ -20,6 +20,9 @@ import { WebSocket } from 'ws';
 
 import { getHubConfig, getHubDeviceId, getHubDevices, hubEvents, isHubConnected } from '../hub';
 import { logSafeStreamId } from './log-id';
+import { CastKind, castKind, receiverLevel } from './receiver-info';
+
+import { levelReportStep, NO_LEVEL_REPORT } from '/@/shared/utils/level-report';
 
 /**
  * Chromecast ⇄ navi-connect bridge (the "full virtual receiver" model).
@@ -181,6 +184,12 @@ class CastDeviceBridge {
     /** Our last asserted verdict on the speaker; null until the first probe lands. */
     private reachable: boolean | null = null;
 
+    /**
+     * The speaker's own volume (0..100, 0 while muted) as it last said it on a connection this
+     * bridge held; null until it has. Sent to the hub as the row's `volume` - see reportVolume.
+     */
+    private receiverVolume: null | number = null;
+
     private reconnectingCast = false;
 
     private reconnectTimer: NodeJS.Timeout | null = null;
@@ -210,6 +219,11 @@ class CastDeviceBridge {
 
     private tracks: HubTrack[] = [];
 
+    /** The last volume told to the hub on its current connection (level-report.ts). */
+    private volumeReport = NO_LEVEL_REPORT;
+
+    private volumeReportTimer: NodeJS.Timeout | null = null;
+
     private ws: null | WebSocket = null;
 
     constructor(
@@ -218,6 +232,8 @@ class CastDeviceBridge {
         private host: string,
         private readonly hubUrl: string,
         private readonly token: string,
+        /** What the speaker is, from its mDNS record; undefined when the record does not say. */
+        private readonly kind: CastKind | undefined,
     ) {
         this.scheduleClaim();
     }
@@ -227,6 +243,7 @@ class CastDeviceBridge {
         if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
         if (this.claimTimer) clearTimeout(this.claimTimer);
         if (this.backoffResetTimer) clearTimeout(this.backoffResetTimer);
+        if (this.volumeReportTimer) clearTimeout(this.volumeReportTimer);
         this.stopReachability();
         this.stopHeartbeat();
         this.stopTicker();
@@ -274,8 +291,12 @@ class CastDeviceBridge {
         client: Client,
         player: import('castv2-client').CastPlayer,
     ): import('castv2-client').CastPlayer {
+        // A relaunch adopts a new player on the connection already held, and that connection
+        // is already being listened to.
+        const held = this.castClient === client;
         this.castClient = client;
         this.castPlayer = player;
+        if (!held) this.watchReceiver(client);
         // castv2-client leaks request listeners on slow channels.
         (
             player as unknown as { media?: { setMaxListeners?: (n: number) => void } }
@@ -405,6 +426,7 @@ class CastDeviceBridge {
                             }
                             this.castClient = client;
                             this.castPlayer = player;
+                            this.watchReceiver(client);
                             (
                                 player as unknown as {
                                     media?: { setMaxListeners?: (n: number) => void };
@@ -761,7 +783,12 @@ class CastDeviceBridge {
                     bridgedBy: getHubDeviceId(),
                     caps: ['receiver', 'loadAck'],
                     id: `cast-${this.deviceId}`,
-                    name: `📺 ${this.friendlyName}`,
+                    // `kind` is what tells a cast row from the others in a picker, and a
+                    // speaker from a TV: the name is the speaker's own, with no marker in
+                    // it. Left out when the record did not say (JSON drops undefined), and
+                    // the row then gets the generic icon.
+                    kind: this.kind,
+                    name: this.friendlyName,
                     platform: 'chromecast',
                 },
                 t: 'hello',
@@ -784,6 +811,11 @@ class CastDeviceBridge {
                     // evaluate the session the hub just handed us.
                     this.adopted = false;
                     this.adoptSkipLogged = '';
+                    // The hub's row may hold a level it was told while this socket was
+                    // away. Say the speaker's own again - but only one heard on a
+                    // connection still held: an older one may no longer be true.
+                    this.volumeReport = NO_LEVEL_REPORT;
+                    if (this.castClient) this.reportVolume();
                     this.maybeAdopt(msg.session);
                 } else if (msg.t === 'session') {
                     this.maybeAdopt(msg);
@@ -995,7 +1027,16 @@ class CastDeviceBridge {
                 case 'setVolume':
                     if (
                         !(await this.commandLanded((cb) =>
-                            this.castClient?.setVolume({ level: (msg.level ?? 100) / 100 }, cb),
+                            this.castClient?.setVolume(
+                                { level: (msg.level ?? 100) / 100 },
+                                (err, volume) => {
+                                    // The receiver answers with the volume it is now at,
+                                    // which is what the row should say: a muted speaker is
+                                    // still at 0, and a level may be rounded to its steps.
+                                    if (!err) this.noteReceiverVolume(volume);
+                                    cb(err);
+                                },
+                            ),
                         ))
                     ) {
                         log.warn(
@@ -1282,6 +1323,17 @@ class CastDeviceBridge {
         );
     }
 
+    /**
+     * The speaker said its volume: a RECEIVER_STATUS broadcast (somebody turned it at the
+     * device, or from another app), or the answer to a request of ours.
+     */
+    private noteReceiverVolume(volume: unknown): void {
+        const level = receiverLevel(volume);
+        if (level === null) return;
+        this.receiverVolume = level;
+        this.reportVolume();
+    }
+
     // ---------------------------------------------------------------- cast
 
     /**
@@ -1417,6 +1469,30 @@ class CastDeviceBridge {
             t: 'report',
             ...extra,
         });
+    }
+
+    /**
+     * Tell the hub the speaker's volume, as `deviceState {volume}` through this bridge's own
+     * socket (it IS the speaker's device there). The hub keeps it as the row's level and
+     * broadcasts only when it changed. Whether a frame goes out now is level-report.ts's rule:
+     * the level last sent is not repeated, and a speaker being turned by hand sends at most
+     * four a second, the level it stops on included.
+     */
+    private reportVolume(): void {
+        if (this.volumeReportTimer) {
+            clearTimeout(this.volumeReportTimer);
+            this.volumeReportTimer = null;
+        }
+        if (this.receiverVolume === null || !this.isRegistered) return;
+        const now = Date.now();
+        const step = levelReportStep(this.volumeReport, this.receiverVolume, now);
+        if (step === null) return;
+        if (step === 'send') {
+            this.volumeReport = { at: now, level: this.receiverVolume };
+            this.send({ t: 'deviceState', volume: this.receiverVolume });
+            return;
+        }
+        this.volumeReportTimer = setTimeout(() => this.reportVolume(), step);
     }
 
     /**
@@ -1620,6 +1696,26 @@ class CastDeviceBridge {
             this.reconnectingCast = false;
         });
     }
+
+    /**
+     * Follow the speaker's own volume for as long as `client` is the connection this bridge
+     * holds. The receiver broadcasts RECEIVER_STATUS to every sender when its volume changes,
+     * whoever changed it; castv2-client raises those as `status` and nothing here used to
+     * listen. A broadcast comes only on a change, so the level it is at now is asked for once.
+     */
+    private watchReceiver(client: Client): void {
+        client.on('status', (status) => {
+            if (this.castClient === client) this.noteReceiverVolume(status?.volume);
+        });
+        try {
+            client.getStatus((err, status) => {
+                if (err || this.castClient !== client) return;
+                this.noteReceiverVolume((status as null | { volume?: unknown })?.volume);
+            });
+        } catch {
+            /* castv2 throws synchronously on a dead socket; the next broadcast will say */
+        }
+    }
 }
 
 /**
@@ -1681,7 +1777,9 @@ function requeryCastDevices(): void {
     }
 }
 
-function serviceToDevice(service: CastService): null | { host: string; id: string; name: string } {
+function serviceToDevice(
+    service: CastService,
+): null | { host: string; id: string; kind: CastKind | undefined; name: string } {
     const txt = (service.txt ?? {}) as Record<string, string>;
     const host =
         service.addresses?.find((address) => address.includes('.')) ?? service.addresses?.[0];
@@ -1689,6 +1787,8 @@ function serviceToDevice(service: CastService): null | { host: string; id: strin
     return {
         host,
         id: txt.id || service.name,
+        // `ca`: the capability bits - a group, a TV or a speaker (receiver-info.ts).
+        kind: castKind(txt.ca),
         name: txt.fn || service.name,
     };
 }
@@ -1725,7 +1825,14 @@ function startBridging(): void {
         }
         bridges.set(
             device.id,
-            new CastDeviceBridge(device.id, device.name, device.host, config.url, config.token),
+            new CastDeviceBridge(
+                device.id,
+                device.name,
+                device.host,
+                config.url,
+                config.token,
+                device.kind,
+            ),
         );
     });
     browser.on('down', (service) => {
