@@ -234,6 +234,9 @@ class CastDeviceBridge {
 
     private volumeReportTimer: NodeJS.Timeout | null = null;
 
+    /** Wall-clock ms the hub last told this speaker a level on its current connection. */
+    private volumeToldAt: null | number = null;
+
     private ws: null | WebSocket = null;
 
     constructor(
@@ -499,6 +502,8 @@ class CastDeviceBridge {
      * because this bridge said `idleVolume`. `level` is 0..1.
      */
     private async applyVolume(level: number): Promise<void> {
+        // The answer to this is reported once no further level has been told for 250 ms.
+        this.volumeToldAt = Date.now();
         // A session being built is about to be the connection the bridge holds.
         if (this.castSetup) await this.castSetup.catch(noop);
         if (!this.castClient) {
@@ -860,6 +865,7 @@ class CastDeviceBridge {
                     // away. Say the speaker's own again - but only one heard on a
                     // connection still held: an older one may no longer be true.
                     this.volumeReport = NO_LEVEL_REPORT;
+                    this.volumeToldAt = null;
                     if (this.castClient) this.reportVolume();
                     this.maybeAdopt(msg.session);
                 } else if (msg.t === 'session') {
@@ -1507,8 +1513,9 @@ class CastDeviceBridge {
      * Tell the hub the speaker's volume, as `deviceState {volume}` through this bridge's own
      * socket (it IS the speaker's device there). The hub keeps it as the row's level and
      * broadcasts only when it changed. Whether a frame goes out now is level-report.ts's rule:
-     * the level last sent is not repeated, and a speaker being turned by hand sends at most
-     * four a second, the level it stops on included.
+     * the level last sent is not repeated, a speaker being turned by hand sends at most four a
+     * second, the level it stops on included, and a level the hub told it waits until the
+     * telling has stopped.
      */
     private reportVolume(): void {
         if (this.volumeReportTimer) {
@@ -1517,7 +1524,12 @@ class CastDeviceBridge {
         }
         if (this.receiverVolume === null || !this.isRegistered) return;
         const now = Date.now();
-        const step = levelReportStep(this.volumeReport, this.receiverVolume, now);
+        const step = levelReportStep(
+            this.volumeReport,
+            this.receiverVolume,
+            now,
+            this.volumeToldAt,
+        );
         if (step === null) return;
         if (step === 'send') {
             this.volumeReport = { at: now, level: this.receiverVolume };

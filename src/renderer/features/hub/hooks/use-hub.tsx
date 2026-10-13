@@ -300,6 +300,8 @@ export const useHub = () => {
     // that asks again when a change came too soon after it - see level-report.ts.
     const volumeReport = useRef(NO_LEVEL_REPORT);
     const volumeReportTimer = useRef<null | ReturnType<typeof setTimeout>>(null);
+    // Wall-clock ms the hub last told this device a level on this connection (applyVolume).
+    const volumeToldAt = useRef<null | number>(null);
     const lastQueueSig = useRef('');
     // Stable saved-queue history identity for what we publish — see resolveSavedQueueId.
     // It survives every edit to the queue we're listening to; only a new play (or an
@@ -483,7 +485,8 @@ export const useHub = () => {
     // is really at - set here, by the OS (MPRIS), by a DLNA renderer or by a `do:setVolume`
     // alike, since all of them write the store this reads. Called at `welcome`, on every
     // change, and by its own timer; whether anything is sent is level-report.ts's rule (the
-    // level last sent is not repeated, and reports keep 250 ms apart with the last one kept).
+    // level last sent is not repeated, reports keep 250 ms apart with the last one kept, and
+    // a level the hub told this device waits until the telling has stopped).
     // Not gated on being the active device: a row has a volume whoever is playing.
     const reportVolume = useCallback(function tell(): void {
         if (volumeReportTimer.current !== null) {
@@ -493,7 +496,7 @@ export const useHub = () => {
         if (!hub || !useHubStore.getState().connected) return;
         const level = volumeLevel(usePlayerStore.getState().player);
         const now = Date.now();
-        const step = levelReportStep(volumeReport.current, level, now);
+        const step = levelReportStep(volumeReport.current, level, now, volumeToldAt.current);
         if (step === null) return;
         if (step === 'send') {
             volumeReport.current = { at: now, level };
@@ -1193,11 +1196,14 @@ export const useHub = () => {
     // echo (PROTOCOL §5.2), so no report follows it.
     // A level above 0 also unmutes: muted, it would be set and nothing heard, and this device
     // would go on reporting 0. The new level reaches the hub's row through reportVolume, like
-    // any other change. No `act:volume` can come of it: this writes the player store, and acts
-    // are sent by the controls' handlers, never by something watching the store.
+    // any other change, once no further one has been told for 250 ms (noted here, before the
+    // store write that reportVolume answers). No `act:volume` can come of it: this writes the
+    // player store, and acts are sent by the controls' handlers, never by something watching
+    // the store.
     const applyVolume = useCallback(
         (level: unknown) => {
             if (typeof level !== 'number' || !Number.isFinite(level)) return;
+            volumeToldAt.current = Date.now();
             setVolume(level);
             if (level > 0 && usePlayerStore.getState().player.muted) mediaToggleMute();
         },
@@ -1463,6 +1469,7 @@ export const useHub = () => {
                 // one it kept from before a restart. Say the real one, whatever was sent on
                 // the connection before this.
                 volumeReport.current = NO_LEVEL_REPORT;
+                volumeToldAt.current = null;
                 reportVolume();
                 reconcileRemoteActive();
                 // Reconcile saved-queue history. Capture our LOCAL (possibly offline-

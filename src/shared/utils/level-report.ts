@@ -9,6 +9,13 @@
 // sender keeps to at most one every 250 ms, and the level it ends on is always sent: a change
 // that comes too soon is asked about again when its wait is over, and sent then if it still
 // differs from the last one sent.
+//
+// A level the device was TOLD (`do:setVolume`) is reported like any other, but not at once: only
+// when 250 ms have passed since it was last told one. The hub already holds a level it told, and
+// a slider dragged on another device tells several in a row. The report of the first, sent at
+// once, reaches the hub after it has gone on to a later one - over a slow link - and the hub
+// takes a report at its word: every picker would show the earlier level again until the last
+// report came. Waiting for the telling to stop reports only the level it ended on.
 
 /** The least time between two volume reports. */
 export const LEVEL_REPORT_MIN_MS = 250;
@@ -26,16 +33,21 @@ export const NO_LEVEL_REPORT: LevelReport = { at: 0, level: null };
 
 /**
  * What to do about the device being at `level` now: `'send'` it, ask again in that many ms, or
- * nothing (null) because it is the level last sent.
+ * nothing (null) because it is the level last sent. `toldAt` is the wall-clock ms the device
+ * was last told a level by the hub on this connection, null if it has not been.
  */
 export function levelReportStep(
     last: LevelReport,
     level: number,
     now: number,
+    toldAt: null | number = null,
 ): 'send' | null | number {
     if (level === last.level) return null;
-    if (last.level === null) return 'send';
-    const since = now - last.at;
+    // The time since whichever came later: the last report, or the last level it was told.
+    const since = Math.min(
+        last.level === null ? Infinity : now - last.at,
+        toldAt === null ? Infinity : now - toldAt,
+    );
     // `since < 0`: a clock set back must not hold the report for as long as that takes.
     if (since < 0 || since >= LEVEL_REPORT_MIN_MS) return 'send';
     return LEVEL_REPORT_MIN_MS - since;
