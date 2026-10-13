@@ -1,10 +1,11 @@
 import { randomBytes } from 'crypto';
-import { ipcMain } from 'electron';
+import { ipcMain, powerMonitor } from 'electron';
 import log from 'electron-log/main';
 import { EventEmitter } from 'events';
 import { WebSocket } from 'ws';
 
 import { store } from '../settings';
+import { kickAction } from './kick';
 
 import { getMainWindow } from '/@/main/index';
 
@@ -33,6 +34,14 @@ const MAX_BACKOFF_MS = 30000;
 // WS-level heartbeat so a half-open socket (Wi-Fi drop, NAT timeout) is detected
 // and force-closed instead of sitting dead with readyState === OPEN.
 const HEARTBEAT_MS = 10000;
+// How long an opening handshake may go unanswered. `ws` sets no deadline of its own, so an
+// attempt made while the network was still coming up (straight after a wake) could sit in
+// CONNECTING until the OS gave up on the TCP connect - minutes - with no retry queued behind it.
+const HANDSHAKE_TIMEOUT_MS = 10000;
+// A kicked OPEN socket has this long to answer a ping before it is dropped (see kick()).
+const KICK_PONG_DEADLINE_MS = 3000;
+// PROTOCOL §3: bad or missing token - "stop; do not retry until settings change".
+const CLOSE_BAD_TOKEN = 4001;
 
 const config: HubConfig = { enabled: false, name: 'Feishin', token: '', url: '' };
 
@@ -50,6 +59,8 @@ let knownDevices: HubDeviceInfo[] = [];
 let reconnectTimer: NodeJS.Timeout | undefined;
 let backoffMs = INITIAL_BACKOFF_MS;
 let shouldRun = false;
+/** Wall-clock ms of the last kick that did something (see kick()). */
+let lastKickAt = 0;
 
 /**
  * Which connection attempt is current.
@@ -74,7 +85,7 @@ function connect(): void {
     const gen = ++generation;
     let socket: WebSocket;
     try {
-        socket = new WebSocket(config.url);
+        socket = new WebSocket(config.url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS });
     } catch {
         scheduleReconnect(undefined, gen);
         return;
@@ -162,11 +173,22 @@ function connect(): void {
         }
         getMainWindow()?.webContents.send('hub-message', text);
     });
-    socket.on('close', () => {
+    socket.on('close', (code) => {
         // Always stop this connection's own heartbeat; only the CURRENT connection gets
         // to tell the renderer the transport went down and to schedule a reconnect.
         stopBeat();
         if (!isCurrent(socket, gen)) return;
+        if (code === CLOSE_BAD_TOKEN) {
+            // The same token gets the same answer, so retrying is a refusal (and a toast in
+            // the renderer, from the hub's `error` frame) every backoff step, forever. Stand
+            // down as if switched off: scheduleReconnect below then queues nothing and a kick
+            // does nothing. `hub-settings` - any change to the hub settings, the on/off
+            // switch included - goes through start() and tries again.
+            shouldRun = false;
+            log.warn(
+                '[hub] the hub refused the token (close 4001) - not reconnecting until the hub settings change',
+            );
+        }
         emitStatus('disconnected');
         scheduleReconnect(socket, gen);
     });
@@ -192,6 +214,83 @@ function deviceId(): string {
  */
 function emitStatus(status: 'disconnected'): void {
     getMainWindow()?.webContents.send('hub-message', JSON.stringify({ t: status }));
+}
+
+/**
+ * Look at the link now, instead of when the backoff or the heartbeat gets round to it.
+ *
+ * Called when the machine wakes (powerMonitor `resume`) and when the renderer's network comes
+ * back (`hub-kick`). After either, the client could otherwise sit disconnected for up to ~39 s:
+ * a backoff parked at its 30 s cap plus jitter, or two heartbeat ticks to notice a socket that
+ * died with the network adapter. What a kick does is decided in kick.ts:
+ *   - waiting out the backoff: connect now, and start the backoff over;
+ *   - a handshake in flight: abandon it for a fresh one - it was begun on the old network;
+ *   - OPEN: ask (probe), and drop the socket only if it stays silent. A socket that answers is
+ *     NEVER recycled: if this client is the active player, closing its socket makes the hub
+ *     clear the active device and pause the session (PROTOCOL §7), for nothing;
+ *   - switched off, or refused by the hub (4001): nothing.
+ *
+ * The cast bridge (../cast) keeps its own socket, backoff and single-bridge arbitration, where a
+ * reconnect is a claim (PROTOCOL §12.2). It is deliberately not kicked.
+ */
+function kick(reason: string): void {
+    const now = Date.now();
+    const action = kickAction({
+        readyState: ws?.readyState,
+        shouldRun,
+        sinceLastKick: now - lastKickAt,
+    });
+    if (action === 'none') return;
+    lastKickAt = now;
+    log.info(`[hub] kick (${reason}): ${action}`);
+    if (action === 'probe') {
+        if (ws) probe(ws);
+        return;
+    }
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
+    }
+    backoffMs = INITIAL_BACKOFF_MS;
+    // connect() first: it moves `generation` on, so the abandoned attempt's error and close -
+    // which terminate() raises on a later tick - are a superseded socket's and touch nothing.
+    const abandoned = ws;
+    connect();
+    try {
+        abandoned?.terminate();
+    } catch {
+        /* ignore */
+    }
+}
+
+/**
+ * Ask an OPEN socket whether it is still there, and end it only if nothing comes back. The
+ * close that follows reconnects through the usual path, so the renderer is told `disconnected`
+ * and the backoff (reset when this socket opened) starts at its shortest.
+ */
+function probe(socket: WebSocket): void {
+    let answered = false;
+    const onPong = () => {
+        answered = true;
+    };
+    socket.once('pong', onPong);
+    try {
+        socket.ping();
+    } catch {
+        /* ignore */
+    }
+    setTimeout(() => {
+        socket.off('pong', onPong);
+        if (answered || socket.readyState !== WebSocket.OPEN) return;
+        log.warn(
+            `[hub] no pong within ${KICK_PONG_DEADLINE_MS} ms of a kick - dropping the socket`,
+        );
+        try {
+            socket.terminate();
+        } catch {
+            /* ignore */
+        }
+    }, KICK_PONG_DEADLINE_MS);
 }
 
 /**
@@ -265,6 +364,14 @@ function stop(): void {
 }
 
 ipcMain.on('hub-send', (_event, obj: unknown) => send(obj));
+
+// The renderer saw the network come back (its window's `online` event).
+ipcMain.on('hub-kick', () => kick('online'));
+
+// The machine woke. Whatever socket there was has most likely died with the network adapter,
+// and a reconnect that was already pending may be parked at the top of its backoff. Same hook
+// as the mpv reconnect in ../player.
+powerMonitor.on('resume', () => kick('resume'));
 
 ipcMain.handle(
     'hub-settings',

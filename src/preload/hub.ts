@@ -23,6 +23,15 @@ const send = (obj: unknown) => {
     ipcRenderer.send('hub-send', obj);
 };
 
+/**
+ * The network came back: have the transport look at its connection now instead of waiting out
+ * its backoff or heartbeat. It decides what that means (main's `kick`); an open socket that
+ * still answers is left alone.
+ */
+const kick = () => {
+    ipcRenderer.send('hub-kick');
+};
+
 const setSettings = (
     enabled: boolean,
     url: string,
@@ -37,6 +46,7 @@ const removeListeners = () => {
 };
 
 export const hub = {
+    kick,
     onMessage,
     removeListeners,
     send,

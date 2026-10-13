@@ -1218,6 +1218,15 @@ export const useHub = () => {
         );
     }, [settings.enabled, settings.name, settings.token, settings.url]);
 
+    // The network came back: have the transport look now rather than wait out a backoff that
+    // may be parked at 30 s. (Waking from sleep is the main process's own hook.)
+    useEffect(() => {
+        if (!hub) return undefined;
+        const onOnline = () => hub.kick();
+        window.addEventListener('online', onOnline);
+        return () => window.removeEventListener('online', onOnline);
+    }, []);
+
     // navi-connect: what the hub said about lb-bot (`welcome.lb`) is an answer
     // about THAT hub. Switched off, or pointed somewhere else, it no longer
     // describes anything this app talks to — forget it rather than let it stand
