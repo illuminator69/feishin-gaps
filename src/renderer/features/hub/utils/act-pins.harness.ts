@@ -7,6 +7,7 @@ import {
     ACT_PIN_MS,
     NO_PINS,
     pinAct,
+    pinsOnTrack,
     playPauseAct,
     prunePins,
     releasePin,
@@ -20,9 +21,10 @@ import {
  *
  * A controller's bar over a slow link, replayed as a timeline (ms from the first press). An
  * `act` is a control pressed here: remote-queue's sendAct mints its `cid` and pins. A `frame` is
- * a `session` / `progress` / `devices` frame arriving: use-hub writes it into the mirror. An
- * `ack` is the hub's answer to one act, which use-hub releases the pin by. `shown` is what the
- * remote-aware hooks render after each step.
+ * a `session` / `progress` / `devices` frame arriving: use-hub writes it into the mirror, and
+ * keeps only the pins that belong to the track the frame names (pinsOnTrack). An `ack` is the
+ * hub's answer to one act, which use-hub releases the pin by. `shown` is what the remote-aware
+ * hooks render after each step.
  */
 
 const SPEAKER = 'speaker';
@@ -49,9 +51,11 @@ interface World {
 const world = (mirror: Partial<HubMirror> = {}, volume = 30): World => ({
     mirror: {
         activeDeviceId: SPEAKER,
+        index: 0,
         isPlaying: false,
         positionAt: 0,
         positionMs: 0,
+        trackId: 'a',
         ...mirror,
     },
     pins: NO_PINS,
@@ -73,6 +77,7 @@ const replay = (w: World, steps: Step[]): Shown[] =>
             // A frame that carries a position was received now.
             if (mirror.positionMs !== undefined) w.mirror.positionAt = step.at;
             if (volume !== undefined) w.volume = volume;
+            w.pins = pinsOnTrack(w.pins, w.mirror);
         }
         if (step.act) w.pins = pinAct(w.pins, step.act, step.act.cid, w.mirror, step.at);
         if (step.ack) w.pins = releasePin(w.pins, step.ack);
@@ -227,6 +232,55 @@ test('the play-state pin does not release the position pin, nor the other way ro
     w.pins = releasePin(w.pins, 'a1');
     assert.equal(w.pins.playing, null);
     assert.equal(w.pins.position?.cid, 's2');
+});
+
+test('a pinned position does not follow the session onto another track', () => {
+    // A seek to 3:20 on row 2, playing. Before its ack (held behind a transfer, or lost) the
+    // device moves on to row 3. Without the rule the bar read 3:20 on a track that just began.
+    const w = world({ index: 2, isPlaying: true, positionMs: 10_000, trackId: 'c' });
+    const rows = replay(w, [
+        { act: { action: 'seek', cid: 's1', positionMs: 200_000 }, at: 0 },
+        { at: 200, frame: { positionMs: 10_300 } },
+        { at: 300, frame: { index: 3, positionMs: 0, trackId: 'd' } },
+        { at: 500 },
+    ]);
+    assert.deepEqual(positions(rows), [200_000, 200_200, 0, 200]);
+    assert.equal(w.pins.position, null);
+});
+
+test('going back to the row a seek was pinned on does not bring the pin back', () => {
+    // Next, then previous, inside the 2.5 s: row 2 starts again from the top.
+    const w = world({ index: 2, positionMs: 10_000, trackId: 'c' });
+    const rows = replay(w, [
+        { act: { action: 'seek', cid: 's1', positionMs: 200_000 }, at: 0 },
+        { at: 300, frame: { index: 3, positionMs: 0, trackId: 'd' } },
+        { at: 600, frame: { index: 2, positionMs: 0, trackId: 'c' } },
+    ]);
+    assert.deepEqual(positions(rows), [200_000, 0, 0]);
+});
+
+test('another queue loaded at the same row drops the pinned position too', () => {
+    const w = world({ index: 0, positionMs: 10_000, trackId: 'a' });
+    const rows = replay(w, [
+        { act: { action: 'seek', cid: 's1', positionMs: 200_000 }, at: 0 },
+        { at: 300, frame: { positionMs: 0, trackId: 'z' } },
+    ]);
+    assert.deepEqual(positions(rows), [200_000, 0]);
+});
+
+test('a track change drops only the position: play state and volume are not about a track', () => {
+    const w = world({ index: 2, isPlaying: true, trackId: 'c' }, 50);
+    replay(w, [
+        { act: { action: 'seek', cid: 's1', positionMs: 200_000 }, at: 0 },
+        { act: { action: 'pause', cid: 'a1' }, at: 10 },
+        { act: { action: 'volume', cid: 'v1', level: 70 }, at: 20 },
+        { at: 300, frame: { index: 3, positionMs: 0, trackId: 'd' } },
+    ]);
+    assert.equal(w.pins.position, null);
+    assert.equal(w.pins.playing?.cid, 'a1');
+    assert.equal(w.pins.volume?.cid, 'v1');
+    const still = pinsOnTrack(w.pins, w.mirror);
+    assert.equal(still, w.pins, 'nothing to drop: the same object');
 });
 
 test('without a pin the mirror runs as it always did', () => {

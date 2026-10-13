@@ -27,7 +27,11 @@ import {
     notePlayheadStep,
     PlayheadRun,
 } from '/@/renderer/features/hub/utils/playhead-run';
-import { releaseActPin, sendAct } from '/@/renderer/features/hub/utils/remote-queue';
+import {
+    pinsAfterFrame,
+    releaseActPin,
+    sendAct,
+} from '/@/renderer/features/hub/utils/remote-queue';
 import { placeholderSong, resolveHubTracks } from '/@/renderer/features/hub/utils/resolve-songs';
 import {
     adoptLbBotFrame,
@@ -945,12 +949,14 @@ export const useHub = () => {
                     const wantPause = msg.play === false;
                     // I-031: a load that could not start. A transfer's is rolled back by the
                     // hub on this answer, so nothing more is said. Any other load (a setQueue
-                    // while this device plays) has nobody to roll it back: pause, so the
-                    // report that follows says "not playing" and is true.
+                    // while this device plays) has nobody to roll it back: pause, and the
+                    // report that follows says "not playing" at the row and position the
+                    // LOAD named. Not the player's: when nothing resolved it still holds the
+                    // queue from before, and its row would be read as one of the new queue.
                     const refuse = (error: string | undefined): DoExit => {
                         hub?.send({ error, ok: false, t: 'loaded', transferId });
-                        const exit = failedLoadExit(transferId);
-                        if (exit === 'echo') {
+                        const exit = failedLoadExit(msg);
+                        if (exit !== 'silent') {
                             notePauseRequest(); // the play this load asked for is withdrawn
                             mediaPause();
                         }
@@ -1291,7 +1297,9 @@ export const useHub = () => {
                         const moved = echoSettled(doEcho.current, msg?.seq, conn);
                         if (moved) {
                             doEcho.current = moved;
-                            if (exit === 'echo') report(undefined, true);
+                            if (exit !== 'silent') {
+                                report(exit === 'echo' ? undefined : exit, true);
+                            }
                         }
                     }
                 })
@@ -1427,6 +1435,8 @@ export const useHub = () => {
                 noteActive(msg.activeDeviceId ?? null);
                 setStore({
                     activeDeviceId: activeId.current,
+                    // I-031: a position pinned on the track this frame leaves is dropped.
+                    actPins: pinsAfterFrame(msg.index ?? 0, msg.queue ?? []),
                     remoteIsPlaying: msg.isPlaying ?? false,
                     remotePositionAt: Date.now(),
                     remotePositionMs: msg.positionMs ?? 0,
@@ -1443,6 +1453,8 @@ export const useHub = () => {
                 void adoptIfNoLiveReceiver(msg);
             } else if (msg.t === 'progress') {
                 setStore({
+                    // I-031: as on `session` - the device may have moved on to the next track.
+                    actPins: pinsAfterFrame(msg.index ?? 0, useHubStore.getState().remoteQueue),
                     remoteIsPlaying: msg.isPlaying ?? false,
                     remotePositionAt: Date.now(),
                     remotePositionMs: msg.positionMs ?? 0,

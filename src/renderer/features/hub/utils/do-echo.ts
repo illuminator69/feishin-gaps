@@ -16,7 +16,10 @@
 //   - it moves when the directive has ended, whichever way: carried out, refused, failed;
 //   - when it moves a report follows at once, read from the player at that moment - except
 //     after a transfer's load that was answered `loaded {ok:false}`, which the hub rolls back
-//     (and after `release`, which carries no number and sends its own last report).
+//     (and after `release`, which carries no number and sends its own last report);
+//   - a load that could not start and was no transfer's is paused and reported as the load
+//     itself, paused: the player may still hold the queue from before it, and a report read
+//     from that would move the session onto a row of a queue the hub no longer has.
 
 export interface DoEcho {
     /** The highest `seq` whose directive has ended on this connection; 0 before any. */
@@ -25,8 +28,14 @@ export interface DoEcho {
     conn: number;
 }
 
-/** How a directive ended, for the report that follows `applied` moving: sent, or not. */
-export type DoExit = 'echo' | 'silent';
+/**
+ * How a directive ended, for the report that follows `applied` moving: read whole from the
+ * player (`echo`), not sent (`silent`), or sent with these fields in place of the player's.
+ */
+export type DoExit = 'echo' | 'silent' | StalledLoad;
+
+/** What is reported of a load that could not start: where the hub asked for it, not playing. */
+export type StalledLoad = { index: number; isPlaying: false; positionMs: number };
 
 export const NO_ECHO: DoEcho = { applied: 0, conn: 0 };
 
@@ -55,8 +64,20 @@ export function echoWelcome(echo: DoEcho): DoEcho {
  * How a load that could not start ends. A transfer's (it carried a `transferId`) is rolled back
  * by the hub on the `loaded {ok:false}`, and a report now would describe a player the session
  * is about to leave. Any other load has nobody to roll it back: the caller pauses, and the
- * report says "not playing".
+ * report repeats the directive's own row and position with "not playing" - never the player's,
+ * which may be on the queue from before the load.
  */
-export function failedLoadExit(transferId: unknown): DoExit {
-    return transferId === undefined || transferId === null ? 'echo' : 'silent';
+export function failedLoadExit(load: {
+    index?: unknown;
+    positionMs?: unknown;
+    transferId?: unknown;
+}): DoExit {
+    if (load.transferId !== undefined && load.transferId !== null) return 'silent';
+    const atLeastZero = (value: unknown): number =>
+        typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+    return {
+        index: atLeastZero(load.index),
+        isPlaying: false,
+        positionMs: atLeastZero(load.positionMs),
+    };
 }

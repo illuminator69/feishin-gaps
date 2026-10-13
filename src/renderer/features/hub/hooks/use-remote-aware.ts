@@ -3,6 +3,7 @@ import { generatePath, useNavigate } from 'react-router';
 
 import { api } from '/@/renderer/api';
 import {
+    hubAcksActs,
     isRemoteSessionActive,
     remoteAct,
     remotePlayingShown,
@@ -280,9 +281,12 @@ export const useRemoteSeek = (): ((sec: number) => boolean) => {
     return (sec: number) => {
         const positionMs = Math.round(sec * 1000);
         if (!remoteAct('seek', { positionMs })) return false;
-        // Optimistically advance the mirror so the scrubber thumb stays where the
-        // user dropped it instead of snapping back until the next ~1 Hz frame.
-        // (Kept beside the pin a hub with `actAck` gets: the lyrics read the mirror.)
+        // A hub that acknowledges acts: remoteAct has pinned the position, and the bar and the
+        // lyrics show the pin until the ack. The mirror stays the hub's word, so a seek it
+        // refuses leaves nothing behind.
+        if (hubAcksActs()) return true;
+        // An older hub: optimistically advance the mirror so the scrubber thumb stays where
+        // the user dropped it instead of snapping back until the next ~1 Hz frame.
         useHubStore.getState().actions.setStore({
             remotePositionAt: Date.now(),
             remotePositionMs: positionMs,

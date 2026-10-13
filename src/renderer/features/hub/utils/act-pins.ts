@@ -16,7 +16,10 @@
 //     change included;
 //   - with no ack inside 2.5 s (the socket died, the hub restarted) the pin lapses. That is
 //     checked when the pin is read, not by a timer, so nothing can leave one stuck;
-//   - `welcome` and a lost socket clear all of them (the caller's part: NO_PINS).
+//   - `welcome` and a lost socket clear all of them (the caller's part: NO_PINS);
+//   - a pinned position belongs to the track it was sought on. When a frame puts the session on
+//     another row, or another track on the same row, the pin is dropped for good (pinsOnTrack):
+//     the ack may still be on its way, or lost, and the position means nothing on the new track.
 // Pinned: play state, position, volume. Skips and queue edits are not, because under shuffle a
 // controller cannot know which track comes next.
 //
@@ -35,10 +38,14 @@ export interface ActPins {
 /** What the hub last said, as far as a pin can stand in for it. */
 export interface HubMirror {
     activeDeviceId: null | string;
+    /** The session's row in its queue. */
+    index: number;
     isPlaying: boolean;
     /** Wall-clock ms `positionMs` was received. */
     positionAt: number;
     positionMs: number;
+    /** The id of the track on that row; null with an empty queue. */
+    trackId: null | string;
 }
 
 export interface PlayingPin extends Pin {
@@ -46,9 +53,13 @@ export interface PlayingPin extends Pin {
 }
 
 export interface PositionPin extends Pin {
+    /** The row the mirror was on when the seek was sent - see pinsOnTrack. */
+    index: number;
     /** Wall-clock ms `positionMs` was true: while "playing" is shown it runs on from here. */
     positionAt: number;
     positionMs: number;
+    /** The track on that row. */
+    trackId: null | string;
 }
 
 export interface VolumePin extends Pin {
@@ -105,7 +116,14 @@ export function pinAct(
             if (typeof act.positionMs !== 'number') return pins;
             return {
                 ...pins,
-                position: { at: now, cid, positionAt: now, positionMs: act.positionMs },
+                position: {
+                    at: now,
+                    cid,
+                    index: mirror.index,
+                    positionAt: now,
+                    positionMs: act.positionMs,
+                    trackId: mirror.trackId,
+                },
             };
         case 'volume':
             if (typeof act.level !== 'number' || mirror.activeDeviceId === null) return pins;
@@ -116,6 +134,20 @@ export function pinAct(
         default:
             return pins;
     }
+}
+
+/**
+ * A frame has put the session on row `index`, holding `trackId`: drop a position pinned on any
+ * other track. Dropped, not hidden - going back to that row starts the track again, and the pin
+ * must not come back with it. Returns `pins` itself when the session is still where the seek was
+ * sent (every `progress` frame of the same track).
+ */
+export function pinsOnTrack(pins: ActPins, session: Pick<HubMirror, 'index' | 'trackId'>): ActPins {
+    const pin = pins.position;
+    if (pin === null || (pin.index === session.index && pin.trackId === session.trackId)) {
+        return pins;
+    }
+    return { ...pins, position: null };
 }
 
 /**

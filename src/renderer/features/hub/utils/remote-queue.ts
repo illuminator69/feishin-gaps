@@ -4,8 +4,10 @@ import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import {
     ACT_PIN_MS,
+    ActPins,
     HubMirror,
     pinAct,
+    pinsOnTrack,
     playPauseAct,
     prunePins,
     releasePin,
@@ -116,16 +118,27 @@ const ACT_ACK = 'actAck';
 /** The hub store's mirror, as act-pins.ts reads it. */
 const mirrorOf = (s: HubSnapshot): HubMirror => ({
     activeDeviceId: s.activeDeviceId,
+    index: s.remoteQueueIndex,
     isPlaying: s.remoteIsPlaying,
     positionAt: s.remotePositionAt,
     positionMs: s.remotePositionMs,
+    trackId: s.remoteQueue[s.remoteQueueIndex]?.id ?? null,
 });
 
 /**
  * Does the hub acknowledge acts? Without it nothing is pinned and nothing is shown before the
  * hub's own frame says so: the timed holds of volume-hold.ts and the seek bar apply, as before.
  */
-const hubAcksActs = (s: HubSnapshot): boolean => s.features.includes(ACT_ACK);
+export const hubAcksActs = (s: HubSnapshot = useHubStore.getState()): boolean =>
+    s.features.includes(ACT_ACK);
+
+/**
+ * The pins that still stand once a frame has put the session on row `index` of `queue` - for
+ * use-hub to write in the same store update as the frame (`session`, `progress`). A position
+ * pinned on another track goes: see pinsOnTrack.
+ */
+export const pinsAfterFrame = (index: number, queue: ReadonlyArray<{ id: string }>): ActPins =>
+    pinsOnTrack(useHubStore.getState().actPins, { index, trackId: queue[index]?.id ?? null });
 
 /**
  * Is the remote session playing, as this client shows it: the play or pause just sent from here

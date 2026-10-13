@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import styles from './synchronized-lyrics.module.css';
 
 import '/@/renderer/features/lyrics/styles/synchronized-lyrics-animation.css';
+import { remotePositionMsShown } from '/@/renderer/features/hub/utils/remote-queue';
 import {
     findOverlayLineByTime,
     getLyricLineStartMs,
@@ -97,9 +98,9 @@ export const SynchronizedLyrics = ({
 
     const getTimestampSec = useCallback(() => {
         if (isRemoteActiveRef.current) {
-            const s = useHubStore.getState();
-            const elapsed = s.remoteIsPlaying ? Date.now() - s.remotePositionAt : 0;
-            return Math.max(0, (s.remotePositionMs + elapsed) / 1000);
+            // The position the bar shows (I-031, act-pins.ts): where a click on a line just
+            // sought to until the hub has answered for it, else the hub's own, carried on.
+            return remotePositionMsShown() / 1000;
         }
         return useTimestampStoreBase.getState().timestamp;
     }, []);
@@ -249,6 +250,7 @@ export const SynchronizedLyrics = ({
         // Mirror the remote session's play/pause and ~1 Hz progress frames.
         let lastRemotePlaying = useHubStore.getState().remoteIsPlaying;
         let lastRemotePositionAt = useHubStore.getState().remotePositionAt;
+        let lastPositionPin = useHubStore.getState().actPins.position;
         const unsubHub = useHubStore.subscribe((s) => {
             if (!isRemoteActiveRef.current) return;
 
@@ -257,9 +259,14 @@ export const SynchronizedLyrics = ({
                 applyStatus(s.remoteIsPlaying ? PlayerStatus.PLAYING : PlayerStatus.PAUSED);
             }
 
-            // A fresh progress frame while paused (seek / track change) → resync.
-            if (s.remotePositionAt !== lastRemotePositionAt) {
+            // A fresh progress frame while paused (seek / track change) → resync. So does a
+            // seek from here being pinned, and that pin giving way to the hub's answer.
+            if (
+                s.remotePositionAt !== lastRemotePositionAt ||
+                s.actPins.position !== lastPositionPin
+            ) {
                 lastRemotePositionAt = s.remotePositionAt;
+                lastPositionPin = s.actPins.position;
                 if (!s.remoteIsPlaying) syncFromCurrentTimestamp();
             }
         });
