@@ -141,7 +141,12 @@ function connect(): void {
                 // `transferAckV2` (§7.2): that answer echoes the directive's transferId,
                 // so a reply the renderer took 10 s to produce can't satisfy the NEXT
                 // transfer to this device.
-                caps: ['receiver', 'controller', 'loadAck', 'transferAckV2'],
+                // `cmdEcho` (§5.2-5.3): the renderer puts `applied` in every report, the
+                // `seq` of the last stamped directive it has carried out, and reads the
+                // report from the player after that. The hub then drops a report read
+                // before a directive took effect instead of timing it out. The cast
+                // bridge's own hello does not take this cap.
+                caps: ['receiver', 'controller', 'loadAck', 'transferAckV2', 'cmdEcho'],
                 id: deviceId(),
                 name: config.name || 'Feishin',
                 platform: 'desktop',

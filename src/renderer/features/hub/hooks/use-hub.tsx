@@ -4,6 +4,14 @@ import { useCallback, useEffect, useRef } from 'react';
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import {
+    DoExit,
+    echoDisconnected,
+    echoSettled,
+    echoWelcome,
+    failedLoadExit,
+    NO_ECHO,
+} from '/@/renderer/features/hub/utils/do-echo';
+import {
     adoptClaimDelay,
     GuardWindow,
     isGuardOpen,
@@ -46,10 +54,13 @@ import {
 } from '/@/renderer/features/player/utils/saved-queue-source';
 import { isPreviewId, previewHubTrack } from '/@/renderer/features/preview/preview-track';
 import {
+    isShuffleEnabled,
     isTimestampSeek,
+    mapShuffledToQueueIndex,
     mixesFromHub,
     SavedQueue,
     SavedQueueKind,
+    setTimestamp,
     useCurrentServerId,
     useHubSettings,
     useHubStore,
@@ -179,6 +190,31 @@ const savedQueueToHubRecord = (q: SavedQueue): Record<string, unknown> => ({
 
 const hub = isElectron() ? window.api.hub : null;
 
+/**
+ * What a report says about the player, read from the stores at the moment it is sent.
+ *
+ * Reports used to be built from refs that player events kept in step, and one of those events
+ * does not fire when it should: the current-track subscription compares the playing song's
+ * `_uniqueId`, so a queue edit that moves the playing track to another row (`reconcileQueue`,
+ * after a remove or a move above it) left the cached index on the old row and every later
+ * report named the wrong track (B-117). Read here, the index is the store's own, mapped out of
+ * the shuffled order the way `subscribeCurrentTrack` and `getCurrentSong` map it, so the hub is
+ * told a row of the queue as it lists it.
+ *
+ * It is also what `applied` promises (I-031, do-echo.ts): a report that carries a directive's
+ * number was read from the player after that directive ended.
+ */
+const readPlayer = (): { index: number; isPlaying: boolean; positionMs: number } => {
+    const state = usePlayerStore.getState();
+    return {
+        index: isShuffleEnabled(state)
+            ? mapShuffledToQueueIndex(state.player.index, state.queue.shuffled)
+            : state.player.index,
+        isPlaying: state.player.status === PlayerStatus.PLAYING,
+        positionMs: Math.round((useTimestampStoreBase.getState().timestamp || 0) * 1000),
+    };
+};
+
 /** The adopt guard's window (see `adoptPauseGuard`), opened now. */
 const openAdoptPauseGuard = (): GuardWindow => {
     const now = Date.now();
@@ -190,8 +226,10 @@ const openAdoptPauseGuard = (): GuardWindow => {
  *
  * Receives `do` directives from the hub and drives the player; emits `report`
  * (position/index/playing) ~1 Hz, but ONLY while this device is the active
- * receiver. State is tracked via refs fed by player events so the event-handler
- * sends never read stale React state. Transport lives in the main process
+ * receiver - plus one report whenever a numbered directive has ended, whoever is
+ * active (`applied`, do-echo.ts). A report is read from the stores when it is sent
+ * (`readPlayer`); the refs fed by player events serve the guards and the queue
+ * publications. Transport lives in the main process
  * (src/main/features/core/hub/index.ts).
  */
 export const useHub = () => {
@@ -215,9 +253,13 @@ export const useHub = () => {
     const myId = useRef<null | string>(null);
     const activeId = useRef<null | string>(null);
     const serverIdRef = useRef(serverId);
+    // The position and play state as the player events last gave them. NOT what a report says
+    // (readPlayer): they feed the queue publications (publishQueue's setQueue, the adopt's
+    // drift check) and the guards against a runaway.
     const positionMs = useRef(0);
-    const index = useRef(usePlayerStore.getState().player.index);
     const playing = useRef(false);
+    // I-031: the hub's numbered directives this connection has carried out - see do-echo.ts.
+    const doEcho = useRef(NO_ECHO);
     const lastQueueSig = useRef('');
     // Stable saved-queue history identity for what we publish — see resolveSavedQueueId.
     // It survives every edit to the queue we're listening to; only a new play (or an
@@ -264,6 +306,8 @@ export const useHub = () => {
     const playheadRun = useRef<null | PlayheadRun>(null);
     // Throttles hardPause so a pause that never takes can't turn into a play/pause loop.
     const lastHardPauseAt = useRef(0);
+    // True for the one store write in which hardPause sets PLAYING only to pause for real.
+    const correctingStore = useRef(false);
 
     const publicUrlRef = useRef('');
     publicUrlRef.current = settings.publicServerUrl?.trim().replace(/\/$/, '') ?? '';
@@ -331,7 +375,16 @@ export const useHub = () => {
             });
             if (flip) {
                 hubDrivenUntil.current = Math.max(hubDrivenUntil.current, now + 1000);
-                mediaPlay();
+                // I-031: the PLAYING written here lasts until the next line and nobody asked
+                // for it, so the status handler does not report it. The hub's 2 s window after
+                // a play or pause used to swallow that report; a hub that goes by `applied`
+                // believes it, and every device would show "playing" for one frame.
+                correctingStore.current = true;
+                try {
+                    mediaPlay();
+                } finally {
+                    correctingStore.current = false;
+                }
             }
             mediaPause();
         },
@@ -373,12 +426,14 @@ export const useHub = () => {
         }
     }, [hardPause, mediaPause]);
 
-    const report = useCallback((overrides?: Record<string, unknown>) => {
-        if (!hub || !isActive()) return;
+    // `echo`: the report that follows `applied` moving. It is not gated on being the active
+    // device: the hub decides who is, it has just sent this device a directive, and it reads
+    // `applied` from every report.
+    const report = useCallback((overrides?: Record<string, unknown>, echo = false) => {
+        if (!hub || (!echo && !isActive())) return;
         hub.send({
-            index: index.current,
-            isPlaying: playing.current,
-            positionMs: positionMs.current,
+            ...readPlayer(),
+            applied: doEcho.current.applied,
             t: 'report',
             ...overrides,
         });
@@ -608,12 +663,11 @@ export const useHub = () => {
             return;
         }
         sawNonEmptyQueue.current = true;
-        // Both refs are fed by player EVENTS, which never fired for a queue restored at
-        // launch — index would still be its mount-time 0 and position 0, publishing "first
-        // track, from the top" for a queue we're parked in the middle of. Take the live
-        // values instead; the timestamp store is where a restored position lives until the
-        // engine's first progress tick.
-        index.current = state.player.index;
+        // The ref is fed by player EVENTS, which never fired for a queue restored at
+        // launch - position would still be its mount-time 0, publishing "from the top"
+        // for a queue we're parked in the middle of. Take the live value instead; the
+        // timestamp store is where a restored position lives until the engine's first
+        // progress tick. (The index is read from the store below.)
         if (!positionMs.current) {
             positionMs.current = Math.round(
                 (useTimestampStoreBase.getState().timestamp || 0) * 1000,
@@ -763,7 +817,15 @@ export const useHub = () => {
                 // describe a queue we no longer have.
                 if (loadGen.current !== gen) return { error: 'superseded', ok: false };
                 const state = usePlayerStore.getState();
-                const onTarget = state.player.index === targetIndex;
+                // The hub's index is a row of the queue, and with shuffle on `player.index`
+                // is a position in the shuffled order. A load of the queue already held gets
+                // there through mediaPlayByIndex, which maps, so the ROW matches and the raw
+                // index does not; a load of another queue goes through setQueue, which writes
+                // the raw index. Either counts: comparing the raw index alone failed every
+                // load of the first kind under shuffle, and a load that fails is now paused
+                // (I-031, `refuse` in handleDo).
+                const onTarget =
+                    state.player.index === targetIndex || readPlayer().index === targetIndex;
                 if (onTarget) {
                     if (!wantPause) {
                         // B-053: same rule as audioIsRolling: a lone seek step is not
@@ -825,8 +887,12 @@ export const useHub = () => {
         return map;
     }, []);
 
+    // Resolves once the directive has ENDED - carried out, refused or failed - which is what
+    // lets runDirective move `applied` after it: the store flips synchronously inside the
+    // player actions below, and a load waits for its outcome. The value says whether the
+    // report that follows is sent (do-echo.ts).
     const handleDo = useCallback(
-        async (msg: any) => {
+        async (msg: any): Promise<DoExit> => {
             // Local player events caused by this directive are hub-driven, not
             // user actions (window covers async engine events).
             hubDrivenUntil.current = Date.now() + 2000;
@@ -863,6 +929,19 @@ export const useHub = () => {
                         incomingIds.every((id, n) => id === currentIds[n]);
 
                     const wantPause = msg.play === false;
+                    // I-031: a load that could not start. A transfer's is rolled back by the
+                    // hub on this answer, so nothing more is said. Any other load (a setQueue
+                    // while this device plays) has nobody to roll it back: pause, so the
+                    // report that follows says "not playing" and is true.
+                    const refuse = (error: string | undefined): DoExit => {
+                        hub?.send({ error, ok: false, t: 'loaded', transferId });
+                        const exit = failedLoadExit(transferId);
+                        if (exit === 'echo') {
+                            notePauseRequest(); // the play this load asked for is withdrawn
+                            mediaPause();
+                        }
+                        return exit;
+                    };
                     if (sameQueue) {
                         // Queue is already loaded locally (e.g. transfer back to
                         // this device). Reloading would reinitialise the audio
@@ -887,13 +966,7 @@ export const useHub = () => {
                             // Nothing resolved — the queue is unplayable here (server
                             // down, ids this server doesn't know). Say so rather than
                             // leaving the hub believing this device took the session.
-                            hub?.send({
-                                error: 'could not resolve any track in the queue',
-                                ok: false,
-                                t: 'loaded',
-                                transferId,
-                            });
-                            return;
+                            return refuse('could not resolve any track in the queue');
                         }
                         // Re-arm the hub-driven window: resolveSongs fans out one
                         // getSongDetail per track and can outlast the original 2 s, after
@@ -927,12 +1000,8 @@ export const useHub = () => {
                     // A superseded load has no standing to answer: a newer directive owns
                     // the player, and the hub has already cancelled this attempt's waiter.
                     if (outcome.error === 'superseded') break;
-                    hub?.send({
-                        error: outcome.ok ? undefined : outcome.error,
-                        ok: outcome.ok,
-                        t: 'loaded',
-                        transferId,
-                    });
+                    if (!outcome.ok) return refuse(outcome.error);
+                    hub?.send({ ok: true, t: 'loaded', transferId });
                     break;
                 }
                 case 'pause':
@@ -988,13 +1057,18 @@ export const useHub = () => {
                     // to be loaded for real — from the top, since there is no position to
                     // carry across. PROTOCOL §5.2: don't START playback if we were paused.
                     setQueue(songs, nextIndex, 0, wasPlaying);
+                    // I-031: setQueue leaves the timestamp store where the removed track was
+                    // until its restore seeks to 0 some 100 ms on, and the report that follows
+                    // this directive is read before that. Say "from the top" now.
+                    setTimestamp(0, { seek: true });
                     break;
                 }
                 case 'release': {
                     // Final position report, THEN released — order matters so the
-                    // hub captures our exact spot before handing off. positionMs is fed
-                    // by every onPlayerProgress tick (only the 1 Hz *report* is
-                    // throttled), so it's already the engine's live position.
+                    // hub captures our exact spot before handing off. Both are read from
+                    // the stores here (readPlayer): the timestamp store is written by every
+                    // engine tick (only the 1 Hz *report* is throttled), so it is the
+                    // engine's live position, and the index is the store's own (B-117).
                     //
                     // Invalidate any load in flight first: the session is leaving this
                     // device, so an outstanding awaitLoadOutcome has nothing left to
@@ -1002,15 +1076,17 @@ export const useHub = () => {
                     loadGen.current += 1;
                     mediaPause();
                     report({ isPlaying: false });
+                    const { index, positionMs: releasedAtMs } = readPlayer();
                     hub?.send({
-                        index: index.current,
-                        positionMs: positionMs.current,
+                        index,
+                        positionMs: releasedAtMs,
                         t: 'released',
                         // §7.2 — echo the handoff this release belongs to, so a duplicate
                         // from an earlier one can't complete it.
                         transferId: msg.transferId,
                     });
-                    break;
+                    // I-031: those two are this directive's last word. No report after it.
+                    return 'silent';
                 }
                 case 'seek':
                     mediaSeekToTimestamp((msg.positionMs ?? 0) / 1000);
@@ -1027,6 +1103,7 @@ export const useHub = () => {
                 default:
                     break;
             }
+            return 'echo';
         },
         [
             awaitLoadOutcome,
@@ -1183,16 +1260,35 @@ export const useHub = () => {
     const directiveChain = useRef<Promise<void>>(Promise.resolve());
     const runDirective = useCallback(
         (msg: any): Promise<void> => {
-            const next = directiveChain.current.then(() =>
-                handleDo(msg).catch((e) => {
+            // I-031: the connection this directive arrived on. It may still be waiting in the
+            // chain, or for a load's outcome, when the socket has dropped and come back; the
+            // hub forgot it at that `welcome`, and it must not move the new connection's count.
+            const conn = doEcho.current.conn;
+            const next = directiveChain.current
+                .then(async () => {
+                    let exit: DoExit = 'echo';
+                    try {
+                        exit = await handleDo(msg);
+                    } finally {
+                        // The directive has ended, so its number is applied whichever way it
+                        // went (a throw included), and the hub is owed a report read from the
+                        // player AFTER it: until one arrives carrying this number, the hub
+                        // drops what this device reports.
+                        const moved = echoSettled(doEcho.current, msg?.seq, conn);
+                        if (moved) {
+                            doEcho.current = moved;
+                            if (exit === 'echo') report(undefined, true);
+                        }
+                    }
+                })
+                .catch((e) => {
                     // One bad directive must not break the chain for every later one.
                     console.error('[hub] directive failed', msg?.cmd, e);
-                }),
-            );
+                });
             directiveChain.current = next;
             return next;
         },
-        [handleDo],
+        [handleDo, report],
     );
 
     // Held in a ref so the long-lived message handler below can call it without
@@ -1250,6 +1346,8 @@ export const useHub = () => {
         const { setStore } = useHubStore.getState().actions;
         const dispose = hub.onMessage((msg: any) => {
             if (msg.t === 'welcome') {
+                // I-031: the one reset point of the command echo, on both sides.
+                doEcho.current = echoWelcome(doEcho.current);
                 myId.current = msg.deviceId ?? null;
                 noteActive(msg.session?.activeDeviceId ?? null);
                 setStore({
@@ -1399,6 +1497,7 @@ export const useHub = () => {
                 // isRemoteSessionActive() releases the player bar and the local
                 // watchdog stops force-pausing local audio; reset the guards so a
                 // reconnect republishes cleanly.
+                doEcho.current = echoDisconnected(doEcho.current);
                 activeId.current = null;
                 hubDrivenUntil.current = 0;
                 lastQueueSig.current = '';
@@ -1467,7 +1566,6 @@ export const useHub = () => {
     usePlayerEvents(
         {
             onCurrentSongChange: (properties) => {
-                index.current = properties.index;
                 const pending = pendingSeek.current;
                 if (pending && Date.now() - pending.armedAt > PENDING_SEEK_TTL) {
                     // Its target track never became current (superseded load, queue
@@ -1502,18 +1600,17 @@ export const useHub = () => {
                 }
                 routeLocalPlayToRemote();
                 publishQueue();
-                // A track change starts the new song at 0, but positionMs.current still
-                // holds the OUTGOING track's offset (onPlayerProgress hasn't ticked for
-                // the new one yet). Reporting that pair parks the hub's cursor minutes
-                // into a song that just started, which then reads as drift everywhere
+                // A track change starts the new song at 0, but the timestamp store can still
+                // hold the OUTGOING track's offset (a queue loaded with setQueue is positioned
+                // by its restore, 100 ms on). Reporting that pair parks the hub's cursor
+                // minutes into a song that just started, which then reads as drift everywhere
                 // that compares against it.
                 // ...but NOT when a hub-driven load is positioning us (a pending seek, or
                 // inside the hub-driven window) — there the hub's own offset is the truth
                 // and reporting 0 would rewind the session it just handed us.
-                if (!pendingSeek.current && Date.now() >= hubDrivenUntil.current) {
-                    positionMs.current = 0;
-                }
-                report({ index: properties.index, positionMs: positionMs.current });
+                const fromTheTop = !pendingSeek.current && Date.now() >= hubDrivenUntil.current;
+                if (fromTheTop) positionMs.current = 0;
+                report(fromTheTop ? { positionMs: 0 } : undefined);
             },
             onPlayerProgress: (properties, prev) => {
                 positionMs.current = Math.round(properties.timestamp * 1000);
@@ -1599,7 +1696,8 @@ export const useHub = () => {
                     }, claimInMs);
                 };
                 claimWhenWindowLapses();
-                report({ isPlaying: playing.current });
+                // Not hardPause's own PLAYING (see correctingStore): the pause after it reports.
+                if (!correctingStore.current) report();
             },
         },
         [
