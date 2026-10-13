@@ -11,6 +11,7 @@ import {
     playPauseAct,
     prunePins,
     releasePin,
+    shownDeviceVolume,
     shownPlaying,
     shownPositionMs,
     shownVolume,
@@ -166,6 +167,16 @@ export const remoteVolumePinned = (
     s: HubSnapshot = useHubStore.getState(),
     now = Date.now(),
 ): null | number => shownVolume(s.actPins, mirrorOf(s), now);
+
+/**
+ * The level just asked of the device `deviceId` from its row in the device picker, until the
+ * hub has answered for it. Null when the row's own `volume` is the truth.
+ */
+export const deviceVolumePinned = (
+    deviceId: string,
+    s: HubSnapshot = useHubStore.getState(),
+    now = Date.now(),
+): null | number => shownDeviceVolume(s.actPins, deviceId, now);
 
 /** Drop pins that lapsed with no ack, so whatever renders them looks again. */
 const dropLapsedPins = () => {

@@ -146,7 +146,17 @@ function connect(): void {
                 // report from the player after that. The hub then drops a report read
                 // before a directive took effect instead of timing it out. The cast
                 // bridge's own hello does not take this cap.
-                caps: ['receiver', 'controller', 'loadAck', 'transferAckV2', 'cmdEcho'],
+                // `idleVolume`: the renderer applies `do:setVolume` whenever it arrives,
+                // also while another device is playing, so the hub may send this device a
+                // level somebody set on its row in a picker (`act:volume` with `target`).
+                caps: [
+                    'receiver',
+                    'controller',
+                    'loadAck',
+                    'transferAckV2',
+                    'cmdEcho',
+                    'idleVolume',
+                ],
                 id: deviceId(),
                 // What this device is, for the icon its row gets in every picker. An older
                 // hub ignores the key.

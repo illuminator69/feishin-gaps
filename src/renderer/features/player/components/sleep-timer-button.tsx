@@ -3,13 +3,27 @@ import { useTranslation } from 'react-i18next';
 
 import styles from './sleep-timer-button.module.css';
 
+import { sendHubAct } from '/@/renderer/features/hub/utils/remote-queue';
+import {
+    sleepActMinutes,
+    sleepRemainingMs,
+    sleepTimerSetElsewhere,
+} from '/@/renderer/features/hub/utils/sleep-timer';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import {
+    useHubConnected,
+    useHubFeature,
+    useHubMyDeviceId,
+    useHubSleepTimer,
+    useHubStore,
+} from '/@/renderer/store/hub.store';
 import {
     usePlayerShuffle,
     usePlayerStatus,
     usePlayerStoreBase,
 } from '/@/renderer/store/player.store';
+import { useHubSettings } from '/@/renderer/store/settings.store';
 import {
     useSleepTimerActions,
     useSleepTimerActive,
@@ -191,6 +205,9 @@ export const SleepTimerHook = () => {
     return React.createElement(SleepTimerHookInner);
 };
 
+/** `welcome.features`: the hub holds the session's sleep timer (PROTOCOL, `act:sleepTimer`). */
+const HUB_SLEEP_TIMER = 'sleepTimer';
+
 export const SleepTimerButton = () => {
     const { t } = useTranslation();
     const active = useSleepTimerActive();
@@ -198,6 +215,22 @@ export const SleepTimerButton = () => {
     const remaining = useSleepTimerRemaining();
     const { cancelTimer, startEndOfAlbumTimer, startEndOfSongTimer, startTimedTimer } =
         useSleepTimerActions();
+    // navi-connect (I-034): against a hub that holds the session's sleep timer, a TIMED timer
+    // is the session's. It is set and cancelled there, runs whichever device is playing, and
+    // every device's control shows it; nothing is armed in this app's own store. The two
+    // modes that end at a track boundary stay with this player, as does everything when there
+    // is no such hub (none configured, an older one, the link down).
+    const hubEnabled = useHubSettings().enabled;
+    const hubConnected = useHubConnected();
+    const hubHoldsTimer = useHubFeature(HUB_SLEEP_TIMER);
+    const viaHub = hubEnabled && hubConnected && hubHoldsTimer;
+    const sessionTimer = useHubSleepTimer();
+    const myDeviceId = useHubMyDeviceId();
+    const sessionTimerSetOn = useHubStore((s) =>
+        s.sleepTimer && sleepTimerSetElsewhere(s.sleepTimer, s.myDeviceId)
+            ? (s.devices.find((d) => d.id === s.sleepTimer?.setBy)?.name ?? null)
+            : null,
+    );
     const shuffle = usePlayerShuffle();
     // Track level shuffle scatters and album across a play queue making 'end-of-album'
     // meaningless. Album shuffle keeps each album intact, so keep 'end-of-'album
@@ -210,34 +243,66 @@ export const SleepTimerButton = () => {
     const [customSeconds, setCustomSeconds] = useState<number>(0);
     const [opened, setOpened] = useState(false);
 
+    // The session's timer counts down from the end the last frame gave, on this clock: the
+    // hub sends nothing while it runs. `now` is read when the popover opens and ticked only
+    // while the number is on screen.
+    const [now, setNow] = useState(() => Date.now());
+    const changeOpened = useCallback((next: boolean) => {
+        if (next) setNow(Date.now());
+        setOpened(next);
+    }, []);
+    useEffect(() => {
+        if (!opened || !sessionTimer) return undefined;
+        const interval = window.setInterval(() => setNow(Date.now()), 500);
+        return () => window.clearInterval(interval);
+    }, [opened, sessionTimer]);
+
     const handlePreset = useCallback(
         (option: (typeof PRESET_OPTIONS)[number]) => {
             if (option.mode === 'endOfSong') {
                 startEndOfSongTimer();
             } else if (option.mode === 'endOfAlbum') {
                 startEndOfAlbumTimer();
+            } else if (viaHub) {
+                sendHubAct('sleepTimer', { minutes: option.minutes });
             } else {
                 startTimedTimer(option.minutes * 60);
             }
             setShowCustom(false);
             setOpened(false);
         },
-        [startEndOfAlbumTimer, startEndOfSongTimer, startTimedTimer],
+        [startEndOfAlbumTimer, startEndOfSongTimer, startTimedTimer, viaHub],
     );
 
     const handleCustomStart = useCallback(() => {
+        if (viaHub) {
+            // The hub counts whole minutes, so the seconds field is not offered (below).
+            const minutes = sleepActMinutes(customHours * 3600 + customMinutes * 60);
+            if (minutes === null) return;
+            sendHubAct('sleepTimer', { minutes });
+            setShowCustom(false);
+            setOpened(false);
+            return;
+        }
         const totalSeconds = customHours * 3600 + customMinutes * 60 + customSeconds;
         if (totalSeconds > 0) {
             startTimedTimer(totalSeconds);
             setShowCustom(false);
             setOpened(false);
         }
-    }, [customHours, customMinutes, customSeconds, startTimedTimer]);
+    }, [customHours, customMinutes, customSeconds, startTimedTimer, viaHub]);
 
+    // Cancels everything the control shows: the session's timer, at the hub, and this app's
+    // own. With the link down the session's can only be dropped here, which is also what
+    // stands this device's guard on it down (use-hub).
     const handleCancel = useCallback(() => {
-        cancelTimer();
+        if (sessionTimer) {
+            if (viaHub) sendHubAct('sleepTimer', { minutes: 0 });
+            else useHubStore.getState().actions.setStore({ sleepTimer: null });
+        }
+        if (active) cancelTimer();
         setShowCustom(false);
-    }, [cancelTimer]);
+    }, [active, cancelTimer, sessionTimer, viaHub]);
 
     const getPresetLabel = (option: (typeof PRESET_OPTIONS)[number]) => {
         if (option.mode === 'endOfSong') {
@@ -251,17 +316,17 @@ export const SleepTimerButton = () => {
     };
 
     return (
-        <Popover onChange={setOpened} opened={opened} position="top" withArrow>
+        <Popover onChange={changeOpened} opened={opened} position="top" withArrow>
             <Popover.Target>
                 <ActionIcon
-                    icon={active ? 'sleepTimer' : 'sleepTimerOff'}
+                    icon={active || sessionTimer ? 'sleepTimer' : 'sleepTimerOff'}
                     iconProps={{
-                        color: active ? 'primary' : undefined,
+                        color: active || sessionTimer ? 'primary' : undefined,
                         size: 'lg',
                     }}
                     onClick={(e) => {
                         e.stopPropagation();
-                        setOpened((prev) => !prev);
+                        changeOpened(!opened);
                     }}
                     size="sm"
                     tooltip={{
@@ -278,32 +343,49 @@ export const SleepTimerButton = () => {
                             {t('player.sleepTimer')}
                         </Text>
 
-                        {active && (
+                        {sessionTimer && (
                             <>
-                                {mode === 'endOfSong' ? (
-                                    <Text c="primary" size="xl">
-                                        {t('player.sleepTimer_endOfSong')}
+                                <TextTitle c="primary" order={3}>
+                                    {formatRemaining(
+                                        Math.ceil(sleepRemainingMs(sessionTimer, now) / 1000),
+                                    )}
+                                </TextTitle>
+                                {sleepTimerSetElsewhere(sessionTimer, myDeviceId) && (
+                                    <Text isMuted size="xs">
+                                        {sessionTimerSetOn
+                                            ? t('player.sleepTimer_setOnDevice', {
+                                                  device: sessionTimerSetOn,
+                                              })
+                                            : t('player.sleepTimer_setElsewhere')}
                                     </Text>
-                                ) : mode === 'endOfAlbum' ? (
-                                    <Text c="primary" size="xl">
-                                        {t('player.sleepTimer_endOfAlbum')}
-                                    </Text>
-                                ) : (
-                                    <TextTitle c="primary" order={3}>
-                                        {formatRemaining(remaining)}
-                                    </TextTitle>
                                 )}
-                                <Button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleCancel();
-                                    }}
-                                    size="compact-xs"
-                                    variant="subtle"
-                                >
-                                    {t('player.sleepTimer_cancel')}
-                                </Button>
                             </>
+                        )}
+                        {active &&
+                            (mode === 'endOfSong' ? (
+                                <Text c="primary" size="xl">
+                                    {t('player.sleepTimer_endOfSong')}
+                                </Text>
+                            ) : mode === 'endOfAlbum' ? (
+                                <Text c="primary" size="xl">
+                                    {t('player.sleepTimer_endOfAlbum')}
+                                </Text>
+                            ) : (
+                                <TextTitle c="primary" order={3}>
+                                    {formatRemaining(remaining)}
+                                </TextTitle>
+                            ))}
+                        {(active || sessionTimer) && (
+                            <Button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCancel();
+                                }}
+                                size="compact-xs"
+                                variant="subtle"
+                            >
+                                {t('player.sleepTimer_cancel')}
+                            </Button>
                         )}
                     </Paper>
 
@@ -403,6 +485,7 @@ export const SleepTimerButton = () => {
                                     />
                                     <Text>:</Text>
                                     <NumberInput
+                                        disabled={viaHub}
                                         max={59}
                                         min={0}
                                         onChange={(val) => setCustomSeconds(Number(val) || 0)}

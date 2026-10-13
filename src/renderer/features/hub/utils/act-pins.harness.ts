@@ -11,6 +11,7 @@ import {
     playPauseAct,
     prunePins,
     releasePin,
+    shownDeviceVolume,
     shownPlaying,
     shownPositionMs,
     shownVolume,
@@ -25,6 +26,9 @@ import {
  * keeps only the pins that belong to the track the frame names (pinsOnTrack). An `ack` is the
  * hub's answer to one act, which use-hub releases the pin by. `shown` is what the remote-aware
  * hooks render after each step.
+ *
+ * The device picker's row sliders (I-033) are replayed the same way further down: there an act
+ * names its `target`, a frame is a `devices` frame, and what is shown is each row's slider.
  */
 
 const SPEAKER = 'speaker';
@@ -37,7 +41,7 @@ interface Shown {
 
 interface Step {
     ack?: string;
-    act?: { action: string; cid: string; level?: number; positionMs?: number };
+    act?: { action: string; cid: string; level?: number; positionMs?: number; target?: string };
     at: number;
     frame?: Partial<HubMirror> & { volume?: number };
 }
@@ -278,7 +282,7 @@ test('a track change drops only the position: play state and volume are not abou
     ]);
     assert.equal(w.pins.position, null);
     assert.equal(w.pins.playing?.cid, 'a1');
-    assert.equal(w.pins.volume?.cid, 'v1');
+    assert.equal(w.pins.volume[SPEAKER]?.cid, 'v1');
     const still = pinsOnTrack(w.pins, w.mirror);
     assert.equal(still, w.pins, 'nothing to drop: the same object');
 });
@@ -336,6 +340,184 @@ test('a volume pin is about the device it was sent to', () => {
         NO_PINS,
         'and none is made with nobody to send it to',
     );
+});
+
+// --- Volume of a device that is not playing: the picker's row sliders --------------------------
+
+const KITCHEN = 'kitchen';
+const TV = 'tv';
+
+interface RowStep {
+    ack?: string;
+    act?: { cid: string; level: number; target: string };
+    at: number;
+    /** A `devices` frame: the rows' levels as the hub holds them. */
+    frame?: Record<string, number>;
+}
+
+/** The picker over a session playing on SPEAKER: each row's level in the last `devices` frame. */
+const picker = (rows: Record<string, number>) => ({
+    mirror: world().mirror,
+    pins: NO_PINS as ActPins,
+    rows: { ...rows },
+});
+
+/** What the sliders of `devices` show after each step. */
+const replayRows = (p: ReturnType<typeof picker>, devices: string[], steps: RowStep[]) =>
+    steps.map((step) => {
+        if (step.frame) p.rows = { ...p.rows, ...step.frame };
+        if (step.act) {
+            const { cid, ...act } = step.act;
+            p.pins = pinAct(p.pins, { ...act, action: 'volume' }, cid, p.mirror, step.at);
+        }
+        if (step.ack) p.pins = releasePin(p.pins, step.ack);
+        return devices.map((id) => shownDeviceVolume(p.pins, id, step.at) ?? p.rows[id]);
+    });
+
+test("a row's slider keeps the level it was let go at until the hub has answered", () => {
+    // Released at 20 over a row that says 60, 300 ms each way. A `devices` frame caused by
+    // somebody else's act arrives first and still says 60.
+    const p = picker({ [KITCHEN]: 60 });
+    const shown = replayRows(
+        p,
+        [KITCHEN],
+        [
+            { act: { cid: 'r1', level: 20, target: KITCHEN }, at: 0 },
+            { at: 150, frame: { [SPEAKER]: 45 } },
+            { at: 600, frame: { [KITCHEN]: 20 } },
+            { ack: 'r1', at: 601 },
+        ],
+    );
+    assert.deepEqual(shown, [[20], [20], [20], [20]], 'never 60 after the release');
+    assert.deepEqual(p.pins.volume, {});
+});
+
+test('at the ack the row shows what the device said, not what was asked', () => {
+    // A phone with 15 volume steps lands on 36 for 37 and reports it; the hub's frame says 36.
+    const p = picker({ [KITCHEN]: 60 });
+    const shown = replayRows(
+        p,
+        [KITCHEN],
+        [
+            { act: { cid: 'r1', level: 37, target: KITCHEN }, at: 0 },
+            { at: 600, frame: { [KITCHEN]: 37 } },
+            { ack: 'r1', at: 601 },
+            { at: 700, frame: { [KITCHEN]: 36 } },
+        ],
+    );
+    assert.deepEqual(shown, [[37], [37], [37], [36]]);
+});
+
+test("a refused level goes back to the row's own, at the ack", () => {
+    // `ok:false` (target_offline, not_supported): the hub recorded nothing and sent no frame.
+    const p = picker({ [KITCHEN]: 60 });
+    const shown = replayRows(
+        p,
+        [KITCHEN],
+        [
+            { act: { cid: 'r1', level: 20, target: KITCHEN }, at: 0 },
+            { ack: 'r1', at: 600 },
+        ],
+    );
+    assert.deepEqual(shown, [[20], [60]]);
+});
+
+test('each row has its own pin, released by its own ack', () => {
+    const p = picker({ [KITCHEN]: 60, [TV]: 80 });
+    const shown = replayRows(
+        p,
+        [KITCHEN, TV],
+        [
+            { act: { cid: 'r1', level: 20, target: KITCHEN }, at: 0 },
+            { act: { cid: 'r2', level: 30, target: TV }, at: 100 },
+            { at: 600, frame: { [KITCHEN]: 20 } },
+            { ack: 'r1', at: 601 },
+            { at: 700, frame: { [TV]: 30 } },
+            { ack: 'r2', at: 701 },
+        ],
+    );
+    assert.deepEqual(shown, [
+        [20, 80],
+        [20, 30],
+        [20, 30],
+        [20, 30],
+        [20, 30],
+        [20, 30],
+    ]);
+    assert.deepEqual(p.pins.volume, {});
+});
+
+test('on one row the ack of an earlier release does not let go of a later one', () => {
+    const p = picker({ [KITCHEN]: 60 });
+    const shown = replayRows(
+        p,
+        [KITCHEN],
+        [
+            { act: { cid: 'r1', level: 20, target: KITCHEN }, at: 0 },
+            { act: { cid: 'r2', level: 40, target: KITCHEN }, at: 200 },
+            { at: 600, frame: { [KITCHEN]: 20 } },
+            { ack: 'r1', at: 601 },
+            { at: 800, frame: { [KITCHEN]: 40 } },
+            { ack: 'r2', at: 801 },
+        ],
+    );
+    assert.deepEqual(shown, [[20], [40], [40], [40], [40], [40]]);
+});
+
+test("a row's level and the bar's do not stand in for each other", () => {
+    // The bar's slider sets the active device (no target); a row sets the one it names.
+    const p = picker({ [KITCHEN]: 60, [SPEAKER]: 45 });
+    p.pins = pinAct(p.pins, { action: 'volume', level: 20, target: KITCHEN }, 'r1', p.mirror, 0);
+    assert.equal(shownVolume(p.pins, p.mirror, 10), null, 'the bar still shows the speaker row');
+    p.pins = pinAct(p.pins, { action: 'volume', level: 70 }, 'v1', p.mirror, 20);
+    assert.equal(shownVolume(p.pins, p.mirror, 30), 70);
+    assert.equal(shownDeviceVolume(p.pins, KITCHEN, 30), 20);
+    p.pins = releasePin(p.pins, 'v1');
+    assert.equal(shownVolume(p.pins, p.mirror, 40), null);
+    assert.equal(shownDeviceVolume(p.pins, KITCHEN, 40), 20, "the bar's ack released the bar's");
+});
+
+test('a target that is the active device is the pin the bar shows', () => {
+    const w = world({}, 50);
+    w.pins = pinAct(w.pins, { action: 'volume', level: 70, target: SPEAKER }, 'r1', w.mirror, 0);
+    assert.equal(shownVolume(w.pins, w.mirror, 10), 70);
+    w.pins = pinAct(w.pins, { action: 'volume', level: 65 }, 'v1', w.mirror, 20);
+    assert.equal(shownDeviceVolume(w.pins, SPEAKER, 30), 65, 'one value, the newest act on it');
+    assert.equal(releasePin(w.pins, 'r1'), w.pins, 'the earlier ack releases nothing');
+});
+
+test('a row can be set with nobody playing, and its pin lapses like any other', () => {
+    const nobody = { ...world().mirror, activeDeviceId: null };
+    const pins = pinAct(NO_PINS, { action: 'volume', level: 20, target: KITCHEN }, 'r1', nobody, 0);
+    assert.equal(shownDeviceVolume(pins, KITCHEN, ACT_PIN_MS - 1), 20);
+    assert.equal(shownDeviceVolume(pins, KITCHEN, ACT_PIN_MS), null, 'no ack: the row again');
+    assert.equal(shownDeviceVolume(pins, TV, 10), null, 'nothing was asked of the TV');
+    assert.equal(prunePins(pins, ACT_PIN_MS - 1), pins, 'nothing lapsed: the same object');
+    assert.deepEqual(prunePins(pins, ACT_PIN_MS), NO_PINS);
+});
+
+test('only the lapsed row is tidied away', () => {
+    const mirror = world().mirror;
+    let pins = pinAct(NO_PINS, { action: 'volume', level: 20, target: KITCHEN }, 'r1', mirror, 0);
+    pins = pinAct(pins, { action: 'volume', level: 30, target: TV }, 'r2', mirror, 1000);
+    const pruned = prunePins(pins, ACT_PIN_MS + 10);
+    assert.deepEqual(Object.keys(pruned.volume), [TV]);
+    assert.equal(pruned.volume[TV], pins.volume[TV]);
+});
+
+test('a device id is only ever a key of its own pin', () => {
+    const mirror = world().mirror;
+    assert.equal(shownDeviceVolume(NO_PINS, 'constructor', 0), null);
+    assert.equal(shownDeviceVolume(NO_PINS, 'toString', 0), null);
+    const pins = pinAct(
+        NO_PINS,
+        { action: 'volume', level: 20, target: '__proto__' },
+        'r1',
+        mirror,
+        0,
+    );
+    assert.equal(shownDeviceVolume(pins, '__proto__', 10), 20);
+    assert.deepEqual(releasePin(pins, 'r1'), NO_PINS);
 });
 
 // --- What is not pinned ------------------------------------------------------------------------

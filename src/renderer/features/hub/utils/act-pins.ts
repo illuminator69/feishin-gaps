@@ -23,6 +23,11 @@
 // Pinned: play state, position, volume. Skips and queue edits are not, because under shuffle a
 // controller cannot know which track comes next.
 //
+// A volume is pinned per device (I-033). The bar's slider sets the active device's, and a row in
+// the device picker sets the one its act names as `target`; each device has its own newest act,
+// its own ack and its own 2.5 s, so a level asked of the kitchen speaker neither shows on the
+// bar nor is let go by the ack of a level asked of the device that is playing.
+//
 // A hub without `actAck` gets no pins: the callers keep volume-hold.ts and the seek bar's own
 // 1 s hold, and nothing is shown early.
 
@@ -32,7 +37,8 @@ export const ACT_PIN_MS = 2500;
 export interface ActPins {
     playing: null | PlayingPin;
     position: null | PositionPin;
-    volume: null | VolumePin;
+    /** By the id of the device the level was asked of. Empty with none pinned. */
+    volume: Readonly<Record<string, VolumePin>>;
 }
 
 /** What the hub last said, as far as a pin can stand in for it. */
@@ -63,8 +69,6 @@ export interface PositionPin extends Pin {
 }
 
 export interface VolumePin extends Pin {
-    /** The device it was sent to - the active one at the time. */
-    deviceId: string;
     level: number;
 }
 
@@ -75,7 +79,7 @@ interface Pin {
     cid: string;
 }
 
-export const NO_PINS: ActPins = { playing: null, position: null, volume: null };
+export const NO_PINS: ActPins = { playing: null, position: null, volume: {} };
 
 /** The pin while it stands; null once it has lapsed (or the clock was set back behind it). */
 const standing = <T extends Pin>(pin: null | T, now: number): null | T => {
@@ -91,7 +95,7 @@ const standing = <T extends Pin>(pin: null | T, now: number): null | T => {
  */
 export function pinAct(
     pins: ActPins,
-    act: { action: string; level?: unknown; positionMs?: unknown },
+    act: { action: string; level?: unknown; positionMs?: unknown; target?: unknown },
     cid: string,
     mirror: HubMirror,
     now: number,
@@ -125,12 +129,17 @@ export function pinAct(
                     trackId: mirror.trackId,
                 },
             };
-        case 'volume':
-            if (typeof act.level !== 'number' || mirror.activeDeviceId === null) return pins;
+        case 'volume': {
+            if (typeof act.level !== 'number') return pins;
+            // The device the act is for: the one it names, else the active one, which is
+            // where the hub sends a volume without a `target`.
+            const deviceId = typeof act.target === 'string' ? act.target : mirror.activeDeviceId;
+            if (deviceId === null) return pins;
             return {
                 ...pins,
-                volume: { at: now, cid, deviceId: mirror.activeDeviceId, level: act.level },
+                volume: { ...pins.volume, [deviceId]: { at: now, cid, level: act.level } },
             };
+        }
         default:
             return pins;
     }
@@ -165,7 +174,7 @@ export function prunePins(pins: ActPins, now: number): ActPins {
     const next: ActPins = {
         playing: standing(pins.playing, now),
         position: standing(pins.position, now),
-        volume: standing(pins.volume, now),
+        volume: volumesWhere(pins.volume, (pin) => standing(pin, now) !== null),
     };
     return next.playing === pins.playing &&
         next.position === pins.position &&
@@ -181,12 +190,25 @@ export function prunePins(pins: ActPins, now: number): ActPins {
  */
 export function releasePin(pins: ActPins, cid: string): ActPins {
     const holds = (pin: null | Pin) => pin !== null && pin.cid === cid;
-    if (!holds(pins.playing) && !holds(pins.position) && !holds(pins.volume)) return pins;
+    const volume = volumesWhere(pins.volume, (pin) => !holds(pin));
+    if (!holds(pins.playing) && !holds(pins.position) && volume === pins.volume) return pins;
     return {
         playing: holds(pins.playing) ? null : pins.playing,
         position: holds(pins.position) ? null : pins.position,
-        volume: holds(pins.volume) ? null : pins.volume,
+        volume,
     };
+}
+
+/**
+ * The level this client just asked of the device `deviceId`, or null when that device's row is
+ * the truth: nothing pinned for it, or a pin that has lapsed.
+ */
+export function shownDeviceVolume(pins: ActPins, deviceId: string, now: number): null | number {
+    // Own keys only: a device id is the hub's string and must not find Object's members.
+    const pin = Object.prototype.hasOwnProperty.call(pins.volume, deviceId)
+        ? pins.volume[deviceId]
+        : null;
+    return standing(pin, now)?.level ?? null;
 }
 
 /** Is the session playing, as this client shows it: the play or pause just sent, else the hub's. */
@@ -213,6 +235,15 @@ export function shownPositionMs(pins: ActPins, mirror: HubMirror, now: number): 
  * pin, a lapsed one, or one made for a device that is no longer the active one.
  */
 export function shownVolume(pins: ActPins, mirror: HubMirror, now: number): null | number {
-    const pin = standing(pins.volume, now);
-    return pin !== null && pin.deviceId === mirror.activeDeviceId ? pin.level : null;
+    if (mirror.activeDeviceId === null) return null;
+    return shownDeviceVolume(pins, mirror.activeDeviceId, now);
+}
+
+/** The volume pins `keep` accepts; `volume` itself when it accepts them all. */
+function volumesWhere(
+    volume: ActPins['volume'],
+    keep: (pin: VolumePin) => boolean,
+): ActPins['volume'] {
+    const kept = Object.entries(volume).filter(([, pin]) => keep(pin));
+    return kept.length === Object.keys(volume).length ? volume : Object.fromEntries(kept);
 }

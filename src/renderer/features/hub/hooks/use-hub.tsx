@@ -34,6 +34,11 @@ import {
 } from '/@/renderer/features/hub/utils/remote-queue';
 import { placeholderSong, resolveHubTracks } from '/@/renderer/features/hub/utils/resolve-songs';
 import {
+    sleepGuardStep,
+    sleepTimerFromFrame,
+    sleepTimerOnDisconnect,
+} from '/@/renderer/features/hub/utils/sleep-timer';
+import {
     adoptLbBotFrame,
     adoptLbBotWelcome,
     applyFillFrame,
@@ -209,9 +214,11 @@ const hubFailureMessage = (msg: any): string =>
           ? (msg.message ?? "That device isn't responding.")
           : msg.code === 'load_failed'
             ? (msg.message ?? 'That device could not start playback.')
-            : msg.code === 'auth'
-              ? 'The hub rejected the token - check your navi-connect settings.'
-              : (msg.message ?? (msg.code ? `Hub error (${msg.code})` : 'Hub error'));
+            : msg.code === 'not_supported'
+              ? (msg.message ?? "That device can't do that while it isn't playing.")
+              : msg.code === 'auth'
+                ? 'The hub rejected the token - check your navi-connect settings.'
+                : (msg.message ?? (msg.code ? `Hub error (${msg.code})` : 'Hub error'));
 
 /**
  * What a report says about the player, read from the stores at the moment it is sent.
@@ -947,7 +954,9 @@ export const useHub = () => {
     const handleDo = useCallback(
         async (msg: any): Promise<DoExit> => {
             // Local player events caused by this directive are hub-driven, not
-            // user actions (window covers async engine events).
+            // user actions (window covers async engine events). Every directive that
+            // comes through here is about the session; `setVolume` is not, and does not
+            // (applyVolume).
             hubDrivenUntil.current = Date.now() + 2000;
             switch (msg.cmd) {
                 case 'clear':
@@ -1152,15 +1161,6 @@ export const useHub = () => {
                 case 'setShuffle':
                     setShuffle(msg.on ? PlayerShuffle.TRACK : PlayerShuffle.NONE);
                     break;
-                case 'setVolume':
-                    if (typeof msg.level !== 'number' || !Number.isFinite(msg.level)) break;
-                    setVolume(msg.level);
-                    // I-033: muted, the level would be set and nothing heard, and this device
-                    // would go on reporting 0. A level above 0 is somebody turning it up.
-                    if (msg.level > 0 && usePlayerStore.getState().player.muted) {
-                        mediaToggleMute();
-                    }
-                    break;
                 default:
                     break;
             }
@@ -1175,15 +1175,33 @@ export const useHub = () => {
             mediaPlayByIndex,
             mediaSeekToTimestamp,
             mediaStop,
-            mediaToggleMute,
             reconcileQueue,
             report,
             resolveSongs,
             setQueue,
             setRepeat,
             setShuffle,
-            setVolume,
         ],
+    );
+
+    // I-033: `do:setVolume`. Applied the moment it arrives, whichever device is playing: this
+    // device said it would (`idleVolume` in its hello), and what sends it to a device that is
+    // not playing is a row's slider in another client's picker. It is not a directive about
+    // the session, so it is kept out of handleDo and its chain. It does not wait behind a load;
+    // it does not open the hub-driven window, which while another device plays would stand the
+    // runaway watchdogs and the queue publications down for 2 s; and it carries no number to
+    // echo (PROTOCOL §5.2), so no report follows it.
+    // A level above 0 also unmutes: muted, it would be set and nothing heard, and this device
+    // would go on reporting 0. The new level reaches the hub's row through reportVolume, like
+    // any other change. No `act:volume` can come of it: this writes the player store, and acts
+    // are sent by the controls' handlers, never by something watching the store.
+    const applyVolume = useCallback(
+        (level: unknown) => {
+            if (typeof level !== 'number' || !Number.isFinite(level)) return;
+            setVolume(level);
+            if (level > 0 && usePlayerStore.getState().player.muted) mediaToggleMute();
+        },
+        [mediaToggleMute, setVolume],
     );
 
     // Hub-authoritative startup/reconnect: adopt the hub's session as our local queue
@@ -1433,6 +1451,13 @@ export const useHub = () => {
                     remoteRepeat: msg.session?.repeat ?? 'none',
                     remoteShuffle: msg.session?.shuffle ?? false,
                     savedQueueId: msg.session?.savedQueueId ?? null,
+                    // I-034: absent from a hub that holds no timer.
+                    sleepTimer: sleepTimerFromFrame(
+                        msg.session?.sleepTimer,
+                        { activeDeviceId: activeId.current, myDeviceId: myId.current },
+                        useHubStore.getState().sleepTimer,
+                        Date.now(),
+                    ),
                 });
                 // I-033: the hub's row for this device holds the level it was last told, or
                 // one it kept from before a restart. Say the real one, whatever was sent on
@@ -1492,6 +1517,14 @@ export const useHub = () => {
                     remoteRepeat: msg.repeat ?? 'none',
                     remoteShuffle: msg.shuffle ?? false,
                     savedQueueId: msg.savedQueueId ?? null,
+                    // I-034: set, replaced or cleared - and whose it is to guard, when the
+                    // frame moves the session to or from this device.
+                    sleepTimer: sleepTimerFromFrame(
+                        msg.sleepTimer,
+                        { activeDeviceId: activeId.current, myDeviceId: myId.current },
+                        useHubStore.getState().sleepTimer,
+                        Date.now(),
+                    ),
                 });
                 followSavedQueueCursor();
                 reconcileRemoteActive();
@@ -1566,7 +1599,8 @@ export const useHub = () => {
                     refreshLbBotOverrides(3000);
                 }
             } else if (msg.t === 'do') {
-                void runDirective(msg);
+                if (msg.cmd === 'setVolume') applyVolume(msg.level);
+                else void runDirective(msg);
             } else if (msg.t === 'disconnected') {
                 // The main process lost the socket. Clear active/connected so
                 // isRemoteSessionActive() releases the player bar and the local
@@ -1597,6 +1631,9 @@ export const useHub = () => {
                     connected: false,
                     features: [],
                     savedQueueId: null,
+                    // I-034: kept only where this device was the one playing. Its guard
+                    // below is then what ends the music, and the control goes on saying so.
+                    sleepTimer: sleepTimerOnDisconnect(useHubStore.getState().sleepTimer),
                 });
             } else if (msg.t === 'ack') {
                 // I-031: the hub's answer to one act of ours, written after every frame that
@@ -1614,7 +1651,55 @@ export const useHub = () => {
             }
         });
         return () => dispose();
-    }, [adoptIfNoLiveReceiver, publishQueue, reconcileRemoteActive, reportVolume, runDirective]);
+    }, [
+        adoptIfNoLiveReceiver,
+        applyVolume,
+        publishQueue,
+        reconcileRemoteActive,
+        reportVolume,
+        runDirective,
+    ]);
+
+    // I-034: the playing device's own guard on the session's sleep timer (sleep-timer.ts). The
+    // hub pauses the session when the timer runs out, and that pause cannot reach a device
+    // whose link has dropped. So while the timer held in the store is this device's to guard,
+    // one timeout waits for 5 s past its end, and if the timer is still there then - no frame
+    // cleared or replaced it - and this player is still playing, it is paused here. Every
+    // change of the held timer (a frame, the lost link, a cancel made offline) asks again, so
+    // a timer that is replaced is waited for at its own end and one that is cleared not at all.
+    useEffect(() => {
+        if (!hub) return undefined;
+        let timeout: null | ReturnType<typeof setTimeout> = null;
+        const ask = () => {
+            if (timeout !== null) clearTimeout(timeout);
+            timeout = null;
+            const step = sleepGuardStep(
+                useHubStore.getState().sleepTimer,
+                Date.now(),
+                usePlayerStore.getState().player.status === PlayerStatus.PLAYING,
+            );
+            if (step === null) return;
+            if (typeof step === 'number') {
+                timeout = setTimeout(ask, step);
+                return;
+            }
+            // Its end is past and the hub has not said so: the timer is over here too.
+            useHubStore.getState().actions.setStore({ sleepTimer: null });
+            if (step === 'pause') {
+                logger.info('[hub] sleep timer ended with no pause from the hub - pausing here');
+                notePauseRequest();
+                mediaPause();
+            }
+        };
+        const unsubscribe = useHubStore.subscribe((state, prev) => {
+            if (state.sleepTimer !== prev.sleepTimer) ask();
+        });
+        ask();
+        return () => {
+            unsubscribe();
+            if (timeout !== null) clearTimeout(timeout);
+        };
+    }, [mediaPause]);
 
     // I-033: report the volume when it changes. The selector is what the hub is told (0 while
     // muted), so muting and unmuting are changes and a slider dragged under mute is not.

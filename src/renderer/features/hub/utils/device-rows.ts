@@ -10,7 +10,11 @@
 //   - the order is: the device the session is on, this device, the rest by name, then the ones
 //     that cannot be played to (not responding, offline);
 //   - the device the session is on reads "playing" only while the session is: paused, it still
-//     holds the session and says "paused".
+//     holds the session and says "paused";
+//   - a device that is NOT playing gets a volume slider in its row when it can be set from
+//     here (I-033, takesIdleVolume): the hub sends a level to the device an `act:volume` names
+//     as `target`, and the device has said it applies one while idle. The session's device has
+//     the bar's slider, and this device its own.
 
 /** The icon a row draws: a key of the app's icon map (shared/components/icon). */
 export type DeviceIcon =
@@ -35,8 +39,15 @@ export type DeviceStatus =
     | 'playing'
     | 'thisDevice';
 
+/** `hello.device.caps`: this device applies `do:setVolume` while it is not the playing one. */
+const IDLE_VOLUME = 'idleVolume';
+
+/** `welcome.features`: the hub takes a `target` on `act:volume`. */
+const VOLUME_TARGET = 'volumeTarget';
+
 /** The fields of a hub `DeviceInfo` the rules read. */
 export interface RowDevice {
+    caps?: readonly string[];
     id: string;
     kind?: null | string;
     name: string;
@@ -130,5 +141,26 @@ export function sortDeviceRows<T extends RowDevice>(
             rank(a) - rank(b) ||
             a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' }) ||
             (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+}
+
+/**
+ * Does the row get a volume slider: can a level be set, from here and now, on a device that is
+ * not playing? Only against a hub that takes a `target` (an older one would set the ACTIVE
+ * device's volume instead), only for a device that said it applies one while idle, and only
+ * while it can be reached. Never the session's device (the bar's slider is its volume) and
+ * never this one (its own volume control is on screen).
+ */
+export function takesIdleVolume(
+    device: RowDevice,
+    session: Pick<RowSession, 'activeDeviceId' | 'myDeviceId'>,
+    features: readonly string[],
+): boolean {
+    return (
+        features.includes(VOLUME_TARGET) &&
+        isPlayable(device) &&
+        (device.caps ?? []).includes(IDLE_VOLUME) &&
+        device.id !== session.activeDeviceId &&
+        device.id !== session.myDeviceId
     );
 }

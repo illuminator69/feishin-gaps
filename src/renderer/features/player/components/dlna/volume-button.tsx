@@ -21,7 +21,6 @@ import { Paper } from '/@/shared/components/paper/paper';
 import { Text } from '/@/shared/components/text/text';
 import { useMediaQuery } from '/@/shared/hooks/use-media-query';
 import { useThrottledCallback } from '/@/shared/hooks/use-throttled-callback';
-import { useThrottledValue } from '/@/shared/hooks/use-throttled-value';
 
 const dlnaPlayer = isElectron() ? window.api.dlnaPlayer : null;
 const dlnaPlayerListener = isElectron() ? window.api.dlnaPlayerListener : null;
@@ -125,7 +124,14 @@ export const DlnaVolumeButton = () => {
     const { decreaseVolume, increaseVolume, mediaToggleMute, setVolume } = usePlayer();
     const isMinWidth = useMediaQuery('(max-width: 480px)');
     const [sliderValue, setSliderValue] = useState(volume);
-    const throttledVolume = useThrottledValue(sliderValue, 100);
+    // navi-connect: a level is sent only when the slider or the wheel is moved. The slider
+    // used to be a copy of the store's volume, kept in step by one effect while a second sent
+    // every change of the copy through the player context. While another navi-connect device
+    // plays, that context sends `act:volume` to THAT device - so a level this machine was
+    // merely told (a `do:setVolume` for its own row, the DLNA renderer reporting its volume)
+    // was passed on to the device that is playing, and mounting sent one too. Same rule as the
+    // playerbar's own slider (right-controls.tsx).
+    const sendVolume = useThrottledCallback(setVolume, 100);
     const [groupMembers, setGroupMembers] = useState<DlnaGroupMember[]>([]);
     const groupMembersRef = useRef<DlnaGroupMember[]>([]);
     const [isShiftDown, setIsShiftDown] = useState(false);
@@ -193,10 +199,6 @@ export const DlnaVolumeButton = () => {
     }, [volume]);
 
     useEffect(() => {
-        setVolume(throttledVolume);
-    }, [setVolume, throttledVolume]);
-
-    useEffect(() => {
         setSliderValue(volume);
     }, [volume]);
 
@@ -230,8 +232,9 @@ export const DlnaVolumeButton = () => {
         (nextVolume: number) => {
             if (showGroupVolumePanel && !isShiftDown) applyVolumeToGroup(nextVolume);
             setSliderValue(nextVolume);
+            sendVolume(nextVolume);
         },
-        [applyVolumeToGroup, isShiftDown, showGroupVolumePanel],
+        [applyVolumeToGroup, isShiftDown, sendVolume, showGroupVolumePanel],
     );
     const handleVolumeWheel = useCallback(
         (event: WheelEvent<HTMLButtonElement | HTMLDivElement>) => {
@@ -244,8 +247,16 @@ export const DlnaVolumeButton = () => {
             );
             if (showGroupVolumePanel && !isShiftDown) applyVolumeToGroup(nextVolume);
             setSliderValue(nextVolume);
+            sendVolume(nextVolume);
         },
-        [applyVolumeToGroup, isShiftDown, showGroupVolumePanel, sliderValue, volumeWheelStep],
+        [
+            applyVolumeToGroup,
+            isShiftDown,
+            sendVolume,
+            showGroupVolumePanel,
+            sliderValue,
+            volumeWheelStep,
+        ],
     );
 
     const handleVolumeDown = useThrottledCallback(() => decreaseVolume(volumeWheelStep), 100);

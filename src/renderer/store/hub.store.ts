@@ -4,6 +4,7 @@ import { shallow } from 'zustand/shallow';
 import { createWithEqualityFn } from 'zustand/traditional';
 
 import { ActPins, NO_PINS } from '/@/renderer/features/hub/utils/act-pins';
+import { SessionSleepTimer } from '/@/renderer/features/hub/utils/sleep-timer';
 
 /**
  * Live navi-connect state for the UI (device picker + remote playerbar). Fed by
@@ -105,8 +106,9 @@ interface HubState {
     devices: HubDevice[];
     /**
      * What this hub does beyond the base protocol, from `welcome.features`. `actAck`: it
-     * answers every `act` that carries a `cid` with an `ack`. Empty for an older hub, which
-     * sends no such field, and while there is no connection.
+     * answers every `act` that carries a `cid` with an `ack`. `volumeTarget`: an `act:volume`
+     * may name the device it is for. `sleepTimer`: it holds the session's sleep timer. Empty
+     * for an older hub, which sends no such field, and while there is no connection.
      */
     features: string[];
     /**
@@ -131,6 +133,13 @@ interface HubState {
     remoteShuffle: boolean;
     /** Saved-queue history id of the CURRENT session — the "Now Playing" record. */
     savedQueueId: null | string;
+    /**
+     * The session's sleep timer, as the last `session` or `welcome` stated it and on this
+     * client's clock (I-034, sleep-timer.ts). Null when the session has none, against a hub
+     * that holds none, and once the link is lost - except on the device that was playing,
+     * which keeps it until it has paused itself (use-hub's guard).
+     */
+    sleepTimer: null | SessionSleepTimer;
 }
 
 const initialState: HubState = {
@@ -149,6 +158,7 @@ const initialState: HubState = {
     remoteRepeat: 'none',
     remoteShuffle: false,
     savedQueueId: null,
+    sleepTimer: null,
 };
 
 export const useHubStore = createWithEqualityFn<HubSlice>()((set) => ({
@@ -205,3 +215,9 @@ export const useHubRemoteShuffle = () => useHubStore((s) => s.remoteShuffle);
 
 /** The saved-queue history id of the current session (the "Now Playing" record), or null. */
 export const useHubSavedQueueId = () => useHubStore((s) => s.savedQueueId);
+
+/** Is there a hub connection, and does that hub list `feature` in `welcome.features`? */
+export const useHubFeature = (feature: string) => useHubStore((s) => s.features.includes(feature));
+
+/** The session's sleep timer, or null - see `HubState.sleepTimer`. */
+export const useHubSleepTimer = () => useHubStore((s) => s.sleepTimer);

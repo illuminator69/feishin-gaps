@@ -804,6 +804,8 @@
         "sleepTimer_timeRemaining": "{{time}} remaining",
         "sleepTimer_setCustom": "Set timer",
         "sleepTimer_cancel": "Cancel timer",
+        "sleepTimer_setOnDevice": "Set on {{device}}",
+        "sleepTimer_setElsewhere": "Set on another device",
         "scrobbleForceSubmit": "Force scrobble"
     },
     "queryBuilder": {

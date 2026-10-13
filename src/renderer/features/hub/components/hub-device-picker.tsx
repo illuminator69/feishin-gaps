@@ -1,13 +1,22 @@
 import isElectron from 'is-electron';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+import styles from './hub-device-picker.module.css';
 
 import {
     deviceIcon,
     deviceStatus,
     deviceStatusLabel,
     sortDeviceRows,
+    takesIdleVolume,
 } from '/@/renderer/features/hub/utils/device-rows';
-import { sendAct } from '/@/renderer/features/hub/utils/remote-queue';
+import { deviceVolumePinned, sendAct } from '/@/renderer/features/hub/utils/remote-queue';
+import {
+    SliderHold,
+    sliderHoldRemaining,
+    VOLUME_HOLD_MS,
+} from '/@/renderer/features/hub/utils/volume-hold';
+import { CustomPlayerbarSlider } from '/@/renderer/features/player/components/playerbar-slider';
 import { usePreviewCastBlocked } from '/@/renderer/features/preview/hooks/use-preview-cast-guard';
 import {
     HubDevice,
@@ -17,6 +26,7 @@ import {
     useHubMyDeviceId,
     useHubRemoteIsPlaying,
     useHubSettings,
+    useHubStore,
     useSettingsStoreActions,
 } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
@@ -41,11 +51,75 @@ const platformLabel = (platform: string): string => {
 };
 
 /**
+ * The volume of a device that is not playing, under its row (I-033): the level can be set
+ * before music is sent there. Drawn as the app draws a volume everywhere else, an icon and the
+ * playerbar's slider.
+ *
+ * It commits on release: one `act:volume` naming the device as `target`, which the hub passes
+ * on as `do:setVolume` and records on the row. Between the release and that answer the thumb
+ * must not go back to the level the row still shows. Against a hub that acknowledges acts the
+ * release pins the level for this device until its ack (act-pins.ts), and what is shown is
+ * the pin, then the row - which by then says what the device took, or the old level when the
+ * hub refused (use-hub raises the toast). The slider's own hold covers the drag, and a hub
+ * that acknowledges nothing: there it stands until the row says the level asked for, 2.5 s at
+ * most (volume-hold.ts).
+ */
+const DeviceVolume = ({ device }: { device: HubDevice }) => {
+    const pinned = useHubStore((s) => deviceVolumePinned(device.id, s));
+    const observed = pinned ?? device.volume ?? 100;
+    const [dragged, setDragged] = useState<null | number>(null);
+    const [hold, setHold] = useState<null | SliderHold>(null);
+
+    useEffect(() => {
+        if (!hold) return undefined;
+        const left = sliderHoldRemaining(hold, device.id, observed, Date.now());
+        if (left === 0) {
+            setHold(null);
+            return undefined;
+        }
+        const timer = setTimeout(() => setHold(null), left);
+        return () => clearTimeout(timer);
+    }, [device.id, hold, observed]);
+
+    const level = dragged ?? hold?.value ?? observed;
+
+    return (
+        // Arrow keys on the thumb belong to the slider; the menu around it would move its
+        // own focus on them as well.
+        <div className={styles.volume} onKeyDown={(e) => e.stopPropagation()}>
+            <Icon
+                color="muted"
+                icon={level === 0 ? 'volumeMute' : level > 50 ? 'volumeMax' : 'volumeNormal'}
+            />
+            <CustomPlayerbarSlider
+                max={100}
+                min={0}
+                onChange={setDragged}
+                onChangeEnd={(value) => {
+                    const asked = Math.round(value);
+                    sendAct('volume', { level: asked, target: device.id });
+                    setDragged(null);
+                    setHold({
+                        dragging: false,
+                        scope: device.id,
+                        until: Date.now() + VOLUME_HOLD_MS,
+                        value: asked,
+                    });
+                }}
+                onClick={(e) => e.stopPropagation()}
+                size={6}
+                value={level}
+            />
+        </div>
+    );
+};
+
+/**
  * Spotify-style "Connect to a device" picker. Lists hub devices and transfers
  * playback to the chosen one (the hub resumes it from the same spot). Each row
  * shows an icon for what the device is, its name, platform and status, so two
- * clients are distinguishable; the icon, the order of the rows and the status
- * are decided in device-rows.ts.
+ * clients are distinguishable; the icon, the order of the rows, the status and
+ * whether a row carries a volume slider are decided in device-rows.ts.
  * Offline devices auto-hide and manually-hidden ones are tucked behind a toggle.
  * Hidden unless navi-connect is enabled.
  *
@@ -63,6 +137,7 @@ export const HubDevicePicker = () => {
     const activeId = useHubActiveDeviceId();
     const myId = useHubMyDeviceId();
     const remoteIsPlaying = useHubRemoteIsPlaying();
+    const features = useHubStore((s) => s.features);
     const { setSettings } = useSettingsStoreActions();
     const [showExtra, setShowExtra] = useState(false);
     // navi-connect: non-null while the queue holds a preview the speaker could
@@ -113,38 +188,42 @@ export const HubDevicePicker = () => {
         return (
             // The hide/unhide control is a SIBLING of the menu item, not its child: a
             // disabled item disables everything inside it, which left offline and
-            // already-hidden devices permanently un-unhideable.
-            <div
-                key={device.id}
-                style={{ alignItems: 'center', display: 'flex', gap: 4, width: '100%' }}
-            >
-                <DropdownMenu.Item
-                    closeMenuOnClick={false}
-                    disabled={
-                        !isHubDeviceTransferable(device) || device.id === activeId || castBlocked
-                    }
-                    leftSection={<Icon icon={deviceIcon(device.kind)} />}
-                    onClick={() => transfer(device.id)}
-                    rightSection={
-                        <Text isMuted size="xs">
-                            {platformLabel(device.platform)} · {statusText}
-                        </Text>
-                    }
-                    style={{ flex: 1, minWidth: 0 }}
-                >
-                    {device.name}
-                </DropdownMenu.Item>
-                <ActionIcon
-                    icon={isHidden ? 'visibility' : 'visibilityOff'}
-                    iconProps={{ size: 'sm' }}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setDeviceHidden(device.id, !isHidden);
-                    }}
-                    size="xs"
-                    tooltip={{ label: isHidden ? 'Unhide' : 'Hide', openDelay: 0 }}
-                    variant="subtle"
-                />
+            // already-hidden devices permanently un-unhideable. The volume slider is a
+            // sibling for the other reason: inside the item, a drag would end as the
+            // click that transfers playback.
+            <div className={styles.row} key={device.id}>
+                <div style={{ alignItems: 'center', display: 'flex', gap: 4, width: '100%' }}>
+                    <DropdownMenu.Item
+                        closeMenuOnClick={false}
+                        disabled={
+                            !isHubDeviceTransferable(device) ||
+                            device.id === activeId ||
+                            castBlocked
+                        }
+                        leftSection={<Icon icon={deviceIcon(device.kind)} />}
+                        onClick={() => transfer(device.id)}
+                        rightSection={
+                            <Text isMuted size="xs">
+                                {platformLabel(device.platform)} · {statusText}
+                            </Text>
+                        }
+                        style={{ flex: 1, minWidth: 0 }}
+                    >
+                        {device.name}
+                    </DropdownMenu.Item>
+                    <ActionIcon
+                        icon={isHidden ? 'visibility' : 'visibilityOff'}
+                        iconProps={{ size: 'sm' }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setDeviceHidden(device.id, !isHidden);
+                        }}
+                        size="xs"
+                        tooltip={{ label: isHidden ? 'Unhide' : 'Hide', openDelay: 0 }}
+                        variant="subtle"
+                    />
+                </div>
+                {takesIdleVolume(device, session, features) && <DeviceVolume device={device} />}
             </div>
         );
     };
