@@ -3,6 +3,8 @@ import type { LbBotStatus } from '/@/shared/types/lbbot-types';
 import { shallow } from 'zustand/shallow';
 import { createWithEqualityFn } from 'zustand/traditional';
 
+import { ActPins, NO_PINS } from '/@/renderer/features/hub/utils/act-pins';
+
 /**
  * Live navi-connect state for the UI (device picker + remote playerbar). Fed by
  * use-hub.tsx from the hub's `welcome`/`session`/`devices`/`progress` frames.
@@ -85,8 +87,21 @@ interface HubSlice extends HubState {
 
 interface HubState {
     activeDeviceId: null | string;
+    /**
+     * The play state, position and volume this client has just commanded, shown over the
+     * mirror below until the hub acknowledges the act that carried them (I-031, act-pins.ts).
+     * Written by remote-queue's sendAct, released by use-hub on `ack`, cleared at `welcome`
+     * and when the socket is lost. Always empty against a hub without `actAck`.
+     */
+    actPins: ActPins;
     connected: boolean;
     devices: HubDevice[];
+    /**
+     * What this hub does beyond the base protocol, from `welcome.features`. `actAck`: it
+     * answers every `act` that carries a `cid` with an `ack`. Empty for an older hub, which
+     * sends no such field, and while there is no connection.
+     */
+    features: string[];
     /**
      * lb-bot's availability and the hub's proxied routes, as the hub stated them
      * in its last `welcome` (`welcome.lb`). Null until a welcome carries one —
@@ -113,8 +128,10 @@ interface HubState {
 
 const initialState: HubState = {
     activeDeviceId: null,
+    actPins: NO_PINS,
     connected: false,
     devices: [],
+    features: [],
     lbStatus: null,
     myDeviceId: null,
     remoteIsPlaying: false,

@@ -2,6 +2,17 @@ import isElectron from 'is-electron';
 
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
+import {
+    ACT_PIN_MS,
+    HubMirror,
+    pinAct,
+    playPauseAct,
+    prunePins,
+    releasePin,
+    shownPlaying,
+    shownPositionMs,
+    shownVolume,
+} from '/@/renderer/features/hub/utils/act-pins';
 import { commandedVolume, VolumeCommand } from '/@/renderer/features/hub/utils/volume-hold';
 import { isPreviewId, previewHubTrack } from '/@/renderer/features/preview/preview-track';
 import { useHubStore, useSettingsStore } from '/@/renderer/store';
@@ -90,12 +101,108 @@ export const buildHubTracksForSongs = async (
 };
 
 /**
- * The last `act:volume` sent from here. Marked in remoteAct, which every volume change to a
- * remote device goes through (slider, wheel, hotkeys, mute), so there is one record of what was
- * asked for while the `devices` frame that answers it is still a round trip away - see
- * volume-hold.ts.
+ * The last `act:volume` sent from here to a hub that acknowledges nothing. Marked in remoteAct,
+ * which every volume change to a remote device goes through (slider, wheel, hotkeys, mute), so
+ * there is one record of what was asked for while the `devices` frame that answers it is still
+ * a round trip away - see volume-hold.ts. A hub with `actAck` gets a pin instead (sendAct).
  */
 let lastVolumeCommand: null | VolumeCommand = null;
+
+type HubSnapshot = ReturnType<typeof useHubStore.getState>;
+
+/** `welcome.features`: this hub answers every act that carries a `cid` with an `ack`. */
+const ACT_ACK = 'actAck';
+
+/** The hub store's mirror, as act-pins.ts reads it. */
+const mirrorOf = (s: HubSnapshot): HubMirror => ({
+    activeDeviceId: s.activeDeviceId,
+    isPlaying: s.remoteIsPlaying,
+    positionAt: s.remotePositionAt,
+    positionMs: s.remotePositionMs,
+});
+
+/**
+ * Does the hub acknowledge acts? Without it nothing is pinned and nothing is shown before the
+ * hub's own frame says so: the timed holds of volume-hold.ts and the seek bar apply, as before.
+ */
+const hubAcksActs = (s: HubSnapshot): boolean => s.features.includes(ACT_ACK);
+
+/**
+ * Is the remote session playing, as this client shows it: the play or pause just sent from here
+ * until the hub has answered for it (act-pins.ts), else what the hub last said.
+ */
+export const remotePlayingShown = (
+    s: HubSnapshot = useHubStore.getState(),
+    now = Date.now(),
+): boolean => shownPlaying(s.actPins, mirrorOf(s), now);
+
+/**
+ * The remote session's position (ms) as this client shows it: where it just sought to until the
+ * hub has answered, else the hub's ~1 Hz sample carried on from the wall clock.
+ */
+export const remotePositionMsShown = (
+    s: HubSnapshot = useHubStore.getState(),
+    now = Date.now(),
+): number => shownPositionMs(s.actPins, mirrorOf(s), now);
+
+/**
+ * The level just asked of the active remote device, until the hub has answered for it. Null when
+ * the device's row is the truth.
+ */
+export const remoteVolumePinned = (
+    s: HubSnapshot = useHubStore.getState(),
+    now = Date.now(),
+): null | number => shownVolume(s.actPins, mirrorOf(s), now);
+
+/** Drop pins that lapsed with no ack, so whatever renders them looks again. */
+const dropLapsedPins = () => {
+    const s = useHubStore.getState();
+    const pins = prunePins(s.actPins, Date.now());
+    if (pins !== s.actPins) s.actions.setStore({ actPins: pins });
+};
+
+/** The hub answered the act `cid` (use-hub, on `ack`): the mirror shows through again. */
+export const releaseActPin = (cid: string): void => {
+    const s = useHubStore.getState();
+    const pins = releasePin(s.actPins, cid);
+    if (pins !== s.actPins) s.actions.setStore({ actPins: pins });
+};
+
+// A `cid` has to be unique on its connection. The count is per load of this module, and the
+// prefix keeps two loads (a renderer reload) from ever minting the same one.
+const cidPrefix = Math.random().toString(36).slice(2, 6);
+let actCount = 0;
+
+/**
+ * Send one `act`. Every act this renderer sends leaves through here, so each carries a `cid`
+ * (I-031, PROTOCOL §5.1): the hub answers it with `{t:'ack', cid, ok}` once the frames it caused
+ * are written, and an older hub ignores the field. Returns the `cid`, or null with no transport.
+ *
+ * It is also where a commanded play state, position or volume is pinned (act-pins.ts), so no
+ * sender can forget to: readers show the pin until use-hub releases it on that ack. Only
+ * against a hub that acknowledges acts - an ack that never comes would hold every press for
+ * the full 2.5 s.
+ *
+ * It does NOT check that the hub is connected or that another device is playing; the callers'
+ * gates differ (remoteAct, sendHubAct, the queue publications in use-hub).
+ */
+export const sendAct = (action: string, extra?: Record<string, unknown>): null | string => {
+    if (!hub) return null;
+    actCount += 1;
+    const cid = `${cidPrefix}-${actCount}`;
+    hub.send({ action, t: 'act', ...extra, cid });
+    const s = useHubStore.getState();
+    if (hubAcksActs(s)) {
+        const pins = pinAct(s.actPins, { ...extra, action }, cid, mirrorOf(s), Date.now());
+        if (pins !== s.actPins) {
+            s.actions.setStore({ actPins: pins });
+            // Readers check the 2.5 s themselves when they read. This only makes them read
+            // again if the pin lapses with nothing else changing (a paused session, no ack).
+            setTimeout(dropLapsedPins, ACT_PIN_MS + 50);
+        }
+    }
+    return cid;
+};
 
 /**
  * Fire an `act` directive at the hub when a remote session is active. Returns
@@ -106,12 +213,28 @@ let lastVolumeCommand: null | VolumeCommand = null;
  */
 export const remoteAct = (action: string, extra?: Record<string, unknown>): boolean => {
     if (!hub || !isRemoteSessionActive()) return false;
-    hub.send({ action, t: 'act', ...extra });
-    const deviceId = useHubStore.getState().activeDeviceId;
-    if (action === 'volume' && typeof extra?.level === 'number' && deviceId !== null) {
-        lastVolumeCommand = { at: Date.now(), deviceId, level: extra.level };
+    sendAct(action, extra);
+    const s = useHubStore.getState();
+    if (
+        action === 'volume' &&
+        typeof extra?.level === 'number' &&
+        s.activeDeviceId !== null &&
+        !hubAcksActs(s)
+    ) {
+        lastVolumeCommand = { at: Date.now(), deviceId: s.activeDeviceId, level: extra.level };
     }
     return true;
+};
+
+/**
+ * The play/pause control while another device plays. A hub that acknowledges acts is sent the
+ * explicit `play` or `pause` the user was shown, which a pin can stand for; an older hub gets
+ * the hub-side toggle `playpause`, as before.
+ */
+export const remoteTogglePlayPause = (): boolean => {
+    const s = useHubStore.getState();
+    if (!hubAcksActs(s)) return remoteAct('playpause');
+    return remoteAct(playPauseAct(s.actPins, mirrorOf(s), Date.now()));
 };
 
 /**
@@ -128,9 +251,8 @@ export const commandedRemoteVolume = (): null | number =>
  * when sent, so callers can fall back to a local-only action when offline.
  */
 export const sendHubAct = (action: string, extra?: Record<string, unknown>): boolean => {
-    if (!hub || !useHubStore.getState().connected) return false;
-    hub.send({ action, t: 'act', ...extra });
-    return true;
+    if (!useHubStore.getState().connected) return false;
+    return sendAct(action, extra) !== null;
 };
 
 /** True if playback is currently on another navi-connect device. */
@@ -170,8 +292,7 @@ export const enqueueToRemote = async (
     if (mode === 'now') {
         // Start on the clicked track, not always track 1.
         const index = Math.max(0, Math.min(startIndex, songs.length - 1));
-        hub.send({
-            action: 'setQueue',
+        sendAct('setQueue', {
             index,
             play: true,
             positionMs: Math.max(0, Math.round(resume?.positionMs ?? 0)),
@@ -179,11 +300,10 @@ export const enqueueToRemote = async (
             serverId,
             sourceKind: resume?.sourceKind,
             sourceName: resume?.sourceName,
-            t: 'act',
             tracks,
         });
     } else {
-        hub.send({ action: 'enqueue', at: mode === 'next' ? 'next' : 'end', t: 'act', tracks });
+        sendAct('enqueue', { at: mode === 'next' ? 'next' : 'end', tracks });
     }
     return true;
 };

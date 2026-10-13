@@ -1,41 +1,31 @@
-import isElectron from 'is-electron';
 import { useMemo } from 'react';
 
 import { notePauseRequest, notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
+import {
+    remoteAct,
+    remotePositionMsShown,
+    remoteTogglePlayPause,
+} from '/@/renderer/features/hub/utils/remote-queue';
 import { HotkeyItem, useHotkeys } from '/@/renderer/hooks/use-hotkeys';
 import { useHotkeySettings, useHubStore, usePlayerStore } from '/@/renderer/store';
 import { PlayerStatus } from '/@/shared/types/types';
 
-const hub = isElectron() ? window.api.hub : null;
+// When playback is live on another navi-connect device, transport hotkeys must
+// control the remote session, not the (paused) local player - otherwise e.g.
+// spacebar starts local audio on top of the remote playback. They go through
+// remoteAct like the playerbar's controls: it returns false when no other device
+// is playing, and the handler then drives the local player.
 
-/**
- * When playback is live on another navi-connect device, transport hotkeys must
- * control the remote session, not the (paused) local player — otherwise e.g.
- * spacebar starts local audio on top of the remote playback.
- */
-const sendRemote = (action: string, extra?: Record<string, unknown>): boolean => {
-    const s = useHubStore.getState();
-    const isRemoteActive =
-        s.connected &&
-        s.activeDeviceId !== null &&
-        s.myDeviceId !== null &&
-        s.activeDeviceId !== s.myDeviceId;
-    if (!isRemoteActive || !hub) return false;
-    hub.send({ action, t: 'act', ...extra });
-    return true;
-};
-
+/** Seek the remote session relative to the position the bar shows (the player context's remoteSeekBy). */
 const remoteSeekBy = (offsetSec: number): boolean => {
-    const s = useHubStore.getState();
-    const elapsed = s.remoteIsPlaying ? Date.now() - s.remotePositionAt : 0;
-    const positionMs = Math.max(0, s.remotePositionMs + elapsed + offsetSec * 1000);
-    return sendRemote('seek', { positionMs: Math.round(positionMs) });
+    const positionMs = Math.max(0, remotePositionMsShown() + offsetSec * 1000);
+    return remoteAct('seek', { positionMs: Math.round(positionMs) });
 };
 
 const cycleRemoteRepeat = (): boolean => {
     const current = useHubStore.getState().remoteRepeat;
     const next = current === 'none' ? 'all' : current === 'all' ? 'one' : 'none';
-    return sendRemote('repeat', { mode: next });
+    return remoteAct('repeat', { mode: next });
 };
 
 export const usePlaybackHotkeys = () => {
@@ -52,7 +42,7 @@ export const usePlaybackHotkeys = () => {
             {
                 binding: bindings.next,
                 handler: () => {
-                    if (!sendRemote('next')) player.mediaNext(false);
+                    if (!remoteAct('next')) player.mediaNext(false);
                 },
             },
             {
@@ -62,7 +52,7 @@ export const usePlaybackHotkeys = () => {
             {
                 binding: bindings.pause,
                 handler: () => {
-                    if (sendRemote('pause')) return;
+                    if (remoteAct('pause')) return;
                     notePauseRequest(); // navi-connect (B-058): the store direct - mark it here
                     player.mediaPause();
                 },
@@ -70,7 +60,7 @@ export const usePlaybackHotkeys = () => {
             {
                 binding: bindings.play,
                 handler: () => {
-                    if (sendRemote('play')) return;
+                    if (remoteAct('play')) return;
                     notePlayRequest(); // navi-connect (B-058): the store direct - mark it here
                     player.mediaPlay();
                 },
@@ -78,7 +68,7 @@ export const usePlaybackHotkeys = () => {
             {
                 binding: bindings.playPause,
                 handler: () => {
-                    if (sendRemote('playpause')) return;
+                    if (remoteTogglePlayPause()) return;
                     // navi-connect (B-058): the store direct (space, by default) - mark a play here.
                     if (usePlayerStore.getState().player.status !== PlayerStatus.PLAYING) {
                         notePlayRequest();
@@ -91,7 +81,7 @@ export const usePlaybackHotkeys = () => {
             {
                 binding: bindings.previous,
                 handler: () => {
-                    if (!sendRemote('previous')) player.mediaPrevious(false);
+                    if (!remoteAct('previous')) player.mediaPrevious(false);
                 },
             },
             {
@@ -113,7 +103,7 @@ export const usePlaybackHotkeys = () => {
             {
                 binding: bindings.stop,
                 handler: () => {
-                    if (sendRemote('pause')) return;
+                    if (remoteAct('pause')) return;
                     notePauseRequest(); // navi-connect (B-058): the store direct - mark it here
                     player.mediaStop();
                 },
@@ -127,7 +117,7 @@ export const usePlaybackHotkeys = () => {
             {
                 binding: bindings.toggleShuffle,
                 handler: () => {
-                    if (!sendRemote('shuffle', { on: !useHubStore.getState().remoteShuffle })) {
+                    if (!remoteAct('shuffle', { on: !useHubStore.getState().remoteShuffle })) {
                         player.toggleShuffle();
                     }
                 },

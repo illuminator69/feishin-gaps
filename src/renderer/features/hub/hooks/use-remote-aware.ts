@@ -1,15 +1,19 @@
-import isElectron from 'is-electron';
 import { useEffect, useState } from 'react';
 import { generatePath, useNavigate } from 'react-router';
 
 import { api } from '/@/renderer/api';
-import { isRemoteSessionActive } from '/@/renderer/features/hub/utils/remote-queue';
+import {
+    isRemoteSessionActive,
+    remoteAct,
+    remotePlayingShown,
+    remotePositionMsShown,
+    remoteVolumePinned,
+} from '/@/renderer/features/hub/utils/remote-queue';
 import { AppRoute } from '/@/renderer/router/routes';
 import {
     useCurrentServerId,
     useHubActiveDeviceVolume,
     useHubIsRemoteActive,
-    useHubRemoteIsPlaying,
     useHubRemoteNowPlaying,
     useHubRemoteRepeat,
     useHubRemoteShuffle,
@@ -26,8 +30,6 @@ import { HubTrack } from '/@/renderer/store/hub.store';
 import { usePlayerTimestamp } from '/@/renderer/store/timestamp.store';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
-
-const hub = isElectron() ? window.api.hub : null;
 
 /**
  * Player hooks that transparently follow the REMOTE session when playback is on
@@ -213,46 +215,58 @@ export const useRemoteAwareRepeat = (): PlayerRepeat => {
           : PlayerRepeat.NONE;
 };
 
-/** Volume (0-100) — the active remote device's when remote-active, else local. */
+/**
+ * Volume (0-100): the active remote device's when remote-active, else local. The remote one is
+ * the level just sent from here until the hub has answered for it (I-031, act-pins.ts), then
+ * the device's row.
+ */
 export const useRemoteAwareVolume = (): number => {
     const isRemote = useHubIsRemoteActive();
     const localVolume = usePlayerVolume();
-    const remoteVolume = useHubActiveDeviceVolume();
+    const rowVolume = useHubActiveDeviceVolume();
+    const pinnedVolume = useHubStore((s) => remoteVolumePinned(s));
 
-    return isRemote ? remoteVolume : localVolume;
+    return isRemote ? (pinnedVolume ?? rowVolume) : localVolume;
 };
 
 /** Playback position in SECONDS — interpolated remote position, or local. */
 export const useRemoteAwareTimestamp = (): number => {
     const isRemote = useHubIsRemoteActive();
     const localTs = usePlayerTimestamp();
-    const isPlaying = useHubRemoteIsPlaying();
+    // The position runs on while the hub says "playing", and a position just sought to (I-031,
+    // act-pins.ts) while this client shows "playing" - a play sent from here included.
+    const isRunning = useHubStore((s) => s.remoteIsPlaying || remotePlayingShown(s));
+    // Nothing ticks while the session is paused, so render again when a seek from here is
+    // pinned, and when that pin gives way to the hub's answer.
+    useHubStore((s) => s.actPins.position);
     const [, force] = useState(0);
 
     // Tick locally between the hub's ~1 Hz progress frames while remote-playing.
     useEffect(() => {
-        if (!isRemote || !isPlaying) return undefined;
+        if (!isRemote || !isRunning) return undefined;
         const timer = setInterval(() => force((n) => n + 1), 250);
         return () => clearInterval(timer);
-    }, [isRemote, isPlaying]);
+    }, [isRemote, isRunning]);
 
     if (!isRemote) return localTs;
 
-    const s = useHubStore.getState();
     // Deliberately impure: the hub publishes position at ~1 Hz, so the live value has to be
-    // interpolated from the wall clock. The 250 ms interval above is what re-renders this, and
-    // the "unstable across re-renders" the rule warns about is exactly the intent — a clock that
-    // advances. Moving it into state would add a render's worth of lag to the progress bar.
-    // eslint-disable-next-line react-hooks/purity
-    const elapsed = s.remoteIsPlaying ? Date.now() - s.remotePositionAt : 0;
-    return Math.max(0, (s.remotePositionMs + elapsed) / 1000);
+    // interpolated from the wall clock (inside remotePositionMsShown). The 250 ms interval above
+    // is what re-renders this, and the "unstable across re-renders" a purity rule warns about is
+    // exactly the intent - a clock that advances. Moving it into state would add a render's
+    // worth of lag to the progress bar.
+    return remotePositionMsShown() / 1000;
 };
 
-/** Playback status — remote play/pause when remote-active, else local. */
+/**
+ * Playback status: remote play/pause when remote-active, else local. The remote one is the
+ * play or pause just sent from here until the hub has answered for it (I-031, act-pins.ts),
+ * then the hub's own word.
+ */
 export const useRemoteAwareStatus = (): PlayerStatus => {
     const isRemote = useHubIsRemoteActive();
     const localStatus = usePlayerStatus();
-    const remotePlaying = useHubRemoteIsPlaying();
+    const remotePlaying = useHubStore((s) => remotePlayingShown(s));
 
     if (!isRemote) return localStatus;
     return remotePlaying ? PlayerStatus.PLAYING : PlayerStatus.PAUSED;
@@ -263,13 +277,12 @@ export const useRemoteAwareStatus = (): PlayerStatus => {
  * Returns false (didn't handle it) otherwise, so callers fall back to local.
  */
 export const useRemoteSeek = (): ((sec: number) => boolean) => {
-    const isRemote = useHubIsRemoteActive();
     return (sec: number) => {
-        if (!isRemote || !hub) return false;
         const positionMs = Math.round(sec * 1000);
-        hub.send({ action: 'seek', positionMs, t: 'act' });
+        if (!remoteAct('seek', { positionMs })) return false;
         // Optimistically advance the mirror so the scrubber thumb stays where the
         // user dropped it instead of snapping back until the next ~1 Hz frame.
+        // (Kept beside the pin a hub with `actAck` gets: the lyrics read the mirror.)
         useHubStore.getState().actions.setStore({
             remotePositionAt: Date.now(),
             remotePositionMs: positionMs,

@@ -1,6 +1,7 @@
 import isElectron from 'is-electron';
 import { useState } from 'react';
 
+import { sendAct } from '/@/renderer/features/hub/utils/remote-queue';
 import { usePreviewCastBlocked } from '/@/renderer/features/preview/hooks/use-preview-cast-guard';
 import {
     HubDevice,
@@ -66,9 +67,11 @@ export const HubDevicePicker = () => {
 
     const isCastTarget = (device: HubDevice) => device.platform === 'chromecast';
 
-    // No `play` flag: the hub preserves the current play/pause state.
+    // No `play` flag: the hub preserves the current play/pause state. A hub that acknowledges
+    // acts answers this one when the handoff is committed or refused, and use-hub toasts a
+    // refusal from that ack - it reaches this client only, not every device.
     const transfer = (id: string) => {
-        hub.send({ action: 'transfer', t: 'act', target: id });
+        sendAct('transfer', { target: id });
     };
 
     const setDeviceHidden = (id: string, hide: boolean) => {

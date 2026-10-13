@@ -15,6 +15,11 @@
 // There is no ack on the wire, so "the echo arrived" is "the observed level equals the one asked
 // for". A drag that passes through a level twice can match the earlier echo and let the ones
 // still in flight show for a moment; it ends on the right level either way.
+//
+// I-031: a hub that lists `actAck` does acknowledge, and against it the level asked for is pinned
+// until that ack instead (act-pins.ts): remoteAct marks no VolumeCommand, and the slider's hold
+// ends the moment it is let go, because the volume it observes is already its own. What is here
+// stays as the path for a hub that acknowledges nothing.
 
 /** How long a level this client asked for outranks the one it observes. */
 export const VOLUME_HOLD_MS = 2500;

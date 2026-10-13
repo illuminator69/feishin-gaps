@@ -14,6 +14,9 @@ import {
     enqueueToRemote,
     isRemoteSessionActive,
     remoteAct,
+    remotePositionMsShown,
+    remoteTogglePlayPause,
+    remoteVolumePinned,
 } from '/@/renderer/features/hub/utils/remote-queue';
 import {
     filterSongsByPlayerFilters,
@@ -155,12 +158,17 @@ export const PlayerContext = createContext<PlayerContext>({
  *
  * The level this client last asked for outranks the device's row while the `devices` frame that
  * answers it is still on its way: stepping from the row made a second wheel notch, hotkey press
- * or mute click inside the round trip start from the level before the first.
+ * or mute click inside the round trip start from the level before the first. Against a hub that
+ * acknowledges acts that level is pinned until its ack (I-031, act-pins.ts); against an older
+ * one it stands for 2.5 s (volume-hold.ts). Only one of the two is ever set.
  */
 const remoteActiveVolume = (): number => {
     const s = useHubStore.getState();
     return (
-        commandedRemoteVolume() ?? s.devices.find((d) => d.id === s.activeDeviceId)?.volume ?? 100
+        remoteVolumePinned(s) ??
+        commandedRemoteVolume() ??
+        s.devices.find((d) => d.id === s.activeDeviceId)?.volume ??
+        100
     );
 };
 
@@ -176,14 +184,14 @@ const skipAmount = (direction: 'backward' | 'forward'): number => {
  * Skip relative to where the remote session actually is.
  *
  * The hub only understands absolute seeks, so the current position has to be interpolated the
- * same way the scrubber does — `remotePositionMs` is a ~1 Hz sample, and skipping from the
- * sample rather than from now would lose up to a second every press.
+ * same way the scrubber does: `remotePositionMs` is a ~1 Hz sample, and skipping from the
+ * sample rather than from now would lose up to a second every press. And from the position
+ * the scrubber SHOWS (I-031): a second press inside the round trip of the first steps on from
+ * where that one sought to, not again from the sample.
  */
 const remoteSeekBy = (deltaSeconds: number): boolean => {
     if (!isRemoteSessionActive()) return false;
-    const s = useHubStore.getState();
-    const elapsed = s.remoteIsPlaying ? Date.now() - s.remotePositionAt : 0;
-    const positionMs = Math.max(0, s.remotePositionMs + elapsed + deltaSeconds * 1000);
+    const positionMs = Math.max(0, remotePositionMsShown() + deltaSeconds * 1000);
     return remoteAct('seek', { positionMs: Math.round(positionMs) });
 };
 
@@ -984,7 +992,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     }, [storeActions]);
 
     const mediaTogglePlayPause = useCallback(() => {
-        if (remoteAct('playpause')) return;
+        if (remoteTogglePlayPause()) return;
 
         logger.debug('Media toggle play pause');
 

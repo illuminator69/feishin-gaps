@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { api } from '/@/renderer/api';
 import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
+import { NO_PINS } from '/@/renderer/features/hub/utils/act-pins';
 import {
     DoExit,
     echoDisconnected,
@@ -26,6 +27,7 @@ import {
     notePlayheadStep,
     PlayheadRun,
 } from '/@/renderer/features/hub/utils/playhead-run';
+import { releaseActPin, sendAct } from '/@/renderer/features/hub/utils/remote-queue';
 import { placeholderSong, resolveHubTracks } from '/@/renderer/features/hub/utils/resolve-songs';
 import {
     adoptLbBotFrame,
@@ -189,6 +191,22 @@ const savedQueueToHubRecord = (q: SavedQueue): Record<string, unknown> => ({
 });
 
 const hub = isElectron() ? window.api.hub : null;
+
+/**
+ * What to tell the user about a hub-side failure: an `error` frame, or the `ack` of an act of
+ * ours that the hub refused (`ok:false` - against a hub that acknowledges acts the refusal comes
+ * there, to the sender only, instead of as a broadcast).
+ */
+const hubFailureMessage = (msg: any): string =>
+    msg.code === 'target_offline'
+        ? 'That device is offline.'
+        : msg.code === 'target_unreachable'
+          ? (msg.message ?? "That device isn't responding.")
+          : msg.code === 'load_failed'
+            ? (msg.message ?? 'That device could not start playback.')
+            : msg.code === 'auth'
+              ? 'The hub rejected the token - check your navi-connect settings.'
+              : (msg.message ?? (msg.code ? `Hub error (${msg.code})` : 'Hub error'));
 
 /**
  * What a report says about the player, read from the stores at the moment it is sent.
@@ -659,7 +677,7 @@ export const useHub = () => {
             savedQueuePrevIds.current = [];
             // `clear`, not an empty setQueue: the hub flushes our position into the history
             // record before detaching the session, so the cleared queue stays resumable.
-            hub.send({ action: 'clear', t: 'act' });
+            sendAct('clear');
             return;
         }
         sawNonEmptyQueue.current = true;
@@ -699,8 +717,7 @@ export const useHub = () => {
                 `[hub] setQueue index=${live.player.index} pos=${positionMs.current} ` +
                     `play=${playing.current} active=${activeId.current ?? 'none'}`,
             );
-            hub.send({
-                action: 'setQueue',
+            sendAct('setQueue', {
                 coverImageUrl: savedQueueCoverUrl(),
                 index: live.player.index,
                 play: playing.current,
@@ -709,7 +726,6 @@ export const useHub = () => {
                 serverId: serverIdRef.current ?? undefined,
                 sourceKind: savedQueueKind.current,
                 sourceName: savedQueueName.current,
-                t: 'act',
                 tracks,
             });
         })();
@@ -753,8 +769,7 @@ export const useHub = () => {
         void (async () => {
             const tracks = await buildHubTracks(items);
             if (gen !== publishGen.current) return;
-            hub.send({
-                action: 'setQueue',
+            sendAct('setQueue', {
                 coverImageUrl: savedQueueCoverUrl(),
                 index: usePlayerStore.getState().player.index,
                 play: true,
@@ -763,7 +778,6 @@ export const useHub = () => {
                 serverId: serverIdRef.current ?? undefined,
                 sourceKind: savedQueueKind.current,
                 sourceName: savedQueueName.current,
-                t: 'act',
                 tracks,
             });
         })();
@@ -1352,8 +1366,14 @@ export const useHub = () => {
                 noteActive(msg.session?.activeDeviceId ?? null);
                 setStore({
                     activeDeviceId: activeId.current,
+                    // I-031: a pin waits for an ack on the connection its act was sent on.
+                    actPins: NO_PINS,
                     connected: true,
                     devices: msg.devices ?? [],
+                    // Absent from an older hub: no `actAck`, so nothing is pinned.
+                    features: Array.isArray(msg.features)
+                        ? msg.features.filter((f: unknown) => typeof f === 'string')
+                        : [],
                     myDeviceId: myId.current,
                     remoteIsPlaying: msg.session?.isPlaying ?? false,
                     remotePositionAt: Date.now(),
@@ -1377,11 +1397,7 @@ export const useHub = () => {
                         (msg.savedQueues ?? []).map((r: any) => mapHubSavedQueue(r, sid)),
                     );
                     if (local.length) {
-                        hub.send({
-                            action: 'syncSavedQueues',
-                            queues: local.map(savedQueueToHubRecord),
-                            t: 'act',
-                        });
+                        sendAct('syncSavedQueues', { queues: local.map(savedQueueToHubRecord) });
                     }
                 }
                 // navi-connect: "Mixed for You". A plain replace, unlike the
@@ -1511,21 +1527,26 @@ export const useHub = () => {
                 // savedQueueId is deliberately KEPT: we're still listening to the same
                 // thing, so a reconnect must refresh that record rather than fork a
                 // near-duplicate of the queue we never stopped playing.
-                setStore({ activeDeviceId: null, connected: false, savedQueueId: null });
+                setStore({
+                    activeDeviceId: null,
+                    actPins: NO_PINS,
+                    connected: false,
+                    features: [],
+                    savedQueueId: null,
+                });
+            } else if (msg.t === 'ack') {
+                // I-031: the hub's answer to one act of ours, written after every frame that
+                // act caused - so the mirror already holds the outcome, and the value pinned
+                // when the act was sent can give way to it. Only the newest act on a value
+                // holds its pin (act-pins.ts); the ack of a skip or a queue edit releases
+                // nothing. A refusal changed nothing on the hub and is told here, with the
+                // code and message an `error` frame would have carried.
+                if (typeof msg.cid === 'string') releaseActPin(msg.cid);
+                if (msg.ok === false) toast.warn({ message: hubFailureMessage(msg) });
             } else if (msg.t === 'error') {
                 // Surface hub-side failures (bad token, target offline, …) — they
                 // were silent, so a wrong token just looked like "never connects".
-                const message =
-                    msg.code === 'target_offline'
-                        ? 'That device is offline.'
-                        : msg.code === 'target_unreachable'
-                          ? (msg.message ?? "That device isn't responding.")
-                          : msg.code === 'load_failed'
-                            ? (msg.message ?? 'That device could not start playback.')
-                            : msg.code === 'auth'
-                              ? 'The hub rejected the token — check your navi-connect settings.'
-                              : (msg.message ?? 'Hub error');
-                toast.warn({ message });
+                toast.warn({ message: hubFailureMessage(msg) });
             }
         });
         return () => dispose();
