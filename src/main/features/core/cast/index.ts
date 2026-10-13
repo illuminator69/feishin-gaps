@@ -89,6 +89,10 @@ const DEFAULT_MEDIA_RECEIVER_APP_ID = 'CC1AD845';
 // 10 s LOAD_TIMEOUT, and a join on a live socket answers in a few hundred milliseconds.
 const RELAUNCH_TIMEOUT_MS = 3500;
 
+// Budget for setting the volume of a speaker we hold no connection to: connect, one request,
+// its answer. On a LAN that is a few hundred milliseconds; a speaker that is off never answers.
+const IDLE_VOLUME_TIMEOUT_MS = 5000;
+
 // Reachability (PROTOCOL §3.2 / §12.2). `online` on a cast row means THIS process holds
 // the hub socket — it says nothing about the speaker, which may be off, asleep, or on a
 // network nobody here is on. The bridge is the only party that can tell the difference,
@@ -160,6 +164,12 @@ class CastDeviceBridge {
     private heartbeatTimer: NodeJS.Timeout | null = null;
 
     private hubAlive = false;
+
+    /** A short volume connection is open (setIdleVolume): there is never more than one. */
+    private idleVolumeBusy = false;
+
+    /** The newest level (0..1) asked for while one was open; set next, the ones between dropped. */
+    private idleVolumeWanted: null | number = null;
 
     private index = 0;
 
@@ -484,6 +494,32 @@ class CastDeviceBridge {
     }
 
     /**
+     * `do:setVolume`: on the connection the bridge holds, or on a short one of its own when it
+     * holds none (setIdleVolume) - the speaker is not playing, and the hub sent the level
+     * because this bridge said `idleVolume`. `level` is 0..1.
+     */
+    private async applyVolume(level: number): Promise<void> {
+        // A session being built is about to be the connection the bridge holds.
+        if (this.castSetup) await this.castSetup.catch(noop);
+        if (!this.castClient) {
+            await this.setIdleVolume(level);
+            return;
+        }
+        const landed = await this.commandLanded((cb) =>
+            this.castClient?.setVolume({ level }, (err, volume) => {
+                // The receiver answers with the volume it is now at, which is what the row
+                // should say: a muted speaker is still at 0, and a level may be rounded to
+                // its steps.
+                if (!err) this.noteReceiverVolume(volume);
+                cb(err);
+            }),
+        );
+        if (!landed) {
+            log.warn(`[cast-bridge] ${this.friendlyName}: volume did not reach the device`);
+        }
+    }
+
+    /**
      * Build a session: reuse a proven one, otherwise launch, retrying a cancelled launch.
      *
      * Only ever called through [ensureCast], which guarantees one at a time.
@@ -780,8 +816,17 @@ class CastDeviceBridge {
                     // `loadAck` opts this receiver into the transfer acknowledgement
                     // (§7.1): a cast load that fails is otherwise invisible for ~20 s,
                     // during which every client shows a playing bar over silence.
+                    // `idleVolume`: a `do:setVolume` is applied also while this speaker
+                    // is not playing, over a connection made for it (setIdleVolume), so
+                    // its row gets a volume slider in every picker. Not a group: a
+                    // group's receiver listens on a port of its own, which this bridge
+                    // does not read from the record, and the level would be set on the
+                    // group's leader instead.
                     bridgedBy: getHubDeviceId(),
-                    caps: ['receiver', 'loadAck'],
+                    caps:
+                        this.kind === 'group'
+                            ? ['receiver', 'loadAck']
+                            : ['receiver', 'loadAck', 'idleVolume'],
                     id: `cast-${this.deviceId}`,
                     // `kind` is what tells a cast row from the others in a picker, and a
                     // speaker from a TV: the name is the speaker's own, with no marker in
@@ -1024,26 +1069,13 @@ class CastDeviceBridge {
                     }
                     break;
                 }
-                case 'setVolume':
-                    if (
-                        !(await this.commandLanded((cb) =>
-                            this.castClient?.setVolume(
-                                { level: (msg.level ?? 100) / 100 },
-                                (err, volume) => {
-                                    // The receiver answers with the volume it is now at,
-                                    // which is what the row should say: a muted speaker is
-                                    // still at 0, and a level may be rounded to its steps.
-                                    if (!err) this.noteReceiverVolume(volume);
-                                    cb(err);
-                                },
-                            ),
-                        ))
-                    ) {
-                        log.warn(
-                            `[cast-bridge] ${this.friendlyName}: volume did not reach the device`,
-                        );
+                case 'setVolume': {
+                    const level = Number(msg.level ?? 100) / 100;
+                    if (Number.isFinite(level)) {
+                        await this.applyVolume(Math.min(1, Math.max(0, level)));
                     }
                     break;
+                }
                 default:
                     break;
             }
@@ -1554,6 +1586,80 @@ class CastDeviceBridge {
         if (t && t !== 'report' && t !== 'deviceState') {
             log.warn(`[cast-bridge] ${this.friendlyName}: dropped "${t}" — hub socket not open`);
         }
+    }
+
+    /**
+     * Set the volume of a speaker the bridge holds no connection to, so that it can be turned
+     * down before music is sent to it. One at a time per speaker, and the newest level wins:
+     * a level that arrives while a connection is open is not queued behind it - the last of
+     * them is set next and the ones between are dropped.
+     */
+    private async setIdleVolume(level: number): Promise<void> {
+        this.idleVolumeWanted = level;
+        if (this.idleVolumeBusy) return;
+        this.idleVolumeBusy = true;
+        try {
+            while (this.idleVolumeWanted !== null && !this.destroyed) {
+                const wanted = this.idleVolumeWanted;
+                this.idleVolumeWanted = null;
+                // A session came up while this waited its turn: that connection is used.
+                if (this.castClient) await this.applyVolume(wanted);
+                else await this.setVolumeOnOwnConnection(wanted);
+            }
+        } finally {
+            this.idleVolumeBusy = false;
+        }
+    }
+
+    /**
+     * One connection for one SET_VOLUME: connect (castv2-client CONNECTs to `receiver-0`), send
+     * it on the receiver namespace, read the RECEIVER_STATUS that answers, close. No
+     * application is launched or joined, so whatever the speaker is doing goes on, and the
+     * close ends nothing but this connection - the same open, ask, close the adoption check
+     * makes. The answer is the volume the speaker is now at, and goes to the hub as its row's.
+     *
+     * @returns whether the speaker answered inside the budget.
+     */
+    private setVolumeOnOwnConnection(level: number): Promise<boolean> {
+        return new Promise((resolve) => {
+            const client = new Client();
+            let settled = false;
+            const finish = (why?: string) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeout);
+                try {
+                    client.close();
+                } catch {
+                    /* ignore */
+                }
+                if (why !== undefined) {
+                    log.warn(
+                        `[cast-bridge] ${this.friendlyName}: volume did not reach the idle ` +
+                            `device (${why})`,
+                    );
+                }
+                resolve(why === undefined);
+            };
+            const timeout = setTimeout(() => finish('no answer'), IDLE_VOLUME_TIMEOUT_MS);
+            // Attached before connecting: an `error` with no listener is thrown.
+            client.on('error', (err) => finish(err.message));
+            try {
+                client.connect(this.host, () => {
+                    try {
+                        client.setVolume({ level }, (err, volume) => {
+                            if (!err) this.noteReceiverVolume(volume);
+                            finish(err ? err.message : undefined);
+                        });
+                    } catch (error) {
+                        // castv2 throws synchronously when the socket died under it.
+                        finish((error as Error).message);
+                    }
+                });
+            } catch (error) {
+                finish((error as Error).message);
+            }
+        });
     }
 
     /**
