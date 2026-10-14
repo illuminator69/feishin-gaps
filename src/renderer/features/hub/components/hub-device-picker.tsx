@@ -34,6 +34,7 @@ import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
 import { Icon } from '/@/shared/components/icon/icon';
 import { Text } from '/@/shared/components/text/text';
 import { toast } from '/@/shared/components/toast/toast';
+import { useThrottledCallback } from '/@/shared/hooks/use-throttled-callback';
 
 const hub = isElectron() ? window.api.hub : null;
 
@@ -69,6 +70,12 @@ const DeviceVolume = ({ device }: { device: HubDevice }) => {
     const observed = pinned ?? device.volume ?? 100;
     const [dragged, setDragged] = useState<null | number>(null);
     const [hold, setHold] = useState<null | SliderHold>(null);
+    // A release is one act. An arrow key held down on the thumb is a release per repeat, so
+    // those are thinned to one per 100 ms, the last always sent - as the bar's slider sends.
+    const commit = useThrottledCallback(
+        (asked: number) => sendAct('volume', { level: asked, target: device.id }),
+        100,
+    );
 
     useEffect(() => {
         if (!hold) return undefined;
@@ -97,7 +104,7 @@ const DeviceVolume = ({ device }: { device: HubDevice }) => {
                 onChange={setDragged}
                 onChangeEnd={(value) => {
                     const asked = Math.round(value);
-                    sendAct('volume', { level: asked, target: device.id });
+                    commit(asked);
                     setDragged(null);
                     setHold({
                         dragging: false,
