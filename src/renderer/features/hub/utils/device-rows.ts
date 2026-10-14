@@ -12,7 +12,7 @@
 //   - the device the session is on reads "playing" only while the session is: paused, it still
 //     holds the session and says "paused";
 //   - a device that is NOT playing gets a volume slider in its row when it can be set from
-//     here (I-033, takesIdleVolume): the hub sends a level to the device an `act:volume` names
+//     here (I-033, rowTakesVolume): the hub sends a level to the device an `act:volume` names
 //     as `target`, and the device has said it applies one while idle. The session's device has
 //     the bar's slider, and this device its own.
 
@@ -123,6 +123,26 @@ export function deviceStatusLabel(status: Exclude<DeviceStatus, 'blocked'>): str
 }
 
 /**
+ * Does the row get a volume slider? Every other device's volume is set in its own row, playing
+ * or not, so a device's slider stays where it was when playback moves: the playing device's
+ * row used to have none, and its slider appeared only once the music had gone elsewhere.
+ *
+ * Only where a level set there lands, and only while the device can be reached: the playing
+ * device always (it is the hub's default target, on any hub), any other only against a hub
+ * that takes a `target` (an older one would set the PLAYING device's volume instead) and only
+ * if it said it applies a volume while idle. Never this device (its own control is on screen).
+ */
+export function rowTakesVolume(
+    device: RowDevice,
+    session: Pick<RowSession, 'activeDeviceId' | 'myDeviceId'>,
+    features: readonly string[],
+): boolean {
+    if (!isPlayable(device) || device.id === session.myDeviceId) return false;
+    if (device.id === session.activeDeviceId) return true;
+    return features.includes(VOLUME_TARGET) && (device.caps ?? []).includes(IDLE_VOLUME);
+}
+
+/**
  * The devices in the order the picker lists them: the session's device, this device, the rest
  * by name without regard to case, then those not responding or offline (by name too). Two
  * devices of one name keep a fixed order (by id), so a `devices` frame never swaps them.
@@ -141,26 +161,5 @@ export function sortDeviceRows<T extends RowDevice>(
             rank(a) - rank(b) ||
             a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' }) ||
             (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-    );
-}
-
-/**
- * Does the row get a volume slider: can a level be set, from here and now, on a device that is
- * not playing? Only against a hub that takes a `target` (an older one would set the ACTIVE
- * device's volume instead), only for a device that said it applies one while idle, and only
- * while it can be reached. Never the session's device (the bar's slider is its volume) and
- * never this one (its own volume control is on screen).
- */
-export function takesIdleVolume(
-    device: RowDevice,
-    session: Pick<RowSession, 'activeDeviceId' | 'myDeviceId'>,
-    features: readonly string[],
-): boolean {
-    return (
-        features.includes(VOLUME_TARGET) &&
-        isPlayable(device) &&
-        (device.caps ?? []).includes(IDLE_VOLUME) &&
-        device.id !== session.activeDeviceId &&
-        device.id !== session.myDeviceId
     );
 }

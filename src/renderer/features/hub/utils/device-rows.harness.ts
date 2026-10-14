@@ -7,8 +7,8 @@ import {
     deviceIcon,
     deviceStatus,
     deviceStatusLabel,
+    rowTakesVolume,
     sortDeviceRows,
-    takesIdleVolume,
 } from './device-rows.ts';
 
 /**
@@ -183,42 +183,48 @@ const idle = (id: string, patch: Partial<RowDevice> = {}) =>
 
 test('a reachable device that takes a level while idle gets a slider', () => {
     const s = session({ activeDeviceId: 'kit', isPlaying: true });
-    assert.equal(takesIdleVolume(idle('phone'), s, TARGETS), true);
-    assert.equal(takesIdleVolume(idle('tv', { reachable: true }), s, TARGETS), true);
-    assert.equal(takesIdleVolume(idle('tv', { reachable: null }), s, TARGETS), true);
-    assert.equal(takesIdleVolume(idle('phone'), session(), TARGETS), true, 'nothing playing');
+    assert.equal(rowTakesVolume(idle('phone'), s, TARGETS), true);
+    assert.equal(rowTakesVolume(idle('tv', { reachable: true }), s, TARGETS), true);
+    assert.equal(rowTakesVolume(idle('tv', { reachable: null }), s, TARGETS), true);
+    assert.equal(rowTakesVolume(idle('phone'), session(), TARGETS), true, 'nothing playing');
 });
 
-test('not the device the session is on, playing or paused: the bar has its volume', () => {
+test('the device the session is on keeps its slider in its row, playing or paused, on any hub', () => {
     assert.equal(
-        takesIdleVolume(idle('kit'), session({ activeDeviceId: 'kit', isPlaying: true }), TARGETS),
-        false,
+        rowTakesVolume(idle('kit'), session({ activeDeviceId: 'kit', isPlaying: true }), TARGETS),
+        true,
     );
-    assert.equal(takesIdleVolume(idle('kit'), session({ activeDeviceId: 'kit' }), TARGETS), false);
+    assert.equal(rowTakesVolume(idle('kit'), session({ activeDeviceId: 'kit' }), TARGETS), true);
+    assert.equal(
+        rowTakesVolume(device('kit', 'Kit'), session({ activeDeviceId: 'kit' }), []),
+        true,
+    );
+    // Not this device's own row, even while it plays.
+    assert.equal(rowTakesVolume(idle(ME), session({ activeDeviceId: ME }), TARGETS), false);
 });
 
 test('not this device', () => {
-    assert.equal(takesIdleVolume(idle(ME), session({ activeDeviceId: 'kit' }), TARGETS), false);
-    assert.equal(takesIdleVolume(idle(ME), session(), TARGETS), false);
+    assert.equal(rowTakesVolume(idle(ME), session({ activeDeviceId: 'kit' }), TARGETS), false);
+    assert.equal(rowTakesVolume(idle(ME), session(), TARGETS), false);
 });
 
 test('not a device that did not say it applies a level while idle', () => {
     const s = session({ activeDeviceId: 'kit' });
     assert.equal(
-        takesIdleVolume(device('cast', 'Speaker', { caps: ['receiver'] }), s, TARGETS),
+        rowTakesVolume(device('cast', 'Speaker', { caps: ['receiver'] }), s, TARGETS),
         false,
     );
-    assert.equal(takesIdleVolume(device('old', 'Old client'), s, TARGETS), false, 'no caps at all');
+    assert.equal(rowTakesVolume(device('old', 'Old client'), s, TARGETS), false, 'no caps at all');
 });
 
 test('not a device that cannot be reached', () => {
     const s = session({ activeDeviceId: 'kit' });
-    assert.equal(takesIdleVolume(idle('tv', { reachable: false }), s, TARGETS), false);
-    assert.equal(takesIdleVolume(idle('phone', { online: false }), s, TARGETS), false);
+    assert.equal(rowTakesVolume(idle('tv', { reachable: false }), s, TARGETS), false);
+    assert.equal(rowTakesVolume(idle('phone', { online: false }), s, TARGETS), false);
 });
 
 test('not against a hub that would set the active device instead', () => {
     const s = session({ activeDeviceId: 'kit' });
-    assert.equal(takesIdleVolume(idle('phone'), s, ['cmdEcho', 'actAck']), false);
-    assert.equal(takesIdleVolume(idle('phone'), s, []), false, 'an older hub, or no connection');
+    assert.equal(rowTakesVolume(idle('phone'), s, ['cmdEcho', 'actAck']), false);
+    assert.equal(rowTakesVolume(idle('phone'), s, []), false, 'an older hub, or no connection');
 });

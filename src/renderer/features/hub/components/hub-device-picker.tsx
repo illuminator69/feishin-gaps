@@ -7,8 +7,8 @@ import {
     deviceIcon,
     deviceStatus,
     deviceStatusLabel,
+    rowTakesVolume,
     sortDeviceRows,
-    takesIdleVolume,
 } from '/@/renderer/features/hub/utils/device-rows';
 import { deviceVolumePinned, sendAct } from '/@/renderer/features/hub/utils/remote-queue';
 import {
@@ -230,7 +230,7 @@ export const HubDevicePicker = () => {
                         variant="subtle"
                     />
                 </div>
-                {takesIdleVolume(device, session, features) && <DeviceVolume device={device} />}
+                {rowTakesVolume(device, session, features) && <DeviceVolume device={device} />}
             </div>
         );
     };
