@@ -56,6 +56,7 @@ import {
     useLbBotIndexSync,
 } from '/@/renderer/features/lbbot/index-mirror/index-mirror';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
+import { withdrawStartupSeek } from '/@/renderer/features/player/hooks/use-queue-restore';
 import {
     consumeQueueSession,
     findMatchingSavedQueueId,
@@ -925,6 +926,7 @@ export const useHub = () => {
     // because onCurrentSongChange only fires on an actual change.
     const armSeek = useCallback(
         (targetIndex: number, sec: number, pause: boolean) => {
+            withdrawStartupSeek(); // the hub's position, not the one this device closed at
             if (targetIndex === usePlayerStore.getState().player.index) {
                 mediaSeekToTimestamp(sec);
                 if (pause) setTimeout(() => mediaPause(), 100);
@@ -973,6 +975,9 @@ export const useHub = () => {
                     mediaPlayByIndex(msg.index);
                     break;
                 case 'load': {
+                    // The hub places the playhead from here on: the startup seek to where
+                    // this device was when it closed must not take it back on first play.
+                    withdrawStartupSeek();
                     // PROTOCOL §7.1: a transfer's load must be acknowledged, or the hub
                     // commits the active slot and never learns we couldn't start.
                     // §7.2: the ack carries the directive's transferId, and must arrive
@@ -1156,6 +1161,7 @@ export const useHub = () => {
                     return 'silent';
                 }
                 case 'seek':
+                    withdrawStartupSeek();
                     mediaSeekToTimestamp((msg.positionMs ?? 0) / 1000);
                     break;
                 case 'setRepeat':

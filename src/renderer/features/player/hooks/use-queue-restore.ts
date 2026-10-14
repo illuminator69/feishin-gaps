@@ -44,6 +44,18 @@ export const QueueRestoreTimestampHook = () => {
     return null;
 };
 
+/**
+ * navi-connect: set once the hub has placed the playhead (a load, an adopted session, a seek).
+ * The startup seek below goes back to where this device was when it was closed, and fires the
+ * first time playback starts - which, after a transfer back to this device, is the transfer's
+ * own start: the hub's position was taken, then replaced by the old one.
+ */
+let startupSeekWithdrawn = false;
+
+export const withdrawStartupSeek = () => {
+    startupSeekWithdrawn = true;
+};
+
 export const useInitialTimestampRestore = () => {
     const { mediaSeekToTimestamp } = usePlayerActions();
     const playerHydrated = usePlayerHydrated();
@@ -70,6 +82,11 @@ export const useInitialTimestampRestore = () => {
         const seekTimestamp = startupSeekArmedRef.current;
 
         if (startupSeekAppliedRef.current) {
+            return;
+        }
+
+        if (startupSeekWithdrawn) {
+            cancelStartupSeek();
             return;
         }
 
