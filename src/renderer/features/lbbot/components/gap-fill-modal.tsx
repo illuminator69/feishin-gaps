@@ -255,21 +255,21 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                 </Button>
                 {/* Opens in the browser: Electron's window-open handler hands any
                     http(s) URL to the OS. Only shown when the hub advertises
-                    lb-bot's address — an older hub doesn't, and a guessed one
+                    lb-bot's address - an older hub doesn't, and a guessed one
                     would be a button that leads nowhere. */}
                 {workspaceUrl && (
                     <Button
                         onClick={() => window.open(workspaceUrl, '_blank')}
                         size="compact-sm"
                         // The only way forward for a pending match, or for
-                        // a stalled placement (B-011) — same reason.
+                        // a stalled placement (B-011) - same reason.
                         variant={awaitingMatch || stalledPlacement ? 'filled' : 'subtle'}
                     >
                         Open in lb-bot
                     </Button>
                 )}
                 {/* Ruling R17: hidden for a stalled placement, same as
-                    "Fill N tracks" and "Search again" — R15 covers every
+                    "Fill N tracks" and "Search again" - R15 covers every
                     fetch/fill action for this case, and Auto is one of them:
                     it still ends by posting a fetch from a ranked source for
                     files that already downloaded. */}
@@ -328,7 +328,7 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                     </Button>
                 )}
                 {/* Ruling R15: hidden for a stalled placement, same as
-                    "Search again" above — the files already arrived, so a
+                    "Search again" above - the files already arrived, so a
                     fetch (of files already on disk) is no more a remedy than
                     a fresh search is. */}
                 {sources.length > 0 && !stalledPlacement && (

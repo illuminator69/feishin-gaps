@@ -17,7 +17,7 @@ import { Text } from '/@/shared/components/text/text';
 import { LibraryItem } from '/@/shared/types/domain-types';
 
 /**
- * navi-connect: the wishlist — albums nobody was sharing when you asked.
+ * navi-connect: the wishlist - albums nobody was sharing when you asked.
  *
  * It exists because of one specific dead end. lb-bot reports `no_source`
  * only after walking its **entire** ranked source list, and it deliberately
@@ -27,7 +27,7 @@ import { LibraryItem } from '/@/shared/types/domain-types';
  * `retryable: false` is the honest verdict on that request.
  *
  * What it is *not* a verdict on is the album. The Soulseek swarm changes over
- * hours — someone comes online, someone shares a folder — so the same search
+ * hours - someone comes online, someone shares a folder - so the same search
  * tomorrow is a genuinely different search. The wishlist is where that slow
  * re-search lives, and it is the one place in this client where
  * `retryable: false` turns into an action rather than a shrug.
@@ -45,7 +45,7 @@ export const WishlistList = () => {
     const entries = data?.entries ?? [];
     // lb-bot's own cadence, rather than a number written here. The whole
     // mechanism is waiting, so "how long" is the first question this list has to
-    // answer — and hard-coding it would be a sentence that quietly goes wrong
+    // answer - and hard-coding it would be a sentence that quietly goes wrong
     // the day the sweep interval changes.
     const everyHours = data?.intervalSeconds
         ? Math.max(1, Math.round(data.intervalSeconds / 3600))
@@ -105,7 +105,7 @@ export const WishlistList = () => {
                                 : 'Waiting for the first re-search'}
                         </Text>
                         {/* lb-bot's own sentence about the last attempt,
-                            verbatim — the same rule the downloads ledger follows,
+                            verbatim - the same rule the downloads ledger follows,
                             and for the same reason: it carries evidence no label
                             can. */}
                         {entry.lastReason && (

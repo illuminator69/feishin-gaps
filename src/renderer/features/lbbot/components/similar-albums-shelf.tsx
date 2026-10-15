@@ -15,7 +15,7 @@ import { LibraryItem } from '/@/shared/types/domain-types';
  *
  * Every row is an album the library already holds, by an artist ListenBrainz
  * (cross-checked with Last.fm when a key is configured) puts near this one. So
- * it is a rediscovery surface, not a shopping list — which is why the tiles are
+ * it is a rediscovery surface, not a shopping list - which is why the tiles are
  * the library's own covers rather than the faded missing-album tiles.
  *
  * `because` is rendered, always. The attribution rule this stack follows is that

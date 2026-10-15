@@ -147,7 +147,7 @@ const MixRow = ({ mix }: { mix: Mix }) => {
                             not otherwise visible until the second play. */}
                             <Text isMuted lineClamp={1} size="xs">
                                 {!playable
-                                    ? 'Made with a newer version of navi-connect — this build cannot build it'
+                                    ? 'Made with a newer version of navi-connect - this build cannot build it'
                                     : busy
                                       ? 'Building…'
                                       : 'Rebuilt fresh each time you play it'}

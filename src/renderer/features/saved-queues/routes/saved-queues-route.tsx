@@ -170,7 +170,7 @@ const SavedQueueRow = ({ entry, isActive, serverId }: RowProps) => {
                     >
                         {/* Art of the track this queue resumes on, built from its id with OUR credentials.
                         Passing a peer's `coverImageUrl` as `src` meant rendering Navic's authed URL
-                        against Navic's server — which is why these were empty placeholders. */}
+                        against Navic's server - which is why these were empty placeholders. */}
                         <ItemImage
                             containerClassName={styles.cover}
                             id={savedQueueCoverSongId(entry)}

@@ -307,12 +307,12 @@ const LbBotFreshRoute = () => {
             title="Fresh releases"
         >
             {/* The previous window's rows, dimmed, already say "loading"
-                — unless there are none. */}
+                - unless there are none. */}
             {loading && total === 0 && <Spinner container />}
 
             {/* Fail-soft, like every other lb-bot read: an absent lb-bot and
                 an unhappy ListenBrainz are both a sentence, not an error
-                page — and they are different sentences. */}
+                page - and they are different sentences. */}
             {/* Not over a feed on screen: a persisted or cached answer is
                 shown while lb-bot is unreachable, and this sentence is the
                 one thing it would contradict. */}

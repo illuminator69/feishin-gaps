@@ -127,8 +127,8 @@ const rememberRow = (title: string, hadCards: boolean) => {
 };
 
 /**
- * A `DiscoverTile`'s silhouette — a square cover and two text lines on the same
- * poster card — so swapping it for the real tile moves nothing.
+ * A `DiscoverTile`'s silhouette - a square cover and two text lines on the same
+ * poster card - so swapping it for the real tile moves nothing.
  */
 const DiscoverTileSkeleton = () => (
     <div className={styles.wrapper}>

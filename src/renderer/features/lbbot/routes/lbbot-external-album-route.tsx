@@ -173,7 +173,7 @@ const LbBotExternalAlbumRoute = () => {
             route={AppRoute.LIBRARY_ALBUMS}
             title={release.title || 'Album'}
         >
-            {/* lb-bot is the only source that can describe a record nobody owns —
+            {/* lb-bot is the only source that can describe a record nobody owns -
                 there is no Navidrome album for an agent to answer about. Nothing
                 competes for the slot, so nothing can flash. */}
             {meta && <MetaAbout maxHeight={120} meta={meta} />}

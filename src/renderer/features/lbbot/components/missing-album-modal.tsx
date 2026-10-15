@@ -348,7 +348,7 @@ export const MissingAlbumPanel = ({
                     ) : null}
                     {/* The server's own Cancel rule: searching, queued or
                             downloading, or a failed fill whose automatic retry
-                            is still pending. Never on `placing` — the files are
+                            is still pending. Never on `placing` - the files are
                             on their way in. */}
                     {status.data?.cancellable ? (
                         <Button onClick={handleCancel} size="compact-sm" variant="subtle">
