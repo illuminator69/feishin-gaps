@@ -82,8 +82,14 @@ const LbBotExternalArtistRoute = () => {
                     <Text isMuted>
                         Not in your library. This discography comes from MusicBrainz via lb-bot.
                     </Text>
-                    <Group>
+                    <Group gap="sm">
                         <Badge>Not in your library</Badge>
+                        <LbBotIndexButton
+                            artistMbid={artistMbid}
+                            artistName={artistName}
+                            discography={discography.data}
+                            ndId={ndId}
+                        />
                     </Group>
                 </Stack>
             }
@@ -92,13 +98,6 @@ const LbBotExternalArtistRoute = () => {
             title={artistName || 'Artist'}
         >
             {meta && <MetaAbout meta={meta} />}
-
-            <LbBotIndexButton
-                artistMbid={artistMbid}
-                artistName={artistName}
-                discography={discography.data}
-                ndId={ndId}
-            />
 
             {/* Not while the mirror is answering: a discography
                 already on screen is the one thing this sentence

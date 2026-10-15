@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
+
 import { openMbidMatchModal } from '/@/renderer/features/lbbot/components/mbid-match-modal';
-import { RefreshAboutButton } from '/@/renderer/features/lbbot/components/refresh-about-button';
 import {
     refreshArtistMeta,
     useArtistOverrideKind,
@@ -8,9 +9,10 @@ import {
     useOverrideControls,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { isNavidromeArtistId } from '/@/renderer/features/lbbot/utils/artist-override';
-import { Button } from '/@/shared/components/button/button';
-import { Group } from '/@/shared/components/group/group';
-import { Text } from '/@/shared/components/text/text';
+import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
+import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
+import { Icon } from '/@/shared/components/icon/icon';
+import { toast } from '/@/shared/components/toast/toast';
 import { LbBotDiscography } from '/@/shared/types/lbbot-types';
 
 interface LbBotIndexButtonProps {
@@ -59,8 +61,25 @@ export const LbBotIndexButton = ({
     // lb-bot is older.
     const overridesSupported = useOverrideControls() && isNavidromeArtistId(ndId);
     const kind = useArtistOverrideKind(ndId, tagMbid);
+    const [refreshing, setRefreshing] = useState(false);
+
+    // A scan's outcome, said once as it arrives: the menu that started it has closed.
+    useEffect(() => {
+        if (error) toast.error({ message: error });
+    }, [error]);
+    useEffect(() => {
+        if (note) toast.info({ message: note });
+    }, [note]);
 
     if (!discography) return null;
+
+    const refreshAbout = async () => {
+        setRefreshing(true);
+        const outcome = await refreshArtistMeta(artistMbid, artistName);
+        setRefreshing(false);
+        if (outcome.ok) toast.success({ message: outcome.message });
+        else toast.warn({ message: outcome.message });
+    };
 
     // Always offered once an artist can be scanned at all, never hidden on the
     // strength of `indexed && !stale`. A scan that matched the wrong MusicBrainz
@@ -82,73 +101,73 @@ export const LbBotIndexButton = ({
             tagMbid,
         });
 
+    const status = [
+        overridesSupported && (kind === 'override' || kind === 'override-same')
+            ? 'MusicBrainz match set by you'
+            : '',
+        // What makes an always-offered Rescan actionable rather than decorative:
+        // without it there is no way to tell an index built this morning from one
+        // built in March. `stale` is lb-bot's own verdict on its TTL.
+        discography.indexed && discography.scannedAt > 0
+            ? `${describeScan(discography.scannedAt)}${discography.stale ? ' · out of date' : ''}`
+            : 'Not scanned yet',
+    ].filter(Boolean);
+
+    // One icon among the toolbar's own (search, sort, order, grouping), opening a menu,
+    // the way upstream offers an item's actions. These were up to three text buttons and
+    // as many status lines in a row that would not wrap, wider than the toolbar at narrow
+    // widths. The scan's spinner is the icon's; its outcome is a toast (see above).
     return (
-        <Group gap="xs" wrap="nowrap">
-            <Button
-                disabled={pending || !scannable}
-                loading={pending}
-                onClick={() => scannable && indexArtist(artistMbid!, artistName)}
-                size="compact-md"
-                tooltip={{
-                    label: !artistMbid
-                        ? overridesSupported
-                            ? 'This artist has no MusicBrainz id in your library. Choose the MusicBrainz artist to scan with.'
-                            : 'This artist has no MusicBrainz id in your library, and lb-bot matches artists by MBID — there is nothing to ask it with. Tag the artist in Navidrome and rescan the library first.'
-                        : !artistName
-                          ? "lb-bot needs the artist's name as well as their MusicBrainz id."
-                          : empty
-                            ? 'lb-bot has no releases indexed for this artist. Scanning walks MusicBrainz at one request a second, so a long discography takes a minute.'
-                            : 'Scanning walks MusicBrainz at one request a second, so a long discography takes a minute.',
-                }}
-                variant="subtle"
-            >
-                {discography.indexed && !empty ? 'Rescan discography' : 'Find missing albums'}
-            </Button>
-            {overridesSupported && artistName && (
-                <Button
-                    disabled={pending || !available}
-                    onClick={openPicker}
-                    size="compact-md"
+        <DropdownMenu position="bottom-end">
+            <DropdownMenu.Target>
+                <ActionIcon
+                    icon="brandMusicBrainz"
+                    loading={pending || refreshing}
+                    tooltip={{ label: 'Missing albums and MusicBrainz match' }}
                     variant="subtle"
+                />
+            </DropdownMenu.Target>
+            <DropdownMenu.Dropdown>
+                <DropdownMenu.Label>{status.join(' · ')}</DropdownMenu.Label>
+                <DropdownMenu.Item
+                    disabled={pending || !scannable}
+                    leftSection={<Icon icon="search" />}
+                    onClick={() => scannable && indexArtist(artistMbid!, artistName)}
                 >
-                    {artistMbid ? 'Wrong artist?' : 'Choose MusicBrainz artist'}
-                </Button>
-            )}
-            {(artistMbid || artistName) && (
-                <RefreshAboutButton onRefresh={() => refreshArtistMeta(artistMbid, artistName)} />
-            )}
-            {overridesSupported && (kind === 'override' || kind === 'override-same') && (
-                <Text isMuted size="xs">
-                    MusicBrainz match set by you
-                </Text>
-            )}
-            {/* What makes an always-visible Rescan actionable rather than decorative:
-                without it there is no way to tell an index built this morning from
-                one built in March. `stale` is lb-bot's own verdict on its TTL. */}
-            {discography.indexed && discography.scannedAt > 0 && !error && (
-                <Text isMuted size="xs">
-                    {describeScan(discography.scannedAt)}
-                    {discography.stale ? ' · out of date' : ''}
-                </Text>
-            )}
-            {/* Not a failure: lb-bot started no scan because another library artist
-                holds this discography. */}
-            {note && !pending && !error && (
-                <Text isMuted size="xs">
-                    {note}
-                </Text>
-            )}
-            {/* The scan failed and lb-bot kept what it had: say so, in its words. */}
-            {error && !pending && (
-                <Text c="red" size="xs">
-                    {error}
-                </Text>
-            )}
-        </Group>
+                    {discography.indexed && !empty ? 'Rescan discography' : 'Find missing albums'}
+                </DropdownMenu.Item>
+                {overridesSupported && artistName && (
+                    <DropdownMenu.Item
+                        disabled={pending || !available}
+                        leftSection={<Icon icon="edit" />}
+                        onClick={openPicker}
+                    >
+                        {artistMbid ? 'Wrong artist?' : 'Choose MusicBrainz artist'}
+                    </DropdownMenu.Item>
+                )}
+                {(artistMbid || artistName) && available && (
+                    <DropdownMenu.Item
+                        disabled={refreshing}
+                        leftSection={<Icon icon="refresh" />}
+                        onClick={refreshAbout}
+                    >
+                        Refresh About
+                    </DropdownMenu.Item>
+                )}
+                {!scannable && (
+                    <DropdownMenu.Label>
+                        {!artistMbid
+                            ? overridesSupported
+                                ? 'No MusicBrainz id in your library: choose the artist to scan with.'
+                                : 'No MusicBrainz id in your library: tag the artist in Navidrome first.'
+                            : "lb-bot needs the artist's name as well as their MusicBrainz id."}
+                    </DropdownMenu.Label>
+                )}
+            </DropdownMenu.Dropdown>
+        </DropdownMenu>
     );
 };
 
-/** `scannedAt` is epoch SECONDS (lb-bot's `scanned_at`), not milliseconds. */
 const describeScan = (scannedAt: number): string => {
     const days = Math.floor((Date.now() - scannedAt * 1000) / 86_400_000);
     if (days <= 0) return 'Scanned today';

@@ -60,6 +60,7 @@ import {
     useState,
     useSyncExternalStore,
 } from 'react';
+import { useNavigate } from 'react-router';
 
 import { api } from '/@/renderer/api';
 import { isSourceVerified } from '/@/renderer/features/lbbot/components/source-list';
@@ -2504,6 +2505,7 @@ export interface LbBotLibraryLanding {
  * The second argument is kept for call-site compatibility — the page refresh
  * on landing is now the watcher's job, whichever page is open.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for call-site compatibility
 export const useWatchedFill = (rgid: string, _ndArtistId?: string): ActiveFill | undefined => {
     const fill = useActiveFill(rgid);
     return fill && !fill.settled
@@ -2757,6 +2759,7 @@ export const rescanGapAlbum = (groupId: string): Promise<LbBotResult<boolean>> =
  * cache. Returns undefined for a gap nobody started, which is nearly all of
  * them, so the hook costs nothing until the user acts.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for call-site compatibility
 export const useWatchedGap = (groupId: string, _ndArtistId?: string) => {
     const watch = useActiveGap(groupId);
     const query = useQuery<LbBotResult<LbBotGap>>({
@@ -3082,7 +3085,53 @@ export const useArtistTarget = (args: {
         staleTime: 5 * 60 * 1000,
     });
 
-    return artistLinkPath(artistId || local.data || '', artistMbid || '');
+    return artistLinkPath(artistId || local.data || '', artistMbid || '', name);
+};
+
+/**
+ * The artist page for a name and an MBID, worked out when it is asked for: the library's
+ * own page when the library has an artist of that name (the same search, cached under the
+ * same key, as `useArtistTarget`), else the virtual one. For a row of many artists, where
+ * a search per row on render would be one request per card.
+ */
+export const useOpenArtist = () => {
+    const navigate = useNavigate();
+    const serverId = useCurrentServerId();
+
+    return useCallback(
+        async (artistMbid: string, name: string) => {
+            const libraryId = serverId
+                ? await queryClient
+                      .fetchQuery<null | string>({
+                          gcTime: 5 * 60 * 1000,
+                          queryFn: async () => {
+                              const found = await api.controller
+                                  .getAlbumArtistList({
+                                      apiClientProps: { serverId },
+                                      query: {
+                                          limit: 25,
+                                          searchTerm: name,
+                                          sortBy: AlbumArtistListSort.NAME,
+                                          sortOrder: SortOrder.ASC,
+                                          startIndex: 0,
+                                      },
+                                  })
+                                  .catch(() => null);
+                              return (
+                                  (found?.items ?? []).find((row) => sameArtist(row.name, name))
+                                      ?.id ?? null
+                              );
+                          },
+                          queryKey: ['lbbot', 'artist-target', serverId, name],
+                          staleTime: 5 * 60 * 1000,
+                      })
+                      .catch(() => null)
+                : null;
+            const to = artistLinkPath(libraryId || '', artistMbid, name);
+            if (to) navigate(to);
+        },
+        [navigate, serverId],
+    );
 };
 
 export const useResolveBrowseAlbum = () => {

@@ -24,6 +24,8 @@ import { ItemTableListColumn } from '/@/renderer/components/item-list/item-table
 import { ItemControls } from '/@/renderer/components/item-list/types';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
 import { AlbumArtistGridCarousel } from '/@/renderer/features/artists/components/album-artist-grid-carousel';
+import { DiscoverRow } from '/@/renderer/features/discover/components/discover-row';
+import { DiscoverTile } from '/@/renderer/features/discover/components/discover-tile';
 import { IncompleteAlbumBadge } from '/@/renderer/features/lbbot/components/incomplete-album-badge';
 import { LbBotIndexButton } from '/@/renderer/features/lbbot/components/lbbot-index-button';
 import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
@@ -34,6 +36,7 @@ import {
     useEffectiveArtistMbid,
     useLbBotArtistMeta,
     useLbBotDiscography,
+    useOpenArtist,
     withoutOwned,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { useIsPlayerFetching, usePlayer } from '/@/renderer/features/player/context/player-context';
@@ -357,6 +360,7 @@ const AlbumArtistMetadataLbBotExtras = ({
     // Same key as the biography's call, so react-query serves both from one
     // request rather than asking lb-bot twice per page.
     const metaQuery = useLbBotArtistMeta(artistMbid, artistName);
+    const openArtist = useOpenArtist();
     const meta = metaQuery.data;
     if (!meta) return null;
 
@@ -372,24 +376,35 @@ const AlbumArtistMetadataLbBotExtras = ({
         <Grid.Col order={order} span={12}>
             <section style={{ maxWidth: '1280px' }}>
                 <Stack gap="md">
+                    {/* Rows of round artist cards, as the page's own "Related Artists"
+                        carousel is, rather than a column of names. lb-bot's relations
+                        carry an MBID and a name, not a library id: the card is the
+                        artist placeholder, and where it leads (the library page for an
+                        artist you have, else the virtual one) is found when it is
+                        opened, never by a search per card. */}
                     {groups.map((group) => (
-                        <Stack gap="xs" key={group.title}>
-                            <TextTitle fw={700} order={4}>
-                                {group.title}
-                            </TextTitle>
-                            <Stack gap={2}>
-                                {group.rows.map((row) => (
-                                    <Text key={row.mbid || row.name} size="sm">
-                                        {row.name}
-                                        {formatRelationDetail(row) && (
-                                            <Text component="span" isMuted size="sm">
-                                                {` — ${formatRelationDetail(row)}`}
-                                            </Text>
-                                        )}
-                                    </Text>
-                                ))}
-                            </Stack>
-                        </Stack>
+                        <DiscoverRow
+                            because="From MusicBrainz, via lb-bot"
+                            cards={group.rows.map((row) => ({
+                                content: (
+                                    <DiscoverTile
+                                        isRound
+                                        itemType={LibraryItem.ALBUM_ARTIST}
+                                        onClick={
+                                            row.mbid
+                                                ? () => void openArtist(row.mbid, row.name)
+                                                : undefined
+                                        }
+                                        subtitle={formatRelationDetail(row) || undefined}
+                                        title={row.name}
+                                    />
+                                ),
+                                id: row.mbid || row.name,
+                            }))}
+                            isEmpty={group.rows.length === 0}
+                            key={group.title}
+                            title={group.title}
+                        />
                     ))}
                     {links.length > 0 && (
                         <Group gap="sm">

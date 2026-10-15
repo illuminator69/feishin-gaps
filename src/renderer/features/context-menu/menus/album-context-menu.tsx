@@ -9,6 +9,7 @@ import { GetInfoAction } from '/@/renderer/features/context-menu/actions/get-inf
 import { GoToAction } from '/@/renderer/features/context-menu/actions/go-to-action';
 import { PlayAction } from '/@/renderer/features/context-menu/actions/play-action';
 import { PlayAlbumRadioAction } from '/@/renderer/features/context-menu/actions/play-album-radio-action';
+import { RefreshAboutAction } from '/@/renderer/features/context-menu/actions/refresh-about-action';
 import { SetFavoriteAction } from '/@/renderer/features/context-menu/actions/set-favorite-action';
 import { SetRatingAction } from '/@/renderer/features/context-menu/actions/set-rating-action';
 import { ShareAction } from '/@/renderer/features/context-menu/actions/share-action';
@@ -46,6 +47,7 @@ export const AlbumContextMenu = ({ items, type }: AlbumContextMenuProps) => {
             {/* Renders nothing unless the hub advertises the album-override
                 routes; single selection only. */}
             <FixAlbumMatchAction album={items.length === 1 ? items[0] : undefined} />
+            <RefreshAboutAction album={items.length === 1 ? items[0] : undefined} />
             <ShareAction ids={ids} itemType={LibraryItem.ALBUM} />
             <ContextMenu.Divider />
             <GoToAction items={items} />

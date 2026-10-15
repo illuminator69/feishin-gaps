@@ -22,9 +22,8 @@ import { ItemControls } from '/@/renderer/components/item-list/types';
 import { albumQueries } from '/@/renderer/features/albums/api/album-api';
 import { AlbumInfiniteCarousel } from '/@/renderer/features/albums/components/album-infinite-carousel';
 import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
-import { RefreshAboutButton } from '/@/renderer/features/lbbot/components/refresh-about-button';
 import { SimilarAlbumsShelf } from '/@/renderer/features/lbbot/components/similar-albums-shelf';
-import { refreshAlbumMeta, useLbBotAlbumMeta } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { useLbBotAlbumMeta } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
     ListConfigMenu,
@@ -51,6 +50,7 @@ import { Checkbox } from '/@/shared/components/checkbox/checkbox';
 import { Group } from '/@/shared/components/group/group';
 import { Icon } from '/@/shared/components/icon/icon';
 import { Pill, PillLink } from '/@/shared/components/pill/pill';
+import { Skeleton } from '/@/shared/components/skeleton/skeleton';
 import { Spoiler } from '/@/shared/components/spoiler/spoiler';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextInput } from '/@/shared/components/text-input/text-input';
@@ -541,6 +541,11 @@ export const AlbumDetailContent = () => {
     const meta = metaQuery.data;
     const hasMetaText = Boolean(meta?.summary || meta?.paragraphs.length);
     const hasDescription = !notesPending && Boolean(notes || comment || hasMetaText);
+    // A skeleton of the block while its text may still come: the album's own notes are
+    // not read yet, or lb-bot's prose is on its way and nothing else will fill the slot.
+    // Without it the block arrived after the tracklist was drawn and pushed it down.
+    const descriptionLoading =
+        notesPending || (!notes && !comment && Boolean(mbzReleaseGroupId) && metaQuery.isLoading);
 
     return (
         <div className={styles.contentContainer}>
@@ -559,9 +564,19 @@ export const AlbumDetailContent = () => {
                     last — it arrives a second or more later behind a
                     MusicBrainz hop, so it may only ever fill a slot that was
                     EMPTY. It must never replace text already being read. */}
-                {hasDescription && (
+                {descriptionLoading && (
                     <Stack gap="xs" pb="md">
-                        <TextTitle fw={700} order={4}>
+                        <TextTitle fw={700} order={3}>
+                            About
+                        </TextTitle>
+                        <Skeleton height={16} />
+                        <Skeleton height={16} />
+                        <Skeleton height={16} width="70%" />
+                    </Stack>
+                )}
+                {!descriptionLoading && hasDescription && (
+                    <Stack gap="xs" pb="md">
+                        <TextTitle fw={700} order={3}>
                             About
                         </TextTitle>
                         {notes ? (
@@ -587,11 +602,6 @@ export const AlbumDetailContent = () => {
                     <Stack gap="md" pb="md">
                         <AlbumCredits credits={meta.credits} />
                     </Stack>
-                )}
-                {mbzReleaseGroupId && (
-                    <RefreshAboutButton
-                        onRefresh={() => refreshAlbumMeta(mbzReleaseGroupId, mbzId)}
-                    />
                 )}
                 <div className={styles.contentLayout}>
                     <div className={styles.songsColumn}>
@@ -642,7 +652,7 @@ export const AlbumDetailContent = () => {
  */
 const AlbumCredits = ({ credits }: { credits: LbBotMetaCredit[] }) => (
     <Stack gap="xs">
-        <TextTitle fw={700} order={4}>
+        <TextTitle fw={700} order={3}>
             Credits
         </TextTitle>
         <Stack gap={2}>
