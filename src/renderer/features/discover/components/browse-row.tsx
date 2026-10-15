@@ -146,12 +146,14 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
     const genreChips = showGenres && genres.length > 0 && (
         <Group gap="xs" mt="xs" wrap="wrap">
             {genres.map((row) => (
+                // The fork's chip: filled when chosen, subtle otherwise, the button's own
+                // radius, as on Downloads, Library Matches and My Listening. Compact here,
+                // where two dozen sit in a row's header.
                 <Button
                     key={row.id}
                     onClick={() => setGenre(row.id)}
-                    radius="xl"
                     size="compact-sm"
-                    variant={row.id === genre ? 'filled' : 'default'}
+                    variant={row.id === genre ? 'filled' : 'subtle'}
                 >
                     {row.name}
                 </Button>

@@ -41,6 +41,7 @@ import { AppRoute } from '/@/renderer/router/routes';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
 import { Stack } from '/@/shared/components/stack/stack';
+import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { Text } from '/@/shared/components/text/text';
 import { LibraryItem } from '/@/shared/types/domain-types';
 import {
@@ -97,14 +98,17 @@ const Section = ({
     title: string;
 }) => (
     <Stack gap="sm">
-        <Text size="lg" weight={700}>
-            {title}
-        </Text>
-        {note && (
-            <Text isMuted size="xs">
-                {note}
-            </Text>
-        )}
+        {/* The ranking rows' heading (DiscoverRow's): a title over its reason line. */}
+        <Stack gap={0}>
+            <TextTitle fw={700} isNoSelect order={3}>
+                {title}
+            </TextTitle>
+            {note && (
+                <Text isMuted size="sm">
+                    {note}
+                </Text>
+            )}
+        </Stack>
         {children}
     </Stack>
 );
@@ -406,7 +410,7 @@ export const TopLists = ({
     );
 };
 
-/** Genres: one row that scrolls sideways. */
+/** Genres: a vertical ranking (rank, name over its bar, plays), never a sideways row. */
 export const Genres = ({ summary }: { summary: LbBotListeningSummary }) => {
     if (summary.genres.length === 0) return null;
     const max = summary.genres.reduce((m, g) => Math.max(m, g.plays), 0);

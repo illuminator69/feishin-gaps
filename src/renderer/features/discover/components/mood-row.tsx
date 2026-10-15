@@ -34,10 +34,10 @@ export const MoodRow = ({ title }: { title: string }) => (
         title={title}
     >
         {PROMPTS.map((prompt) => (
+            // An action, not a filter: outlined, in the button's own shape.
             <Button
                 key={prompt}
                 onClick={() => openClapSearchModal(prompt)}
-                radius="xl"
                 size="compact-md"
                 variant="default"
             >

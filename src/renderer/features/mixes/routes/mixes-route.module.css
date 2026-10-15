@@ -33,8 +33,11 @@
 
 /* The row's artwork. Fixed width so every row's text starts at the same x
    whether the mix has a stamped cover or the generated kind glyph. */
+
+/* 56px, the thumbnail of every other fork list row (saved queues, downloads,
+   library matches). */
 .art {
     flex: 0 0 auto;
-    width: 48px;
-    height: 48px;
+    width: 56px;
+    height: 56px;
 }

@@ -5,6 +5,7 @@ import { generatePath, useNavigate } from 'react-router';
 
 import styles from './album-match-modal.module.css';
 
+import { ItemImage } from '/@/renderer/components/item-image/item-image';
 import { JobFailures, StillWorking } from '/@/renderer/features/lbbot/components/job-failures';
 import {
     LbModalLayout,
@@ -64,6 +65,7 @@ import { Skeleton } from '/@/shared/components/skeleton/skeleton';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextInput } from '/@/shared/components/text-input/text-input';
 import { Text } from '/@/shared/components/text/text';
+import { LibraryItem } from '/@/shared/types/domain-types';
 import { LbBotAlbumOverrideRow, LbBotPreview } from '/@/shared/types/lbbot-types';
 
 /**
@@ -858,7 +860,16 @@ const AlbumMatchModal = ({
                                             onClick={() => setCoverUrl(cover.full)}
                                             type="button"
                                         >
-                                            <img alt="" loading="lazy" src={cover.thumb} />
+                                            {/* The app's image: a cover the Archive lists but
+                                                cannot serve shows the album placeholder, not a
+                                                broken-image icon. */}
+                                            <ItemImage
+                                                className={styles.coverImage}
+                                                containerClassName={styles.coverThumb}
+                                                itemType={LibraryItem.ALBUM}
+                                                src={cover.thumb}
+                                                type="table"
+                                            />
                                             {cover.source === 'release'
                                                 ? 'This release'
                                                 : 'Release group'}

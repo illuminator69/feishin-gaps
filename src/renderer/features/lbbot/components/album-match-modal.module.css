@@ -55,11 +55,18 @@
     border-radius: var(--theme-radius-md);
 }
 
-.cover img {
+.cover-thumb {
+    position: relative;
     width: 100%;
     aspect-ratio: 1;
-    object-fit: cover;
+    overflow: hidden;
     border-radius: var(--theme-radius-md);
+}
+
+.cover-image {
+    width: 100%;
+    height: 100%;
+    object-fit: var(--theme-image-fit);
 }
 
 .keep {
