@@ -626,19 +626,6 @@ export const AlbumDetailContent = () => {
                         ))}
                     </Stack>
                 )}
-                <Stack gap="lg" mt="3rem">
-                    {/* Navidrome's `albumArtists` rows carry only an id and a
-                        name, so there is no artist MBID to send. lb-bot
-                        resolves it from its own Navidrome artist index before
-                        asking ListenBrainz — whose similar-artists endpoint is
-                        keyed by MBID and answers nothing for a bare name, which
-                        is why a name-only call used to return an empty shelf
-                        every time. */}
-                    <SimilarAlbumsShelf
-                        artistName={detailQuery?.data?.albumArtistName}
-                        rgid={mbzReleaseGroupId}
-                    />
-                </Stack>
                 <AlbumDetailCarousels data={detailQuery?.data} />
             </div>
         </div>
@@ -821,6 +808,16 @@ function AlbumDetailCarousels({ data }: { data: Album }) {
                         title={carousel.title}
                     />
                 ))}
+            {/* navi-connect: lb-bot's similar albums, last, so its late answer never
+                pushes the upstream rows down. Navidrome's `albumArtists` rows carry
+                only an id and a name, so there is no artist MBID to send: lb-bot
+                resolves it from its own Navidrome artist index before asking
+                ListenBrainz, whose similar-artists endpoint is keyed by MBID. */}
+            <SimilarAlbumsShelf
+                artistName={data?.albumArtistName}
+                containerQuery={cq}
+                rgid={data?.mbzReleaseGroupId}
+            />
         </Stack>
     );
 }
