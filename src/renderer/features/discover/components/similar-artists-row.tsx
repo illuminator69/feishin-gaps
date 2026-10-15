@@ -70,7 +70,7 @@ export const SimilarArtistsRow = ({ title }: { title: string }) => {
     const cards = useMemo(
         () =>
             artists.map((artist) => {
-                const to = artistLinkPath(artist.artistId, artist.mbid);
+                const to = artistLinkPath(artist.artistId, artist.mbid, artist.name);
                 return {
                     content: (
                         <DiscoverTile

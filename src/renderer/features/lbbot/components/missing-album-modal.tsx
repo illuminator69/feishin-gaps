@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 
 import styles from './missing-album-modal.module.css';
 
+import { ItemImage } from '/@/renderer/components/item-image/item-image';
 import {
     LbModalLayout,
     lbModalSettings,
@@ -41,6 +42,7 @@ import { Skeleton } from '/@/shared/components/skeleton/skeleton';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
 import { toast } from '/@/shared/components/toast/toast';
+import { LibraryItem } from '/@/shared/types/domain-types';
 import {
     LB_BOT_QUALITY_OPTIONS,
     LbBotFillState,
@@ -405,34 +407,35 @@ export const MissingAlbumPanel = ({
     return (
         <LbModalLayout footer={footer} inPage={inPage}>
             <Stack gap="md">
-                <div className={styles.header}>
-                    <img
-                        alt=""
-                        className={styles.cover}
-                        onError={(e) => {
-                            // No Cover Art Archive entry is the common case for an
-                            // obscure release; an empty slot beats a broken icon.
-                            e.currentTarget.style.visibility = 'hidden';
-                        }}
-                        src={coverUrl}
-                    />
-                    <Stack gap="xs">
-                        <Text fw={600}>{release.title}</Text>
-                        <Text isMuted size="sm">
-                            {metaParts.map((part, index) => (
-                                <Fragment key={index}>
-                                    {index > 0 && ' · '}
-                                    {part}
-                                </Fragment>
-                            ))}
-                        </Text>
-                        {variant?.trackCount ? (
+                {/* In a page the page's own header carries the cover, the title and
+                    this line; the panel would only say them again. */}
+                {!inPage && (
+                    <div className={styles.header}>
+                        <ItemImage
+                            className={styles.coverImage}
+                            containerClassName={styles.cover}
+                            itemType={LibraryItem.ALBUM}
+                            src={coverUrl}
+                            type="table"
+                        />
+                        <Stack gap="xs">
+                            <Text fw={600}>{release.title}</Text>
                             <Text isMuted size="sm">
-                                {variant.trackCount} tracks
+                                {metaParts.map((part, index) => (
+                                    <Fragment key={index}>
+                                        {index > 0 && ' · '}
+                                        {part}
+                                    </Fragment>
+                                ))}
                             </Text>
-                        ) : null}
-                    </Stack>
-                </div>
+                            {variant?.trackCount ? (
+                                <Text isMuted size="sm">
+                                    {variant.trackCount} tracks
+                                </Text>
+                            ) : null}
+                        </Stack>
+                    </div>
+                )}
 
                 {step === 'choose' && (
                     <>

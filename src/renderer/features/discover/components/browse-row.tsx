@@ -203,7 +203,7 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
         const artists = (data?.artists ?? [])
             .filter((artist) => artistLinkPath(artist.artistId, artist.mbid))
             .map((artist) => {
-                const to = artistLinkPath(artist.artistId, artist.mbid);
+                const to = artistLinkPath(artist.artistId, artist.mbid, artist.name);
                 return {
                     content: (
                         <DiscoverTile

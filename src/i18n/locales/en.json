@@ -1656,6 +1656,10 @@
         }
     },
     "naviConnect": {
+        "libraryMatches": {
+            "intro": "What lb-bot holds on your behalf: the MusicBrainz matches you chose, the ones worth a look, and the tag changes it can undo.",
+            "title": "Library Matches"
+        },
         "missingAlbum": {
             "edition": "Edition"
         },
@@ -1667,9 +1671,20 @@
             "sampleNote": "One run of this recipe - a sample of what it builds, not its tracklist. Playing it again gives a different set.",
             "title": "Preview \"{{name}}\""
         },
+        "mixes": {
+            "empty": "No mixes yet. A mix stores the recipe - the source, the seed and the mood - rather than a fixed tracklist, so it is built again each time you play it. Start something playing and press New mix.",
+            "new": "New mix",
+            "noHub": "Mixes are stored on your navi-connect hub, so they are unavailable while this device is not connected to it.",
+            "title": "Mixed for You"
+        },
         "savedQueuePreview": {
             "resume": "Resume",
             "resumesHere": "{{name}} (resumes here)"
+        },
+        "savedQueues": {
+            "clearAll": "Clear all",
+            "empty": "No saved queues yet. Queues you play are captured here automatically.",
+            "title": "Saved Queues"
         }
     }
 }

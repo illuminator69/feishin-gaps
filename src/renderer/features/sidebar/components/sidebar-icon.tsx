@@ -15,6 +15,8 @@ import {
     RiFolder3Line,
     RiHeartFill,
     RiHeartLine,
+    RiHistoryFill,
+    RiHistoryLine,
     RiHome6Fill,
     RiHome6Line,
     RiLinksFill,
@@ -31,6 +33,8 @@ import {
     RiSearchLine,
     RiSettings2Fill,
     RiSettings2Line,
+    RiSparkling2Fill,
+    RiSparkling2Line,
     RiUserVoiceFill,
     RiUserVoiceLine,
 } from 'react-icons/ri';
@@ -94,6 +98,11 @@ export const SidebarIcon = ({ active, route, size }: SidebarIconProps) => {
             case AppRoute.LISTENING:
                 if (isActive) return <RiBarChart2Fill size={size} />;
                 return <RiBarChart2Line size={size} />;
+            // navi-connect: Mixed for You. It fell through to the default branch, so the
+            // entry wore Home's icon.
+            case AppRoute.MIXES:
+                if (isActive) return <RiSparkling2Fill size={size} />;
+                return <RiSparkling2Line size={size} />;
             case AppRoute.NOW_PLAYING:
                 if (isActive) return <RiPlayFill size={size} />;
                 return <RiPlayLine size={size} />;
@@ -103,6 +112,10 @@ export const SidebarIcon = ({ active, route, size }: SidebarIconProps) => {
             case AppRoute.RADIO:
                 if (isActive) return <RiRadioFill size={size} />;
                 return <RiRadioLine size={size} />;
+            // navi-connect: Saved Queues, the play history of whole queues.
+            case AppRoute.SAVED_QUEUES:
+                if (isActive) return <RiHistoryFill size={size} />;
+                return <RiHistoryLine size={size} />;
             case AppRoute.SETTINGS:
                 if (isActive) return <RiSettings2Fill size={size} />;
                 return <RiSettings2Line size={size} />;

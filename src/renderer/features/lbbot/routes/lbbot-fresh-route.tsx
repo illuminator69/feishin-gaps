@@ -3,7 +3,6 @@ import { generatePath, Link, useNavigate } from 'react-router';
 
 import styles from './lbbot-fresh-route.module.css';
 
-import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
 import {
     useLbBotAvailable,
     useLbBotFreshReleases,
@@ -24,19 +23,19 @@ import {
     hasArtistPlays,
     scopeInEffect,
 } from '/@/renderer/features/lbbot/utils/fresh-scope';
-import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
-import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
-import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
+import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
 import { AppRoute } from '/@/renderer/router/routes';
-import { useWindowSettings } from '/@/renderer/store';
 import { Badge } from '/@/shared/components/badge/badge';
+import { Button } from '/@/shared/components/button/button';
+import { Group } from '/@/shared/components/group/group';
 import { SegmentedControl } from '/@/shared/components/segmented-control/segmented-control';
+import { Select } from '/@/shared/components/select/select';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
+import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { Text } from '/@/shared/components/text/text';
 import { LbBotFreshRelease } from '/@/shared/types/lbbot-types';
-import { Platform } from '/@/shared/types/types';
 
 /**
  * navi-connect: new and upcoming releases, site-wide.
@@ -124,6 +123,7 @@ const FreshTile = ({ release }: { release: LbBotFreshRelease }) => {
     const artistTo = artistLinkPath(
         release.artistOwned ? release.artistId : '',
         release.artistMbids[0] ?? '',
+        release.artist,
     );
 
     // An album the library holds opens the library album, full stop. This used
@@ -190,7 +190,6 @@ const FreshTile = ({ release }: { release: LbBotFreshRelease }) => {
 };
 
 const LbBotFreshRoute = () => {
-    const { windowBarStyle } = useWindowSettings();
     const days = useFreshDays();
     const storedScope = useFreshScope();
     const sort = useFreshSort();
@@ -263,133 +262,139 @@ const LbBotFreshRoute = () => {
 
     const total = buckets.reduce((sum, bucket) => sum + bucket.releases.length, 0);
 
+    // Scope and type are which releases: chips, as on the app's other pages. The window is a
+    // period: the segmented control. The order is a sort: a Select on the right.
+    const filters = (
+        <Group justify="space-between">
+            <Group gap="lg">
+                <Group gap="xs">
+                    {scopeData.map((item) => (
+                        <Button
+                            key={item.value}
+                            onClick={() => set({ scope: item.value })}
+                            variant={scope === item.value ? 'filled' : 'subtle'}
+                        >
+                            {item.label}
+                        </Button>
+                    ))}
+                </Group>
+                <Group gap="xs">
+                    {TYPE_DATA.map((item) => (
+                        <Button
+                            key={item.value}
+                            onClick={() => set({ type: item.value })}
+                            variant={type === item.value ? 'filled' : 'subtle'}
+                        >
+                            {item.label}
+                        </Button>
+                    ))}
+                </Group>
+            </Group>
+            <Group gap="sm">
+                <SegmentedControl
+                    data={DAYS_DATA}
+                    onChange={(value) => set({ days: Number(value) })}
+                    value={String(days)}
+                />
+                {/* "Artists you play" orders the rows itself (most played
+                    first); a sort control there would do nothing. */}
+                {scope !== 'plays' && (
+                    <Select
+                        aria-label="Sort"
+                        data={SORT_DATA}
+                        onChange={(value) => value && set({ sort: value as FreshSort })}
+                        value={sort}
+                        width={150}
+                    />
+                )}
+            </Group>
+        </Group>
+    );
+
     return (
-        <AnimatedPage>
-            <NativeScrollArea
-                pageHeaderProps={{
-                    backgroundColor: 'var(--theme-colors-background)',
-                    children: (
-                        <LibraryHeaderBar>
-                            <LibraryHeaderBar.Title>Fresh releases</LibraryHeaderBar.Title>
-                        </LibraryHeaderBar>
-                    ),
-                    offset: 200,
-                }}
-            >
-                <LibraryContainer>
-                    <Stack
-                        gap="lg"
-                        mb="5rem"
-                        pt={windowBarStyle === Platform.WEB ? '5rem' : '3rem'}
-                        px="2rem"
-                    >
-                        <Text size="xl" weight={700}>
-                            Fresh releases
-                        </Text>
-                        <div className={styles.filters}>
-                            <SegmentedControl
-                                data={scopeData}
-                                onChange={(value) => set({ scope: value as FreshScope })}
-                                value={scope}
-                            />
-                            <SegmentedControl
-                                data={DAYS_DATA}
-                                onChange={(value) => set({ days: Number(value) })}
-                                value={String(days)}
-                            />
-                            <SegmentedControl
-                                data={TYPE_DATA}
-                                onChange={(value) => set({ type: value as FreshType })}
-                                value={type}
-                            />
-                            {/* "Artists you play" orders the rows itself (most played
-                                first); a sort control there would do nothing. */}
-                            {scope !== 'plays' && (
-                                <SegmentedControl
-                                    data={SORT_DATA}
-                                    onChange={(value) => set({ sort: value as FreshSort })}
-                                    value={sort}
-                                />
-                            )}
+        <ForkListPage
+            count={loading && total === 0 ? null : total}
+            countLoading={loading && total === 0}
+            filters={filters}
+            title="Fresh releases"
+        >
+            {/* The previous window's rows, dimmed, already say "loading"
+                — unless there are none. */}
+            {loading && total === 0 && <Spinner container />}
+
+            {/* Fail-soft, like every other lb-bot read: an absent lb-bot and
+                an unhappy ListenBrainz are both a sentence, not an error
+                page — and they are different sentences. */}
+            {/* Not over a feed on screen: a persisted or cached answer is
+                shown while lb-bot is unreachable, and this sentence is the
+                one thing it would contradict. */}
+            {!available && !data && (
+                <Text isMuted>
+                    lb-bot is not configured on your hub, so there is no fresh-releases feed to
+                    read.
+                </Text>
+            )}
+
+            {available && !loading && !data && (
+                <Text isMuted>
+                    lb-bot could not reach the fresh-releases feed. It caches the feed for an hour,
+                    so try again shortly.
+                </Text>
+            )}
+
+            {!loading && data && total === 0 && (
+                <Text isMuted>
+                    {scope === 'mine'
+                        ? 'Nothing new from artists in your library in this window. Try All, or a longer window.'
+                        : scope === 'plays'
+                          ? 'No release in this window matches that type from artists you play.'
+                          : 'Nothing in this window.'}
+                </Text>
+            )}
+
+            {/* The feed is capped before it crosses the hub, which
+                cannot carry the whole site-wide window. Every artist
+                in your library survives that cut whatever its size,
+                so this only ever means "there are more releases by
+                artists you don't have". */}
+            {!loading && data?.truncated && total > 0 && (
+                <Text isMuted size="sm">
+                    {`Showing the ${data.releases.length} most-listened of ${data.total} releases, plus everything by artists in your library.`}
+                </Text>
+            )}
+
+            {buckets.map((bucket) => (
+                <Stack
+                    gap="md"
+                    key={bucket.label || 'all'}
+                    // The previous window's rows, held on screen by
+                    // `keepPreviousData` while the new window loads:
+                    // dimmed, so they do not read as its answer.
+                    style={switching ? { opacity: 0.5 } : undefined}
+                >
+                    {bucket.label && (
+                        // The artist page's section heading: a title, its count, a rule.
+                        <div className={styles.bucket}>
+                            <Group>
+                                <TextTitle fw={700} order={3}>
+                                    {bucket.label}
+                                </TextTitle>
+                                <Badge>{bucket.releases.length}</Badge>
+                            </Group>
+                            <div className={styles.bucketRule} />
                         </div>
-
-                        {/* The previous window's rows, dimmed, already say "loading"
-                            — unless there are none. */}
-                        {loading && total === 0 && <Spinner container />}
-
-                        {/* Fail-soft, like every other lb-bot read: an absent lb-bot and
-                            an unhappy ListenBrainz are both a sentence, not an error
-                            page — and they are different sentences. */}
-                        {/* Not over a feed on screen: a persisted or cached answer is
-                            shown while lb-bot is unreachable, and this sentence is the
-                            one thing it would contradict. */}
-                        {!available && !data && (
-                            <Text isMuted>
-                                lb-bot is not configured on your hub, so there is no fresh-releases
-                                feed to read.
-                            </Text>
-                        )}
-
-                        {available && !loading && !data && (
-                            <Text isMuted>
-                                lb-bot could not reach the fresh-releases feed. It caches the feed
-                                for an hour, so try again shortly.
-                            </Text>
-                        )}
-
-                        {!loading && data && total === 0 && (
-                            <Text isMuted>
-                                {scope === 'mine'
-                                    ? 'Nothing new from artists in your library in this window. Try All, or a longer window.'
-                                    : scope === 'plays'
-                                      ? 'No release in this window matches that type from artists you play.'
-                                      : 'Nothing in this window.'}
-                            </Text>
-                        )}
-
-                        {/* The feed is capped before it crosses the hub, which
-                            cannot carry the whole site-wide window. Every artist
-                            in your library survives that cut whatever its size,
-                            so this only ever means "there are more releases by
-                            artists you don't have". */}
-                        {!loading && data?.truncated && total > 0 && (
-                            <Text isMuted size="sm">
-                                {`Showing the ${data.releases.length} most-listened of ${data.total} releases, plus everything by artists in your library.`}
-                            </Text>
-                        )}
-
-                        {buckets.map((bucket) => (
-                            <Stack
-                                gap="md"
-                                key={bucket.label || 'all'}
-                                // The previous window's rows, held on screen by
-                                // `keepPreviousData` while the new window loads:
-                                // dimmed, so they do not read as its answer.
-                                style={switching ? { opacity: 0.5 } : undefined}
-                            >
-                                {bucket.label && (
-                                    <div className={styles.bucket}>
-                                        <Text isNoSelect weight={600}>
-                                            {bucket.label}
-                                        </Text>
-                                        <div className={styles.bucketRule} />
-                                        <Badge variant="default">{bucket.releases.length}</Badge>
-                                    </div>
-                                )}
-                                <div className={styles.grid}>
-                                    {bucket.releases.map((release) => (
-                                        <FreshTile
-                                            key={`${release.releaseMbid || release.releaseGroupMbid}-${release.artist}`}
-                                            release={release}
-                                        />
-                                    ))}
-                                </div>
-                            </Stack>
+                    )}
+                    <div className={styles.grid}>
+                        {bucket.releases.map((release) => (
+                            <FreshTile
+                                key={`${release.releaseMbid || release.releaseGroupMbid}-${release.artist}`}
+                                release={release}
+                            />
                         ))}
-                    </Stack>
-                </LibraryContainer>
-            </NativeScrollArea>
-        </AnimatedPage>
+                    </div>
+                </Stack>
+            ))}
+        </ForkListPage>
     );
 };
 

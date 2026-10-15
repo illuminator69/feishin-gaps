@@ -46,6 +46,14 @@ export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
             route: AppRoute.MIXES,
         });
     }
+    // Saved queues are this app's own record (the hub mirrors them), so the page is always
+    // there; it was reachable only from Home's "Manage" link.
+    items.push({
+        disabled: false,
+        id: 'SavedQueues',
+        label: 'Saved Queues',
+        route: AppRoute.SAVED_QUEUES,
+    });
     if (lbBotAvailable) {
         items.push(
             { disabled: false, id: 'Fresh', label: 'Fresh', route: AppRoute.FRESH },

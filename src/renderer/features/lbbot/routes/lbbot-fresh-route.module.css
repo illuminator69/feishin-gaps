@@ -1,19 +1,12 @@
-.filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--theme-spacing-sm);
-    align-items: center;
-}
-
 .bucket {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     gap: var(--theme-spacing-md);
     align-items: center;
 }
 
-.bucketRule {
-    flex: 1;
-    height: 1px;
+.bucket-rule {
+    height: 2px;
     background: var(--theme-colors-border);
 }
 

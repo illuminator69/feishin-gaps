@@ -2583,11 +2583,12 @@ const toWishlistEntry = (row: unknown): LbBotWishlistEntry[] => {
 // reading the wrong one is not an error anywhere: it yields an empty array, and
 // an empty wishlist is a perfectly ordinary state, so the page would simply have
 // said "nothing on the wishlist" forever.
-const EMPTY_WISHLIST: LbBotWishlist = { cooldownSeconds: 0, entries: [], intervalSeconds: 0 };
 
 ipcMain.handle('lbbot-wishlist', async (): Promise<LbBotWishlist> => {
     const data = await get('/lb/wishlist');
-    if (!data) return EMPTY_WISHLIST;
+    // A failed read rejects rather than answering an empty list: the wishlist section
+    // has to say "could not read it", not "nothing on it", when lb-bot did not answer.
+    if (!data) throw new Error('lb-bot did not answer /lb/wishlist');
     return {
         cooldownSeconds: num(data.cooldownSeconds),
         entries: Array.isArray(data.wishlist) ? data.wishlist.flatMap(toWishlistEntry) : [],

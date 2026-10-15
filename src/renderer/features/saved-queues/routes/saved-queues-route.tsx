@@ -1,11 +1,11 @@
 import { closeAllModals, openModal } from '@mantine/modals';
 import { Suspense, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import styles from './saved-queues-route.module.css';
 
 import { api } from '/@/renderer/api';
 import { ItemImage } from '/@/renderer/components/item-image/item-image';
-import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
 import { sendHubAct } from '/@/renderer/features/hub/utils/remote-queue';
 import { useRestoreSavedQueue } from '/@/renderer/features/player/hooks/use-saved-queues';
 import { restartQueueSession } from '/@/renderer/features/player/utils/saved-queue-source';
@@ -17,9 +17,7 @@ import {
     savedQueueSubtitle,
     savedQueueTitle,
 } from '/@/renderer/features/saved-queues/utils/saved-queue-format';
-import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
-import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
-import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
+import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
 import {
     SavedQueue,
@@ -28,7 +26,6 @@ import {
     useHubStore,
     useSavedQueues,
     useSavedQueuesActions,
-    useWindowSettings,
 } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Button } from '/@/shared/components/button/button';
@@ -40,7 +37,6 @@ import { TextInput } from '/@/shared/components/text-input/text-input';
 import { Text } from '/@/shared/components/text/text';
 import { toast } from '/@/shared/components/toast/toast';
 import { LibraryItem } from '/@/shared/types/domain-types';
-import { Platform } from '/@/shared/types/types';
 
 // navi-connect: full-screen management view for the saved-queue history — rename, resume,
 // save-as-playlist, remove individual entries, and clear the whole history. The home page's
@@ -206,7 +202,7 @@ const SavedQueuesRoute = () => {
     const queues = useSavedQueues();
     const activeId = useHubSavedQueueId();
     const { clearAll } = useSavedQueuesActions();
-    const { windowBarStyle } = useWindowSettings();
+    const { t } = useTranslation();
 
     // "Clear all" was local-only: the hub kept every record and rebroadcast the lot on the
     // next connect, so the whole list reappeared. Delete each id through the hub too (which
@@ -231,56 +227,32 @@ const SavedQueuesRoute = () => {
         });
 
     return (
-        <AnimatedPage>
-            <NativeScrollArea
-                pageHeaderProps={{
-                    backgroundColor: 'var(--theme-colors-background)',
-                    children: (
-                        <LibraryHeaderBar>
-                            <LibraryHeaderBar.Title>Saved Queues</LibraryHeaderBar.Title>
-                        </LibraryHeaderBar>
-                    ),
-                    offset: 200,
-                }}
-            >
-                <LibraryContainer>
-                    <Stack
-                        gap="lg"
-                        mb="5rem"
-                        pt={windowBarStyle === Platform.WEB ? '5rem' : '3rem'}
-                        px="2rem"
-                    >
-                        <Group justify="space-between">
-                            <Text size="xl" weight={700}>
-                                Saved Queues
-                            </Text>
-                            {entries.length > 0 && (
-                                <Button onClick={doClearAll} variant="subtle">
-                                    Clear all
-                                </Button>
-                            )}
-                        </Group>
-                        {entries.length === 0 ? (
-                            <Text isMuted>
-                                No saved queues yet. Queues you play are captured here
-                                automatically.
-                            </Text>
-                        ) : (
-                            <Stack gap="sm">
-                                {entries.map((entry) => (
-                                    <SavedQueueRow
-                                        entry={entry}
-                                        isActive={entry.id === activeId}
-                                        key={entry.id}
-                                        serverId={serverId as string}
-                                    />
-                                ))}
-                            </Stack>
-                        )}
-                    </Stack>
-                </LibraryContainer>
-            </NativeScrollArea>
-        </AnimatedPage>
+        <ForkListPage
+            actions={
+                entries.length > 0 && (
+                    <Button onClick={doClearAll} variant="subtle">
+                        {t('naviConnect.savedQueues.clearAll')}
+                    </Button>
+                )
+            }
+            count={entries.length}
+            title={t('naviConnect.savedQueues.title')}
+        >
+            {entries.length === 0 ? (
+                <Text isMuted>{t('naviConnect.savedQueues.empty')}</Text>
+            ) : (
+                <Stack gap="sm">
+                    {entries.map((entry) => (
+                        <SavedQueueRow
+                            entry={entry}
+                            isActive={entry.id === activeId}
+                            key={entry.id}
+                            serverId={serverId as string}
+                        />
+                    ))}
+                </Stack>
+            )}
+        </ForkListPage>
     );
 };
 

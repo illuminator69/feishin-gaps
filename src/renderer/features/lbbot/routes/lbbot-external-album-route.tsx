@@ -1,10 +1,10 @@
-import { Suspense, useEffect, useMemo } from 'react';
-import { generatePath, Navigate, useParams, useSearchParams } from 'react-router';
+import { Fragment, Suspense, useEffect, useMemo } from 'react';
+import { generatePath, Link, Navigate, useParams, useSearchParams } from 'react-router';
 
-import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
 import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
 import { MissingAlbumPanel } from '/@/renderer/features/lbbot/components/missing-album-modal';
 import {
+    caaCoverUrl,
     useArtistTarget,
     useIndexRelease,
     useLbBotAlbumMeta,
@@ -12,17 +12,16 @@ import {
     useLbBotAvailable,
     useLbBotDiscography,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
-import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
-import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
-import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
+import { ForkDetailPage } from '/@/renderer/features/shared/components/fork-detail-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
 import { AppRoute } from '/@/renderer/router/routes';
-import { useWindowSettings } from '/@/renderer/store';
+import { Badge } from '/@/shared/components/badge/badge';
+import { Group } from '/@/shared/components/group/group';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
+import { LibraryItem } from '/@/shared/types/domain-types';
 import { LbBotRelease } from '/@/shared/types/lbbot-types';
-import { Platform } from '/@/shared/types/types';
 
 /**
  * navi-connect: an album page for a release the library does not have.
@@ -45,7 +44,6 @@ import { Platform } from '/@/shared/types/types';
 const LbBotExternalAlbumRoute = () => {
     const { rgid } = useParams() as { rgid: string };
     const [search] = useSearchParams();
-    const { windowBarStyle } = useWindowSettings();
 
     const artist = search.get('artist') ?? '';
     const artistMbid = search.get('artistMbid') ?? '';
@@ -139,51 +137,57 @@ const LbBotExternalAlbumRoute = () => {
         );
     }
 
+    const credit = [
+        artist ? (
+            artistTo ? (
+                <Text component={Link} isLink key="artist" to={artistTo}>
+                    {artist}
+                </Text>
+            ) : (
+                <Text key="artist">{artist}</Text>
+            )
+        ) : null,
+        release.year ? <Text key="year">{release.year}</Text> : null,
+        release.effectiveType ? <Text key="type">{release.effectiveType}</Text> : null,
+    ].filter(Boolean);
+
     return (
-        <AnimatedPage>
-            <NativeScrollArea
-                pageHeaderProps={{
-                    backgroundColor: 'var(--theme-colors-background)',
-                    children: (
-                        <LibraryHeaderBar>
-                            <LibraryHeaderBar.Title>
-                                {release.title || 'Album'}
-                            </LibraryHeaderBar.Title>
-                        </LibraryHeaderBar>
-                    ),
-                    offset: 200,
-                }}
-            >
-                <LibraryContainer>
-                    <Stack
-                        gap="md"
-                        mb="5rem"
-                        pt={windowBarStyle === Platform.WEB ? '5rem' : '3rem'}
-                        px="2rem"
-                    >
-                        <Text isMuted size="sm">
-                            Not in your library
-                        </Text>
-                        {/* lb-bot is the only source that can describe a record
-                            nobody owns — there is no Navidrome album for an
-                            agent to answer about — and this page never showed
-                            it. Nothing competes for the slot, so nothing can
-                            flash. */}
-                        {meta && <MetaAbout maxHeight={120} meta={meta} />}
-                        {rgid ? (
-                            <MissingAlbumPanel
-                                artistName={artist}
-                                artistTo={artistTo}
-                                inPage
-                                release={release}
-                            />
-                        ) : (
-                            <Text isMuted>This link has no release-group id.</Text>
-                        )}
-                    </Stack>
-                </LibraryContainer>
-            </NativeScrollArea>
-        </AnimatedPage>
+        <ForkDetailPage
+            headerChildren={
+                <Stack gap="sm">
+                    <Group gap="xs">
+                        {credit.map((part, index) => (
+                            <Fragment key={index}>
+                                {index > 0 && <Text isMuted>•</Text>}
+                                {part}
+                            </Fragment>
+                        ))}
+                    </Group>
+                    <Group>
+                        <Badge>Not in your library</Badge>
+                    </Group>
+                </Stack>
+            }
+            imageUrl={rgid ? caaCoverUrl(rgid) : null}
+            itemType={LibraryItem.ALBUM}
+            route={AppRoute.LIBRARY_ALBUMS}
+            title={release.title || 'Album'}
+        >
+            {/* lb-bot is the only source that can describe a record nobody owns —
+                there is no Navidrome album for an agent to answer about. Nothing
+                competes for the slot, so nothing can flash. */}
+            {meta && <MetaAbout maxHeight={120} meta={meta} />}
+            {rgid ? (
+                <MissingAlbumPanel
+                    artistName={artist}
+                    artistTo={artistTo}
+                    inPage
+                    release={release}
+                />
+            ) : (
+                <Text isMuted>This link has no release-group id.</Text>
+            )}
+        </ForkDetailPage>
     );
 };
 

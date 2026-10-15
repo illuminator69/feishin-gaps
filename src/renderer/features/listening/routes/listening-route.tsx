@@ -2,7 +2,6 @@ import { Suspense, useMemo, useState } from 'react';
 
 import styles from '../components/listening.module.css';
 
-import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
 import {
     isListeningUnavailable,
     LbBotReadError,
@@ -35,11 +34,8 @@ import {
     statusLines,
     statusView,
 } from '/@/renderer/features/listening/listening-logic';
-import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
-import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
-import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
+import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
-import { useWindowSettings } from '/@/renderer/store';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
 import { SegmentedControl } from '/@/shared/components/segmented-control/segmented-control';
@@ -47,7 +43,6 @@ import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
 import { LbBotListeningPeriod } from '/@/shared/types/lbbot-types';
-import { Platform } from '/@/shared/types/types';
 
 /**
  * navi-connect: My Listening — aggregates over the user's ListenBrainz history,
@@ -84,7 +79,6 @@ const PeriodPicker = ({
 );
 
 const ListeningRoute = () => {
-    const { windowBarStyle } = useWindowSettings();
     const [period, setPeriod] = useState<LbBotListeningPeriod>(DEFAULT_PERIOD);
     const [tab, setTab] = useState<ListeningTab>(DEFAULT_TAB);
     const [unownedKind, setUnownedKind] = useState<'album' | 'artist'>('album');
@@ -129,222 +123,199 @@ const ListeningRoute = () => {
     const picker = showsPeriodPicker(tab) && !!summary && !off;
 
     return (
-        <NativeScrollArea
-            pageHeaderProps={{
-                backgroundColor: 'var(--theme-colors-background)',
-                children: (
-                    <LibraryHeaderBar>
-                        <LibraryHeaderBar.Title>My Listening</LibraryHeaderBar.Title>
-                    </LibraryHeaderBar>
-                ),
-                offset: 200,
-            }}
-        >
-            <LibraryContainer>
-                <Stack
-                    gap="xl"
-                    mb="5rem"
-                    pt={windowBarStyle === Platform.WEB ? '5rem' : '3rem'}
-                    px="2rem"
-                >
-                    <Group justify="space-between">
-                        <Text size="xl" weight={700}>
-                            My Listening
-                        </Text>
-                        {canSync && (
+        <ForkListPage
+            actions={
+                canSync && (
+                    <Button
+                        disabled={!available || listeningSync.watching || listeningSync.starting}
+                        loading={listeningSync.watching || listeningSync.starting}
+                        onClick={() => void listeningSync.sync()}
+                        variant="default"
+                    >
+                        Sync now
+                    </Button>
+                )
+            }
+            filters={
+                supported &&
+                !off &&
+                !unavailable && (
+                    <Group gap="xs">
+                        {LISTENING_TABS.map((item) => (
                             <Button
-                                disabled={
-                                    !available || listeningSync.watching || listeningSync.starting
-                                }
-                                loading={listeningSync.watching || listeningSync.starting}
-                                onClick={() => void listeningSync.sync()}
-                                size="compact-md"
-                                variant="default"
+                                key={item.id}
+                                onClick={() => setTab(item.id)}
+                                variant={tab === item.id ? 'filled' : 'subtle'}
                             >
-                                Sync now
+                                {item.label}
                             </Button>
-                        )}
+                        ))}
                     </Group>
-                    {/* The status, ONCE (L8): a banner when there is something to say
-                    (importing, error, off), a plain line only when ready. */}
-                    {supported && !older && (
-                        <Stack gap={2}>
-                            {statusBlock?.banner && (
-                                <div className={styles.banner}>
-                                    <Text weight={600}>{statusBlock.banner.headline}</Text>
-                                    <Text isMuted size="sm">
-                                        {statusBlock.banner.detail}
-                                    </Text>
-                                </div>
-                            )}
-                            {statusBlock?.line && (
+                )
+            }
+            title="My Listening"
+        >
+            <Stack gap="xl">
+                {/* The status, ONCE (L8): a banner when there is something to say
+                (importing, error, off), a plain line only when ready. */}
+                {supported && !older && (
+                    <Stack gap={2}>
+                        {statusBlock?.banner && (
+                            <div className={styles.banner}>
+                                <Text weight={600}>{statusBlock.banner.headline}</Text>
                                 <Text isMuted size="sm">
-                                    {statusBlock.line}
+                                    {statusBlock.banner.detail}
                                 </Text>
-                            )}
-                            {statusBlock?.meta && (
-                                <Text isMuted size="xs">
-                                    {statusBlock.meta}
-                                </Text>
-                            )}
-                            {!statusBlock && (
-                                <Text isMuted size="sm">
-                                    {!available
-                                        ? 'lb-bot is needed for this and is not reachable.'
-                                        : statusQuery.isError
-                                          ? 'Could not read the listening status.'
-                                          : 'Loading…'}
-                                </Text>
-                            )}
-                            {listeningSync.text && <Text size="sm">{listeningSync.text}</Text>}
-                            {listeningSync.error && (
-                                <Text
-                                    c={listeningSync.error.older ? undefined : 'red'}
-                                    isMuted={listeningSync.error.older}
-                                    size="sm"
-                                >
-                                    {`Listening: ${listeningSync.error.message}`}
-                                </Text>
-                            )}
-                        </Stack>
-                    )}
+                            </div>
+                        )}
+                        {statusBlock?.line && (
+                            <Text isMuted size="sm">
+                                {statusBlock.line}
+                            </Text>
+                        )}
+                        {statusBlock?.meta && (
+                            <Text isMuted size="xs">
+                                {statusBlock.meta}
+                            </Text>
+                        )}
+                        {!statusBlock && (
+                            <Text isMuted size="sm">
+                                {!available
+                                    ? 'lb-bot is needed for this and is not reachable.'
+                                    : statusQuery.isError
+                                      ? 'Could not read the listening status.'
+                                      : 'Loading…'}
+                            </Text>
+                        )}
+                        {listeningSync.text && <Text size="sm">{listeningSync.text}</Text>}
+                        {listeningSync.error && (
+                            <Text
+                                c={listeningSync.error.older ? undefined : 'red'}
+                                isMuted={listeningSync.error.older}
+                                size="sm"
+                            >
+                                {`Listening: ${listeningSync.error.message}`}
+                            </Text>
+                        )}
+                    </Stack>
+                )}
 
-                    {unavailable || (!supported && !summary && available) ? (
-                        <Text isMuted>
-                            This lb-bot or hub does not provide listening history yet.
-                        </Text>
-                    ) : null}
+                {unavailable || (!supported && !summary && available) ? (
+                    <Text isMuted>This lb-bot or hub does not provide listening history yet.</Text>
+                ) : null}
 
-                    {!supported && !available && !summary && (
-                        <Text isMuted>
-                            lb-bot is not reachable, so there is no listening history to read.
-                        </Text>
-                    )}
+                {!supported && !available && !summary && (
+                    <Text isMuted>
+                        lb-bot is not reachable, so there is no listening history to read.
+                    </Text>
+                )}
 
-                    {!available && summary && (
-                        <Text isMuted size="sm">
-                            lb-bot is not reachable. Showing the last numbers it gave.
-                        </Text>
-                    )}
+                {!available && summary && (
+                    <Text isMuted size="sm">
+                        lb-bot is not reachable. Showing the last numbers it gave.
+                    </Text>
+                )}
 
-                    {supported && !off && !unavailable && (
-                        <Group gap="xs">
-                            {LISTENING_TABS.map((item) => (
+                {summaryTab && loading && <Spinner container />}
+
+                {/* A failure is not "nothing here": no body, not a 404 (that has
+                    its own sentence), and the read errored. */}
+                {summaryTab &&
+                    supported &&
+                    !summary &&
+                    !unavailable &&
+                    !off &&
+                    summaryQuery.isError && (
+                        <Group gap="sm">
+                            <Text isMuted>
+                                {summaryQuery.error.message || 'Could not load listening history.'}
+                            </Text>
+                            {!(
+                                summaryQuery.error instanceof LbBotReadError &&
+                                summaryQuery.error.status === 400
+                            ) && (
                                 <Button
-                                    key={item.id}
-                                    onClick={() => setTab(item.id)}
-                                    variant={tab === item.id ? 'filled' : 'subtle'}
+                                    onClick={() => void summaryQuery.refetch()}
+                                    size="compact-sm"
+                                    variant="default"
                                 >
-                                    {item.label}
+                                    Retry
                                 </Button>
-                            ))}
+                            )}
                         </Group>
                     )}
 
-                    {summaryTab && loading && <Spinner container />}
+                {tab === 'overview' && picker && (
+                    <PeriodPicker onChange={setPeriod} value={period} />
+                )}
 
-                    {/* A failure is not "nothing here": no body, not a 404 (that has
-                        its own sentence), and the read errored. */}
-                    {summaryTab &&
-                        supported &&
-                        !summary &&
-                        !unavailable &&
-                        !off &&
-                        summaryQuery.isError && (
-                            <Group gap="sm">
-                                <Text isMuted>
-                                    {summaryQuery.error.message ||
-                                        'Could not load listening history.'}
-                                </Text>
-                                {!(
-                                    summaryQuery.error instanceof LbBotReadError &&
-                                    summaryQuery.error.status === 400
-                                ) && (
-                                    <Button
-                                        onClick={() => void summaryQuery.refetch()}
-                                        size="compact-sm"
-                                        variant="default"
-                                    >
-                                        Retry
-                                    </Button>
-                                )}
-                            </Group>
+                {tab === 'overview' && summary && !off && (
+                    <div className={styles.stack} style={{ opacity: placeholder ? 0.5 : 1 }}>
+                        {summary.totals.plays === 0 && view?.kind !== 'importing' && (
+                            <Text isMuted>No listens in this period.</Text>
                         )}
+                        <StatTiles summary={summary} />
+                        <TopLists period={period} summary={summary} />
+                        <Genres summary={summary} />
+                    </div>
+                )}
 
-                    {tab === 'overview' && picker && (
+                {tab === 'activity' && summary && !off && (
+                    <div className={styles.stack} style={{ opacity: placeholder ? 0.5 : 1 }}>
+                        <Heatmap summary={summary} />
+                        {picker && <PeriodPicker onChange={setPeriod} value={period} />}
+                        <DailyChart period={period} summary={summary} />
+                        <HoursChart summary={summary} />
+                    </div>
+                )}
+
+                {tab === 'history' && supported && !off && !unavailable && (
+                    <RecentSection
+                        hasMore={recentQuery.hasNextPage}
+                        loadingMore={recentQuery.isFetchingNextPage}
+                        onMore={() => void recentQuery.fetchNextPage()}
+                        onRetry={() => void recentQuery.refetch()}
+                        read={readState({
+                            available,
+                            error: errorOf(recentQuery.error),
+                            fetching: recentQuery.isFetching,
+                            hasData: recentQuery.data !== undefined,
+                            rowCount: recentRows.length,
+                            supported,
+                        })}
+                        rows={recentRows}
+                    />
+                )}
+
+                {tab === 'not-in-library' && supported && !off && !unavailable && (
+                    <>
                         <PeriodPicker onChange={setPeriod} value={period} />
-                    )}
-
-                    {tab === 'overview' && summary && !off && (
-                        <div className={styles.stack} style={{ opacity: placeholder ? 0.5 : 1 }}>
-                            {summary.totals.plays === 0 && view?.kind !== 'importing' && (
-                                <Text isMuted>No listens in this period.</Text>
-                            )}
-                            <StatTiles summary={summary} />
-                            <TopLists period={period} summary={summary} />
-                            <Genres summary={summary} />
-                        </div>
-                    )}
-
-                    {tab === 'activity' && summary && !off && (
-                        <div className={styles.stack} style={{ opacity: placeholder ? 0.5 : 1 }}>
-                            <Heatmap summary={summary} />
-                            {picker && <PeriodPicker onChange={setPeriod} value={period} />}
-                            <DailyChart period={period} summary={summary} />
-                            <HoursChart summary={summary} />
-                        </div>
-                    )}
-
-                    {tab === 'history' && supported && !off && !unavailable && (
-                        <RecentSection
-                            hasMore={recentQuery.hasNextPage}
-                            loadingMore={recentQuery.isFetchingNextPage}
-                            onMore={() => void recentQuery.fetchNextPage()}
-                            onRetry={() => void recentQuery.refetch()}
+                        <UnownedSection
+                            kind={unownedKind}
+                            onKind={setUnownedKind}
+                            onRetry={() => void unownedQuery.refetch()}
+                            period={period}
                             read={readState({
                                 available,
-                                error: errorOf(recentQuery.error),
-                                fetching: recentQuery.isFetching,
-                                hasData: recentQuery.data !== undefined,
-                                rowCount: recentRows.length,
+                                error: errorOf(unownedQuery.error),
+                                fetching: unownedQuery.isFetching,
+                                hasData: unownedQuery.data !== undefined,
+                                rowCount: unownedQuery.data?.rows.length ?? 0,
                                 supported,
                             })}
-                            rows={recentRows}
+                            rows={unownedQuery.data?.rows}
                         />
-                    )}
-
-                    {tab === 'not-in-library' && supported && !off && !unavailable && (
-                        <>
-                            <PeriodPicker onChange={setPeriod} value={period} />
-                            <UnownedSection
-                                kind={unownedKind}
-                                onKind={setUnownedKind}
-                                onRetry={() => void unownedQuery.refetch()}
-                                period={period}
-                                read={readState({
-                                    available,
-                                    error: errorOf(unownedQuery.error),
-                                    fetching: unownedQuery.isFetching,
-                                    hasData: unownedQuery.data !== undefined,
-                                    rowCount: unownedQuery.data?.rows.length ?? 0,
-                                    supported,
-                                })}
-                                rows={unownedQuery.data?.rows}
-                            />
-                        </>
-                    )}
-                </Stack>
-            </LibraryContainer>
-        </NativeScrollArea>
+                    </>
+                )}
+            </Stack>
+        </ForkListPage>
     );
 };
 
 const ListeningRouteWithBoundary = () => (
     <PageErrorBoundary>
         <Suspense fallback={<Spinner container />}>
-            <AnimatedPage>
-                <ListeningRoute />
-            </AnimatedPage>
+            <ListeningRoute />
         </Suspense>
     </PageErrorBoundary>
 );

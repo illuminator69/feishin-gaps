@@ -1,26 +1,17 @@
 import { Suspense, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import styles from './mixes-route.module.css';
 
 import i18n from '/@/i18n/i18n';
-import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
 import { lbModalSettings } from '/@/renderer/features/lbbot/components/lb-modal-layout';
 import { MixArtwork } from '/@/renderer/features/mixes/components/mix-artwork';
 import { MixForm } from '/@/renderer/features/mixes/components/mix-form';
 import { MixPreview } from '/@/renderer/features/mixes/components/mix-preview';
 import { useMixActions, usePlayMix } from '/@/renderer/features/mixes/hooks/use-mixes';
-import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
-import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
-import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
+import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
-import {
-    isKnownMixKind,
-    Mix,
-    MixKind,
-    useHubConnected,
-    useMixes,
-    useWindowSettings,
-} from '/@/renderer/store';
+import { isKnownMixKind, Mix, MixKind, useHubConnected, useMixes } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Button } from '/@/shared/components/button/button';
 import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
@@ -30,7 +21,6 @@ import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextInput } from '/@/shared/components/text-input/text-input';
 import { Text } from '/@/shared/components/text/text';
-import { Platform } from '/@/shared/types/types';
 
 /**
  * navi-connect: "Mixed for You" — the recipes, not the results.
@@ -182,67 +172,39 @@ const MixesRoute = () => {
     const mixes = useMixes();
     const connected = useHubConnected();
     const { saveMix } = useMixActions();
-    const { windowBarStyle } = useWindowSettings();
+    const { t } = useTranslation();
 
     const openCreate = () =>
         openModal({
             children: <MixForm onSubmit={saveMix} />,
-            title: 'New mix',
+            title: i18n.t('naviConnect.mixes.new'),
         });
 
     return (
-        <AnimatedPage>
-            <NativeScrollArea
-                pageHeaderProps={{
-                    backgroundColor: 'var(--theme-colors-background)',
-                    children: (
-                        <LibraryHeaderBar>
-                            <LibraryHeaderBar.Title>Mixed for You</LibraryHeaderBar.Title>
-                        </LibraryHeaderBar>
-                    ),
-                    offset: 200,
-                }}
-            >
-                <LibraryContainer>
-                    <Stack
-                        gap="lg"
-                        mb="5rem"
-                        pt={windowBarStyle === Platform.WEB ? '5rem' : '3rem'}
-                        px="2rem"
-                    >
-                        <Group justify="space-between">
-                            <Text size="xl" weight={700}>
-                                Mixed for You
-                            </Text>
-                            <Button disabled={!connected} onClick={openCreate} variant="filled">
-                                New mix
-                            </Button>
-                        </Group>
-                        {/* Not an error, and not a retry: the recipes live on the
-                            hub, so with no hub there is nothing to show and
-                            nothing this page could do about it. */}
-                        {!connected ? (
-                            <Text isMuted>
-                                Mixes are stored on your navi-connect hub, so they are unavailable
-                                while this device is not connected to it.
-                            </Text>
-                        ) : mixes.length === 0 ? (
-                            <Text isMuted>
-                                No mixes yet. A mix stores the recipe — the source, the seed and the
-                                mood — rather than a fixed tracklist, so it is built again each time
-                                you play it. Start something playing and press New mix.
-                            </Text>
-                        ) : (
-                            <Stack gap="sm">
-                                {mixes.map((mix) => (
-                                    <MixRow key={mix.id} mix={mix} />
-                                ))}
-                            </Stack>
-                        )}
-                    </Stack>
-                </LibraryContainer>
-            </NativeScrollArea>
-        </AnimatedPage>
+        <ForkListPage
+            actions={
+                <Button disabled={!connected} onClick={openCreate} variant="filled">
+                    {t('naviConnect.mixes.new')}
+                </Button>
+            }
+            count={connected ? mixes.length : undefined}
+            title={t('naviConnect.mixes.title')}
+        >
+            {/* Not an error, and not a retry: the recipes live on the
+                hub, so with no hub there is nothing to show and
+                nothing this page could do about it. */}
+            {!connected ? (
+                <Text isMuted>{t('naviConnect.mixes.noHub')}</Text>
+            ) : mixes.length === 0 ? (
+                <Text isMuted>{t('naviConnect.mixes.empty')}</Text>
+            ) : (
+                <Stack gap="sm">
+                    {mixes.map((mix) => (
+                        <MixRow key={mix.id} mix={mix} />
+                    ))}
+                </Stack>
+            )}
+        </ForkListPage>
     );
 };
 

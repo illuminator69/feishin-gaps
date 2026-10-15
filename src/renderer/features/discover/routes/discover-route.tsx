@@ -109,10 +109,8 @@ const DiscoverRoute = () => {
                         pt={windowBarStyle === Platform.WEB ? '5rem' : '3rem'}
                         px="2rem"
                     >
-                        <Text size="xl" weight={700}>
-                            Discover
-                        </Text>
-
+                        {/* A feed, like Home: the title is the header bar's, shown on
+                            scroll, and the content starts with its first row. */}
                         {/* Every row hides itself when it has nothing to say, so
                             "no rows at all" is a real state and needs a sentence
                             rather than a blank page. It is what a server with no

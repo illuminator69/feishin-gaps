@@ -78,12 +78,18 @@ export const externalAlbumPath = (release: LbBotFreshRelease): string =>
  * cannot drift: the album page rendered the artist as bare text, which is how a
  * name that was a link on the tile stopped being one on the page it opened.
  */
-export const artistLinkPath = (artistId: string, artistMbid: string): string | undefined => {
+export const artistLinkPath = (
+    artistId: string,
+    artistMbid: string,
+    // The virtual page titles itself with this until lb-bot has scanned the artist; without
+    // it the page read "Artist" for anyone reached from a Discover row.
+    name?: string,
+): string | undefined => {
     if (artistId) {
         return generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL, { albumArtistId: artistId });
     }
     if (artistMbid) {
-        return generatePath(AppRoute.EXTERNAL_ARTIST_DETAIL, { artistMbid });
+        return externalArtistPath(artistMbid, name);
     }
     return undefined;
 };
