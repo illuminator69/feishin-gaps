@@ -125,7 +125,7 @@ const HomeRoute = () => {
                         {homeFeature && homeFeatureStyle === HomeFeatureStyle.MULTIPLE && (
                             <AlbumInfiniteFeatureCarousel />
                         )}
-                        <ContinueListeningCarousel />
+                        <ContinueListeningCarousel containerQuery={containerQuery} />
                         {sortedItems.map((item) => {
                             if (item.id === HomeItem.GENRES) {
                                 return <FeaturedGenres key="featured-genres" />;

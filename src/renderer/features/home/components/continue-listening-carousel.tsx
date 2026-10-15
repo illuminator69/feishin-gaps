@@ -1,10 +1,13 @@
 import { closeAllModals, openModal } from '@mantine/modals';
 import { Link } from 'react-router';
 
-import styles from './continue-listening-carousel.module.css';
-
 import { api } from '/@/renderer/api';
-import { ItemImage } from '/@/renderer/components/item-image/item-image';
+import {
+    GridCarousel,
+    useGridCarouselContainerQuery,
+} from '/@/renderer/components/grid-carousel/grid-carousel-v2';
+import discoverStyles from '/@/renderer/features/discover/components/discover-row.module.css';
+import { DiscoverTile } from '/@/renderer/features/discover/components/discover-tile';
 import { sendHubAct } from '/@/renderer/features/hub/utils/remote-queue';
 import { useRestoreSavedQueue } from '/@/renderer/features/player/hooks/use-saved-queues';
 import { restartQueueSession } from '/@/renderer/features/player/utils/saved-queue-source';
@@ -26,7 +29,10 @@ import {
     useSavedQueuesActions,
 } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
+import { ContextMenu } from '/@/shared/components/context-menu/context-menu';
 import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
+import { Group } from '/@/shared/components/group/group';
+import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { Text } from '/@/shared/components/text/text';
 import { toast } from '/@/shared/components/toast/toast';
 import { LibraryItem } from '/@/shared/types/domain-types';
@@ -84,64 +90,73 @@ const ContinueListeningCard = ({ entry, isActive, serverId }: CardProps) => {
         });
     };
 
+    // One list for both menus: the "..." on the cover and a right-click, as on the
+    // app's cards.
+    const menu: { label: string; onSelect: () => void }[] = [
+        { label: 'Resume', onSelect: () => void restore(entry) },
+        { label: 'Preview queue', onSelect: openPreview },
+        { label: 'Save as playlist', onSelect: saveAsPlaylist },
+        { label: 'Remove from history', onSelect: doRemove },
+    ];
+
     return (
-        <div
-            aria-busy={isRestoring}
-            className={styles.card}
-            onClick={() => void restore(entry)}
-            onKeyDown={(e) => {
-                if (e.key === 'Enter') void restore(entry);
-            }}
-            role="button"
-            tabIndex={0}
-        >
-            <div className={styles.menu} onClick={(e) => e.stopPropagation()}>
-                <DropdownMenu>
-                    <DropdownMenu.Target>
-                        <ActionIcon icon="ellipsisHorizontal" size="sm" variant="subtle" />
-                    </DropdownMenu.Target>
-                    <DropdownMenu.Dropdown>
-                        <DropdownMenu.Item onClick={() => void restore(entry)}>
-                            Resume
-                        </DropdownMenu.Item>
-                        <DropdownMenu.Item onClick={openPreview}>Preview queue</DropdownMenu.Item>
-                        <DropdownMenu.Item onClick={saveAsPlaylist}>
-                            Save as playlist
-                        </DropdownMenu.Item>
-                        <DropdownMenu.Item onClick={doRemove}>
-                            Remove from history
-                        </DropdownMenu.Item>
-                    </DropdownMenu.Dropdown>
-                </DropdownMenu>
-            </div>
-            {/* Resolved from the resume track's id with our own credentials — see the route. */}
-            <ItemImage
-                containerClassName={styles.cover}
-                id={savedQueueCoverSongId(entry)}
-                itemType={LibraryItem.SONG}
-                serverId={serverId}
-            />
-            <div className={styles.meta}>
-                <Text className={styles.kind} isMuted size="xs">
-                    {savedQueueSubtitle(entry, isActive)}
-                </Text>
-                <Text lineClamp={1} size="sm" weight={600}>
-                    {isActive ? '▶ ' : ''}
-                    {queueTitle(entry)}
-                </Text>
-                <Text isMuted lineClamp={1} size="xs">
-                    {savedQueueSourceLine(entry)}
-                </Text>
-            </div>
-        </div>
+        <ContextMenu>
+            <ContextMenu.Target>
+                <div>
+                    <DiscoverTile
+                        action={
+                            <div className={discoverStyles.action}>
+                                <DropdownMenu>
+                                    <DropdownMenu.Target>
+                                        <ActionIcon
+                                            icon="ellipsisHorizontal"
+                                            size="sm"
+                                            variant="filled"
+                                        />
+                                    </DropdownMenu.Target>
+                                    <DropdownMenu.Dropdown>
+                                        {menu.map((item) => (
+                                            <DropdownMenu.Item
+                                                key={item.label}
+                                                onClick={item.onSelect}
+                                            >
+                                                {item.label}
+                                            </DropdownMenu.Item>
+                                        ))}
+                                    </DropdownMenu.Dropdown>
+                                </DropdownMenu>
+                            </div>
+                        }
+                        caption={savedQueueSourceLine(entry) || undefined}
+                        // Resolved from the resume track's id with our own credentials:
+                        // a peer's `coverImageUrl` is an authed URL for its server.
+                        imageId={savedQueueCoverSongId(entry)}
+                        isBusy={isRestoring}
+                        itemType={LibraryItem.SONG}
+                        onClick={() => void restore(entry)}
+                        subtitle={savedQueueSubtitle(entry, isActive)}
+                        title={`${isActive ? '▶ ' : ''}${queueTitle(entry)}`}
+                    />
+                </div>
+            </ContextMenu.Target>
+            <ContextMenu.Content>
+                {menu.map((item) => (
+                    <ContextMenu.Item key={item.label} onSelect={item.onSelect}>
+                        {item.label}
+                    </ContextMenu.Item>
+                ))}
+            </ContextMenu.Content>
+        </ContextMenu>
     );
 };
 
-/**
- * navi-connect: home-page "Continue Listening" row — the most-recently-played saved queues, tap to
- * resume where you left off. Renders nothing when there's no history yet.
- */
-export const ContinueListeningCarousel = () => {
+const noop = () => {};
+
+export const ContinueListeningCarousel = ({
+    containerQuery,
+}: {
+    containerQuery?: ReturnType<typeof useGridCarouselContainerQuery>;
+}) => {
     const serverId = useCurrentServerId();
     const activeId = useHubSavedQueueId();
     const raw = useContinueListening(serverId, 12);
@@ -157,28 +172,34 @@ export const ContinueListeningCarousel = () => {
         return null;
     }
 
+    // The app's own carousel, paged by Home's container query: its cards are the size of
+    // every other Home row's at every width. It was a hand-rolled sideways-scrolling strip
+    // of fixed 190px cards on a surface of their own.
     return (
-        <div className={styles.container}>
-            <div className={styles.header}>
-                <Text size="lg" weight={700}>
-                    Continue Listening
-                </Text>
-                <Link className={styles.manageLink} to={AppRoute.SAVED_QUEUES}>
-                    <Text isMuted size="sm">
-                        Manage
-                    </Text>
-                </Link>
-            </div>
-            <div className={styles.row}>
-                {entries.map((entry) => (
+        <GridCarousel
+            cards={entries.map((entry) => ({
+                content: (
                     <ContinueListeningCard
                         entry={entry}
                         isActive={entry.id === activeId}
-                        key={entry.id}
                         serverId={serverId}
                     />
-                ))}
-            </div>
-        </div>
+                ),
+                id: entry.id,
+            }))}
+            containerQuery={containerQuery}
+            onNextPage={noop}
+            onPrevPage={noop}
+            title={
+                <Group align="baseline" gap="md">
+                    <TextTitle fw={700} isNoSelect order={3}>
+                        Continue Listening
+                    </TextTitle>
+                    <Text isMuted size="sm">
+                        <Link to={AppRoute.SAVED_QUEUES}>Manage</Link>
+                    </Text>
+                </Group>
+            }
+        />
     );
 };
