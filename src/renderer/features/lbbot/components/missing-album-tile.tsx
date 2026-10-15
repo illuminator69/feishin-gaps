@@ -2,6 +2,8 @@ import { generatePath, useNavigate } from 'react-router';
 
 import styles from './missing-album-tile.module.css';
 
+import discoverStyles from '/@/renderer/features/discover/components/discover-row.module.css';
+import { DiscoverTile } from '/@/renderer/features/discover/components/discover-tile';
 import { AcquireButton } from '/@/renderer/features/lbbot/components/acquire-button';
 import { openMissingAlbumModal } from '/@/renderer/features/lbbot/components/missing-album-modal';
 import { SHORT_STATE } from '/@/renderer/features/lbbot/fill-vocabulary';
@@ -13,7 +15,7 @@ import {
 import { AppRoute } from '/@/renderer/router/routes';
 import { Badge } from '/@/shared/components/badge/badge';
 import { Progress } from '/@/shared/components/progress/progress';
-import { Text } from '/@/shared/components/text/text';
+import { LibraryItem } from '/@/shared/types/domain-types';
 import { LbBotFillState, LbBotRelease } from '/@/shared/types/lbbot-types';
 
 interface MissingAlbumTileProps {
@@ -53,63 +55,50 @@ export const MissingAlbumTile = ({ artistName, ndArtistId, release }: MissingAlb
         (isAwaitingLibrary(release) ? 'Added — waiting for library' : undefined);
     const percent = fill?.percent ?? 0;
 
+    // The app's card (DiscoverTile): the surface, padding and radius of the library cards
+    // around it on an artist page, which this tile sat among without. The dashed, faded
+    // cover still says the library does not have it.
     return (
-        // A div wrapping a button rather than one button: the acquire control is
-        // itself a button, and a button inside a button is invalid markup that
-        // browsers resolve by dropping the inner one.
-        <div className={styles.tile}>
-            <button
-                className={styles.main}
-                onClick={() =>
-                    ownedAlbumId
-                        ? navigate(
-                              generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, {
-                                  albumId: ownedAlbumId,
-                              }),
-                          )
-                        : openMissingAlbumModal(artistName, release)
-                }
-                type="button"
-            >
-                <div className={styles.frame}>
-                    <img
-                        alt=""
-                        className={styles.cover}
-                        loading="lazy"
-                        onError={(e) => {
-                            // Plenty of release-groups have no Cover Art Archive
-                            // front; the empty frame stands in for it.
-                            e.currentTarget.style.visibility = 'hidden';
-                        }}
-                        src={caaCoverUrl(release.rgid)}
+        <DiscoverTile
+            // Only on a row that is genuinely absent. An owned row's tap opens the
+            // library album, and offering to fetch a record already on disk is the
+            // trap this whole tile exists to avoid. A fill already in flight has its
+            // own progress on the cover.
+            action={
+                !ownedAlbumId && (!fill || fill.settled) ? (
+                    <AcquireButton
+                        artist={artistName}
+                        className={discoverStyles.action}
+                        onReview={() => openMissingAlbumModal(artistName, release)}
+                        rgid={release.rgid}
+                        title={release.title}
                     />
+                ) : undefined
+            }
+            badge={
+                <>
                     <Badge className={styles.badge} size="xs">
                         {label ?? 'Not in library'}
                     </Badge>
                     {fill && !fill.settled && percent > 0 && percent < 100 && (
-                        <Progress className={styles.progress} size="xs" value={percent} />
+                        <Progress size="xs" value={percent} />
                     )}
-                </div>
-                <Text className={styles.name} size="sm">
-                    {release.title}
-                </Text>
-                <Text isMuted size="xs">
-                    {release.year}
-                </Text>
-            </button>
-            {/* Only on a row that is genuinely absent. An owned row's tap opens
-                the library album, and offering to fetch a record already on disk
-                is the trap this whole tile exists to avoid. A fill already in
-                flight has its own progress below. */}
-            {!ownedAlbumId && (!fill || fill.settled) && (
-                <AcquireButton
-                    artist={artistName}
-                    className={styles.acquire}
-                    onReview={() => openMissingAlbumModal(artistName, release)}
-                    rgid={release.rgid}
-                    title={release.title}
-                />
-            )}
-        </div>
+                </>
+            }
+            imageUrl={caaCoverUrl(release.rgid)}
+            isUnowned={!ownedAlbumId}
+            itemType={LibraryItem.ALBUM}
+            onClick={() =>
+                ownedAlbumId
+                    ? navigate(
+                          generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, {
+                              albumId: ownedAlbumId,
+                          }),
+                      )
+                    : openMissingAlbumModal(artistName, release)
+            }
+            subtitle={release.year || undefined}
+            title={release.title}
+        />
     );
 };

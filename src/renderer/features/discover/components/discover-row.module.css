@@ -29,20 +29,23 @@
     height: 100%;
 }
 
-/* A poster card, matching item-card's: the surface, the padding and the radius
-   are the same tokens, so a Discover row and a home carousel read as one app. */
+/* A poster card, as ItemCard draws one in the Home and album-page carousels and
+   in the artist page's grids (`.container.poster`): no padding and no surface of
+   its own, the cover flush with the cell. This used ItemCard's default container
+   (padded, on a surface), so every fork row was a set of boxes beside upstream
+   rows of bare covers. */
 .tile {
     display: flex;
     flex-direction: column;
     gap: var(--theme-spacing-xs);
     width: 100%;
     height: 100%;
-    padding: var(--theme-spacing-md);
+    padding: 0;
     overflow: hidden;
     text-align: left;
     cursor: pointer;
     user-select: none;
-    background-color: var(--theme-colors-surface);
+    background-color: inherit;
     border: none;
     border-radius: var(--theme-radius-md);
 }
@@ -64,6 +67,23 @@
     border-radius: 50%;
 }
 
+/* A badge laid over the bottom of the cover (a release's state). */
+.badged {
+    position: relative;
+}
+
+.badge {
+    position: absolute;
+    right: var(--theme-spacing-xs);
+    bottom: calc(var(--theme-spacing-xs) * 2);
+    left: var(--theme-spacing-xs);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-items: stretch;
+    pointer-events: none;
+}
+
 .image {
     width: 100%;
     height: 100%;
@@ -80,8 +100,8 @@
 
 .action {
     position: absolute;
-    top: calc(var(--theme-spacing-md) + var(--theme-spacing-xs));
-    right: calc(var(--theme-spacing-md) + var(--theme-spacing-xs));
+    top: var(--theme-spacing-xs);
+    right: var(--theme-spacing-xs);
     opacity: 0;
     transition: opacity 0.15s ease;
 }

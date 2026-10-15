@@ -12,6 +12,7 @@ import {
     useLbBotAvailable,
     useLbBotDiscography,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { ForkCardGrid } from '/@/renderer/features/shared/components/fork-card-grid';
 import { ForkDetailPage } from '/@/renderer/features/shared/components/fork-detail-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
 import { AppRoute } from '/@/renderer/router/routes';
@@ -138,7 +139,7 @@ const LbBotExternalArtistRoute = () => {
                             </Group>
                             <div className={styles.bucketRule} />
                         </div>
-                        <div className={styles.grid}>
+                        <ForkCardGrid>
                             {entry.missing.map((release) => (
                                 <MissingAlbumTile
                                     artistName={artistName}
@@ -147,7 +148,7 @@ const LbBotExternalArtistRoute = () => {
                                     release={release}
                                 />
                             ))}
-                        </div>
+                        </ForkCardGrid>
                     </Stack>
                 ),
             )}

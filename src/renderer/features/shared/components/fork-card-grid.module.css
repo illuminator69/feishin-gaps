@@ -1,0 +1,11 @@
+.grid {
+    display: grid;
+    grid-template-columns: repeat(var(--columns, 2), minmax(0, 1fr));
+    gap: var(--theme-spacing-md);
+}
+
+/* Not drawn until the width is known, as the carousels do, so a page never shows
+   two columns for a frame before settling on eight. */
+.grid.measuring {
+    visibility: hidden;
+}

@@ -1,8 +1,9 @@
 import { Suspense, useMemo } from 'react';
-import { generatePath, Link, useNavigate } from 'react-router';
+import { generatePath, useNavigate } from 'react-router';
 
 import styles from './lbbot-fresh-route.module.css';
 
+import { DiscoverTile } from '/@/renderer/features/discover/components/discover-tile';
 import {
     useLbBotAvailable,
     useLbBotFreshReleases,
@@ -23,6 +24,7 @@ import {
     hasArtistPlays,
     scopeInEffect,
 } from '/@/renderer/features/lbbot/utils/fresh-scope';
+import { ForkCardGrid } from '/@/renderer/features/shared/components/fork-card-grid';
 import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
 import { AppRoute } from '/@/renderer/router/routes';
@@ -35,6 +37,7 @@ import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { Text } from '/@/shared/components/text/text';
+import { LibraryItem } from '/@/shared/types/domain-types';
 import { LbBotFreshRelease } from '/@/shared/types/lbbot-types';
 
 /**
@@ -138,54 +141,31 @@ const FreshTile = ({ release }: { release: LbBotFreshRelease }) => {
           ? externalAlbumPath(release)
           : undefined;
 
+    // The app's card, as on Discover's Fresh row: "In library" and the date travel on it,
+    // the artist line links to the artist, an absent release is dashed and faded.
     return (
-        <div className={styles.tile}>
-            <div
-                className={release.releaseOwned ? styles.frame : `${styles.frame} ${styles.absent}`}
-                onClick={() => albumTo && navigate(albumTo)}
-                role={albumTo ? 'button' : undefined}
-            >
-                {release.coverUrl && (
-                    <img
-                        alt=""
-                        className={styles.cover}
-                        // Straight from the Cover Art Archive, never through anything
-                        // that would attach this user's Navidrome or reverse-proxy
-                        // headers to a third-party request.
-                        loading="lazy"
-                        onError={(e) => {
-                            // Plenty of release-groups have no front cover; an empty
-                            // slot beats a broken-image icon.
-                            e.currentTarget.style.visibility = 'hidden';
-                        }}
-                        src={release.coverUrl}
-                    />
-                )}
-                {release.releaseOwned && (
+        <DiscoverTile
+            badge={
+                release.releaseOwned ? (
                     <Badge className={styles.badge} size="xs">
                         In library
                     </Badge>
-                )}
-            </div>
-            <Text className={styles.name} size="sm" title={release.releaseName}>
-                {release.releaseName}
-            </Text>
-            <Text
-                className={styles.name}
-                component={artistTo ? Link : undefined}
-                isLink={Boolean(artistTo)}
-                isMuted
-                size="xs"
-                to={artistTo}
-            >
-                {release.artist}
-            </Text>
-            <Text isMuted size="xs">
-                {[release.releaseDate, release.secondaryType || release.type]
-                    .filter(Boolean)
-                    .join(' · ')}
-            </Text>
-        </div>
+                ) : undefined
+            }
+            caption={[release.releaseDate, release.secondaryType || release.type]
+                .filter(Boolean)
+                .join(' · ')}
+            // Straight from the Cover Art Archive, never through anything that would
+            // attach this user's Navidrome or reverse-proxy headers to a third-party
+            // request. ItemImage shows the album placeholder where there is none.
+            imageUrl={release.coverUrl || null}
+            isUnowned={!release.releaseOwned}
+            itemType={LibraryItem.ALBUM}
+            onClick={albumTo ? () => navigate(albumTo) : undefined}
+            subtitle={release.artist}
+            subtitleTo={artistTo}
+            title={release.releaseName}
+        />
     );
 };
 
@@ -384,14 +364,14 @@ const LbBotFreshRoute = () => {
                             <div className={styles.bucketRule} />
                         </div>
                     )}
-                    <div className={styles.grid}>
+                    <ForkCardGrid>
                         {bucket.releases.map((release) => (
                             <FreshTile
                                 key={`${release.releaseMbid || release.releaseGroupMbid}-${release.artist}`}
                                 release={release}
                             />
                         ))}
-                    </div>
+                    </ForkCardGrid>
                 </Stack>
             ))}
         </ForkListPage>

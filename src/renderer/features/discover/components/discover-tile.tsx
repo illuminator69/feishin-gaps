@@ -1,5 +1,6 @@
 import clsx from 'clsx';
-import { ReactNode } from 'react';
+import { MouseEvent, ReactNode } from 'react';
+import { Link } from 'react-router';
 
 import styles from './discover-row.module.css';
 
@@ -33,6 +34,13 @@ interface DiscoverTileProps {
      */
     action?: ReactNode;
     /**
+     * Laid over the bottom of the cover: a release's state ("In library", a fill's
+     * progress), the way a library card carries its rating badge.
+     */
+    badge?: ReactNode;
+    /** A third, smaller line under the subtitle (a date and a release type). */
+    caption?: string;
+    /**
      * Artwork drawn instead of `ItemImage`, for a card whose picture is not a
      * library item's — today a mix, whose cover is either its seed's art or a
      * glyph naming the kind of recipe it is.
@@ -58,12 +66,21 @@ interface DiscoverTileProps {
     itemType: LibraryItem;
     /** Absent: the card goes nowhere, so it is drawn as a plain card, not a button. */
     onClick?: () => void;
+    /** The app's own menu for what this card shows (an album, an artist, a song). */
+    onContextMenu?: (event: MouseEvent<HTMLElement>) => void;
     subtitle?: string;
+    /**
+     * Where the subtitle goes (an artist's page). The card is then a clickable box
+     * rather than a <button>, so the link inside it is valid markup.
+     */
+    subtitleTo?: string;
     title: string;
 }
 
 export const DiscoverTile = ({
     action,
+    badge,
+    caption,
     cover,
     imageId,
     imageUrl,
@@ -72,37 +89,81 @@ export const DiscoverTile = ({
     isUnowned,
     itemType,
     onClick,
+    onContextMenu,
     subtitle,
+    subtitleTo,
     title,
 }: DiscoverTileProps) => {
+    const image = cover ?? (
+        <ItemImage
+            className={styles.image}
+            containerClassName={clsx(styles.cover, {
+                [styles.round]: isRound,
+                [styles.unowned]: isUnowned,
+            })}
+            id={imageId}
+            itemType={itemType}
+            src={imageUrl}
+            type="itemCard"
+        />
+    );
     const content = (
         <>
-            {cover ?? (
-                <ItemImage
-                    className={styles.image}
-                    containerClassName={clsx(styles.cover, {
-                        [styles.round]: isRound,
-                        [styles.unowned]: isUnowned,
-                    })}
-                    id={imageId}
-                    itemType={itemType}
-                    src={imageUrl}
-                    type="itemCard"
-                />
+            {badge ? (
+                <div className={styles.badged}>
+                    {image}
+                    <div className={styles.badge}>{badge}</div>
+                </div>
+            ) : (
+                image
             )}
             <Text className={styles.name} size="sm">
                 {title}
             </Text>
-            {subtitle && (
-                <Text className={styles.name} isMuted size="sm">
-                    {subtitle}
+            {subtitle &&
+                (subtitleTo ? (
+                    <Text
+                        className={styles.name}
+                        component={Link}
+                        isLink
+                        isMuted
+                        onClick={(event: MouseEvent) => event.stopPropagation()}
+                        size="sm"
+                        to={subtitleTo}
+                    >
+                        {subtitle}
+                    </Text>
+                ) : (
+                    <Text className={styles.name} isMuted size="sm">
+                        {subtitle}
+                    </Text>
+                ))}
+            {caption && (
+                <Text className={styles.name} isMuted size="xs">
+                    {caption}
                 </Text>
             )}
         </>
     );
     return (
-        <div className={styles.wrapper}>
-            {onClick ? (
+        <div className={styles.wrapper} onContextMenu={onContextMenu}>
+            {onClick && subtitleTo ? (
+                // A box that acts as a button, so the artist link inside it is valid.
+                <div
+                    aria-busy={isBusy || undefined}
+                    className={styles.tile}
+                    onClick={isBusy ? undefined : onClick}
+                    onKeyDown={(event) => {
+                        if (event.target === event.currentTarget && event.key === 'Enter') {
+                            onClick();
+                        }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                >
+                    {content}
+                </div>
+            ) : onClick ? (
                 <button
                     aria-busy={isBusy || undefined}
                     className={styles.tile}

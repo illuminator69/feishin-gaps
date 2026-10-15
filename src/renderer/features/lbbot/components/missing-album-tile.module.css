@@ -1,84 +1,9 @@
-/* The wrapper is a positioning context for the acquire control, which sits over
-   the cover the way a favourite heart does on a library card. */
-.tile {
-    position: relative;
-}
-
-.main {
-    display: flex;
-    flex-direction: column;
-    gap: var(--theme-spacing-xs);
-    width: 100%;
-    padding: 0;
-    text-align: left;
-    cursor: pointer;
-    background: none;
-    border: none;
-}
-
-/* The dashed frame is the whole visual argument: a slot in the discography that
-   isn't filled, sitting in the same grid as the ones that are. */
-.frame {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 1;
-    overflow: hidden;
-    border: 1px dashed var(--theme-colors-border);
-    border-radius: var(--theme-radius-md);
-}
-
-.cover {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0.45;
-    filter: grayscale(0.5);
-    transition:
-        opacity 0.15s ease,
-        filter 0.15s ease;
-}
-
-.main:hover .cover {
-    opacity: 0.75;
-    filter: grayscale(0);
-}
-
+/* The state badge laid over the cover by DiscoverTile: one line, centred. */
 .badge {
-    position: absolute;
-    right: var(--theme-spacing-xs);
-    bottom: var(--theme-spacing-xs);
-    left: var(--theme-spacing-xs);
     justify-content: center;
+    width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     opacity: 0.9;
-}
-
-.progress {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    left: 0;
-}
-
-.name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.acquire {
-    position: absolute;
-    top: var(--theme-spacing-xs);
-    right: var(--theme-spacing-xs);
-    opacity: 0;
-    transition: opacity 0.15s ease;
-}
-
-/* Revealed on hover, like every other card control here — and always visible to
-   the keyboard, which has no hover to offer. */
-.tile:hover .acquire,
-.acquire:focus-visible {
-    opacity: 1;
 }

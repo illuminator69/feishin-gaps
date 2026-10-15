@@ -3,7 +3,10 @@ import { Link } from 'react-router';
 
 import styles from './discover-row.module.css';
 
-import { GridCarousel } from '/@/renderer/components/grid-carousel/grid-carousel-v2';
+import {
+    GridCarousel,
+    useGridCarouselContainerQuery,
+} from '/@/renderer/components/grid-carousel/grid-carousel-v2';
 import { Skeleton } from '/@/shared/components/skeleton/skeleton';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextTitle } from '/@/shared/components/text-title/text-title';
@@ -54,6 +57,11 @@ interface DiscoverRowProps {
     /** Cards to page through. Rows that are not cards pass `children`. */
     cards?: { content: ReactNode; id: string }[];
     children?: ReactNode;
+    /**
+     * The page's shared container query, when the row sits among upstream carousels
+     * that measure one (Home, the album page), so it pages by the same width as they do.
+     */
+    containerQuery?: ReturnType<typeof useGridCarouselContainerQuery>;
     /** Render nothing at all when there is nothing to show. */
     isEmpty: boolean;
     /**
@@ -119,8 +127,8 @@ const rememberRow = (title: string, hadCards: boolean) => {
 };
 
 /**
- * A `DiscoverTile`'s silhouette — same surface, padding, square cover and two
- * text lines — so swapping it for the real tile moves nothing.
+ * A `DiscoverTile`'s silhouette — a square cover and two text lines on the same
+ * poster card — so swapping it for the real tile moves nothing.
  */
 const DiscoverTileSkeleton = () => (
     <div className={styles.wrapper}>
@@ -148,6 +156,7 @@ export const DiscoverRow = ({
     because,
     cards,
     children,
+    containerQuery,
     isEmpty,
     isLoading,
     seeAll,
@@ -206,6 +215,7 @@ export const DiscoverRow = ({
         return (
             <GridCarousel
                 cards={SKELETON_CARDS}
+                containerQuery={containerQuery}
                 key="skeleton"
                 onNextPage={noop}
                 onPrevPage={noop}
@@ -226,6 +236,7 @@ export const DiscoverRow = ({
     return (
         <GridCarousel
             cards={cards}
+            containerQuery={containerQuery}
             key="cards"
             onNextPage={noop}
             onPrevPage={noop}
