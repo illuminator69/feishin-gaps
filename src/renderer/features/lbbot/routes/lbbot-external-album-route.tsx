@@ -174,6 +174,7 @@ const LbBotExternalAlbumRoute = () => {
                             <MissingAlbumPanel
                                 artistName={artist}
                                 artistTo={artistTo}
+                                inPage
                                 release={release}
                             />
                         ) : (

@@ -1,12 +1,16 @@
 import { closeAllModals } from '@mantine/modals';
+import { useTranslation } from 'react-i18next';
 
-import styles from './saved-queue-preview-modal.module.css';
-
+import {
+    LbModalLayout,
+    lbModalSettings,
+} from '/@/renderer/features/lbbot/components/lb-modal-layout';
 import {
     SAVED_QUEUE_KIND_LABEL,
     savedQueueDuration,
     savedQueueTitle,
 } from '/@/renderer/features/saved-queues/utils/saved-queue-format';
+import { PreviewSongRow } from '/@/renderer/features/shared/components/preview-song-row';
 import { SavedQueue } from '/@/renderer/store';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
@@ -27,65 +31,67 @@ interface Props {
     onResume: () => void;
 }
 
-export const SavedQueuePreviewModal = ({ entry, isRestoring, onResume }: Props) => (
-    <Stack gap="md">
-        <div className={styles.summary}>
-            <Text isMuted size="sm">
-                {SAVED_QUEUE_KIND_LABEL[entry.sourceKind] ?? 'Queue'} · {entry.songCount} track
-                {entry.songCount === 1 ? '' : 's'} · {savedQueueDuration(entry)}
-            </Text>
-        </div>
-        <div className={styles.list}>
-            {entry.songs.map((song, n) => (
-                <div
-                    className={`${styles.track} ${n === entry.currentIndex ? styles.current : ''}`}
-                    key={`${song.id}-${n}`}
-                >
-                    <Text className={styles.index} isMuted size="xs">
-                        {n + 1}
-                    </Text>
-                    <div className={styles.title}>
-                        <Text lineClamp={1} size="sm">
-                            {song.name}
-                            {n === entry.currentIndex ? ' — resumes here' : ''}
-                        </Text>
-                        <Text isMuted lineClamp={1} size="xs">
-                            {[song.artistName, song.album].filter(Boolean).join(' · ')}
-                        </Text>
-                    </div>
-                    <Text className={styles.duration} isMuted size="xs">
-                        {trackTime(song.duration)}
-                    </Text>
-                </div>
-            ))}
-        </div>
-        <Group justify="flex-end">
-            <Button onClick={() => closeAllModals()} variant="subtle">
-                Close
-            </Button>
-            <Button
-                disabled={isRestoring}
-                onClick={() => {
-                    onResume();
-                    closeAllModals();
-                }}
-                variant="filled"
-            >
-                Resume
-            </Button>
-        </Group>
-    </Stack>
-);
+export const SavedQueuePreviewModal = ({ entry, isRestoring, onResume }: Props) => {
+    const { t } = useTranslation();
+    return (
+        <LbModalLayout
+            footer={
+                <Group justify="flex-end">
+                    <Button onClick={() => closeAllModals()} variant="subtle">
+                        {t('common.close')}
+                    </Button>
+                    <Button
+                        disabled={isRestoring}
+                        onClick={() => {
+                            onResume();
+                            closeAllModals();
+                        }}
+                        variant="filled"
+                    >
+                        {t('naviConnect.savedQueuePreview.resume')}
+                    </Button>
+                </Group>
+            }
+            header={
+                <Text isMuted size="sm">
+                    {SAVED_QUEUE_KIND_LABEL[entry.sourceKind] ?? 'Queue'} · {entry.songCount} track
+                    {entry.songCount === 1 ? '' : 's'} · {savedQueueDuration(entry)}
+                </Text>
+            }
+        >
+            <Stack gap={2}>
+                {entry.songs.map((song, n) => (
+                    <PreviewSongRow
+                        current={n === entry.currentIndex}
+                        imageId={song.imageId}
+                        imageUrl={song.imageUrl}
+                        index={n + 1}
+                        key={`${song.id}-${n}`}
+                        serverId={song._serverId}
+                        subtitle={[song.artistName, song.album].filter(Boolean).join(' · ')}
+                        title={
+                            n === entry.currentIndex
+                                ? t('naviConnect.savedQueuePreview.resumesHere', {
+                                      name: song.name,
+                                  })
+                                : song.name
+                        }
+                        trailing={trackTime(song.duration)}
+                    />
+                ))}
+            </Stack>
+        </LbModalLayout>
+    );
+};
 
 /** Open the preview for [entry]. `title` mirrors the card's own title. */
 export const savedQueuePreviewModalProps = (
     entry: SavedQueue,
     isRestoring: boolean,
     onResume: () => void,
-) => ({
-    children: (
-        <SavedQueuePreviewModal entry={entry} isRestoring={isRestoring} onResume={onResume} />
-    ),
-    size: 'lg',
-    title: savedQueueTitle(entry),
-});
+) =>
+    lbModalSettings(
+        savedQueueTitle(entry),
+        <SavedQueuePreviewModal entry={entry} isRestoring={isRestoring} onResume={onResume} />,
+        'lg',
+    );

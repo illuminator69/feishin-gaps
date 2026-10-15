@@ -1654,5 +1654,22 @@
                 "z": "Z"
             }
         }
+    },
+    "naviConnect": {
+        "missingAlbum": {
+            "edition": "Edition"
+        },
+        "mixPreview": {
+            "building": "Building a sample of \"{{name}}\"...",
+            "empty": "\"{{name}}\" produced nothing this time - its source may be empty or still indexing.",
+            "failed": "\"{{name}}\" could not be built just now.",
+            "playThese": "Play these",
+            "sampleNote": "One run of this recipe - a sample of what it builds, not its tracklist. Playing it again gives a different set.",
+            "title": "Preview \"{{name}}\""
+        },
+        "savedQueuePreview": {
+            "resume": "Resume",
+            "resumesHere": "{{name}} (resumes here)"
+        }
     }
 }

@@ -1,22 +1,3 @@
-/* One scrolling column like the other lb-bot modals; the actions stay on screen. */
-.root {
-    display: flex;
-    flex-direction: column;
-    max-height: min(78vh, 46rem);
-}
-
-.body {
-    flex: 1;
-    min-height: 0;
-    padding-right: var(--theme-spacing-xs);
-    overflow-y: auto;
-}
-
-.footer {
-    padding-top: var(--theme-spacing-sm);
-    border-top: 1px solid var(--theme-colors-border);
-}
-
 .section {
     padding: var(--theme-spacing-sm) 0;
     border-bottom: 1px solid var(--theme-colors-border);

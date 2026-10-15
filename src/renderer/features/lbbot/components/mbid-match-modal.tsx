@@ -4,6 +4,10 @@ import styles from './mbid-match-modal.module.css';
 
 import { ArtistMergeBlock } from '/@/renderer/features/lbbot/components/artist-merge-block';
 import {
+    LbModalLayout,
+    lbModalSettings,
+} from '/@/renderer/features/lbbot/components/lb-modal-layout';
+import {
     useArtistOverrideActions,
     useArtistOverrideKind,
     useLbBotArtistSearch,
@@ -99,29 +103,80 @@ const MbidMatchModal = ({
         supported: controls,
     });
 
-    return (
-        <div className={styles.root}>
-            <Stack gap="sm">
+    const header = (
+        <Stack gap="sm">
+            <Text isMuted size="sm">
+                {tagMbid
+                    ? 'Navidrome has a MusicBrainz id for this artist. Choose another if it is the wrong one.'
+                    : 'Navidrome has no MusicBrainz id for this artist. Choose who they are on MusicBrainz.'}
+            </Text>
+            {(!available || !controls) && (
                 <Text isMuted size="sm">
-                    {tagMbid
-                        ? 'Navidrome has a MusicBrainz id for this artist. Choose another if it is the wrong one.'
-                        : 'Navidrome has no MusicBrainz id for this artist. Choose who they are on MusicBrainz.'}
+                    {!available
+                        ? 'lb-bot is not reachable, so nothing can be searched or changed right now.'
+                        : 'This lb-bot is older and cannot store overrides yet.'}
                 </Text>
-                {(!available || !controls) && (
-                    <Text isMuted size="sm">
-                        {!available
-                            ? 'lb-bot is not reachable, so nothing can be searched or changed right now.'
-                            : 'This lb-bot is older and cannot store overrides yet.'}
-                    </Text>
-                )}
+            )}
+            <TextInput
+                autoFocus
+                label="Search MusicBrainz"
+                onChange={(event) => setTerm(event.currentTarget.value)}
+                value={term}
+            />
+        </Stack>
+    );
+
+    const footer = (
+        <Stack gap="xs">
+            <Group align="flex-end" gap="xs" wrap="nowrap">
                 <TextInput
-                    autoFocus
-                    label="Search MusicBrainz"
-                    onChange={(event) => setTerm(event.currentTarget.value)}
-                    value={term}
+                    error={pasted.trim() && !parsed ? 'Not a MusicBrainz artist id or URL' : null}
+                    label="Or paste an MBID or musicbrainz.org artist URL"
+                    onChange={(event) => setPasted(event.currentTarget.value)}
+                    style={{ flex: 1 }}
+                    value={pasted}
                 />
-            </Stack>
-            <div className={styles.body}>
+                <Button
+                    disabled={pending || !parsed || parsed === currentMbid || !canWrite}
+                    loading={pending}
+                    onClick={() => parsed && choose(parsed)}
+                    variant="filled"
+                >
+                    Use this id
+                </Button>
+            </Group>
+            {failure && (
+                <Text c="red" size="sm">
+                    {failure.message}
+                </Text>
+            )}
+            {overridden && (
+                <Group justify="space-between">
+                    <Text isMuted size="xs">
+                        {tagMbid
+                            ? 'Removing the override goes back to the id in Navidrome.'
+                            : 'Removing the override leaves this artist with no MusicBrainz id.'}
+                    </Text>
+                    <Button
+                        disabled={pending || !canWrite}
+                        onClick={handleRemove}
+                        size="compact-sm"
+                        variant="subtle"
+                    >
+                        Remove override
+                    </Button>
+                </Group>
+            )}
+        </Stack>
+    );
+
+    return (
+        <LbModalLayout footer={footer} header={header}>
+            {/* Inside the scroll, first: two spellings sharing this id is a statement
+                about the match being chosen here, and outside the scroll it could
+                squeeze the candidate list to nothing (Q-067 c). */}
+            <ArtistMergeBlock ndId={ndId} />
+            <div>
                 {!typed && available && (
                     <Text isMuted py="md" size="sm">
                         Type an artist name to search MusicBrainz.
@@ -188,60 +243,17 @@ const MbidMatchModal = ({
                     );
                 })}
             </div>
-            <ArtistMergeBlock ndId={ndId} />
-            <Stack className={styles.footer} gap="xs">
-                <Group align="flex-end" gap="xs" wrap="nowrap">
-                    <TextInput
-                        error={
-                            pasted.trim() && !parsed ? 'Not a MusicBrainz artist id or URL' : null
-                        }
-                        label="Or paste an MBID or musicbrainz.org artist URL"
-                        onChange={(event) => setPasted(event.currentTarget.value)}
-                        style={{ flex: 1 }}
-                        value={pasted}
-                    />
-                    <Button
-                        disabled={pending || !parsed || parsed === currentMbid || !canWrite}
-                        loading={pending}
-                        onClick={() => parsed && choose(parsed)}
-                        variant="filled"
-                    >
-                        Use this id
-                    </Button>
-                </Group>
-                {failure && (
-                    <Text c="red" size="sm">
-                        {failure.message}
-                    </Text>
-                )}
-                {overridden && (
-                    <Group justify="space-between">
-                        <Text isMuted size="xs">
-                            {tagMbid
-                                ? 'Removing the override goes back to the id in Navidrome.'
-                                : 'Removing the override leaves this artist with no MusicBrainz id.'}
-                        </Text>
-                        <Button
-                            disabled={pending || !canWrite}
-                            onClick={handleRemove}
-                            size="compact-sm"
-                            variant="subtle"
-                        >
-                            Remove override
-                        </Button>
-                    </Group>
-                )}
-            </Stack>
-        </div>
+        </LbModalLayout>
     );
 };
 
 export const openMbidMatchModal = (props: MbidMatchModalProps) => {
     const modalId = `mbid-match-${props.ndId}`;
     openModal({
-        children: <MbidMatchModal {...props} modalId={modalId} />,
+        ...lbModalSettings(
+            `MusicBrainz match for ${props.name}`,
+            <MbidMatchModal {...props} modalId={modalId} />,
+        ),
         modalId,
-        size: 'lg',
-        title: `MusicBrainz match for ${props.name}`,
     });
 };

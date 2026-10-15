@@ -1,8 +1,13 @@
 import { Fragment, ReactNode, useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 
 import styles from './missing-album-modal.module.css';
 
+import {
+    LbModalLayout,
+    lbModalSettings,
+} from '/@/renderer/features/lbbot/components/lb-modal-layout';
 import {
     defaultSelectedSource,
     SourceList,
@@ -66,6 +71,8 @@ interface MissingAlbumPanelProps {
      * bare text in the other.
      */
     artistTo?: string;
+    /** Laid out in a page's own flow (the virtual album page) rather than as a dialog. */
+    inPage?: boolean;
     release: LbBotRelease;
 }
 
@@ -113,7 +120,12 @@ const IN_FLIGHT: ReadonlySet<LbBotFillState> = new Set<LbBotFillState>([
  * already pays for (the edition that must ride along, the pre-selected rank 1, the
  * fill that outlives the view).
  */
-export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbumPanelProps) => {
+export const MissingAlbumPanel = ({
+    artistName,
+    artistTo,
+    inPage = false,
+    release,
+}: MissingAlbumPanelProps) => {
     const releasesQuery = useLbBotAlbumReleases(release.rgid);
     // Opens on the first variant's first edition — `defaultEdition` in
     // use-lbbot.ts says the same, so a one-tap acquire that fell through to this
@@ -301,9 +313,98 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
         if (!ok) toast.error({ message: 'lb-bot would not take that request.' });
     };
 
+    const footer = (
+        <Stack gap="sm">
+            {state !== 'unknown' && (
+                <Stack gap="xs">
+                    <Group gap="sm">
+                        <Badge variant={state === 'failed' ? 'filled' : 'default'}>
+                            {STATE_LABEL[state]}
+                        </Badge>
+                        {status.data?.total ? (
+                            <Text isMuted size="sm">
+                                {status.data.done}/{status.data.total} files
+                                {leftOutText(status.data.leftOut)
+                                    ? ` · ${leftOutText(status.data.leftOut)}`
+                                    : ''}
+                            </Text>
+                        ) : null}
+                    </Group>
+                    {IN_FLIGHT.has(state) && <Progress value={status.data?.percent ?? 0} />}
+                    {/* lb-bot's own sentence, verbatim: "103 peers offered 2,047
+                            files, but none in FLAC, OPUS" is the useful answer, and
+                            paraphrasing it here would only lose the evidence. */}
+                    {status.data?.reason ? (
+                        <Text isMuted size="sm">
+                            {status.data.reason}
+                        </Text>
+                    ) : null}
+                    {status.data?.mp3WouldHelp && selected ? (
+                        <Button onClick={handleAllowMp3} size="compact-sm" variant="default">
+                            Allow MP3 and retry
+                        </Button>
+                    ) : null}
+                    {/* The server's own Cancel rule: searching, queued or
+                            downloading, or a failed fill whose automatic retry
+                            is still pending. Never on `placing` — the files are
+                            on their way in. */}
+                    {status.data?.cancellable ? (
+                        <Button onClick={handleCancel} size="compact-sm" variant="subtle">
+                            Cancel download
+                        </Button>
+                    ) : null}
+                </Stack>
+            )}
+            {status.isError && !status.data ? (
+                <Text isMuted size="sm">
+                    Can&apos;t reach lb-bot right now.
+                </Text>
+            ) : null}
+
+            <Group gap="sm" justify="end">
+                {step === 'review' && (
+                    <Button
+                        disabled={busy}
+                        onClick={() => setStep('choose')}
+                        size="compact-sm"
+                        variant="subtle"
+                    >
+                        Back
+                    </Button>
+                )}
+                <Select
+                    aria-label="Preferred quality"
+                    data={QUALITY_DATA}
+                    disabled={busy}
+                    onChange={(value) => setQuality(value ?? '')}
+                    value={preferredQuality}
+                    width={220}
+                />
+                {step === 'choose' ? (
+                    <Button
+                        disabled={!release.rgid}
+                        onClick={() => setStep('review')}
+                        variant="filled"
+                    >
+                        Find sources
+                    </Button>
+                ) : (
+                    <Button
+                        disabled={busy || !release.rgid || !selected}
+                        loading={starting}
+                        onClick={() => void handleDownload()}
+                        variant="filled"
+                    >
+                        {state === 'verified' ? 'Download again' : 'Download'}
+                    </Button>
+                )}
+            </Group>
+        </Stack>
+    );
+
     return (
-        <div className={styles.root}>
-            <Stack className={styles.body} gap="md">
+        <LbModalLayout footer={footer} inPage={inPage}>
+            <Stack gap="md">
                 <div className={styles.header}>
                     <img
                         alt=""
@@ -363,7 +464,7 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
 
                         {variants.length > 1 && (
                             <EditionPicker
-                                label="Version"
+                                kind="version"
                                 onChange={(index) => {
                                     setVariantIndex(index);
                                     setEditionIndex(0);
@@ -377,7 +478,7 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
 
                         {editions.length > 1 && (
                             <EditionPicker
-                                label="Edition"
+                                kind="edition"
                                 onChange={setEditionIndex}
                                 options={editions.map((e) => e.label)}
                                 value={editionIndex}
@@ -514,103 +615,17 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
                     </Stack>
                 )}
             </Stack>
-
-            <Stack className={styles.footer} gap="sm">
-                {state !== 'unknown' && (
-                    <Stack gap="xs">
-                        <Group gap="sm">
-                            <Badge variant={state === 'failed' ? 'filled' : 'default'}>
-                                {STATE_LABEL[state]}
-                            </Badge>
-                            {status.data?.total ? (
-                                <Text isMuted size="sm">
-                                    {status.data.done}/{status.data.total} files
-                                    {leftOutText(status.data.leftOut)
-                                        ? ` · ${leftOutText(status.data.leftOut)}`
-                                        : ''}
-                                </Text>
-                            ) : null}
-                        </Group>
-                        {IN_FLIGHT.has(state) && <Progress value={status.data?.percent ?? 0} />}
-                        {/* lb-bot's own sentence, verbatim: "103 peers offered 2,047
-                            files, but none in FLAC, OPUS" is the useful answer, and
-                            paraphrasing it here would only lose the evidence. */}
-                        {status.data?.reason ? (
-                            <Text isMuted size="sm">
-                                {status.data.reason}
-                            </Text>
-                        ) : null}
-                        {status.data?.mp3WouldHelp && selected ? (
-                            <Button onClick={handleAllowMp3} size="compact-sm" variant="default">
-                                Allow MP3 and retry
-                            </Button>
-                        ) : null}
-                        {/* The server's own Cancel rule: searching, queued or
-                            downloading, or a failed fill whose automatic retry
-                            is still pending. Never on `placing` — the files are
-                            on their way in. */}
-                        {status.data?.cancellable ? (
-                            <Button onClick={handleCancel} size="compact-sm" variant="subtle">
-                                Cancel download
-                            </Button>
-                        ) : null}
-                    </Stack>
-                )}
-                {status.isError && !status.data ? (
-                    <Text isMuted size="sm">
-                        Can&apos;t reach lb-bot right now.
-                    </Text>
-                ) : null}
-
-                <Group gap="sm" justify="end">
-                    {step === 'review' && (
-                        <Button
-                            disabled={busy}
-                            onClick={() => setStep('choose')}
-                            size="compact-sm"
-                            variant="subtle"
-                        >
-                            Back
-                        </Button>
-                    )}
-                    <Select
-                        aria-label="Preferred quality"
-                        data={QUALITY_DATA}
-                        disabled={busy}
-                        onChange={(value) => setQuality(value ?? '')}
-                        value={preferredQuality}
-                        width={220}
-                    />
-                    {step === 'choose' ? (
-                        <Button
-                            disabled={!release.rgid}
-                            onClick={() => setStep('review')}
-                            variant="filled"
-                        >
-                            Find sources
-                        </Button>
-                    ) : (
-                        <Button
-                            disabled={busy || !release.rgid || !selected}
-                            loading={starting}
-                            onClick={() => void handleDownload()}
-                            variant="filled"
-                        >
-                            {state === 'verified' ? 'Download again' : 'Download'}
-                        </Button>
-                    )}
-                </Group>
-            </Stack>
-        </div>
+        </LbModalLayout>
     );
 };
 
 export const openMissingAlbumModal = (artistName: string, release: LbBotRelease) => {
-    openModal({
-        children: <MissingAlbumPanel artistName={artistName} release={release} />,
-        size: 'lg',
-        title: release.title,
-    });
+    openModal(
+        lbModalSettings(
+            release.title,
+            <MissingAlbumPanel artistName={artistName} release={release} />,
+        ),
+    );
 };
 
 /**
@@ -620,16 +635,18 @@ export const openMissingAlbumModal = (artistName: string, release: LbBotRelease)
  * was anything past the edge and hid an edition you could not see existed.
  */
 const EditionPicker = ({
-    label,
+    kind,
     onChange,
     options,
     value,
 }: {
-    label: string;
+    kind: 'edition' | 'version';
     onChange: (index: number) => void;
     options: string[];
     value: number;
 }) => {
+    const { t } = useTranslation();
+    const label = kind === 'version' ? t('common.version') : t('naviConnect.missingAlbum.edition');
     const data = options.map((option, index) => ({ label: option, value: String(index) }));
     if (options.length <= 3) {
         return (

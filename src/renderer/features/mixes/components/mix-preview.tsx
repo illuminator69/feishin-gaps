@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
+import { LbModalLayout } from '/@/renderer/features/lbbot/components/lb-modal-layout';
 import { useMixRunner } from '/@/renderer/features/mixes/hooks/use-mixes';
+import { PreviewSongRow } from '/@/renderer/features/shared/components/preview-song-row';
 import { Mix } from '/@/renderer/store';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
 import { closeAllModals } from '/@/shared/components/modal/modal';
-import { Spinner } from '/@/shared/components/spinner/spinner';
+import { Skeleton } from '/@/shared/components/skeleton/skeleton';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
 import { Song } from '/@/shared/types/domain-types';
@@ -33,6 +36,7 @@ import { Song } from '/@/shared/types/domain-types';
  * whole feature.
  */
 export const MixPreview = ({ mix }: { mix: Mix }) => {
+    const { t } = useTranslation();
     const { generate, playGenerated } = useMixRunner();
     const [songs, setSongs] = useState<null | Song[]>(null);
     const [done, setDone] = useState(false);
@@ -52,70 +56,79 @@ export const MixPreview = ({ mix }: { mix: Mix }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    const close = (
+        <Button onClick={() => closeAllModals()} variant="subtle">
+            {t('common.close')}
+        </Button>
+    );
+
     if (!done) {
+        // A skeleton of the list it will become, in the dialog's final height, so nothing
+        // jumps when the sample lands.
         return (
-            <Stack gap="md">
-                <Text isMuted size="sm">
-                    {`Building a sample of "${mix.name}"…`}
-                </Text>
-                <Spinner container />
-            </Stack>
+            <LbModalLayout
+                footer={<Group justify="flex-end">{close}</Group>}
+                header={
+                    <Text isMuted size="sm">
+                        {t('naviConnect.mixPreview.building', { name: mix.name })}
+                    </Text>
+                }
+            >
+                <Stack gap="xs">
+                    {Array.from({ length: 8 }, (_, index) => (
+                        <Skeleton height={44} key={index} />
+                    ))}
+                </Stack>
+            </LbModalLayout>
         );
     }
 
     if (!songs || songs.length === 0) {
         return (
-            <Stack gap="md">
+            <LbModalLayout footer={<Group justify="flex-end">{close}</Group>}>
                 <Text isMuted size="sm">
                     {songs === null
-                        ? `"${mix.name}" could not be built just now.`
-                        : `"${mix.name}" produced nothing this time - its source may be empty or still indexing.`}
+                        ? t('naviConnect.mixPreview.failed', { name: mix.name })
+                        : t('naviConnect.mixPreview.empty', { name: mix.name })}
                 </Text>
-                <Group justify="flex-end">
-                    <Button onClick={() => closeAllModals()} variant="subtle">
-                        Close
-                    </Button>
-                </Group>
-            </Stack>
+            </LbModalLayout>
         );
     }
 
     return (
-        <Stack gap="md">
-            <Text isMuted size="sm">
-                One run of this recipe - a sample of what it builds, not its tracklist. Playing it
-                again gives a different set.
-            </Text>
-            <Stack gap="xs">
-                {songs.slice(0, 30).map((song, index) => (
-                    <Text key={`${song.id}-${index}`} lineClamp={1} size="sm">
-                        {song.name}
-                        <Text component="span" isMuted size="sm">
-                            {` — ${song.artistName}`}
-                        </Text>
-                    </Text>
+        <LbModalLayout
+            footer={
+                <Group justify="flex-end">
+                    {close}
+                    <Button
+                        onClick={() => {
+                            playGenerated(mix, songs);
+                            closeAllModals();
+                        }}
+                        variant="filled"
+                    >
+                        {t('naviConnect.mixPreview.playThese')}
+                    </Button>
+                </Group>
+            }
+            header={
+                <Text isMuted size="sm">
+                    {t('naviConnect.mixPreview.sampleNote')}
+                </Text>
+            }
+        >
+            <Stack gap={2}>
+                {songs.map((song, index) => (
+                    <PreviewSongRow
+                        imageId={song.imageId}
+                        imageUrl={song.imageUrl}
+                        key={`${song.id}-${index}`}
+                        serverId={song._serverId}
+                        subtitle={[song.artistName, song.album].filter(Boolean).join(' · ')}
+                        title={song.name}
+                    />
                 ))}
             </Stack>
-            {songs.length > 30 && (
-                <Text isMuted size="xs">
-                    …and {songs.length - 30} more.
-                </Text>
-            )}
-            <Group justify="flex-end">
-                <Button onClick={() => closeAllModals()} variant="subtle">
-                    Close
-                </Button>
-                <Button
-                    onClick={() => {
-                        // These exact tracks, never a second regeneration of them.
-                        playGenerated(mix, songs);
-                        closeAllModals();
-                    }}
-                    variant="filled"
-                >
-                    Play these
-                </Button>
-            </Group>
-        </Stack>
+        </LbModalLayout>
     );
 };

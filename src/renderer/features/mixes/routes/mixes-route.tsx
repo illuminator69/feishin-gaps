@@ -2,7 +2,9 @@ import { Suspense, useState } from 'react';
 
 import styles from './mixes-route.module.css';
 
+import i18n from '/@/i18n/i18n';
 import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
+import { lbModalSettings } from '/@/renderer/features/lbbot/components/lb-modal-layout';
 import { MixArtwork } from '/@/renderer/features/mixes/components/mix-artwork';
 import { MixForm } from '/@/renderer/features/mixes/components/mix-form';
 import { MixPreview } from '/@/renderer/features/mixes/components/mix-preview';
@@ -143,10 +145,13 @@ const MixRow = ({ mix }: { mix: Mix }) => {
                     <DropdownMenu.Item
                         disabled={!playable}
                         onClick={() =>
-                            openModal({
-                                children: <MixPreview mix={mix} />,
-                                title: `Preview "${mix.name}"`,
-                            })
+                            openModal(
+                                lbModalSettings(
+                                    i18n.t('naviConnect.mixPreview.title', { name: mix.name }),
+                                    <MixPreview mix={mix} />,
+                                    'lg',
+                                ),
+                            )
                         }
                     >
                         Preview

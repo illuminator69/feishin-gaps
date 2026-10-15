@@ -7,6 +7,10 @@ import styles from './album-match-modal.module.css';
 
 import { JobFailures, StillWorking } from '/@/renderer/features/lbbot/components/job-failures';
 import {
+    LbModalLayout,
+    lbModalSettings,
+} from '/@/renderer/features/lbbot/components/lb-modal-layout';
+import {
     applyAlbumOverride,
     removeAlbumOverride,
     setAlbumCover,
@@ -407,11 +411,13 @@ const AlbumMatchModal = ({
     // ---- rendering --------------------------------------------------------
     if (!controls) {
         return (
-            <Text isMuted size="sm">
-                {available
-                    ? 'This lb-bot is older and cannot fix album matches yet.'
-                    : 'lb-bot is not reachable, so nothing can be changed right now.'}
-            </Text>
+            <LbModalLayout>
+                <Text isMuted size="sm">
+                    {available
+                        ? 'This lb-bot is older and cannot fix album matches yet.'
+                        : 'lb-bot is not reachable, so nothing can be changed right now.'}
+                </Text>
+            </LbModalLayout>
         );
     }
 
@@ -430,9 +436,79 @@ const AlbumMatchModal = ({
         releaseMbid: state?.releaseMbid ?? '',
     });
 
+    const footer = showPicker ? (
+        <Stack gap="xs">
+            {coverSaved && (
+                <Text size="sm">
+                    The cover was saved. You can undo it at the top of this dialog.
+                </Text>
+            )}
+            {summary && picked && !pending && commit === 'apply' && (
+                <Text size="sm">{commitSentence(summary.changing)}</Text>
+            )}
+            {summary && picked && summary.changing === 0 && commit === 'nothing' && (
+                <Text isMuted size="sm">
+                    No file would change.
+                </Text>
+            )}
+            {commit === 'cover-only' && (
+                <Text isMuted size="sm">
+                    No file would change. Only the cover is saved; the release stays.
+                </Text>
+            )}
+            {pending && (
+                <Text size="sm">
+                    Only {pending.matched} of the {pending.total} files have a place on this
+                    release. Apply anyway?
+                </Text>
+            )}
+            {failure && (
+                <Failure
+                    failure={failure}
+                    onRetry={failure.kind === 'retry' ? () => void apply(!!pending) : undefined}
+                />
+            )}
+            <Group gap="sm" justify="end">
+                {picked && pending && (
+                    <Button
+                        disabled={busy}
+                        loading={busy}
+                        onClick={() => void apply(true)}
+                        variant="filled"
+                    >
+                        Apply anyway
+                    </Button>
+                )}
+                {picked && !pending && commit !== 'cover-only' && (
+                    <Button
+                        disabled={busy || commit !== 'apply'}
+                        loading={busy}
+                        onClick={() => void apply(false)}
+                        variant="filled"
+                    >
+                        Apply
+                    </Button>
+                )}
+                {commit === 'cover-only' && (
+                    <Button
+                        disabled={busy}
+                        loading={busy}
+                        onClick={() => void saveCoverOnly()}
+                        variant="filled"
+                    >
+                        Save this cover
+                    </Button>
+                )}
+                <Button onClick={() => closeModal(modalId)} variant="subtle">
+                    Close
+                </Button>
+            </Group>
+        </Stack>
+    ) : undefined;
+
     return (
-        <div className={styles.root}>
-            <div className={styles.body}>
+        <LbModalLayout footer={footer}>
+            <div>
                 {!state && !stateFailure && (
                     <Stack gap="xs" py="sm">
                         <Skeleton height={16} width="60%" />
@@ -794,90 +870,17 @@ const AlbumMatchModal = ({
                     </div>
                 )}
             </div>
-
-            {showPicker && (
-                <Stack className={styles.footer} gap="xs">
-                    {coverSaved && (
-                        <Text size="sm">
-                            The cover was saved. You can undo it at the top of this dialog.
-                        </Text>
-                    )}
-                    {summary && picked && !pending && commit === 'apply' && (
-                        <Text size="sm">{commitSentence(summary.changing)}</Text>
-                    )}
-                    {summary && picked && summary.changing === 0 && commit === 'nothing' && (
-                        <Text isMuted size="sm">
-                            No file would change.
-                        </Text>
-                    )}
-                    {commit === 'cover-only' && (
-                        <Text isMuted size="sm">
-                            No file would change. Only the cover is saved; the release stays.
-                        </Text>
-                    )}
-                    {pending && (
-                        <Text size="sm">
-                            Only {pending.matched} of the {pending.total} files have a place on this
-                            release. Apply anyway?
-                        </Text>
-                    )}
-                    {failure && (
-                        <Failure
-                            failure={failure}
-                            onRetry={
-                                failure.kind === 'retry' ? () => void apply(!!pending) : undefined
-                            }
-                        />
-                    )}
-                    <Group gap="sm" justify="end">
-                        {picked && pending && (
-                            <Button
-                                disabled={busy}
-                                loading={busy}
-                                onClick={() => void apply(true)}
-                                variant="filled"
-                            >
-                                Apply anyway
-                            </Button>
-                        )}
-                        {picked && !pending && commit !== 'cover-only' && (
-                            <Button
-                                disabled={busy || commit !== 'apply'}
-                                loading={busy}
-                                onClick={() => void apply(false)}
-                                variant="filled"
-                            >
-                                Apply
-                            </Button>
-                        )}
-                        {commit === 'cover-only' && (
-                            <Button
-                                disabled={busy}
-                                loading={busy}
-                                onClick={() => void saveCoverOnly()}
-                                variant="filled"
-                            >
-                                Save this cover
-                            </Button>
-                        )}
-                        <Button onClick={() => closeModal(modalId)} variant="subtle">
-                            Close
-                        </Button>
-                    </Group>
-                </Stack>
-            )}
-        </div>
+        </LbModalLayout>
     );
 };
 
 export const openAlbumMatchModal = (props: AlbumMatchModalProps & { title?: string }) => {
     const modalId = `album-match-${props.albumId}`;
     openModal({
-        children: (
-            <AlbumMatchModal albumId={props.albumId} artistId={props.artistId} modalId={modalId} />
+        ...lbModalSettings(
+            props.title ? `Fix album match: ${props.title}` : 'Fix album match',
+            <AlbumMatchModal albumId={props.albumId} artistId={props.artistId} modalId={modalId} />,
         ),
         modalId,
-        size: 'lg',
-        title: props.title ? `Fix album match — ${props.title}` : 'Fix album match',
     });
 };

@@ -6,6 +6,10 @@ import styles from './gap-fill-modal.module.css';
 
 import { openAlbumMatchModal } from '/@/renderer/features/lbbot/components/album-match-modal';
 import {
+    LbModalLayout,
+    lbModalSettings,
+} from '/@/renderer/features/lbbot/components/lb-modal-layout';
+import {
     defaultSelectedSource,
     SourceList,
 } from '/@/renderer/features/lbbot/components/source-list';
@@ -210,24 +214,140 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
 
     if (isLoading && !gap) {
         return (
-            <Stack gap="sm">
-                <Skeleton height={20} />
-                <Skeleton height={120} />
-            </Stack>
+            <LbModalLayout>
+                <Stack gap="sm">
+                    <Skeleton height={20} />
+                    <Skeleton height={16} width="60%" />
+                    <Skeleton height={96} />
+                    <Skeleton height={96} />
+                </Stack>
+            </LbModalLayout>
         );
     }
 
     if (!gap) {
         return (
-            <Text isMuted size="sm">
-                {error || 'lb-bot has no gap record for this album.'}
-            </Text>
+            <LbModalLayout>
+                <Text isMuted size="sm">
+                    {error || 'lb-bot has no gap record for this album.'}
+                </Text>
+            </LbModalLayout>
         );
     }
 
+    // One row when it fits: the secondary actions on the left, the step's own on the right.
+    const footer = (
+        <Group align="center" gap="sm" justify="space-between">
+            <Group gap="sm">
+                {gap.mp3WouldHelp && !gap.allowMp3 && (
+                    <Button onClick={handleAllowMp3} size="compact-sm" variant="default">
+                        Allow MP3 for this album
+                    </Button>
+                )}
+                <Button
+                    disabled={busy || !!pending}
+                    loading={pending === 'rescan'}
+                    onClick={() => void run('rescan', () => rescanGapAlbum(groupId))}
+                    size="compact-sm"
+                    variant="subtle"
+                >
+                    Re-check album
+                </Button>
+                {/* Opens in the browser: Electron's window-open handler hands any
+                    http(s) URL to the OS. Only shown when the hub advertises
+                    lb-bot's address — an older hub doesn't, and a guessed one
+                    would be a button that leads nowhere. */}
+                {workspaceUrl && (
+                    <Button
+                        onClick={() => window.open(workspaceUrl, '_blank')}
+                        size="compact-sm"
+                        // The only way forward for a pending match, or for
+                        // a stalled placement (B-011) — same reason.
+                        variant={awaitingMatch || stalledPlacement ? 'filled' : 'subtle'}
+                    >
+                        Open in lb-bot
+                    </Button>
+                )}
+                {/* Ruling R17: hidden for a stalled placement, same as
+                    "Fill N tracks" and "Search again" — R15 covers every
+                    fetch/fill action for this case, and Auto is one of them:
+                    it still ends by posting a fetch from a ranked source for
+                    files that already downloaded. */}
+                {sources.length > 0 && !stalledPlacement && (
+                    <Button
+                        disabled={busy || settling || !!pending}
+                        loading={pending === 'auto'}
+                        onClick={handleAuto}
+                        size="compact-sm"
+                        variant="subtle"
+                    >
+                        Pick the best source for me
+                    </Button>
+                )}
+                {/* Through `cancelFill`, which settles the ledger row: a cancel
+                        that only told lb-bot left the row to the next poll, which
+                        then announced "Couldn't get X" for something the user did. */}
+                {(gap.status === 'downloading' ||
+                    gap.tracks.some((t) => t.state === 'downloading' || t.state === 'queued')) && (
+                    <Button
+                        disabled={!!pending}
+                        loading={pending === 'cancel'}
+                        onClick={() =>
+                            void run('cancel', async () => ({
+                                error: 'lb-bot would not take that request.',
+                                ok: await cancelFill({ isGap: true, key: groupId }),
+                            }))
+                        }
+                        size="compact-sm"
+                        variant="subtle"
+                    >
+                        Cancel
+                    </Button>
+                )}
+            </Group>
+
+            <Group gap="sm" justify="end">
+                {/* Disabled while the search runs, and that is load-bearing: the
+                    POST flips the group to `picking` before it has found
+                    anything, so a second press reads as "nothing happened" and
+                    starts another search that blocks on lb-bot's process-wide
+                    lock. Press once and leave it. Hidden entirely for a
+                    stalled placement (B-011, ruling R10): a fresh search
+                    cannot place a file that already downloaded, so this is
+                    never offered as a Retry for that case. */}
+                {!stalledPlacement && (
+                    <Button
+                        disabled={searching || !!pending}
+                        loading={pending === 'search' || searching}
+                        onClick={handleSearch}
+                        variant={sources.length > 0 || awaitingMatch ? 'default' : 'filled'}
+                    >
+                        {sources.length > 0 || needsFreshSearch || gap.noSourceReason
+                            ? 'Search again'
+                            : 'Find sources'}
+                    </Button>
+                )}
+                {/* Ruling R15: hidden for a stalled placement, same as
+                    "Search again" above — the files already arrived, so a
+                    fetch (of files already on disk) is no more a remedy than
+                    a fresh search is. */}
+                {sources.length > 0 && !stalledPlacement && (
+                    <Button
+                        disabled={!selected || busy || settling || !!pending}
+                        loading={pending === 'fetch' || settling}
+                        onClick={handleFetch}
+                        variant="filled"
+                    >
+                        Fill {progress.wanted || gap.missingCount} tracks from this source
+                    </Button>
+                )}
+            </Group>
+        </Group>
+    );
+
     return (
-        <div className={styles.root}>
-            <Stack className={styles.body} gap="md">
+        <LbModalLayout footer={footer}>
+            <Stack gap="md">
                 <Stack gap="xs">
                     <Group gap="sm">
                         <Text fw={600}>{gap.album || albumName}</Text>
@@ -385,123 +505,15 @@ const GapFillModal = ({ albumName, groupId }: GapFillModalProps) => {
                     />
                 )}
             </Stack>
-
-            <Stack className={styles.footer} gap="sm">
-                <Group gap="sm">
-                    {gap.mp3WouldHelp && !gap.allowMp3 && (
-                        <Button onClick={handleAllowMp3} size="compact-sm" variant="default">
-                            Allow MP3 for this album
-                        </Button>
-                    )}
-                    <Button
-                        disabled={busy || !!pending}
-                        loading={pending === 'rescan'}
-                        onClick={() => void run('rescan', () => rescanGapAlbum(groupId))}
-                        size="compact-sm"
-                        variant="subtle"
-                    >
-                        Re-check album
-                    </Button>
-                    {/* Opens in the browser: Electron's window-open handler hands any
-                    http(s) URL to the OS. Only shown when the hub advertises
-                    lb-bot's address — an older hub doesn't, and a guessed one
-                    would be a button that leads nowhere. */}
-                    {workspaceUrl && (
-                        <Button
-                            onClick={() => window.open(workspaceUrl, '_blank')}
-                            size="compact-sm"
-                            // The only way forward for a pending match, or for
-                            // a stalled placement (B-011) — same reason.
-                            variant={awaitingMatch || stalledPlacement ? 'filled' : 'subtle'}
-                        >
-                            Open in lb-bot
-                        </Button>
-                    )}
-                    {/* Ruling R17: hidden for a stalled placement, same as
-                    "Fill N tracks" and "Search again" — R15 covers every
-                    fetch/fill action for this case, and Auto is one of them:
-                    it still ends by posting a fetch from a ranked source for
-                    files that already downloaded. */}
-                    {sources.length > 0 && !stalledPlacement && (
-                        <Button
-                            disabled={busy || settling || !!pending}
-                            loading={pending === 'auto'}
-                            onClick={handleAuto}
-                            size="compact-sm"
-                            variant="subtle"
-                        >
-                            Pick the best source for me
-                        </Button>
-                    )}
-                    {/* Through `cancelFill`, which settles the ledger row: a cancel
-                        that only told lb-bot left the row to the next poll, which
-                        then announced "Couldn't get X" for something the user did. */}
-                    {(gap.status === 'downloading' ||
-                        gap.tracks.some(
-                            (t) => t.state === 'downloading' || t.state === 'queued',
-                        )) && (
-                        <Button
-                            disabled={!!pending}
-                            loading={pending === 'cancel'}
-                            onClick={() =>
-                                void run('cancel', async () => ({
-                                    error: 'lb-bot would not take that request.',
-                                    ok: await cancelFill({ isGap: true, key: groupId }),
-                                }))
-                            }
-                            size="compact-sm"
-                            variant="subtle"
-                        >
-                            Cancel
-                        </Button>
-                    )}
-                </Group>
-
-                <Group gap="sm" justify="end">
-                    {/* Disabled while the search runs, and that is load-bearing: the
-                    POST flips the group to `picking` before it has found
-                    anything, so a second press reads as "nothing happened" and
-                    starts another search that blocks on lb-bot's process-wide
-                    lock. Press once and leave it. Hidden entirely for a
-                    stalled placement (B-011, ruling R10): a fresh search
-                    cannot place a file that already downloaded, so this is
-                    never offered as a Retry for that case. */}
-                    {!stalledPlacement && (
-                        <Button
-                            disabled={searching || !!pending}
-                            loading={pending === 'search' || searching}
-                            onClick={handleSearch}
-                            variant={sources.length > 0 || awaitingMatch ? 'default' : 'filled'}
-                        >
-                            {sources.length > 0 || needsFreshSearch || gap.noSourceReason
-                                ? 'Search again'
-                                : 'Find sources'}
-                        </Button>
-                    )}
-                    {/* Ruling R15: hidden for a stalled placement, same as
-                    "Search again" above — the files already arrived, so a
-                    fetch (of files already on disk) is no more a remedy than
-                    a fresh search is. */}
-                    {sources.length > 0 && !stalledPlacement && (
-                        <Button
-                            disabled={!selected || busy || settling || !!pending}
-                            loading={pending === 'fetch' || settling}
-                            onClick={handleFetch}
-                            variant="filled"
-                        >
-                            Fill {progress.wanted || gap.missingCount} tracks from this source
-                        </Button>
-                    )}
-                </Group>
-            </Stack>
-        </div>
+        </LbModalLayout>
     );
 };
 
 export const openGapFillModal = (albumName: string, groupId: string, missingCount: number) => {
-    openModal({
-        children: <GapFillModal albumName={albumName} groupId={groupId} />,
-        size: 'lg',
-        title: missingCount ? `Find ${missingCount} missing tracks` : 'Fill missing tracks',
-    });
+    openModal(
+        lbModalSettings(
+            missingCount ? `Find ${missingCount} missing tracks` : 'Fill missing tracks',
+            <GapFillModal albumName={albumName} groupId={groupId} />,
+        ),
+    );
 };
