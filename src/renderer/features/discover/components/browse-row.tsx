@@ -17,6 +17,7 @@ import {
     artistLinkPath,
     externalAlbumPathFor,
 } from '/@/renderer/features/lbbot/utils/external-paths';
+import { useLibraryContextMenu } from '/@/renderer/features/shared/hooks/use-library-context-menu';
 import { AppRoute } from '/@/renderer/router/routes';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
@@ -76,6 +77,7 @@ const BECAUSE: Record<BrowseRowProps['feed'], string> = {
 
 export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
     const navigate = useNavigate();
+    const openMenu = useLibraryContextMenu();
     const { pending, resolve } = useResolveBrowseAlbum();
     const genre = useDiscoverGenre();
     const setGenre = useSetDiscoverGenre();
@@ -189,6 +191,14 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
                     isUnowned={!album.releaseOwned}
                     itemType={LibraryItem.ALBUM}
                     onClick={() => void openAlbum(album)}
+                    onContextMenu={(event) =>
+                        void openMenu(
+                            event,
+                            album.releaseAlbumId
+                                ? { id: album.releaseAlbumId, kind: 'album' }
+                                : null,
+                        )
+                    }
                     subtitle={album.artist}
                     title={album.title}
                 />
@@ -218,6 +228,14 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
                             isUnowned={!artist.owned}
                             itemType={LibraryItem.ALBUM_ARTIST}
                             onClick={() => to && navigate(to)}
+                            onContextMenu={(event) =>
+                                void openMenu(
+                                    event,
+                                    artist.owned && artist.artistId
+                                        ? { id: artist.artistId, kind: 'artist' }
+                                        : null,
+                                )
+                            }
                             subtitle={artist.owned ? 'In your library' : 'Not in your library'}
                             title={artist.name}
                         />
@@ -227,7 +245,7 @@ export const BrowseRow = ({ feed, showGenres, title }: BrowseRowProps) => {
             });
 
         return [...albums, ...artists];
-    }, [data, navigate, openAlbum, pending, switching]);
+    }, [data, navigate, openAlbum, openMenu, pending, switching]);
 
     // A genre the feed answered nothing for. The row would normally render
     // nothing at all, but the chips are the only way back to one that works —

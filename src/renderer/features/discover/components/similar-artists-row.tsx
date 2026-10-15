@@ -10,6 +10,7 @@ import {
     useLbBotSimilarArtists,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { artistLinkPath } from '/@/renderer/features/lbbot/utils/external-paths';
+import { useLibraryContextMenu } from '/@/renderer/features/shared/hooks/use-library-context-menu';
 import { LibraryItem } from '/@/shared/types/domain-types';
 
 /**
@@ -35,6 +36,7 @@ import { LibraryItem } from '/@/shared/types/domain-types';
  */
 export const SimilarArtistsRow = ({ title }: { title: string }) => {
     const navigate = useNavigate();
+    const openMenu = useLibraryContextMenu();
     const { pending: seedPending, seed } = useDiscoverSeedArtist();
     const { data, isLoading } = useLbBotSimilarArtists({
         mbid: seed?.mbid,
@@ -79,6 +81,14 @@ export const SimilarArtistsRow = ({ title }: { title: string }) => {
                             isUnowned={!artist.owned}
                             itemType={LibraryItem.ALBUM_ARTIST}
                             onClick={() => to && navigate(to)}
+                            onContextMenu={(event) =>
+                                void openMenu(
+                                    event,
+                                    artist.owned && artist.artistId
+                                        ? { id: artist.artistId, kind: 'artist' }
+                                        : null,
+                                )
+                            }
                             subtitle={artist.owned ? 'In your library' : 'Not in your library'}
                             title={artist.name}
                         />
@@ -86,7 +96,7 @@ export const SimilarArtistsRow = ({ title }: { title: string }) => {
                     id: artist.mbid || artist.name,
                 };
             }),
-        [artists, navigate],
+        [artists, navigate, openMenu],
     );
 
     return (

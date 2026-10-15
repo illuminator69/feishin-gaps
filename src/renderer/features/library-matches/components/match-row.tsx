@@ -6,6 +6,7 @@ import styles from './match-row.module.css';
 
 import { ItemImage } from '/@/renderer/components/item-image/item-image';
 import { RowLook } from '/@/renderer/features/lbbot/utils/matches-page';
+import { useLibraryContextMenu } from '/@/renderer/features/shared/hooks/use-library-context-menu';
 import { AppRoute } from '/@/renderer/router/routes';
 import { Group } from '/@/shared/components/group/group';
 import { Stack } from '/@/shared/components/stack/stack';
@@ -39,6 +40,7 @@ export const MatchRow = ({
     subtitle?: ReactNode;
     title: string;
 }) => {
+    const openMenu = useLibraryContextMenu();
     const to = look.linkId
         ? itemType === LibraryItem.ALBUM
             ? generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, { albumId: look.linkId })
@@ -57,7 +59,22 @@ export const MatchRow = ({
         />
     );
     return (
-        <div className={styles.row}>
+        <div
+            className={styles.row}
+            // The app's own album or artist menu, for a row whose id is live: the same
+            // rule that makes it a link.
+            onContextMenu={(event) =>
+                void openMenu(
+                    event,
+                    look.linkId
+                        ? {
+                              id: look.linkId,
+                              kind: itemType === LibraryItem.ALBUM ? 'album' : 'artist',
+                          }
+                        : null,
+                )
+            }
+        >
             {to ? <Link to={to}>{image}</Link> : image}
             <Stack className={styles.body} gap={2}>
                 {to ? (

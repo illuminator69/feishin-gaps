@@ -4,6 +4,7 @@ import { useGridCarouselContainerQuery } from '/@/renderer/components/grid-carou
 import { DiscoverRow } from '/@/renderer/features/discover/components/discover-row';
 import { DiscoverTile } from '/@/renderer/features/discover/components/discover-tile';
 import { useLbBotSimilarAlbums } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { useLibraryContextMenu } from '/@/renderer/features/shared/hooks/use-library-context-menu';
 import { AppRoute } from '/@/renderer/router/routes';
 import { LibraryItem } from '/@/shared/types/domain-types';
 
@@ -45,6 +46,7 @@ export const SimilarAlbumsShelf = ({
     rgid,
 }: SimilarAlbumsShelfProps) => {
     const navigate = useNavigate();
+    const openMenu = useLibraryContextMenu();
     const { data, isLoading } = useLbBotSimilarAlbums({ artistMbid, artistName, rgid });
     const albums = data?.albums ?? [];
 
@@ -75,6 +77,12 @@ export const SimilarAlbumsShelf = ({
                                     : generatePath(AppRoute.EXTERNAL_ALBUM_DETAIL, {
                                           rgid: album.rgid,
                                       }),
+                            )
+                        }
+                        onContextMenu={(event) =>
+                            void openMenu(
+                                event,
+                                album.albumId ? { id: album.albumId, kind: 'album' } : null,
                             )
                         }
                         subtitle={album.artist}

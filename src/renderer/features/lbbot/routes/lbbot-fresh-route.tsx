@@ -27,6 +27,7 @@ import {
 import { ForkCardGrid } from '/@/renderer/features/shared/components/fork-card-grid';
 import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
+import { useLibraryContextMenu } from '/@/renderer/features/shared/hooks/use-library-context-menu';
 import { AppRoute } from '/@/renderer/router/routes';
 import { Badge } from '/@/shared/components/badge/badge';
 import { Button } from '/@/shared/components/button/button';
@@ -119,6 +120,7 @@ const weekBucketFor = (releaseDate: string, now: number): string => {
 
 const FreshTile = ({ release }: { release: LbBotFreshRelease }) => {
     const navigate = useNavigate();
+    const openMenu = useLibraryContextMenu();
 
     // Owned artist → the real artist page. Unowned but MusicBrainz-identified →
     // the virtual one, which renders their discography from lb-bot. Neither →
@@ -162,6 +164,12 @@ const FreshTile = ({ release }: { release: LbBotFreshRelease }) => {
             isUnowned={!release.releaseOwned}
             itemType={LibraryItem.ALBUM}
             onClick={albumTo ? () => navigate(albumTo) : undefined}
+            onContextMenu={(event) =>
+                void openMenu(
+                    event,
+                    release.releaseAlbumId ? { id: release.releaseAlbumId, kind: 'album' } : null,
+                )
+            }
             subtitle={release.artist}
             subtitleTo={artistTo}
             title={release.releaseName}

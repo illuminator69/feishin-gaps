@@ -36,6 +36,7 @@ import {
     trackCardView,
     unownedAlbumRelease,
 } from '/@/renderer/features/listening/listening-logic';
+import { useLibraryContextMenu } from '/@/renderer/features/shared/hooks/use-library-context-menu';
 import { AppRoute } from '/@/renderer/router/routes';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
@@ -268,6 +269,8 @@ export const TopLists = ({
     summary: LbBotListeningSummary;
 }) => {
     const go = useGo();
+    const openMenu = useLibraryContextMenu();
+    const openSongMenu = useHistoryContextMenu();
     return (
         <Stack gap="xl">
             <RankingRow
@@ -296,6 +299,14 @@ export const TopLists = ({
                                               ),
                                           )
                                         : undefined
+                                }
+                                onContextMenu={(event) =>
+                                    void openMenu(
+                                        event,
+                                        album.owned && album.ndAlbumId
+                                            ? { id: album.ndAlbumId, kind: 'album' }
+                                            : null,
+                                    )
                                 }
                                 subtitle={view.subtitle}
                                 title={view.title}
@@ -327,6 +338,14 @@ export const TopLists = ({
                                           )
                                         : undefined
                                 }
+                                onContextMenu={(event) =>
+                                    void openMenu(
+                                        event,
+                                        artist.ndArtistId
+                                            ? { id: artist.ndArtistId, kind: 'artist' }
+                                            : null,
+                                    )
+                                }
                                 subtitle={view.subtitle}
                                 title={view.title}
                             />
@@ -355,6 +374,22 @@ export const TopLists = ({
                                               }),
                                           )
                                         : undefined
+                                }
+                                // The song's own menu, resolved in its album as a History
+                                // row's is (recording id, else one exact title).
+                                onContextMenu={(event) =>
+                                    void openSongMenu(event, {
+                                        artist: track.artist,
+                                        artistMbid: '',
+                                        client: '',
+                                        listenedAt: 0,
+                                        ndAlbumId: track.ndAlbumId,
+                                        ndArtistId: '',
+                                        recordingMbid: track.recordingMbid,
+                                        release: '',
+                                        rgid: track.rgid,
+                                        track: track.title,
+                                    })
                                 }
                                 subtitle={view.subtitle}
                                 title={view.title}
@@ -501,6 +536,7 @@ export const UnownedSection = ({
     rows: LbBotUnownedRow[] | undefined;
 }) => {
     const go = useGo();
+    const openMenu = useLibraryContextMenu();
     const shown = read.kind === 'rows' ? (rows ?? []) : [];
     const cards =
         kind === 'album'
@@ -524,6 +560,14 @@ export const UnownedSection = ({
                               );
                               return path ? go(path) : undefined;
                           })()}
+                          onContextMenu={(event) =>
+                              void openMenu(
+                                  event,
+                                  row.artistOwned && row.artistId
+                                      ? { id: row.artistId, kind: 'artist' }
+                                      : null,
+                              )
+                          }
                           subtitle={playsLabel(row.plays)}
                           title={`${i + 1}. ${row.artist}`}
                       />

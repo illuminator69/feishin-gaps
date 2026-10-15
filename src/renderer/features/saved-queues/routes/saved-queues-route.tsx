@@ -29,6 +29,7 @@ import {
 } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Button } from '/@/shared/components/button/button';
+import { ContextMenu } from '/@/shared/components/context-menu/context-menu';
 import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
 import { Group } from '/@/shared/components/group/group';
 import { Spinner } from '/@/shared/components/spinner/spinner';
@@ -148,52 +149,70 @@ const SavedQueueRow = ({ entry, isActive, serverId }: RowProps) => {
         });
     };
 
+    // One list for both menus: the "..." button and a right-click, as on the app's cards.
+    const menu: { label: string; onSelect: () => void }[] = [
+        { label: 'Resume', onSelect: () => void restore(entry) },
+        { label: 'Preview queue', onSelect: openPreview },
+        { label: 'Rename', onSelect: openRename },
+        { label: 'Save as playlist', onSelect: saveAsPlaylist },
+        { label: 'Remove from history', onSelect: doRemove },
+    ];
+
     return (
-        <div className={styles.row}>
-            <button
-                className={styles.rowMain}
-                disabled={isRestoring}
-                onClick={() => void restore(entry)}
-                type="button"
-            >
-                {/* Art of the track this queue resumes on, built from its id with OUR credentials.
-                    Passing a peer's `coverImageUrl` as `src` meant rendering Navic's authed URL
-                    against Navic's server — which is why these were empty placeholders. */}
-                <ItemImage
-                    containerClassName={styles.cover}
-                    id={savedQueueCoverSongId(entry)}
-                    itemType={LibraryItem.SONG}
-                    serverId={serverId}
-                />
-                <div className={styles.meta}>
-                    <Text lineClamp={1} size="md" weight={600}>
-                        {isActive ? '▶ ' : ''}
-                        {savedQueueTitle(entry)}
-                    </Text>
-                    <Text isMuted lineClamp={1} size="sm">
-                        {savedQueueSubtitle(entry, isActive)} ·{' '}
-                        {new Date(entry.updatedAt).toLocaleDateString()}
-                    </Text>
-                    <Text isMuted lineClamp={1} size="xs">
-                        {savedQueueSourceLine(entry)}
-                    </Text>
+        <ContextMenu>
+            <ContextMenu.Target>
+                <div className={styles.row}>
+                    <button
+                        className={styles.rowMain}
+                        disabled={isRestoring}
+                        onClick={() => void restore(entry)}
+                        type="button"
+                    >
+                        {/* Art of the track this queue resumes on, built from its id with OUR credentials.
+                        Passing a peer's `coverImageUrl` as `src` meant rendering Navic's authed URL
+                        against Navic's server — which is why these were empty placeholders. */}
+                        <ItemImage
+                            containerClassName={styles.cover}
+                            id={savedQueueCoverSongId(entry)}
+                            itemType={LibraryItem.SONG}
+                            serverId={serverId}
+                        />
+                        <div className={styles.meta}>
+                            <Text lineClamp={1} size="md" weight={600}>
+                                {isActive ? '▶ ' : ''}
+                                {savedQueueTitle(entry)}
+                            </Text>
+                            <Text isMuted lineClamp={1} size="sm">
+                                {savedQueueSubtitle(entry, isActive)} ·{' '}
+                                {new Date(entry.updatedAt).toLocaleDateString()}
+                            </Text>
+                            <Text isMuted lineClamp={1} size="xs">
+                                {savedQueueSourceLine(entry)}
+                            </Text>
+                        </div>
+                    </button>
+                    <DropdownMenu>
+                        <DropdownMenu.Target>
+                            <ActionIcon icon="ellipsisHorizontal" size="sm" variant="subtle" />
+                        </DropdownMenu.Target>
+                        <DropdownMenu.Dropdown>
+                            {menu.map((item) => (
+                                <DropdownMenu.Item key={item.label} onClick={item.onSelect}>
+                                    {item.label}
+                                </DropdownMenu.Item>
+                            ))}
+                        </DropdownMenu.Dropdown>
+                    </DropdownMenu>
                 </div>
-            </button>
-            <DropdownMenu>
-                <DropdownMenu.Target>
-                    <ActionIcon icon="ellipsisHorizontal" size="sm" variant="subtle" />
-                </DropdownMenu.Target>
-                <DropdownMenu.Dropdown>
-                    <DropdownMenu.Item onClick={() => void restore(entry)}>
-                        Resume
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item onClick={openPreview}>Preview queue</DropdownMenu.Item>
-                    <DropdownMenu.Item onClick={openRename}>Rename</DropdownMenu.Item>
-                    <DropdownMenu.Item onClick={saveAsPlaylist}>Save as playlist</DropdownMenu.Item>
-                    <DropdownMenu.Item onClick={doRemove}>Remove from history</DropdownMenu.Item>
-                </DropdownMenu.Dropdown>
-            </DropdownMenu>
-        </div>
+            </ContextMenu.Target>
+            <ContextMenu.Content>
+                {menu.map((item) => (
+                    <ContextMenu.Item key={item.label} onSelect={item.onSelect}>
+                        {item.label}
+                    </ContextMenu.Item>
+                ))}
+            </ContextMenu.Content>
+        </ContextMenu>
     );
 };
 

@@ -8,6 +8,7 @@ import { DiscoverTile } from './discover-tile';
 import { AcquireButton } from '/@/renderer/features/lbbot/components/acquire-button';
 import { useLbBotFreshReleases } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { externalAlbumPath } from '/@/renderer/features/lbbot/utils/external-paths';
+import { useLibraryContextMenu } from '/@/renderer/features/shared/hooks/use-library-context-menu';
 import { AppRoute } from '/@/renderer/router/routes';
 import { LibraryItem } from '/@/shared/types/domain-types';
 
@@ -23,6 +24,7 @@ import { LibraryItem } from '/@/shared/types/domain-types';
  *  route docstring. */
 export const FreshRow = ({ title }: { title: string }) => {
     const navigate = useNavigate();
+    const openMenu = useLibraryContextMenu();
     const { data, isLoading } = useLbBotFreshReleases(30);
 
     const releases = useMemo(
@@ -66,13 +68,21 @@ export const FreshRow = ({ title }: { title: string }) => {
                                     : externalAlbumPath(release),
                             )
                         }
+                        onContextMenu={(event) =>
+                            void openMenu(
+                                event,
+                                release.releaseAlbumId
+                                    ? { id: release.releaseAlbumId, kind: 'album' }
+                                    : null,
+                            )
+                        }
                         subtitle={release.artist}
                         title={release.releaseName}
                     />
                 ),
                 id: `${release.releaseGroupMbid || release.releaseMbid}-${release.artist}`,
             })),
-        [navigate, releases],
+        [navigate, openMenu, releases],
     );
 
     return (

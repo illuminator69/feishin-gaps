@@ -14,6 +14,7 @@ import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-e
 import { isKnownMixKind, Mix, MixKind, useHubConnected, useMixes } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Button } from '/@/shared/components/button/button';
+import { ContextMenu } from '/@/shared/components/context-menu/context-menu';
 import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
 import { Group } from '/@/shared/components/group/group';
 import { closeAllModals, openModal } from '/@/shared/components/modal/modal';
@@ -90,81 +91,99 @@ const MixRow = ({ mix }: { mix: Mix }) => {
     const busy = playingId === mix.id;
     const playable = isKnownMixKind(mix.kind);
 
+    // One list for both menus: the "..." button and a right-click, as on the app's cards.
+    const menu: { disabled?: boolean; label: string; onSelect: () => void }[] = [
+        { disabled: !playable, label: 'Play', onSelect: () => void play(mix) },
+        // Run the recipe and show the result without touching playback. Until this
+        // existed the only way to find out what a mix contained was to let it
+        // replace what you were listening to.
+        {
+            disabled: !playable,
+            label: 'Preview',
+            onSelect: () =>
+                openModal(
+                    lbModalSettings(
+                        i18n.t('naviConnect.mixPreview.title', { name: mix.name }),
+                        <MixPreview mix={mix} />,
+                        'lg',
+                    ),
+                ),
+        },
+        {
+            label: 'Rename',
+            onSelect: () =>
+                openModal({
+                    children: (
+                        <RenameMixForm mix={mix} onSubmit={(name) => renameMix(mix.id, name)} />
+                    ),
+                    title: 'Rename mix',
+                }),
+        },
+        { label: 'Delete', onSelect: () => deleteMix(mix.id) },
+    ];
+
     return (
-        <div className={styles.row}>
-            <button
-                className={styles.rowMain}
-                disabled={busy || !playable}
-                onClick={() => void play(mix)}
-                type="button"
-            >
-                {/* The same renderer the Discover tile uses, so the two cannot
-                    come to disagree about what a mix with no cover looks like. */}
-                <MixArtwork className={styles.art} mix={mix} />
-                <div className={styles.meta}>
-                    <Text lineClamp={1} size="md" weight={600}>
-                        {mix.name}
-                    </Text>
-                    <Text isMuted lineClamp={1} size="sm">
-                        {kindLine(mix)} · {mix.count} tracks
-                    </Text>
-                    {/* Said plainly on every row, because it is the property
-                        that distinguishes this page from Saved Queues and it is
-                        not otherwise visible until the second play. */}
-                    <Text isMuted lineClamp={1} size="xs">
-                        {!playable
-                            ? 'Made with a newer version of navi-connect — this build cannot build it'
-                            : busy
-                              ? 'Building…'
-                              : 'Rebuilt fresh each time you play it'}
-                    </Text>
+        <ContextMenu>
+            <ContextMenu.Target>
+                <div className={styles.row}>
+                    <button
+                        className={styles.rowMain}
+                        disabled={busy || !playable}
+                        onClick={() => void play(mix)}
+                        type="button"
+                    >
+                        {/* The same renderer the Discover tile uses, so the two cannot
+                        come to disagree about what a mix with no cover looks like. */}
+                        <MixArtwork className={styles.art} mix={mix} />
+                        <div className={styles.meta}>
+                            <Text lineClamp={1} size="md" weight={600}>
+                                {mix.name}
+                            </Text>
+                            <Text isMuted lineClamp={1} size="sm">
+                                {kindLine(mix)} · {mix.count} tracks
+                            </Text>
+                            {/* Said plainly on every row, because it is the property
+                            that distinguishes this page from Saved Queues and it is
+                            not otherwise visible until the second play. */}
+                            <Text isMuted lineClamp={1} size="xs">
+                                {!playable
+                                    ? 'Made with a newer version of navi-connect — this build cannot build it'
+                                    : busy
+                                      ? 'Building…'
+                                      : 'Rebuilt fresh each time you play it'}
+                            </Text>
+                        </div>
+                    </button>
+                    <DropdownMenu>
+                        <DropdownMenu.Target>
+                            <ActionIcon icon="ellipsisHorizontal" size="sm" variant="subtle" />
+                        </DropdownMenu.Target>
+                        <DropdownMenu.Dropdown>
+                            {menu.map((item) => (
+                                <DropdownMenu.Item
+                                    disabled={item.disabled}
+                                    key={item.label}
+                                    onClick={item.onSelect}
+                                >
+                                    {item.label}
+                                </DropdownMenu.Item>
+                            ))}
+                        </DropdownMenu.Dropdown>
+                    </DropdownMenu>
                 </div>
-            </button>
-            <DropdownMenu>
-                <DropdownMenu.Target>
-                    <ActionIcon icon="ellipsisHorizontal" size="sm" variant="subtle" />
-                </DropdownMenu.Target>
-                <DropdownMenu.Dropdown>
-                    <DropdownMenu.Item disabled={!playable} onClick={() => void play(mix)}>
-                        Play
-                    </DropdownMenu.Item>
-                    {/* Run the recipe and show the result without touching
-                        playback. Until this existed the only way to find out
-                        what a mix contained was to let it replace what you were
-                        listening to. */}
-                    <DropdownMenu.Item
-                        disabled={!playable}
-                        onClick={() =>
-                            openModal(
-                                lbModalSettings(
-                                    i18n.t('naviConnect.mixPreview.title', { name: mix.name }),
-                                    <MixPreview mix={mix} />,
-                                    'lg',
-                                ),
-                            )
-                        }
+            </ContextMenu.Target>
+            <ContextMenu.Content>
+                {menu.map((item) => (
+                    <ContextMenu.Item
+                        disabled={item.disabled}
+                        key={item.label}
+                        onSelect={item.onSelect}
                     >
-                        Preview
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item
-                        onClick={() =>
-                            openModal({
-                                children: (
-                                    <RenameMixForm
-                                        mix={mix}
-                                        onSubmit={(name) => renameMix(mix.id, name)}
-                                    />
-                                ),
-                                title: 'Rename mix',
-                            })
-                        }
-                    >
-                        Rename
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item onClick={() => deleteMix(mix.id)}>Delete</DropdownMenu.Item>
-                </DropdownMenu.Dropdown>
-            </DropdownMenu>
-        </div>
+                        {item.label}
+                    </ContextMenu.Item>
+                ))}
+            </ContextMenu.Content>
+        </ContextMenu>
     );
 };
 

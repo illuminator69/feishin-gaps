@@ -6,6 +6,7 @@ import { DiscoverRow } from './discover-row';
 import { DiscoverTile } from './discover-tile';
 
 import { playlistsQueries } from '/@/renderer/features/playlists/api/playlists-api';
+import { useLibraryContextMenu } from '/@/renderer/features/shared/hooks/use-library-context-menu';
 import { AppRoute } from '/@/renderer/router/routes';
 import { useCurrentServerId } from '/@/renderer/store';
 import { LibraryItem, PlaylistListSort, SortOrder } from '/@/shared/types/domain-types';
@@ -40,6 +41,7 @@ export const LISTENBRAINZ_PREFIX = 'ListenBrainz ';
 
 export const ListenBrainzRow = ({ title }: { title: string }) => {
     const navigate = useNavigate();
+    const openMenu = useLibraryContextMenu();
     const serverId = useCurrentServerId();
 
     const { data, isLoading } = useQuery(
@@ -74,6 +76,9 @@ export const ListenBrainzRow = ({ title }: { title: string }) => {
                                 }),
                             )
                         }
+                        onContextMenu={(event) =>
+                            void openMenu(event, { id: playlist.id, kind: 'playlist' })
+                        }
                         subtitle={playlist.description ?? undefined}
                         // "Daily Jams" rather than "ListenBrainz Daily Jams":
                         // the row header already says where they come from, and
@@ -83,7 +88,7 @@ export const ListenBrainzRow = ({ title }: { title: string }) => {
                 ),
                 id: playlist.id,
             })),
-        [navigate, playlists],
+        [navigate, openMenu, playlists],
     );
 
     return (

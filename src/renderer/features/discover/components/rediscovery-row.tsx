@@ -7,6 +7,7 @@ import { DiscoverTile } from './discover-tile';
 
 import { playlistsQueries } from '/@/renderer/features/playlists/api/playlists-api';
 import { REDISCOVERY_PREFIX } from '/@/renderer/features/playlists/rediscovery-playlists';
+import { useLibraryContextMenu } from '/@/renderer/features/shared/hooks/use-library-context-menu';
 import { AppRoute } from '/@/renderer/router/routes';
 import { useCurrentServerId } from '/@/renderer/store';
 import { LibraryItem, PlaylistListSort, SortOrder } from '/@/shared/types/domain-types';
@@ -27,6 +28,7 @@ import { LibraryItem, PlaylistListSort, SortOrder } from '/@/shared/types/domain
  */
 export const RediscoveryRow = ({ title }: { title: string }) => {
     const navigate = useNavigate();
+    const openMenu = useLibraryContextMenu();
     const serverId = useCurrentServerId();
 
     const { data, isLoading } = useQuery(
@@ -61,6 +63,9 @@ export const RediscoveryRow = ({ title }: { title: string }) => {
                                 }),
                             )
                         }
+                        onContextMenu={(event) =>
+                            void openMenu(event, { id: playlist.id, kind: 'playlist' })
+                        }
                         // The definition's own one-line description, written
                         // into the Navidrome playlist comment when it was
                         // created and never surfaced anywhere until now. It is a
@@ -71,7 +76,7 @@ export const RediscoveryRow = ({ title }: { title: string }) => {
                 ),
                 id: playlist.id,
             })),
-        [navigate, playlists],
+        [navigate, openMenu, playlists],
     );
 
     return (
