@@ -24,11 +24,11 @@
 }
 
 .track:nth-child(odd) {
-    background: var(--theme-colors-surface-hover, rgb(255 255 255 / 3%));
+    background: alpha(var(--theme-colors-foreground), 0.03);
 }
 
 .current {
-    background: var(--theme-colors-primary-container, rgb(255 255 255 / 8%));
+    background: alpha(var(--theme-colors-primary), 0.15);
 }
 
 .index {

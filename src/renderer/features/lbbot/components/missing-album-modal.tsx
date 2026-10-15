@@ -361,40 +361,27 @@ export const MissingAlbumPanel = ({ artistName, artistTo, release }: MissingAlbu
                             </Stack>
                         )}
 
-                        {/* Both bars scroll sideways. A release-group with a
-                            dozen pressings otherwise rendered a control wider
-                            than the modal, with the editions past the edge
-                            unreachable — you could see that a Deluxe existed and
-                            not select it. */}
                         {variants.length > 1 && (
-                            <div className={styles['edition-bar']}>
-                                <SegmentedControl
-                                    data={variants.map((v, i) => ({
-                                        label: [v.title, v.disambiguation]
-                                            .filter(Boolean)
-                                            .join(' · '),
-                                        value: String(i),
-                                    }))}
-                                    onChange={(value) => {
-                                        setVariantIndex(Number(value));
-                                        setEditionIndex(0);
-                                    }}
-                                    value={String(variantIndex)}
-                                />
-                            </div>
+                            <EditionPicker
+                                label="Version"
+                                onChange={(index) => {
+                                    setVariantIndex(index);
+                                    setEditionIndex(0);
+                                }}
+                                options={variants.map((v) =>
+                                    [v.title, v.disambiguation].filter(Boolean).join(' · '),
+                                )}
+                                value={variantIndex}
+                            />
                         )}
 
                         {editions.length > 1 && (
-                            <div className={styles['edition-bar']}>
-                                <SegmentedControl
-                                    data={editions.map((e, i) => ({
-                                        label: e.label,
-                                        value: String(i),
-                                    }))}
-                                    onChange={(value) => setEditionIndex(Number(value))}
-                                    value={String(editionIndex)}
-                                />
-                            </div>
+                            <EditionPicker
+                                label="Edition"
+                                onChange={setEditionIndex}
+                                options={editions.map((e) => e.label)}
+                                value={editionIndex}
+                            />
                         )}
 
                         {tracklistQuery.isLoading ? (
@@ -624,4 +611,42 @@ export const openMissingAlbumModal = (artistName: string, release: LbBotRelease)
         size: 'lg',
         title: release.title,
     });
+};
+
+/**
+ * A choice between a release's versions or editions. Up to three fit side by side as the
+ * app's segmented control across the dialog; more become the app's Select. Both used to be a
+ * segmented control in a sideways-scrolling bar, which showed a scrollbar whether or not there
+ * was anything past the edge and hid an edition you could not see existed.
+ */
+const EditionPicker = ({
+    label,
+    onChange,
+    options,
+    value,
+}: {
+    label: string;
+    onChange: (index: number) => void;
+    options: string[];
+    value: number;
+}) => {
+    const data = options.map((option, index) => ({ label: option, value: String(index) }));
+    if (options.length <= 3) {
+        return (
+            <SegmentedControl
+                data={data}
+                fullWidth
+                onChange={(next) => onChange(Number(next))}
+                value={String(value)}
+            />
+        );
+    }
+    return (
+        <Select
+            aria-label={label}
+            data={data}
+            onChange={(next) => next !== null && onChange(Number(next))}
+            value={String(value)}
+        />
+    );
 };

@@ -22,7 +22,7 @@
 
 .head {
     display: grid;
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
     gap: var(--theme-spacing-sm);
     align-items: start;
     width: 100%;
@@ -51,7 +51,7 @@
 
 .file {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: var(--theme-spacing-sm);
     align-items: baseline;
 }

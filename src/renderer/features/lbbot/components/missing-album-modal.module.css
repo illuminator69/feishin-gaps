@@ -20,7 +20,7 @@
 
 .header {
     display: grid;
-    grid-template-columns: 96px 1fr;
+    grid-template-columns: 96px minmax(0, 1fr);
     gap: var(--theme-spacing-md);
     align-items: start;
 }
@@ -34,20 +34,8 @@
 
 .track {
     display: grid;
-    grid-template-columns: 2rem 1fr;
+    grid-template-columns: 2rem minmax(0, 1fr) auto;
     gap: var(--theme-spacing-sm);
     align-items: baseline;
 }
 
-/* The variant/edition bars scroll rather than overflow: a release-group with a
-   dozen pressings is wider than the modal, and an edition past the edge was one
-   you could see existed and could not choose. */
-.edition-bar {
-    max-width: 100%;
-    overflow-x: auto;
-}
-
-.edition-bar > * {
-    width: max-content;
-    min-width: 100%;
-}

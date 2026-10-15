@@ -25,7 +25,7 @@
 
 .track {
     display: grid;
-    grid-template-columns: 2rem 1fr auto;
+    grid-template-columns: 2rem minmax(0, 1fr) auto;
     gap: var(--theme-spacing-sm);
     align-items: baseline;
 }
@@ -33,7 +33,7 @@
 /* B-071: a multi-disc gap numbers its rows "2-1". The 2rem column holds two
    digits; this one holds "10-12". */
 .with-disc {
-    grid-template-columns: 3rem 1fr auto;
+    grid-template-columns: 3rem minmax(0, 1fr) auto;
 }
 
 .title {

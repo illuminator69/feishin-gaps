@@ -12,6 +12,6 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     border: 1px solid alpha(var(--theme-colors-foreground), 0.35);
-    border-radius: var(--theme-border-radius-sm, 4px);
+    border-radius: var(--theme-radius-sm);
     opacity: 0.75;
 }

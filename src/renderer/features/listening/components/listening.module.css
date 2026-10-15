@@ -83,7 +83,7 @@
 
 .genre {
     display: grid;
-    grid-template-columns: 1.6rem 1fr auto;
+    grid-template-columns: 1.6rem minmax(0, 1fr) auto;
     gap: var(--theme-spacing-sm);
     align-items: baseline;
     padding: 2px 0;
@@ -96,7 +96,7 @@
 
 .entry {
     display: grid;
-    grid-template-columns: 44px 1fr auto;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
     gap: var(--theme-spacing-md);
     align-items: center;
     padding: var(--theme-spacing-xs) var(--theme-spacing-sm);
@@ -123,7 +123,7 @@
 
 .hours {
     display: grid;
-    grid-template-columns: repeat(24, 1fr);
+    grid-template-columns: repeat(24, minmax(0, 1fr));
     gap: 3px;
     align-items: end;
     height: 90px;
@@ -137,7 +137,7 @@
 
 .hour-labels {
     display: grid;
-    grid-template-columns: repeat(24, 1fr);
+    grid-template-columns: repeat(24, minmax(0, 1fr));
     gap: 3px;
     text-align: center;
 }

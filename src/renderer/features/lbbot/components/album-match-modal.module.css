@@ -24,7 +24,7 @@
 
 .edition {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: var(--theme-spacing-sm);
     align-items: center;
     padding: var(--theme-spacing-xs) var(--theme-spacing-xs);
@@ -44,7 +44,7 @@
 
 .table {
     display: grid;
-    grid-template-columns: auto 1fr auto 1fr;
+    grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
     gap: 2px var(--theme-spacing-sm);
     align-items: baseline;
     font-size: var(--theme-font-size-sm);

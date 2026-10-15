@@ -4,7 +4,7 @@
     align-items: center;
     padding: 0.5rem;
     border: 1px solid alpha(var(--theme-colors-border), 0.4);
-    border-radius: var(--theme-border-radius-md, 8px);
+    border-radius: var(--theme-radius-md);
 }
 
 .row:hover {
@@ -16,7 +16,7 @@
     width: 56px;
     height: 56px;
     object-fit: cover;
-    border-radius: var(--theme-border-radius-sm, 4px);
+    border-radius: var(--theme-radius-sm);
 }
 
 .body {
