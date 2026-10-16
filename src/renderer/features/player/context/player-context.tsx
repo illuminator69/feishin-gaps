@@ -71,6 +71,10 @@ export interface PlayerContext {
         // before calling this, where the confirm modal this would otherwise
         // open has no way to reach whoever actually needs to answer it.
         skipConfirmation?: boolean,
+        // navi-connect (I-040): runs when the change really happens, i.e. after a
+        // "Discard the current queue?" was confirmed, never when it was cancelled.
+        // A radio arms its station binding and names its session here.
+        onApply?: () => void,
     ) => void;
     addToQueueByFetch: (
         serverId: string,
@@ -368,6 +372,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             playSongId?: string,
             contextPlaylistId?: null | string,
             skipConfirmation?: boolean,
+            onApply?: () => void,
         ) => {
             const filters = useSettingsStore.getState().playback.filters;
             let filteredData = filterSongsByPlayerFilters(data, filters);
@@ -379,6 +384,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             }
 
             const addToQueue = () => {
+                onApply?.();
                 announceNewQueueSession(type);
 
                 // When playback is on another navi-connect device, route to it

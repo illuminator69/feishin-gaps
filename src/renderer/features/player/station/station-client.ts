@@ -179,8 +179,14 @@ export const buildStationQueue = async (args: {
 };
 
 /**
- * Play a station's queue: arm its binding, announce the new session (which binds it), replace the
- * queue. The `setQueue` this causes names the station, through hub or locally.
+ * Play a station's queue: replace the queue, and when the replace really happens arm its binding
+ * and announce the new session (which binds it). The `setQueue` this causes names the station,
+ * through hub or locally.
+ *
+ * Both wait for the replace (`onApply`), not for this call: with "Discard the current queue?"
+ * up, an announcement made here went stale after 4 s, so the confirmed replace began a second,
+ * nameless session that unbound the radio; and a cancelled one left the queue still playing
+ * bound to the radio it had declined.
  */
 export const playStationQueue = (
     queue: StationQueue,
@@ -188,9 +194,10 @@ export const playStationQueue = (
     player: Pick<PlayerContext, 'addToQueueByData'>,
     skipConfirmation?: boolean,
 ): void => {
-    useStationStore.getState().actions.arm(queue.binding);
-    beginQueueSession('radio', sessionName);
-    player.addToQueueByData(queue.songs, Play.NOW, undefined, undefined, skipConfirmation);
+    player.addToQueueByData(queue.songs, Play.NOW, undefined, undefined, skipConfirmation, () => {
+        useStationStore.getState().actions.arm(queue.binding);
+        beginQueueSession('radio', sessionName);
+    });
 };
 
 /** Track, album or artist radio, as a station. False: run the caller's own radio. */
