@@ -17,6 +17,7 @@ import {
     shownVolume,
 } from '/@/renderer/features/hub/utils/act-pins';
 import { commandedVolume, VolumeCommand } from '/@/renderer/features/hub/utils/volume-hold';
+import { stationIdForPublish } from '/@/renderer/features/player/station/station-store';
 import { isPreviewId, previewHubTrack } from '/@/renderer/features/preview/preview-track';
 import { useHubStore, useSettingsStore } from '/@/renderer/store';
 import { AddToQueueType } from '/@/renderer/store';
@@ -324,6 +325,9 @@ export const enqueueToRemote = async (
             serverId,
             sourceKind: resume?.sourceKind,
             sourceName: resume?.sourceName,
+            // I-040: a radio started here binds the session to its station; any other new
+            // queue was unbound when its session began, and a setQueue without one unbinds.
+            stationId: stationIdForPublish(),
             tracks,
         });
     } else {

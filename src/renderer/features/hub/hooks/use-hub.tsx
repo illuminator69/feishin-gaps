@@ -57,6 +57,11 @@ import {
 } from '/@/renderer/features/lbbot/index-mirror/index-mirror';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
 import { withdrawStartupSeek } from '/@/renderer/features/player/hooks/use-queue-restore';
+import { parseStationCursor } from '/@/renderer/features/player/station/station-logic';
+import {
+    stationIdForPublish,
+    useStationStore,
+} from '/@/renderer/features/player/station/station-store';
 import {
     consumeQueueSession,
     findMatchingSavedQueueId,
@@ -202,6 +207,10 @@ const savedQueueToHubRecord = (q: SavedQueue): Record<string, unknown> => ({
 });
 
 const hub = isElectron() ? window.api.hub : null;
+
+/** The session's shuffled play order (PROTOCOL §4.2), or null for queue order. */
+const sessionOrder = (order: unknown): null | number[] =>
+    Array.isArray(order) && order.every((n) => typeof n === 'number') ? (order as number[]) : null;
 
 /**
  * What to tell the user about a hub-side failure: an `error` frame, or the `ack` of an act of
@@ -776,6 +785,8 @@ export const useHub = () => {
                 serverId: serverIdRef.current ?? undefined,
                 sourceKind: savedQueueKind.current,
                 sourceName: savedQueueName.current,
+                // I-040: every publication of a station's queue names it; one without unbinds.
+                stationId: stationIdForPublish(),
                 tracks,
             });
         })();
@@ -828,6 +839,7 @@ export const useHub = () => {
                 serverId: serverIdRef.current ?? undefined,
                 sourceKind: savedQueueKind.current,
                 sourceName: savedQueueName.current,
+                stationId: stationIdForPublish(),
                 tracks,
             });
         })();
@@ -1456,6 +1468,7 @@ export const useHub = () => {
                         : [],
                     myDeviceId: myId.current,
                     remoteIsPlaying: msg.session?.isPlaying ?? false,
+                    remoteOrder: sessionOrder(msg.session?.order),
                     remotePositionAt: Date.now(),
                     remotePositionMs: msg.session?.positionMs ?? 0,
                     remoteQueue: msg.session?.queue ?? [],
@@ -1477,6 +1490,17 @@ export const useHub = () => {
                 volumeReport.current = NO_LEVEL_REPORT;
                 volumeToldAt.current = null;
                 reportVolume();
+                // I-040: the station the session is bound to, with its cursor, so this device
+                // knows `after` without a round trip. Only a hub with `station` sends either.
+                {
+                    const speaksStations = useHubStore.getState().features.includes('station');
+                    useStationStore
+                        .getState()
+                        .actions.welcome(
+                            speaksStations ? parseStationCursor(msg.station) : null,
+                            speaksStations ? (msg.session?.stationId ?? null) : undefined,
+                        );
+                }
                 reconcileRemoteActive();
                 // Reconcile saved-queue history. Capture our LOCAL (possibly offline-
                 // accumulated) rows FIRST, then adopt the hub's authoritative list (a
@@ -1523,6 +1547,7 @@ export const useHub = () => {
                     // I-031: a position pinned on the track this frame leaves is dropped.
                     actPins: pinsAfterFrame(msg.index ?? 0, msg.queue ?? []),
                     remoteIsPlaying: msg.isPlaying ?? false,
+                    remoteOrder: sessionOrder(msg.order),
                     remotePositionAt: Date.now(),
                     remotePositionMs: msg.positionMs ?? 0,
                     remoteQueue: msg.queue ?? [],
@@ -1540,6 +1565,10 @@ export const useHub = () => {
                     ),
                 });
                 followSavedQueueCursor();
+                // I-040: which station the live queue continues as (absent: a hub without it).
+                if (useHubStore.getState().features.includes('station')) {
+                    useStationStore.getState().actions.sessionStationId(msg.stationId ?? null);
+                }
                 reconcileRemoteActive();
                 // Active device may have just dropped (activeId → null): adopt the
                 // last-known queue locally, paused, so we're not stranded mirroring it.
@@ -1611,6 +1640,11 @@ export const useHub = () => {
                     // throttled: bulk builds send a frame every ~2 s.
                     refreshLbBotOverrides(3000);
                 }
+            } else if (msg.t === 'station') {
+                // I-040: a station's cursor, steering, character or exhaustion moved, maybe
+                // because another device topped it up: that is how this one learns `after`.
+                const cursor = parseStationCursor(msg);
+                if (cursor) useStationStore.getState().actions.stationFrame(cursor);
             } else if (msg.t === 'do') {
                 if (msg.cmd === 'setVolume') applyVolume(msg.level);
                 else void runDirective(msg);
@@ -1632,6 +1666,8 @@ export const useHub = () => {
                 // socket means there are none — the alternative is a list of
                 // cards whose every button silently does nothing.
                 useMixesStore.getState().actions.reset();
+                // I-040: the station engine is the hub's; it is asked again on the next welcome.
+                useStationStore.getState().actions.connectionLost();
                 // lb-bot is reached through the hub, so with the socket gone it
                 // is unreachable until the next welcome says otherwise.
                 markLbBotUnreachable();

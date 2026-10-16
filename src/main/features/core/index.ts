@@ -11,6 +11,7 @@ import './player';
 import './preview';
 import './remote';
 import './settings';
+import './station';
 import './discord-rpc';
 import './tag-editor';
 import './visualizer';

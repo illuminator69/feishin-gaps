@@ -30,6 +30,10 @@ let pending: null | SourceHint = null;
 // restarted with no idea what to call it — see restartQueueSession.
 let newSessionPendingAt = 0;
 
+// navi-connect (I-040): the station store listens here. A new listening session is the one
+// thing that ends a queue's station binding (a radio arms its own just before announcing).
+const sessionBeginListeners = new Set<() => void>();
+
 /**
  * A play call site announces that it is about to start a NEW listening session, and what to call
  * it. Editing an existing queue must NOT call this.
@@ -37,6 +41,13 @@ let newSessionPendingAt = 0;
 export const beginQueueSession = (kind: SavedQueueKind, name?: string, id?: string): void => {
     pending = { at: Date.now(), id, kind, name };
     newSessionPendingAt = pending.at;
+    for (const listener of sessionBeginListeners) listener();
+};
+
+/** Subscribe to [beginQueueSession]; returns an unsubscribe. */
+export const onQueueSessionBegin = (listener: () => void): (() => void) => {
+    sessionBeginListeners.add(listener);
+    return () => sessionBeginListeners.delete(listener);
 };
 
 /** @deprecated Prefer [beginQueueSession] — kept as the historical name of the same call. */

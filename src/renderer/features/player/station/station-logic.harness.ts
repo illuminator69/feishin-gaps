@@ -1,0 +1,597 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import type { StationAnswer, StationResult } from '../../../../shared/types/station-types.ts';
+import type { AutoplayInput, StationBinding, StationCursor } from './station-logic.ts';
+
+import {
+    applySessionStationId,
+    applyStationFrame,
+    bindingFromCursor,
+    characterFromAny,
+    continueSeedIds,
+    decideAutoplay,
+    EXCLUDE_MAX,
+    idsInPlayOrder,
+    LOCAL_BINDING_HOLD_MS,
+    LOOKAHEAD_MIN,
+    NEXT_COUNT,
+    outcomeOf,
+    parseStationCursor,
+    remainingLocal,
+    remainingRemote,
+    spreadPick,
+    stationMode,
+} from './station-logic.ts';
+
+/**
+ * I-040:  node --test src/renderer/features/player/station/station-logic.harness.ts
+ *
+ * The autoplay decision and what each hub answer means (PROTOCOL §18). `decideAutoplay` is asked
+ * every time the queue, the current track or the binding changes; `outcomeOf` reads the answer.
+ * The two-device cases replay the hub's `after` arbitration with a tiny fake hub that implements
+ * §18.1's rule, so what is asserted is this client's half of it: which `after` it sends and what
+ * it does with `servedElsewhere`.
+ */
+
+const bound = (over: Partial<StationBinding> = {}): StationBinding => ({
+    character: 'balanced',
+    engine: 'tier2',
+    exhausted: false,
+    name: 'Cinnamon Girl radio',
+    rev: 0,
+    seed: { ids: ['seed'], kind: 'track', name: 'Cinnamon Girl' },
+    seq: 20,
+    stationId: 'st_1',
+    ...over,
+});
+
+const input = (over: Partial<AutoplayInput> = {}): AutoplayInput => ({
+    bound: null,
+    driving: true,
+    enabled: true,
+    inFlight: false,
+    isPlaying: true,
+    mode: 'stations',
+    queueIds: ['a', 'b', 'c'],
+    remaining: 1,
+    savedQueueId: 'q_1',
+    seedIds: ['a', 'b', 'c'],
+    ...over,
+});
+
+const answer = (over: Partial<StationAnswer> = {}): StationAnswer => ({
+    character: 'balanced',
+    engine: 'tier2',
+    exhausted: false,
+    name: '',
+    partial: false,
+    rev: 0,
+    seed: null,
+    seq: 25,
+    servedElsewhere: false,
+    stationId: 'st_1',
+    tracks: [1, 2, 3, 4, 5].map((n) => ({ album: '', artist: '', id: `t${n}`, title: '' })),
+    ...over,
+});
+
+const ok = (data: StationAnswer): StationResult<StationAnswer> => ({
+    data,
+    error: '',
+    ok: true,
+    status: 200,
+});
+
+const failure = (status: number, extra: Partial<StationResult<StationAnswer>> = {}) =>
+    ({ data: null, error: 'x', ok: false, status, ...extra }) as StationResult<StationAnswer>;
+
+// --- When to ask ------------------------------------------------------------------------------
+
+test('fewer than two left in play order on a station queue: next, after its seq, for five', () => {
+    const decision = decideAutoplay(input({ bound: bound(), remaining: 1 }), 'balanced');
+    assert.equal(decision.kind, 'next');
+    if (decision.kind !== 'next') return;
+    assert.equal(decision.body.after, 20);
+    assert.equal(decision.body.count, NEXT_COUNT);
+    assert.equal(decision.body.stationId, 'st_1');
+    assert.deepEqual(decision.body.exclude, ['a', 'b', 'c']);
+});
+
+test('the last track playing (none left) asks too', () => {
+    assert.equal(decideAutoplay(input({ bound: bound(), remaining: 0 }), 'close').kind, 'next');
+});
+
+test('two or more left: nothing is asked', () => {
+    const decision = decideAutoplay(input({ bound: bound(), remaining: LOOKAHEAD_MIN }), 'close');
+    assert.deepEqual(decision, { kind: 'wait', reason: 'enough' });
+});
+
+test('a queue that is not a station: start from the tracks just played, bound to the session', () => {
+    const decision = decideAutoplay(input({ seedIds: ['x', 'y', 'z'] }), 'explore');
+    assert.equal(decision.kind, 'start');
+    if (decision.kind !== 'start') return;
+    assert.deepEqual(decision.body.seed, { ids: ['x', 'y', 'z'], kind: 'tracks' });
+    assert.equal(decision.body.bindSession, 'q_1');
+    assert.equal(decision.body.character, 'explore');
+    assert.equal(decision.body.count, NEXT_COUNT);
+});
+
+test('no saved-queue id: start without bindSession (the setQueue that follows binds it)', () => {
+    const decision = decideAutoplay(input({ savedQueueId: null }), 'balanced');
+    assert.equal(decision.kind, 'start');
+    if (decision.kind !== 'start') return;
+    assert.equal('bindSession' in decision.body, false);
+});
+
+test('an exhausted station stops autoplay: no request at all', () => {
+    const decision = decideAutoplay(input({ bound: bound({ exhausted: true }) }), 'balanced');
+    assert.deepEqual(decision, { kind: 'wait', reason: 'exhausted' });
+});
+
+test('one request in flight: no second one', () => {
+    const decision = decideAutoplay(input({ bound: bound(), inFlight: true }), 'balanced');
+    assert.deepEqual(decision, { kind: 'wait', reason: 'in-flight' });
+});
+
+test('off, unavailable, not driving, paused, nothing to seed from: each waits, and says why', () => {
+    assert.deepEqual(decideAutoplay(input({ enabled: false }), 'balanced'), {
+        kind: 'wait',
+        reason: 'off',
+    });
+    for (const mode of ['fallback', 'pending'] as const) {
+        assert.deepEqual(decideAutoplay(input({ mode }), 'balanced'), {
+            kind: 'wait',
+            reason: 'unavailable',
+        });
+    }
+    assert.deepEqual(decideAutoplay(input({ driving: false }), 'balanced'), {
+        kind: 'wait',
+        reason: 'not-driving',
+    });
+    assert.deepEqual(decideAutoplay(input({ isPlaying: false }), 'balanced'), {
+        kind: 'wait',
+        reason: 'not-playing',
+    });
+    assert.deepEqual(decideAutoplay(input({ seedIds: [] }), 'balanced'), {
+        kind: 'wait',
+        reason: 'no-seed',
+    });
+});
+
+test('exclude carries at most 1000 distinct ids, the newest ones', () => {
+    const ids = Array.from({ length: 1500 }, (_, i) => `s${i}`);
+    const decision = decideAutoplay(
+        input({ bound: bound(), queueIds: [...ids, 's1499'] }),
+        'close',
+    );
+    assert.equal(decision.kind, 'next');
+    if (decision.kind !== 'next') return;
+    assert.equal(decision.body.exclude!.length, EXCLUDE_MAX);
+    assert.equal(decision.body.exclude![0], 's500');
+    assert.equal(decision.body.exclude!.at(-1), 's1499');
+});
+
+// --- Play order under shuffle ------------------------------------------------------------------
+
+test('local: remaining counts the play order, which is what player.index walks', () => {
+    // Shuffled or not, Feishin's index is a position in the order being played.
+    assert.equal(remainingLocal(8, 10), 1);
+    assert.equal(remainingLocal(9, 10), 0);
+    assert.equal(remainingLocal(0, 10), 9);
+});
+
+test('remote shuffle: the last queue row can be the first one played', () => {
+    // Queue of 5, played in the order 4,2,0,3,1. The current queue index 4 is first in play
+    // order: four remain, though it is the last row of the queue.
+    const order = [4, 2, 0, 3, 1];
+    assert.equal(remainingRemote(4, 5, order), 4);
+    // Queue index 1 is played last: nothing remains, though rows 2..4 come after it.
+    assert.equal(remainingRemote(1, 5, order), 0);
+    assert.equal(remainingRemote(3, 5, order), 1);
+});
+
+test('remote: no order, or one that does not cover the queue, counts queue order', () => {
+    assert.equal(remainingRemote(3, 5, null), 1);
+    assert.equal(remainingRemote(3, 7, [4, 2, 0, 3, 1]), 3);
+});
+
+test('the continue seed is the current track and up to two before it in play order', () => {
+    const playOrder = idsInPlayOrder(['a', 'b', 'c', 'd', 'e'], [4, 2, 0, 3, 1]);
+    assert.deepEqual(playOrder, ['e', 'c', 'a', 'd', 'b']);
+    assert.deepEqual(continueSeedIds(playOrder, 4), ['a', 'd', 'b']);
+    assert.deepEqual(continueSeedIds(playOrder, 0), ['e']);
+    assert.deepEqual(continueSeedIds(['a', 'a', 'b'], 2), ['a', 'b']);
+});
+
+test('album seeds are spread over the album, first and last included', () => {
+    const tracks = Array.from({ length: 12 }, (_, i) => i + 1);
+    assert.deepEqual(spreadPick(tracks, 5), [1, 4, 7, 9, 12]);
+    assert.deepEqual(spreadPick([1, 2, 3], 5), [1, 2, 3]);
+});
+
+// --- What an answer means ------------------------------------------------------------------------
+
+test('a batch: append it, and the next after is the seq it answered with', () => {
+    const outcome = outcomeOf(ok(answer({ seq: 25 })), bound({ seq: 20 }), 'next');
+    assert.equal(outcome.kind, 'append');
+    if (outcome.kind !== 'append') return;
+    assert.equal(outcome.tracks.length, 5);
+    assert.equal(outcome.binding.seq, 25);
+    // The name and the seed survive a `next`, which carries neither.
+    assert.equal(outcome.binding.name, 'Cinnamon Girl radio');
+    assert.deepEqual(outcome.binding.seed, { ids: ['seed'], kind: 'track', name: 'Cinnamon Girl' });
+    const again = decideAutoplay(input({ bound: outcome.binding, remaining: 0 }), 'balanced');
+    assert.equal(again.kind === 'next' && again.body.after, 25);
+});
+
+test('servedElsewhere: adopt the new seq, add nothing, and look again shortly', () => {
+    const outcome = outcomeOf(
+        ok(answer({ seq: 30, servedElsewhere: true, tracks: [] })),
+        bound({ seq: 20 }),
+        'next',
+    );
+    assert.equal(outcome.kind, 'adopt');
+    if (outcome.kind !== 'adopt') return;
+    assert.equal(outcome.binding.seq, 30);
+    assert.equal(outcome.recheck, true);
+    assert.equal(outcome.servedElsewhere, true);
+});
+
+test('exhausted with nothing: adopt it, no recheck; the next decision stops', () => {
+    const outcome = outcomeOf(ok(answer({ exhausted: true, tracks: [] })), bound(), 'next');
+    assert.equal(outcome.kind, 'adopt');
+    if (outcome.kind !== 'adopt') return;
+    assert.equal(outcome.recheck, false);
+    assert.equal(outcome.binding.exhausted, true);
+    assert.equal(decideAutoplay(input({ bound: outcome.binding }), 'balanced').kind, 'wait');
+});
+
+test('exhausted with a last few tracks: append them, then stop', () => {
+    const outcome = outcomeOf(
+        ok(answer({ exhausted: true, tracks: [{ album: '', artist: '', id: 'z', title: '' }] })),
+        bound(),
+        'next',
+    );
+    assert.equal(outcome.kind, 'append');
+    if (outcome.kind !== 'append') return;
+    assert.equal(outcome.binding.exhausted, true);
+});
+
+test('partial with nothing: not exhausted, so it is tried again', () => {
+    const outcome = outcomeOf(ok(answer({ partial: true, tracks: [] })), bound(), 'next');
+    assert.deepEqual(outcome.kind === 'adopt' && outcome.recheck, true);
+    assert.deepEqual(outcome.kind === 'adopt' && outcome.servedElsewhere, false);
+});
+
+test('partial with some: append what came, flagged partial', () => {
+    const outcome = outcomeOf(
+        ok(answer({ partial: true, tracks: [{ album: '', artist: '', id: 'p', title: '' }] })),
+        bound(),
+        'next',
+    );
+    assert.equal(outcome.kind === 'append' && outcome.partial, true);
+});
+
+test('a start answer becomes the binding, with its name and seed', () => {
+    const outcome = outcomeOf(
+        ok(
+            answer({
+                name: 'Your mix',
+                seed: { kind: 'yourMix' },
+                seq: 5,
+                stationId: 'st_new',
+            }),
+        ),
+        null,
+        'start',
+    );
+    assert.equal(outcome.kind, 'append');
+    if (outcome.kind !== 'append') return;
+    assert.equal(outcome.binding.stationId, 'st_new');
+    assert.equal(outcome.binding.name, 'Your mix');
+    assert.equal(outcome.binding.seq, 5);
+});
+
+test('409 session_bound on start: continue that station', () => {
+    assert.deepEqual(
+        outcomeOf(failure(409, { code: 'session_bound', stationId: 'st_other' }), null, 'start'),
+        { kind: 'continue', stationId: 'st_other' },
+    );
+});
+
+test('404 station_unknown on next: start again from the seed', () => {
+    assert.deepEqual(outcomeOf(failure(404, { code: 'station_unknown' }), bound(), 'next'), {
+        kind: 'restart',
+    });
+});
+
+test('503 is the fallback, whichever call answered it', () => {
+    assert.deepEqual(outcomeOf(failure(503, { fallback: true }), null, 'start'), {
+        kind: 'fallback',
+    });
+    assert.deepEqual(outcomeOf(failure(503), bound(), 'next'), { kind: 'fallback' });
+});
+
+test('no answer at all (status 0) or a 502: retry shortly', () => {
+    assert.deepEqual(outcomeOf(failure(0), bound(), 'next'), {
+        kind: 'retry',
+        status: 0,
+        transient: true,
+    });
+    assert.deepEqual(outcomeOf(failure(502), bound(), 'next'), {
+        kind: 'retry',
+        status: 502,
+        transient: true,
+    });
+});
+
+test('a refused seed (404 seed_unknown, 400 bad_seed): wait for the next trigger, not a timer', () => {
+    assert.deepEqual(outcomeOf(failure(404, { code: 'seed_unknown' }), null, 'start'), {
+        kind: 'retry',
+        status: 404,
+        transient: false,
+    });
+    assert.deepEqual(outcomeOf(failure(400, { code: 'bad_seed' }), null, 'start'), {
+        kind: 'retry',
+        status: 400,
+        transient: false,
+    });
+});
+
+// --- Two devices, one station: the hub's `after` rule, from this side -------------------------------
+
+/** §18.1's arbitration, nothing else: only after == seq computes; the same after from the same
+ *  device replays; a lower after from another device is servedElsewhere. */
+const fakeHub = () => {
+    let seq = 20;
+    let last: null | { after: number; device: string; tracks: string[] } = null;
+    let served = 0;
+    return {
+        next(after: number, device: string): StationAnswer {
+            if (last && last.after === after && last.device === device) {
+                return answer({
+                    seq,
+                    tracks: last.tracks.map((id) => ({ album: '', artist: '', id, title: '' })),
+                });
+            }
+            if (after < seq) return answer({ seq, servedElsewhere: true, tracks: [] });
+            const tracks = Array.from({ length: 5 }, () => `n${(served += 1)}`);
+            seq += tracks.length;
+            last = { after, device, tracks };
+            return answer({
+                seq,
+                tracks: tracks.map((id) => ({ album: '', artist: '', id, title: '' })),
+            });
+        },
+        get seq() {
+            return seq;
+        },
+    };
+};
+
+test('two devices at the queue end together: one batch, and the second adopts its seq', () => {
+    const hub = fakeHub();
+    let desk = bound({ seq: 20 });
+    let phone = bound({ seq: 20 });
+
+    const deskAsk = decideAutoplay(input({ bound: desk }), 'balanced');
+    const phoneAsk = decideAutoplay(input({ bound: phone }), 'balanced');
+    assert.equal(deskAsk.kind === 'next' && deskAsk.body.after, 20);
+    assert.equal(phoneAsk.kind === 'next' && phoneAsk.body.after, 20);
+
+    const deskOutcome = outcomeOf(ok(hub.next(20, 'desk')), desk, 'next');
+    const phoneOutcome = outcomeOf(ok(hub.next(20, 'phone')), phone, 'next');
+    assert.equal(deskOutcome.kind, 'append');
+    assert.equal(phoneOutcome.kind, 'adopt');
+    if (deskOutcome.kind !== 'append' || phoneOutcome.kind !== 'adopt') return;
+    desk = deskOutcome.binding;
+    phone = phoneOutcome.binding;
+    assert.equal(desk.seq, 25);
+    assert.equal(phone.seq, 25);
+    assert.equal(hub.seq, 25);
+
+    // The next top-up, from either, continues from 25: one new batch, not a replay.
+    const later = decideAutoplay(input({ bound: phone, remaining: 0 }), 'balanced');
+    assert.equal(later.kind === 'next' && later.body.after, 25);
+    assert.equal(outcomeOf(ok(hub.next(25, 'phone')), phone, 'next').kind, 'append');
+    assert.equal(hub.seq, 30);
+});
+
+test('a retry of the same after from the same device replays its batch, the seq unchanged', () => {
+    const hub = fakeHub();
+    const first = hub.next(20, 'desk');
+    const retry = hub.next(20, 'desk');
+    assert.deepEqual(
+        retry.tracks.map((t) => t.id),
+        first.tracks.map((t) => t.id),
+    );
+    assert.equal(hub.seq, 25);
+});
+
+test('just after another device served the station, wait for its batch instead of asking', () => {
+    // The frame told this device seq 25, but the 5 tracks behind it are not in the session
+    // queue yet: asking with after 25 now would make the hub compute a second batch.
+    const decision = decideAutoplay(
+        input({ bound: bound({ seq: 25 }), elsewhereRecent: true }),
+        'balanced',
+    );
+    assert.deepEqual(decision, { kind: 'wait', reason: 'served-elsewhere' });
+    // Once the grace has passed and the queue is still short, the batch never came: ask.
+    assert.equal(
+        decideAutoplay(input({ bound: bound({ seq: 25 }), elsewhereRecent: false }), 'balanced')
+            .kind,
+        'next',
+    );
+});
+
+test('a station frame tells the other device its new seq before it asks', () => {
+    const hub = fakeHub();
+    let phone = bound({ seq: 20 });
+    hub.next(20, 'desk');
+    phone = applyStationFrame(
+        phone,
+        parseStationCursor({
+            character: 'balanced',
+            exhausted: false,
+            rev: 0,
+            seq: hub.seq,
+            stationId: 'st_1',
+            t: 'station',
+        })!,
+    )!;
+    const ask = decideAutoplay(input({ bound: phone }), 'balanced');
+    assert.equal(ask.kind === 'next' && ask.body.after, 25);
+});
+
+// --- Frames and the binding ----------------------------------------------------------------
+
+test('a station frame for another station leaves the binding alone', () => {
+    const before = bound();
+    const after = applyStationFrame(before, {
+        character: 'explore',
+        exhausted: true,
+        rev: 4,
+        seq: 99,
+        stationId: 'st_other',
+    });
+    assert.equal(after, before);
+});
+
+test('a frame never moves the cursor backwards', () => {
+    const after = applyStationFrame(bound({ seq: 30 }), {
+        character: 'balanced',
+        exhausted: false,
+        rev: 1,
+        seq: 25,
+        stationId: 'st_1',
+    });
+    assert.equal(after!.seq, 30);
+    assert.equal(after!.rev, 1);
+});
+
+test('Explore clears exhausted: the frame that follows the character change unblocks autoplay', () => {
+    let b = bound({ exhausted: true });
+    assert.equal(decideAutoplay(input({ bound: b }), 'balanced').kind, 'wait');
+    b = applyStationFrame(b, {
+        character: 'explore',
+        exhausted: false,
+        rev: 1,
+        seq: 20,
+        stationId: 'st_1',
+    })!;
+    assert.equal(b.character, 'explore');
+    assert.equal(decideAutoplay(input({ bound: b }), 'explore').kind, 'next');
+});
+
+test('welcome.station: the cursor plus name and seed', () => {
+    const cursor = parseStationCursor({
+        character: 'close',
+        exhausted: false,
+        name: 'Cinnamon Girl radio',
+        rev: 2,
+        seed: { ids: ['seed'], kind: 'track', name: 'Cinnamon Girl' },
+        seq: 25,
+        stationId: 'st_1',
+    })!;
+    const b = bindingFromCursor(cursor, null);
+    assert.equal(b.name, 'Cinnamon Girl radio');
+    assert.equal(b.seq, 25);
+    assert.equal(b.character, 'close');
+    assert.deepEqual(b.seed, { ids: ['seed'], kind: 'track', name: 'Cinnamon Girl' });
+    assert.equal(parseStationCursor(null), null);
+    assert.equal(parseStationCursor({ seq: 1 }), null);
+});
+
+test('session.stationId: the hub decides, except just after a change of this client own', () => {
+    const cursors: Record<string, StationCursor> = {
+        st_2: { character: 'explore', exhausted: false, rev: 0, seq: 10, stationId: 'st_2' },
+    };
+    // Another device started st_2 on the session: bind to it, from the cursor already heard.
+    let r = applySessionStationId({
+        bound: bound(),
+        cursors,
+        incoming: 'st_2',
+        localUntil: 0,
+        now: 1000,
+    });
+    assert.equal(r.bound!.stationId, 'st_2');
+    assert.equal(r.bound!.seq, 10);
+    // An album replaced the queue: unbound.
+    r = applySessionStationId({
+        bound: r.bound,
+        cursors,
+        incoming: null,
+        localUntil: 0,
+        now: 2000,
+    });
+    assert.equal(r.bound, null);
+
+    // This client just started a radio; a frame from before it still says null. Ignored...
+    const mine = bound({ stationId: 'st_mine' });
+    const hold = 3000 + LOCAL_BINDING_HOLD_MS;
+    r = applySessionStationId({
+        bound: mine,
+        cursors,
+        incoming: null,
+        localUntil: hold,
+        now: 3100,
+    });
+    assert.equal(r.bound, mine);
+    // ...the echo ends the hold...
+    r = applySessionStationId({
+        bound: mine,
+        cursors,
+        incoming: 'st_mine',
+        localUntil: hold,
+        now: 3200,
+    });
+    assert.equal(r.localUntil, 0);
+    // ...and a hub that disagrees after the hold wins.
+    r = applySessionStationId({
+        bound: mine,
+        cursors,
+        incoming: null,
+        localUntil: hold,
+        now: hold + 1,
+    });
+    assert.equal(r.bound, null);
+});
+
+test('a hub without stations sends no stationId: nothing changes', () => {
+    const b = bound();
+    const r = applySessionStationId({
+        bound: b,
+        cursors: {},
+        incoming: undefined,
+        localUntil: 0,
+        now: 1,
+    });
+    assert.equal(r.bound, b);
+});
+
+// --- Which path runs, and the words ------------------------------------------------------------
+
+test('stations only with a connection, the feature, a probe that said available, and no 503', () => {
+    const base = {
+        available: true,
+        connected: true,
+        fallbackLatched: false,
+        hasFeature: true,
+        probed: true,
+    };
+    assert.equal(stationMode(base), 'stations');
+    assert.equal(stationMode({ ...base, connected: false }), 'fallback');
+    assert.equal(stationMode({ ...base, hasFeature: false }), 'fallback');
+    assert.equal(stationMode({ ...base, fallbackLatched: true }), 'fallback');
+    assert.equal(stationMode({ ...base, available: false }), 'fallback');
+    assert.equal(stationMode({ ...base, probed: false }), 'pending');
+});
+
+test('every stored character name reads as one of the three', () => {
+    assert.equal(characterFromAny('EchoMatch'), 'close');
+    assert.equal(characterFromAny('echo'), 'close');
+    assert.equal(characterFromAny('SteadyVibes'), 'balanced');
+    assert.equal(characterFromAny('TransitionMaestro'), 'explore');
+    assert.equal(characterFromAny('explore'), 'explore');
+    assert.equal(characterFromAny(undefined), 'balanced');
+});

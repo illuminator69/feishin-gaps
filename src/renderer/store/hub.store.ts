@@ -122,6 +122,11 @@ interface HubState {
     myDeviceId: null | string;
     /** Whether the remote session is currently playing. */
     remoteIsPlaying: boolean;
+    /**
+     * The session's shuffled play order (queue indexes), or null when it plays in queue order
+     * (PROTOCOL §4.2 `order`). Read to count what remains in PLAY order (I-040).
+     */
+    remoteOrder: null | number[];
     /** Position of the remote session at `remotePositionAt` (wall clock ms). */
     remotePositionAt: number;
     remotePositionMs: number;
@@ -151,6 +156,7 @@ const initialState: HubState = {
     lbStatus: null,
     myDeviceId: null,
     remoteIsPlaying: false,
+    remoteOrder: null,
     remotePositionAt: 0,
     remotePositionMs: 0,
     remoteQueue: [],

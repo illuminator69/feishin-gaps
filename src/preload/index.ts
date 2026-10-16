@@ -17,6 +17,7 @@ import { mpris } from './mpris';
 import { mpvPlayer, mpvPlayerListener } from './mpv-player';
 import { preview } from './preview';
 import { remote } from './remote';
+import { station } from './station';
 import { utils } from './utils';
 import { visualizer } from './visualizer';
 
@@ -42,6 +43,7 @@ const api = {
     mpvPlayerListener,
     preview,
     remote,
+    station,
     utils,
     visualizer,
 };
