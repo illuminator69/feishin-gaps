@@ -1,31 +1,43 @@
-import { describeGenerator, GeneratorSource } from '/@/renderer/features/sonic/audio-muse-palette';
-import { useSettingsStore } from '/@/renderer/store';
-import { useMoodCentroid } from '/@/renderer/store/mood-centroid.store';
+import { useTranslation } from 'react-i18next';
+
+import { useStationWords } from '/@/renderer/features/player/station/use-station-words';
+import { describeQueueSource } from '/@/renderer/features/sonic/audio-muse-palette';
 import { Badge } from '/@/shared/components/badge/badge';
+import { Tooltip } from '/@/shared/components/tooltip/tooltip';
 
 /**
- * Scoped indicator naming the active autoplay "generator" (Auto DJ / Sonic
- * Fingerprint / Mood Flow). The app's own badge, in the theme's colours, with the
- * generator's colour as a dot: the AudioMuse palette, and for Mood Flow the live mood
- * centroid's hue. It used to be a badge filled with that colour and lettered in a
- * hard-coded navy, whatever the theme. Shows only while Auto DJ is enabled.
+ * The queue's "what built this" chip (I-040): the radio or Your mix the queue belongs to, or
+ * "Auto DJ" when upstream's Auto DJ continues it because the hub's station engine is not there.
+ * Read from the station store, so it names what the hub answered, not what a setting asked for.
+ * The app's own badge, in the theme's colours, with the source's colour as a dot.
  */
 export const AudioMuseGeneratorChip = () => {
-    const enabled = useSettingsStore((state) => state.autoDJ.enabled);
-    const source = useSettingsStore((state) => state.autoDJ.autoplaySource) as GeneratorSource;
-    const centroid = useMoodCentroid();
+    const { t } = useTranslation();
+    const words = useStationWords();
 
-    if (!enabled) return null;
+    const chip = describeQueueSource({
+        autoplay: words.autoplay,
+        bound: words.bound,
+        characterLabel: words.characterLabel,
+        labels: {
+            autoDj: t('setting.autoDJ'),
+            viaNavidrome: t('naviConnect.station.viaNavidrome'),
+        },
+        mode: words.mode,
+        stationName: words.stationName,
+    });
 
-    const { color, label } = describeGenerator(source, centroid);
+    if (!chip) return null;
 
-    return (
+    const badge = (
         <Badge
             leftSection={
                 <span
                     aria-hidden
                     style={{
-                        backgroundColor: color,
+                        backgroundColor: chip.exhausted
+                            ? 'var(--theme-colors-foreground-muted)'
+                            : chip.color,
                         borderRadius: '50%',
                         display: 'inline-block',
                         height: 8,
@@ -33,10 +45,18 @@ export const AudioMuseGeneratorChip = () => {
                     }}
                 />
             }
-            style={{ flexShrink: 0 }}
+            style={{ flexShrink: 0, maxWidth: 260 }}
             variant="default"
         >
-            {label}
+            {chip.label}
         </Badge>
+    );
+
+    return chip.exhausted ? (
+        <Tooltip label={t('naviConnect.station.exhausted')} openDelay={300}>
+            {badge}
+        </Tooltip>
+    ) : (
+        badge
     );
 };

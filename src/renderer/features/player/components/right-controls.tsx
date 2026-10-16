@@ -1,5 +1,4 @@
 import { t } from 'i18next';
-import isElectron from 'is-electron';
 import { useCallback, useEffect, useMemo, useState, WheelEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -14,13 +13,14 @@ import {
     VOLUME_HOLD_MS,
 } from '/@/renderer/features/hub/utils/volume-hold';
 import { PopoverPlayQueue } from '/@/renderer/features/now-playing/components/popover-play-queue';
-import { audioMuseConfigured } from '/@/renderer/features/player/auto-dj/audio-muse-source';
 import { DlnaCastButton } from '/@/renderer/features/player/components/dlna-cast-button';
 import { DlnaVolumeButton } from '/@/renderer/features/player/components/dlna/volume-button';
 import { PlayerConfig } from '/@/renderer/features/player/components/player-config';
 import { CustomPlayerbarSlider } from '/@/renderer/features/player/components/playerbar-slider';
 import { SleepTimerButton } from '/@/renderer/features/player/components/sleep-timer-button';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import { StationControls } from '/@/renderer/features/player/station/station-controls';
+import { useStationWords } from '/@/renderer/features/player/station/use-station-words';
 import { useAudioDevices } from '/@/renderer/features/settings/components/playback/audio-settings';
 import {
     ListConfigBooleanControl,
@@ -35,14 +35,12 @@ import {
     AUTO_DJ_STRATEGY,
     type AutoDJStrategy,
     useAppStoreActions,
-    useAudioMuseSettings,
     useAutoDJSettings,
     useCurrentServer,
     useFullScreenPlayerStore,
     useHotkeySettings,
     useHubActiveDeviceId,
     useHubIsRemoteActive,
-    useHubSettings,
     usePlaybackSettings,
     usePlaybackType,
     usePlayerData,
@@ -70,8 +68,6 @@ import { SegmentedControl } from '/@/shared/components/segmented-control/segment
 import { Select } from '/@/shared/components/select/select';
 import { Slider } from '/@/shared/components/slider/slider';
 import { Stack } from '/@/shared/components/stack/stack';
-import { TextInput } from '/@/shared/components/text-input/text-input';
-import { Text } from '/@/shared/components/text/text';
 import { useMediaQuery } from '/@/shared/hooks/use-media-query';
 import { useThrottledCallback } from '/@/shared/hooks/use-throttled-callback';
 import { LibraryItem, QueueSong, ServerType } from '/@/shared/types/domain-types';
@@ -105,42 +101,12 @@ export const RightControls = () => {
 const AutoDJButton = () => {
     const { t } = useTranslation();
     const settings = useAutoDJSettings();
-    const audioMuse = useAudioMuseSettings();
-    const hub = useHubSettings();
     const { setSettings } = useSettingsStoreActions();
-
-    // navi-connect: the popover's on/off switch is an autoplay-source picker. Auto DJ is the
-    // built-in similar/random engine; Sonic Fingerprint and Mood Flow are AudioMuse Tier 2 and
-    // are only offered when it is reachable (through the hub, or a direct URL).
-    const tier2Available = audioMuseConfigured(audioMuse, hub);
-    const autoplaySource = settings.autoplaySource ?? 'autoDj';
-    const sourceValue = settings.enabled ? autoplaySource : 'off';
-    const showAutoDjControls = settings.enabled && autoplaySource === 'autoDj';
-    const showMoodCharacter = settings.enabled && autoplaySource === 'moodFlow';
-
-    // Adaptive Mood Flow tuning presets (AudioMuse Song Alchemy temperature / subtract-distance).
-    const moodCharacterData = useMemo(
-        () => [
-            { label: 'Echo Match', value: 'echo' },
-            { label: 'Steady Vibes', value: 'steady' },
-            { label: 'Transition Maestro', value: 'transition' },
-        ],
-        [],
-    );
-
-    const sourceData = useMemo(
-        () => [
-            { label: 'Off', value: 'off' },
-            { label: t('setting.autoDJ'), value: 'autoDj' },
-            ...(tier2Available
-                ? [
-                      { label: 'Sonic Fingerprint', value: 'fingerprint' },
-                      { label: 'Mood Flow', value: 'moodFlow' },
-                  ]
-                : []),
-        ],
-        [t, tier2Available],
-    );
+    // navi-connect (I-040): with the hub's station engine, autoplay is On/Off plus the
+    // station's character, and the popover names what is playing. Without it, upstream's own
+    // Auto DJ controls, unchanged.
+    const words = useStationWords();
+    const showStations = words.mode !== 'fallback';
 
     const strategySelectData = useMemo(
         () => [
@@ -170,74 +136,22 @@ const AutoDJButton = () => {
         () => [
             {
                 component: (
-                    <Select
-                        comboboxProps={{ withinPortal: false }}
-                        data={sourceData}
+                    <ListConfigBooleanControl
                         onChange={(value) => {
-                            if (!value) return;
-                            if (value === 'off') {
-                                setSettings({ autoDJ: { enabled: false } });
-                            } else {
-                                setSettings({
-                                    autoDJ: {
-                                        autoplaySource: value as
-                                            | 'autoDj'
-                                            | 'fingerprint'
-                                            | 'moodFlow',
-                                        enabled: true,
-                                    },
-                                });
-                            }
+                            setSettings({
+                                autoDJ: { enabled: value },
+                            });
                         }}
-                        size="sm"
-                        value={sourceValue}
-                        variant="filled"
-                        w="160px"
+                        value={settings.enabled}
                     />
                 ),
                 id: 'enabled',
-                label: t('setting.autoDJ'),
+                label: showStations
+                    ? t('naviConnect.station.autoplay')
+                    : t('setting.autoDJ_enabled'),
             },
-            ...(showMoodCharacter
-                ? [
-                      {
-                          component: (
-                              <Select
-                                  comboboxProps={{ withinPortal: false }}
-                                  data={moodCharacterData}
-                                  onChange={(value) => {
-                                      if (!value) return;
-                                      setSettings({
-                                          autoDJ: {
-                                              moodCharacter: value as
-                                                  | 'echo'
-                                                  | 'steady'
-                                                  | 'transition',
-                                          },
-                                      });
-                                  }}
-                                  size="sm"
-                                  value={settings.moodCharacter ?? 'steady'}
-                                  variant="filled"
-                                  w="160px"
-                              />
-                          ),
-                          description: "How far Mood Flow drifts from what you're playing",
-                          id: 'moodCharacter',
-                          label: 'Character',
-                      },
-                  ]
-                : []),
         ],
-        [
-            moodCharacterData,
-            setSettings,
-            settings.moodCharacter,
-            showMoodCharacter,
-            sourceData,
-            sourceValue,
-            t,
-        ],
+        [setSettings, settings.enabled, showStations, t],
     );
 
     const configOptions = useMemo(
@@ -384,7 +298,7 @@ const AutoDJButton = () => {
                     uppercase
                     variant="transparent"
                 >
-                    {t('setting.autoDJ')}
+                    {showStations ? t('naviConnect.station.autoplay') : t('setting.autoDJ')}
                 </Button>
             </Popover.Target>
             <Popover.Dropdown maw={480} miw={320} onClick={(e) => e.stopPropagation()} p="sm">
@@ -392,69 +306,38 @@ const AutoDJButton = () => {
                     <Paper p="md" radius="md">
                         <ListConfigTable options={enabledOptions} />
                     </Paper>
-                    {showAutoDjControls && (
-                        <SegmentedControl
-                            data={[
-                                {
-                                    label: t('setting.autoDJ_mode_songs'),
-                                    value: AUTO_DJ_MODE.SONGS,
-                                },
-                                {
-                                    label: t('setting.autoDJ_mode_albums'),
-                                    value: AUTO_DJ_MODE.ALBUMS,
-                                },
-                            ]}
-                            onChange={(value) =>
-                                setSettings({
-                                    autoDJ: {
-                                        mode: value as 'albums' | 'songs',
+                    {showStations ? (
+                        <StationControls words={words} />
+                    ) : (
+                        <>
+                            <SegmentedControl
+                                data={[
+                                    {
+                                        label: t('setting.autoDJ_mode_songs'),
+                                        value: AUTO_DJ_MODE.SONGS,
                                     },
-                                })
-                            }
-                            value={settings.mode}
-                            w="100%"
-                        />
-                    )}
-                    <Paper p="md" radius="md">
-                        <ListConfigTable
-                            options={
-                                showAutoDjControls
-                                    ? configOptions
-                                    : configOptions.filter((option) => option.id !== 'strategy')
-                            }
-                        />
-                    </Paper>
-                    {showAutoDjControls && (
-                        <Paper p="md" radius="md">
-                            <ListConfigTable options={toggleOptions} />
-                        </Paper>
-                    )}
-                    {isElectron() && (
-                        <Stack gap="xs">
-                            <Text fw={600} isNoSelect size="sm">
-                                AudioMuse-AI (Tier 2)
-                            </Text>
-                            <Text isMuted isNoSelect size="xs">
-                                Normally routed through the hub, which holds the AudioMuse address
-                                and token server-side — leave these blank. Fill them in only to
-                                reach the core API directly, with no hub.
-                            </Text>
-                            <TextInput
-                                label="AudioMuse URL (direct, optional)"
-                                onChange={(e) =>
-                                    setSettings({ audioMuse: { url: e.currentTarget.value } })
+                                    {
+                                        label: t('setting.autoDJ_mode_albums'),
+                                        value: AUTO_DJ_MODE.ALBUMS,
+                                    },
+                                ]}
+                                onChange={(value) =>
+                                    setSettings({
+                                        autoDJ: {
+                                            mode: value as 'albums' | 'songs',
+                                        },
+                                    })
                                 }
-                                placeholder="http://localhost:8000"
-                                value={audioMuse.url}
+                                value={settings.mode}
+                                w="100%"
                             />
-                            <TextInput
-                                label="AudioMuse API token (direct, optional)"
-                                onChange={(e) =>
-                                    setSettings({ audioMuse: { token: e.currentTarget.value } })
-                                }
-                                value={audioMuse.token}
-                            />
-                        </Stack>
+                            <Paper p="md" radius="md">
+                                <ListConfigTable options={configOptions} />
+                            </Paper>
+                            <Paper p="md" radius="md">
+                                <ListConfigTable options={toggleOptions} />
+                            </Paper>
+                        </>
                     )}
                 </Stack>
             </Popover.Dropdown>

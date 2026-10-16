@@ -37,6 +37,7 @@ const KIND_ICON: Record<MixKind, 'album' | 'artist' | 'audioLines' | 'genre' | '
     fingerprint: 'radio',
     genre: 'genre',
     similar: 'album',
+    station: 'radio',
 };
 
 /**

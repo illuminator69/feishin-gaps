@@ -12,9 +12,10 @@ import { createWithEqualityFn } from 'zustand/traditional';
  * regenerates. So "play that mix again" could only ever mean "play those exact
  * songs again", which is the one thing a mix is not.
  *
- * **The hub never generates anything.** It stores and broadcasts the recipe;
- * each client regenerates locally with the engine it already has. That keeps the
- * hub audio-free and AudioMuse-free, which is the standing rule for it.
+ * **The hub stores and broadcasts the recipe.** Until I-040 it generated nothing
+ * and each client regenerated with its own engine. Since PROTOCOL §18 radio is the
+ * hub's station engine: with it, `similar`, `fingerprint`, `adaptive` and the new
+ * `station` kind play through a station, and without it the old local paths run.
  *
  * So this store is a **pure mirror**, like `hub.store`, and deliberately *not*
  * persisted the way `saved-queues.store` is. The asymmetry is worth naming
@@ -32,6 +33,12 @@ import { createWithEqualityFn } from 'zustand/traditional';
  */
 
 export interface Mix {
+    /**
+     * The station character (`close` / `balanced` / `explore`, PROTOCOL §17.1, §18). The hub
+     * derives it from a legacy `moodCharacter` when a record carries none; empty only from a
+     * hub older than stations.
+     */
+    character: string;
     /** How many tracks a regeneration aims for. */
     count: number;
     coverArtId: string;
@@ -74,7 +81,7 @@ export interface Mix {
  * for why a hand-mirrored table is the only kind of "shared" these two repos
  * have.
  */
-export type MixKind = 'adaptive' | 'artist' | 'fingerprint' | 'genre' | 'similar';
+export type MixKind = 'adaptive' | 'artist' | 'fingerprint' | 'genre' | 'similar' | 'station';
 
 /** The kinds this build can actually regenerate. Mirrors the hub's `MIX_KINDS`. */
 export const MIX_KINDS: readonly MixKind[] = [
@@ -83,6 +90,7 @@ export const MIX_KINDS: readonly MixKind[] = [
     'fingerprint',
     'genre',
     'similar',
+    'station',
 ] as const;
 
 /**
@@ -125,6 +133,7 @@ export const mixFromHub = (record: any): Mix | null => {
     const id = str(record?.id);
     if (!id) return null;
     return {
+        character: str(record?.character),
         count: num(record?.count) || 50,
         coverArtId: str(record?.coverArtId),
         createdAt: num(record?.createdAt),

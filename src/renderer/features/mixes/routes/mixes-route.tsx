@@ -9,19 +9,39 @@ import { MixArtwork } from '/@/renderer/features/mixes/components/mix-artwork';
 import { MixForm } from '/@/renderer/features/mixes/components/mix-form';
 import { MixPreview } from '/@/renderer/features/mixes/components/mix-preview';
 import { useMixActions, usePlayMix } from '/@/renderer/features/mixes/hooks/use-mixes';
+import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import { playYourMix } from '/@/renderer/features/player/station/station-client';
+import {
+    characterFromAny,
+    characterLabel,
+} from '/@/renderer/features/player/station/station-logic';
+import {
+    useStationCatalog,
+    useStationMode,
+} from '/@/renderer/features/player/station/station-store';
 import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
-import { isKnownMixKind, Mix, MixKind, useHubConnected, useMixes } from '/@/renderer/store';
+import {
+    isKnownMixKind,
+    Mix,
+    MixKind,
+    useCurrentServerId,
+    useHubConnected,
+    useMixes,
+} from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Button } from '/@/shared/components/button/button';
 import { ContextMenu } from '/@/shared/components/context-menu/context-menu';
 import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
 import { Group } from '/@/shared/components/group/group';
+import { Icon } from '/@/shared/components/icon/icon';
 import { closeAllModals, openModal } from '/@/shared/components/modal/modal';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextInput } from '/@/shared/components/text-input/text-input';
 import { Text } from '/@/shared/components/text/text';
+import { toast } from '/@/shared/components/toast/toast';
+import { Tooltip } from '/@/shared/components/tooltip/tooltip';
 
 /**
  * navi-connect: "Mixed for You" — the recipes, not the results.
@@ -38,20 +58,26 @@ import { Text } from '/@/shared/components/text/text';
  * frozen tracklist would also appear to pass on first use.
  */
 
+type CharacterLabel = (mix: Mix) => string;
+
 /** How the mix was built, in a phrase, for the row's second line. */
-const KIND_LINE: Record<MixKind, (mix: Mix) => string> = {
-    adaptive: (mix) => `Mood Flow around ${mix.seedName || 'a track'}`,
+const KIND_LINE: Record<MixKind, (mix: Mix, character: CharacterLabel) => string> = {
+    adaptive: (mix, character) => `Adaptive · ${character(mix)}`,
     artist: (mix) => `Artist radio · ${mix.seedName || 'an artist'}`,
     fingerprint: () => 'Built from your listening',
     genre: (mix) => `Genre · ${mix.seedName || 'unknown'}`,
     similar: (mix) => `Similar to ${mix.seedName || 'a track'}`,
+    station: (mix, character) =>
+        mix.seedId
+            ? `Radio · ${mix.seedName || 'a track'} · ${character(mix)}`
+            : `Your mix · ${character(mix)}`,
 };
 
 /** A recipe from a newer client. Named, not hidden — the row is still worth
  *  renaming and deleting, and saying which kind is what makes "update the app"
  *  actionable rather than mysterious. */
-const kindLine = (mix: Mix): string =>
-    isKnownMixKind(mix.kind) ? KIND_LINE[mix.kind](mix) : `Unknown kind · ${mix.kind}`;
+const kindLine = (mix: Mix, character: CharacterLabel): string =>
+    isKnownMixKind(mix.kind) ? KIND_LINE[mix.kind](mix, character) : `Unknown kind · ${mix.kind}`;
 
 const RenameMixForm = ({ mix, onSubmit }: { mix: Mix; onSubmit: (name: string) => void }) => {
     const [value, setValue] = useState(mix.name);
@@ -86,6 +112,9 @@ const RenameMixForm = ({ mix, onSubmit }: { mix: Mix; onSubmit: (name: string) =
 };
 
 const MixRow = ({ mix }: { mix: Mix }) => {
+    const catalog = useStationCatalog();
+    const character = (row: Mix) =>
+        characterLabel(catalog, characterFromAny(row.character || row.moodCharacter));
     const { deleteMix, renameMix } = useMixActions();
     const { play, playingId } = usePlayMix();
     const busy = playingId === mix.id;
@@ -140,7 +169,7 @@ const MixRow = ({ mix }: { mix: Mix }) => {
                                 {mix.name}
                             </Text>
                             <Text isMuted lineClamp={1} size="sm">
-                                {kindLine(mix)} · {mix.count} tracks
+                                {kindLine(mix, character)} · {mix.count} tracks
                             </Text>
                             {/* Said plainly on every row, because it is the property
                             that distinguishes this page from Saved Queues and it is
@@ -187,6 +216,49 @@ const MixRow = ({ mix }: { mix: Mix }) => {
     );
 };
 
+/**
+ * "Your mix" (I-040): the hub's seedless station, from what its Navidrome user plays most. Not a
+ * saved recipe, so it sits beside "New mix" rather than in the list; offered only with the
+ * station engine, which is what builds it.
+ */
+const YourMixButton = () => {
+    const { t } = useTranslation();
+    const player = usePlayer();
+    const serverId = useCurrentServerId();
+    const mode = useStationMode();
+    const [busy, setBusy] = useState(false);
+
+    if (mode !== 'stations') return null;
+
+    return (
+        <Tooltip label={t('naviConnect.mixes.yourMix_description')} openDelay={300}>
+            <Button
+                disabled={busy || !serverId}
+                leftSection={<Icon icon="radio" />}
+                loading={busy}
+                onClick={async () => {
+                    setBusy(true);
+                    try {
+                        const started = await playYourMix({
+                            player,
+                            serverId,
+                            sessionName: t('naviConnect.station.yourMix'),
+                        });
+                        if (!started) {
+                            toast.error({ message: t('naviConnect.mixes.yourMix_failed') });
+                        }
+                    } finally {
+                        setBusy(false);
+                    }
+                }}
+                variant="default"
+            >
+                {t('naviConnect.mixes.yourMix')}
+            </Button>
+        </Tooltip>
+    );
+};
+
 const MixesRoute = () => {
     const mixes = useMixes();
     const connected = useHubConnected();
@@ -202,9 +274,12 @@ const MixesRoute = () => {
     return (
         <ForkListPage
             actions={
-                <Button disabled={!connected} onClick={openCreate} variant="filled">
-                    {t('naviConnect.mixes.new')}
-                </Button>
+                <Group gap="sm" wrap="nowrap">
+                    <YourMixButton />
+                    <Button disabled={!connected} onClick={openCreate} variant="filled">
+                        {t('naviConnect.mixes.new')}
+                    </Button>
+                </Group>
             }
             count={connected ? mixes.length : undefined}
             title={t('naviConnect.mixes.title')}

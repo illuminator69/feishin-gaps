@@ -3,13 +3,22 @@ import type { QueryClient } from '@tanstack/react-query';
 import { api } from '/@/renderer/api';
 import { queryKeys } from '/@/renderer/api/query-keys';
 import {
+    AlchemyParams,
+    AudioMuseSettings,
     fetchAlchemyIds,
     fetchFingerprintIds,
-    MoodCharacter,
-    moodCharacterParams,
 } from '/@/renderer/features/player/auto-dj/audio-muse-source';
-import { AudioMuseSettings } from '/@/renderer/features/player/auto-dj/audio-muse-source';
 import { runAutoDjSongs } from '/@/renderer/features/player/auto-dj/auto-dj-songs';
+import {
+    buildStationQueue,
+    currentCharacter,
+    stationsReady,
+} from '/@/renderer/features/player/station/station-client';
+import {
+    characterFromAny,
+    StationBinding,
+    toCharacterId,
+} from '/@/renderer/features/player/station/station-logic';
 import { songsQueries } from '/@/renderer/features/songs/api/songs-api';
 import { Mix, MixKind } from '/@/renderer/store';
 import { AUTO_DJ_STRATEGY } from '/@/renderer/store/settings.store';
@@ -26,44 +35,32 @@ import { Played, QueueSong, ServerListItem, Song } from '/@/shared/types/domain-
  * random and alchemy sources are non-deterministic by nature, and the two
  * library-query branches shuffle a pool several times the size of the answer.
  *
- * Nothing here is a new engine. Each kind routes into machinery this client
- * already runs for Auto DJ — which is exactly why the hub stores a recipe and
- * not a result: the client that plays it is the client that owns the engine, and
- * the two clients' engines are allowed to differ.
+ * Nothing here is a new engine. With the hub's station engine (I-040) the
+ * radio-like kinds start a station, which never serves what it served before or
+ * what was played in the last two weeks, so a second play differs by design. The
+ * other kinds, and every kind without the engine, route into machinery this
+ * client already runs for Auto DJ.
  */
 
 /**
- * The hub's mood vocabulary, translated to this client's.
- *
- * The two clients already disagree about these ids — Navic's `MoodCharacter`
- * and Feishin's `audio-muse-source.ts` carry the same three presets under
- * different names — so the wire form is Navic's and this is the one place the
- * translation happens. An unknown value falls back to `steady`, the server's own
- * middle setting, rather than throwing: a mix made by a newer client must still
- * play here.
+ * The station character a recipe asks for (PROTOCOL §17.1): its own `character`, else the one
+ * its legacy `moodCharacter` names. An unknown value is Balanced, the hub's default, rather
+ * than an error: a mix made by a newer client must still play here.
  */
-const toMoodCharacter = (wire: string): MoodCharacter => {
-    switch (wire) {
-        case 'EchoMatch':
-            return 'echo';
-        case 'TransitionMaestro':
-            return 'transition';
-        case 'SteadyVibes':
-        default:
-            return 'steady';
-    }
-};
+const mixCharacter = (mix: Mix) => characterFromAny(mix.character || mix.moodCharacter);
 
-/** The reverse, for what this client writes. */
-export const toWireMoodCharacter = (character: MoodCharacter): string => {
-    switch (character) {
-        case 'echo':
-            return 'EchoMatch';
-        case 'transition':
-            return 'TransitionMaestro';
-        case 'steady':
+/**
+ * Song Alchemy knobs for an `adaptive` mix played without the station engine: the numbers the
+ * old Mood Flow presets used, kept so that path plays as it always did.
+ */
+const legacyAlchemyParams = (mix: Mix): AlchemyParams => {
+    switch (mixCharacter(mix)) {
+        case 'close':
+            return { temperature: 0.5 };
+        case 'explore':
+            return { temperature: 1.6 };
         default:
-            return 'SteadyVibes';
+            return { subtractDistance: 0.35, temperature: 0.6 };
     }
 };
 
@@ -72,6 +69,15 @@ export interface MixEngineDeps {
     queryClient: QueryClient;
     server: null | ServerListItem | undefined;
     serverId: string;
+}
+
+/**
+ * One run of a recipe. `station` is set when it played through the hub's station engine: the
+ * queue then belongs to that station, and playing it binds the session to it (I-040).
+ */
+export interface MixRun {
+    songs: Song[];
+    station?: StationBinding;
 }
 
 /** Bare ids → full Songs. Mirrors `use-auto-dj`'s `resolveSongsByIds`; a song
@@ -89,18 +95,86 @@ const resolveSongsByIds = async (serverId: string, ids: string[]): Promise<Song[
     return songs.filter((song): song is Song => Boolean(song));
 };
 
+const seedSong = (serverId: string, id: string): Promise<null | Song> =>
+    api.controller.getSongDetail({ apiClientProps: { serverId }, query: { id } }).catch(() => null);
+
+/**
+ * With the hub's station engine (PROTOCOL §17.1): `similar` is a track radio on Balanced,
+ * `fingerprint` and `adaptive` are Your mix (adaptive keeping its character), and `station` is
+ * the radio its recipe names. Null: not a station kind, or the engine did not start one, and
+ * the old path runs.
+ */
+const runThroughStation = async (
+    mix: Mix,
+    serverId: string,
+    count: number,
+): Promise<MixRun | null> => {
+    const start = async (
+        seed: 'yourMix' | Song,
+        character: ReturnType<typeof mixCharacter>,
+    ): Promise<MixRun | null> => {
+        const queue = await buildStationQueue({
+            character,
+            count,
+            leading: seed === 'yourMix' ? [] : [seed],
+            seed:
+                seed === 'yourMix'
+                    ? { kind: 'yourMix' }
+                    : { ids: [seed.id], kind: 'track', name: seed.name },
+            serverId,
+        });
+        return queue ? { songs: queue.songs, station: queue.binding } : null;
+    };
+
+    switch (mix.kind as MixKind) {
+        case 'adaptive':
+            return start('yourMix', mixCharacter(mix));
+        case 'fingerprint':
+            return start('yourMix', toCharacterId(mix.character) ?? currentCharacter());
+        case 'similar': {
+            if (!mix.seedId) return null;
+            const seed = await seedSong(serverId, mix.seedId);
+            return seed ? start(seed, 'balanced') : null;
+        }
+        case 'station': {
+            if (!mix.seedId) return start('yourMix', mixCharacter(mix));
+            const seed = await seedSong(serverId, mix.seedId);
+            return seed ? start(seed, mixCharacter(mix)) : null;
+        }
+        default:
+            return null;
+    }
+};
+
 /**
  * Run one mix's recipe and answer with a fresh tracklist.
  *
- * Empty is a legitimate answer — an AudioMuse index that has not been built, a
- * seed song that has been deleted, a genre with nothing in it — and the caller
+ * Empty is a legitimate answer - an AudioMuse index that has not been built, a
+ * seed song that has been deleted, a genre with nothing in it - and the caller
  * says so rather than starting silent playback.
  */
-export const regenerateMix = async (mix: Mix, deps: MixEngineDeps): Promise<Song[]> => {
-    const { audioMuse, queryClient, server, serverId } = deps;
-    const count = Math.max(1, mix.count || 50);
+export const regenerateMix = async (mix: Mix, deps: MixEngineDeps): Promise<MixRun> => {
+    const { serverId } = deps;
+    const count = Math.max(1, Math.min(50, mix.count || 50));
 
-    switch (mix.kind as MixKind) {
+    if (stationsReady()) {
+        const viaStation = await runThroughStation(mix, serverId, count);
+        if (viaStation) return viaStation;
+    }
+
+    return { songs: await regenerateLocally(mix, deps, Math.max(1, mix.count || 50)) };
+};
+
+/** The paths that run without the station engine, as they always did. */
+const regenerateLocally = async (mix: Mix, deps: MixEngineDeps, count: number): Promise<Song[]> => {
+    const { audioMuse, queryClient, server, serverId } = deps;
+
+    // Without the engine a radio recipe plays as its nearest old kind: a seeded one as
+    // `similar`, Your mix as `fingerprint` (PROTOCOL §18 "Without the engine").
+    const kind: MixKind =
+        mix.kind === 'station' ? (mix.seedId ? 'similar' : 'fingerprint') : (mix.kind as MixKind);
+
+    switch (kind) {
         case 'adaptive': {
             // Song Alchemy off the stored seed. `subtractIds` is empty on
             // purpose: the skip signals Auto DJ feeds it are a property of the
@@ -113,7 +187,7 @@ export const regenerateMix = async (mix: Mix, deps: MixEngineDeps): Promise<Song
                 [mix.seedId],
                 [],
                 count,
-                moodCharacterParams(toMoodCharacter(mix.moodCharacter)),
+                legacyAlchemyParams(mix),
             );
             return resolveSongsByIds(serverId, ids);
         }

@@ -1,0 +1,516 @@
+import type { StationAnswer, StationResult, StationSeed } from '/@/shared/types/station-types';
+
+import React, { useEffect } from 'react';
+
+import { eventEmitter } from '/@/renderer/events/event-emitter';
+import { UserFavoriteEventPayload } from '/@/renderer/events/events';
+import { isRemoteSessionActive } from '/@/renderer/features/hub/utils/remote-queue';
+import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import {
+    currentCharacter,
+    nextStation,
+    probeStations,
+    resolveStationSongs,
+    signalStation,
+    startStation,
+} from '/@/renderer/features/player/station/station-client';
+import {
+    AnswerOutcome,
+    AutoplayInput,
+    continueSeedIds,
+    decideAutoplay,
+    idsInPlayOrder,
+    NEXT_COUNT,
+    outcomeOf,
+    remainingLocal,
+    remainingRemote,
+    RETRY_DELAY_MS,
+    RETRY_MAX,
+    SERVED_ELSEWHERE_GRACE_MS,
+    StationBinding,
+} from '/@/renderer/features/player/station/station-logic';
+import {
+    getStationMode,
+    useStationMode,
+    useStationStore,
+} from '/@/renderer/features/player/station/station-store';
+import { onQueueSessionBegin } from '/@/renderer/features/player/utils/saved-queue-source';
+import {
+    isShuffleEnabled,
+    useCurrentServerId,
+    useHubStore,
+    usePlayerStore,
+    usePlayerStoreBase,
+    useSettingsStore,
+} from '/@/renderer/store';
+import { logger } from '/@/renderer/utils/logger';
+import { LibraryItem, Song } from '/@/shared/types/domain-types';
+import { Play, PlayerStatus } from '/@/shared/types/types';
+
+/**
+ * navi-connect stations (I-040): autoplay through the hub's engine. Mounted beside upstream's
+ * `<AutoDJHook/>`; exactly one of the two runs (see `stationMode`).
+ *
+ * It keeps a short lookahead: when fewer than two tracks remain after the current one, in play
+ * order, it asks for five more. A queue that belongs to a station asks that station (`next`,
+ * `after` its cursor); any other queue continues as a new station seeded from the tracks just
+ * played (`start` with `bindSession`). Skips and play-throughs are the hub's to judge from the
+ * session's reports, so the next batch is steered within a few tracks.
+ *
+ * Two places can drive: this device while it plays, and this device as a controller while
+ * another one plays (it then appends through the hub, as every edit from here does). If both
+ * ask at once the hub's `after` rule serves one of them; the other learns the new cursor and
+ * waits for that batch to land (SERVED_ELSEWHERE_GRACE_MS).
+ */
+
+interface Snapshot {
+    input: Omit<AutoplayInput, 'bound' | 'elsewhereRecent' | 'inFlight' | 'mode'>;
+    /** Identifies the trigger: what is playing and how much is left. Retries are counted per key. */
+    key: string;
+    /** Songs this client already holds, so the answer's ids resolve without a request each. */
+    known: Map<string, Song>;
+}
+
+const readSnapshot = (): Snapshot => {
+    const hub = useHubStore.getState();
+    const deviceId = hub.myDeviceId ?? undefined;
+    if (isRemoteSessionActive()) {
+        const ids = hub.remoteQueue.map((track) => track.id);
+        const order = hub.remoteOrder;
+        const playOrder = idsInPlayOrder(ids, order);
+        const position =
+            order && order.length === ids.length
+                ? order.indexOf(hub.remoteQueueIndex)
+                : hub.remoteQueueIndex;
+        const remaining = remainingRemote(hub.remoteQueueIndex, ids.length, order);
+        return {
+            input: {
+                deviceId,
+                driving: true,
+                enabled: useSettingsStore.getState().autoDJ.enabled,
+                isPlaying: hub.remoteIsPlaying,
+                queueIds: ids,
+                remaining,
+                savedQueueId: hub.savedQueueId,
+                seedIds: continueSeedIds(playOrder, Math.max(0, position)),
+            },
+            key: `r:${ids[hub.remoteQueueIndex] ?? ''}:${hub.remoteQueueIndex}:${remaining}:${ids.length}`,
+            known: new Map(),
+        };
+    }
+
+    const state = usePlayerStore.getState();
+    const items = state.getQueue().items;
+    const playIndex = state.player.index;
+    const shuffled = isShuffleEnabled(state) ? state.queue.shuffled : null;
+    const playOrderSongs = shuffled ? shuffled.map((index) => items[index]) : items;
+    const playOrder = playOrderSongs.map((song) => song?.id ?? '');
+    const current = playOrderSongs[playIndex];
+    const remaining = remainingLocal(playIndex, playOrderSongs.length);
+    return {
+        input: {
+            deviceId,
+            driving: true,
+            enabled: useSettingsStore.getState().autoDJ.enabled,
+            isPlaying: Boolean(current?.id) && state.player.status === PlayerStatus.PLAYING,
+            queueIds: items.map((song) => song.id),
+            remaining,
+            savedQueueId: hub.savedQueueId,
+            seedIds: current ? continueSeedIds(playOrder, playIndex) : [],
+        },
+        key: `l:${current?._uniqueId ?? ''}:${remaining}:${items.length}`,
+        known: new Map(items.map((song) => [song.id, song as Song])),
+    };
+};
+
+const StationAutoplayInner = () => {
+    const player = usePlayer();
+    const serverId = useCurrentServerId();
+
+    useEffect(() => {
+        let disposed = false;
+        let inFlight = false;
+        // A new listening session, or a new hub queue, makes an answer still in flight stale.
+        let sessionSerial = 0;
+        const generation = () => `${sessionSerial}:${useHubStore.getState().savedQueueId ?? ''}`;
+        let retry: { count: number; key: string; timer: null | ReturnType<typeof setTimeout> } = {
+            count: 0,
+            key: '',
+            timer: null,
+        };
+        // The station a 404 already restarted, so an expired one is started again only once.
+        let restartedFrom: null | string = null;
+
+        const scheduleRecheck = (key: string, delay = RETRY_DELAY_MS) => {
+            if (retry.timer) clearTimeout(retry.timer);
+            if (retry.key !== key) retry = { count: 0, key, timer: null };
+            if (retry.count >= RETRY_MAX) return;
+            retry.count += 1;
+            retry.timer = setTimeout(() => {
+                retry.timer = null;
+                void evaluate();
+            }, delay);
+        };
+
+        const release = () => {
+            inFlight = false;
+            useStationStore.getState().actions.setInFlight(false);
+        };
+
+        const append = (songs: Song[]) => {
+            if (songs.length === 0) return;
+            player.addToQueueByData(songs, Play.LAST);
+            eventEmitter.emit('AUTODJ_QUEUE_ADDED', { songCount: songs.length });
+        };
+
+        /** Carry out what an answer means. Returns true when it asks to look again at once. */
+        const apply = async (
+            outcome: AnswerOutcome,
+            asked: 'next' | 'start',
+            snap: Snapshot,
+            askedAt: string,
+            previous: null | StationBinding,
+        ): Promise<'again' | 'done' | { restart: StationBinding }> => {
+            const actions = useStationStore.getState().actions;
+            switch (outcome.kind) {
+                case 'adopt':
+                    actions.adopt(outcome.binding, {
+                        elsewhere: outcome.servedElsewhere,
+                        hold: asked === 'start',
+                    });
+                    if (outcome.recheck) {
+                        scheduleRecheck(
+                            snap.key,
+                            outcome.servedElsewhere ? SERVED_ELSEWHERE_GRACE_MS : RETRY_DELAY_MS,
+                        );
+                    }
+                    return 'done';
+                case 'append': {
+                    const songs = await resolveStationSongs(outcome.tracks, serverId, snap.known);
+                    if (disposed || generation() !== askedAt) return 'done';
+                    actions.adopt(outcome.binding, { hold: asked === 'start' });
+                    useStationStore.setState({ lastPartial: outcome.partial });
+                    append(songs);
+                    return 'done';
+                }
+                case 'continue': {
+                    // Another device bound the session first: this queue is that station's now.
+                    const cursor = useStationStore.getState().cursors[outcome.stationId];
+                    actions.adopt(
+                        {
+                            character: cursor?.character ?? currentCharacter(),
+                            engine: null,
+                            exhausted: cursor?.exhausted ?? false,
+                            name: cursor?.name ?? '',
+                            rev: cursor?.rev ?? 0,
+                            seed: cursor?.seed ?? null,
+                            seq: cursor?.seq ?? 0,
+                            stationId: outcome.stationId,
+                        },
+                        { hold: true },
+                    );
+                    return 'again';
+                }
+                case 'fallback':
+                    // Latched by the client: this hook unmounts and Auto DJ takes over.
+                    return 'done';
+                case 'restart':
+                    if (!previous || restartedFrom === previous.stationId) {
+                        // Restarted once already: let the queue continue as a new station.
+                        actions.adopt(null, { hold: true });
+                        return 'again';
+                    }
+                    return { restart: previous };
+                case 'retry':
+                default:
+                    if (outcome.kind === 'retry' && outcome.transient) scheduleRecheck(snap.key);
+                    return 'done';
+            }
+        };
+
+        // `depth` bounds the chains one answer can start (409 -> next -> 404 -> start ...).
+        const evaluate = async (depth = 0): Promise<void> => {
+            if (disposed || inFlight) return;
+            const snap = readSnapshot();
+            const s = useStationStore.getState();
+            const decision = decideAutoplay(
+                {
+                    ...snap.input,
+                    bound: s.bound,
+                    elsewhereRecent: Date.now() - s.elsewhereAt < SERVED_ELSEWHERE_GRACE_MS,
+                    inFlight,
+                    mode: getStationMode(),
+                },
+                currentCharacter(),
+            );
+            if (decision.kind === 'wait') {
+                if (decision.reason === 'served-elsewhere') {
+                    scheduleRecheck(snap.key, SERVED_ELSEWHERE_GRACE_MS);
+                }
+                return;
+            }
+
+            inFlight = true;
+            s.actions.setInFlight(true);
+            const askedAt = generation();
+            const previous = s.bound;
+            let next: 'again' | 'done' | { restart: StationBinding } = 'done';
+            try {
+                logger.info('Station autoplay', {
+                    after: decision.kind === 'next' ? decision.body.after : undefined,
+                    kind: decision.kind,
+                    remaining: snap.input.remaining,
+                });
+                const result: StationResult<StationAnswer> =
+                    decision.kind === 'next'
+                        ? await nextStation(decision.body)
+                        : await startStation(decision.body);
+                if (disposed || generation() !== askedAt) return;
+                next = await apply(
+                    outcomeOf(result, useStationStore.getState().bound, decision.kind),
+                    decision.kind,
+                    snap,
+                    askedAt,
+                    previous,
+                );
+
+                if (typeof next === 'object') {
+                    // 404 station_unknown: the hub lost this station (it expired, or the hub's
+                    // state went). Start it once again from the seed this client kept, or from
+                    // what just played when it kept none.
+                    restartedFrom = next.restart.stationId;
+                    const seed: null | StationSeed =
+                        next.restart.seed ??
+                        (snap.input.seedIds.length > 0
+                            ? { ids: [...snap.input.seedIds], kind: 'tracks' }
+                            : null);
+                    useStationStore.getState().actions.adopt(null, { hold: true });
+                    if (!seed) {
+                        next = 'again';
+                    } else {
+                        const restarted = await startStation({
+                            ...(snap.input.savedQueueId
+                                ? { bindSession: snap.input.savedQueueId }
+                                : {}),
+                            character: next.restart.character,
+                            count: NEXT_COUNT,
+                            exclude: decision.body.exclude,
+                            seed,
+                        });
+                        if (disposed || generation() !== askedAt) return;
+                        next = await apply(
+                            outcomeOf(restarted, null, 'start'),
+                            'start',
+                            snap,
+                            askedAt,
+                            null,
+                        );
+                        if (typeof next === 'object') next = 'done';
+                    }
+                }
+            } catch (error) {
+                logger.error('Station autoplay failed', { error: (error as Error).message });
+                scheduleRecheck(snap.key);
+            } finally {
+                if (!disposed) release();
+            }
+            if (next === 'again' && depth < 3) void evaluate(depth + 1);
+        };
+
+        // What to watch: the local queue and player, the hub's session mirror (for a remote
+        // session), and the binding's identity and exhaustion. Not its cursor: a cursor moved by
+        // another device is waited on, not answered (SERVED_ELSEWHERE_GRACE_MS).
+        const unsubPlayer = usePlayerStoreBase.subscribe(
+            (state) => {
+                const queue = state.getQueue();
+                const shuffled = isShuffleEnabled(state);
+                const length = shuffled ? state.queue.shuffled.length : queue.items.length;
+                const index = state.player.index;
+                const song = shuffled
+                    ? queue.items[state.queue.shuffled[index]]
+                    : queue.items[index];
+                return {
+                    length,
+                    remaining: length - index - 1,
+                    status: state.player.status,
+                    uniqueId: song?._uniqueId,
+                };
+            },
+            () => void evaluate(),
+            {
+                equalityFn: (a, b) =>
+                    a.uniqueId === b.uniqueId &&
+                    a.remaining === b.remaining &&
+                    a.length === b.length &&
+                    a.status === b.status,
+            },
+        );
+
+        let hubSig = '';
+        const unsubHub = useHubStore.subscribe((state) => {
+            const sig = [
+                state.connected,
+                state.activeDeviceId,
+                state.remoteQueueIndex,
+                state.remoteQueue.length,
+                state.remoteQueue[state.remoteQueueIndex]?.id,
+                state.remoteIsPlaying,
+                state.remoteOrder?.length ?? 0,
+                state.savedQueueId,
+            ].join('|');
+            if (sig === hubSig) return;
+            hubSig = sig;
+            void evaluate();
+        });
+
+        let stationSig = '';
+        const unsubStation = useStationStore.subscribe((state) => {
+            const sig = `${state.bound?.stationId ?? ''}|${state.bound?.exhausted ?? ''}`;
+            if (sig === stationSig) return;
+            stationSig = sig;
+            void evaluate();
+        });
+
+        const unsubSession = onQueueSessionBegin(() => {
+            sessionSerial += 1;
+        });
+
+        void evaluate();
+
+        return () => {
+            disposed = true;
+            if (retry.timer) clearTimeout(retry.timer);
+            unsubPlayer();
+            unsubHub();
+            unsubStation();
+            unsubSession();
+            useStationStore.getState().actions.setInFlight(false);
+        };
+    }, [player, serverId]);
+
+    return null;
+};
+
+export const StationAutoplayHook = () => {
+    const enabled = useSettingsStore((state) => state.autoDJ.enabled);
+    const mode = useStationMode();
+    if (!enabled || mode !== 'stations') return null;
+    return React.createElement(StationAutoplayInner);
+};
+
+// --- The probe, and likes ------------------------------------------------------------------------
+
+const PROBE_EVERY_MS = 10 * 60 * 1000;
+const PROBE_AFTER_FAILURE_MS = 60 * 1000;
+/** A star is sent once it has settled: the favorite mutation reverts an optimistic one that failed. */
+const LIKE_SETTLE_MS = 1500;
+
+const SONG_TYPES = new Set<LibraryItem>([
+    LibraryItem.PLAYLIST_SONG,
+    LibraryItem.QUEUE_SONG,
+    LibraryItem.SONG,
+]);
+
+/** The ids of the queue being listened to: this device's, or the session's while another plays. */
+const listenedQueueIds = (): Set<string> =>
+    new Set(
+        isRemoteSessionActive()
+            ? useHubStore.getState().remoteQueue.map((track) => track.id)
+            : usePlayerStore
+                  .getState()
+                  .getQueue()
+                  .items.map((song) => song.id),
+    );
+
+/**
+ * Always mounted (desktop). Asks the hub what its engine can do on every connection that
+ * advertises `station`, again every 10 minutes and a minute after it said no; and sends likes.
+ * A star goes from this client straight to Navidrome and the hub never sees it, so a like or
+ * unlike of a track in a station's queue is told to the station here.
+ */
+const StationServiceInner = () => {
+    useEffect(() => {
+        let disposed = false;
+        let timer: null | ReturnType<typeof setTimeout> = null;
+        let probing = false;
+
+        const schedule = (delay: number) => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => void probe(), delay);
+        };
+
+        const probe = async () => {
+            const hub = useHubStore.getState();
+            if (disposed || probing || !hub.connected || !hub.features.includes('station')) return;
+            probing = true;
+            try {
+                const catalog = await probeStations();
+                if (disposed) return;
+                useStationStore.getState().actions.setCatalog(catalog);
+                logger.info('Station engine probed', {
+                    available: catalog?.available ?? false,
+                    engine: catalog?.engine ?? null,
+                });
+                schedule(catalog?.available ? PROBE_EVERY_MS : PROBE_AFTER_FAILURE_MS);
+            } finally {
+                probing = false;
+            }
+        };
+
+        let connectionSig = '';
+        const unsubHub = useHubStore.subscribe((state) => {
+            const sig = `${state.connected}|${state.features.includes('station')}`;
+            if (sig === connectionSig) return;
+            connectionSig = sig;
+            if (state.connected && state.features.includes('station')) {
+                void probe();
+            } else if (timer) {
+                clearTimeout(timer);
+                timer = null;
+            }
+        });
+        // A 503 latched the fallback: ask again in a minute rather than waiting ten.
+        let latched = useStationStore.getState().fallbackLatched;
+        const unsubStation = useStationStore.subscribe((state) => {
+            if (state.fallbackLatched && !latched) schedule(PROBE_AFTER_FAILURE_MS);
+            latched = state.fallbackLatched;
+        });
+
+        const pendingLikes = new Map<string, ReturnType<typeof setTimeout>>();
+        const onFavorite = (payload: UserFavoriteEventPayload) => {
+            if (!SONG_TYPES.has(payload.itemType)) return;
+            if (!useStationStore.getState().bound || getStationMode() !== 'stations') return;
+            const queued = listenedQueueIds();
+            for (const id of payload.id) {
+                if (!queued.has(id)) continue;
+                const waiting = pendingLikes.get(id);
+                if (waiting) clearTimeout(waiting);
+                pendingLikes.set(
+                    id,
+                    setTimeout(() => {
+                        pendingLikes.delete(id);
+                        void signalStation(payload.favorite ? 'like' : 'unlike', { trackId: id });
+                    }, LIKE_SETTLE_MS),
+                );
+            }
+        };
+        eventEmitter.on('USER_FAVORITE', onFavorite);
+
+        const hub = useHubStore.getState();
+        connectionSig = `${hub.connected}|${hub.features.includes('station')}`;
+        void probe();
+
+        return () => {
+            disposed = true;
+            if (timer) clearTimeout(timer);
+            for (const waiting of pendingLikes.values()) clearTimeout(waiting);
+            unsubHub();
+            unsubStation();
+            eventEmitter.off('USER_FAVORITE', onFavorite);
+        };
+    }, []);
+
+    return null;
+};
+
+export const StationServiceHook = () => React.createElement(StationServiceInner);

@@ -2,8 +2,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 
 import { sendHubAct } from '/@/renderer/features/hub/utils/remote-queue';
-import { MixEngineDeps, regenerateMix } from '/@/renderer/features/mixes/mix-engine';
+import { MixEngineDeps, MixRun, regenerateMix } from '/@/renderer/features/mixes/mix-engine';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import { playStationQueue } from '/@/renderer/features/player/station/station-client';
 import { beginQueueSession } from '/@/renderer/features/player/utils/saved-queue-source';
 import {
     isKnownMixKind,
@@ -15,7 +16,6 @@ import {
     useHubConnected,
 } from '/@/renderer/store';
 import { toast } from '/@/shared/components/toast/toast';
-import { Song } from '/@/shared/types/domain-types';
 import { Play } from '/@/shared/types/types';
 
 /**
@@ -43,6 +43,8 @@ export const useMixActions = () => {
 
     const saveMix = useCallback(
         (mix: {
+            /** The station character (I-040); `moodCharacter` carries its legacy name. */
+            character?: string;
             count?: number;
             /** A Navidrome cover-art id, stamped from the recipe's SEED. The hub
              *  has always accepted it (`_sanitize_mix`) and neither client ever
@@ -114,7 +116,7 @@ export const useMixRunner = () => {
      * differently.
      */
     const generate = useCallback(
-        async (mix: Mix): Promise<null | Song[]> => {
+        async (mix: Mix): Promise<MixRun | null> => {
             if (!serverId) return null;
             // A recipe this build cannot run. Refused with a reason rather than
             // approximated: regenerating the wrong kind plays something
@@ -144,12 +146,17 @@ export const useMixRunner = () => {
     );
 
     /** Play a list the caller already has - a preview's own tracks, never a
-     *  second regeneration of them. */
+     *  second regeneration of them. A run that came from a station plays as that
+     *  station's queue, so autoplay continues it. */
     const playGenerated = useCallback(
-        (mix: Mix, songs: Song[]) => {
-            if (songs.length === 0) return;
-            beginQueueSession('radio', mix.name);
-            player.addToQueueByData(songs, Play.NOW);
+        (mix: Mix, run: MixRun) => {
+            if (run.songs.length === 0) return;
+            if (run.station) {
+                playStationQueue({ binding: run.station, songs: run.songs }, mix.name, player);
+            } else {
+                beginQueueSession('radio', mix.name);
+                player.addToQueueByData(run.songs, Play.NOW);
+            }
             sendHubAct('touchMix', { id: mix.id });
         },
         [player],
@@ -157,15 +164,15 @@ export const useMixRunner = () => {
 
     const play = useCallback(
         async (mix: Mix) => {
-            const songs = await generate(mix);
-            if (songs === null) return;
-            if (songs.length === 0) {
+            const run = await generate(mix);
+            if (run === null) return;
+            if (run.songs.length === 0) {
                 toast.error({
                     message: `"${mix.name}" produced nothing this time - its source may be empty or still indexing.`,
                 });
                 return;
             }
-            playGenerated(mix, songs);
+            playGenerated(mix, run);
         },
         [generate, playGenerated],
     );

@@ -1656,6 +1656,12 @@
         }
     },
     "naviConnect": {
+        "audioMuse": {
+            "token": "AudioMuse API token (direct)",
+            "token_description": "Only for reaching AudioMuse-AI with no hub. Leave blank when your navi-connect hub holds it.",
+            "url": "AudioMuse URL (direct)",
+            "url_description": "Only for reaching AudioMuse-AI with no hub, for mood search and mixes. Radio and autoplay always go through the hub. Leave blank when the hub is set up."
+        },
         "libraryMatches": {
             "intro": "What lb-bot holds on your behalf: the MusicBrainz matches you chose, the ones worth a look, and the tag changes it can undo.",
             "title": "Library Matches"
@@ -1675,7 +1681,10 @@
             "empty": "No mixes yet. A mix stores the recipe - the source, the seed and the mood - rather than a fixed tracklist, so it is built again each time you play it. Start something playing and press New mix.",
             "new": "New mix",
             "noHub": "Mixes are stored on your navi-connect hub, so they are unavailable while this device is not connected to it.",
-            "title": "Mixed for You"
+            "title": "Mixed for You",
+            "yourMix": "Your mix",
+            "yourMix_description": "A radio of what you play most, from your navi-connect hub.",
+            "yourMix_failed": "Your mix could not be started just now."
         },
         "savedQueuePreview": {
             "resume": "Resume",
@@ -1685,6 +1694,22 @@
             "clearAll": "Clear all",
             "empty": "No saved queues yet. Queues you play are captured here automatically.",
             "title": "Saved Queues"
+        },
+        "station": {
+            "autoplay": "Autoplay",
+            "autoplayFallback_description": "Add songs to the queue when it is about to run out.",
+            "autoplay_description": "When the queue is about to run out, it carries on as a radio from what you just played. Skips and likes steer what comes next.",
+            "character": "Character",
+            "character_description": "How far a radio may move from what it started with. A change steers the radio that is playing from its next few tracks.",
+            "continues": "When this queue runs out, it carries on as a radio from its last tracks.",
+            "exhausted": "Nothing left that fits",
+            "explore": "Explore",
+            "finding": "Finding the next tracks...",
+            "partial": "Fewer tracks than asked this time. More at the next track.",
+            "radio": "Radio",
+            "radioOf": "{{name}} radio",
+            "viaNavidrome": "via Navidrome",
+            "yourMix": "Your mix"
         }
     }
 }

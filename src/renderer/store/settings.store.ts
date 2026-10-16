@@ -23,6 +23,7 @@ import {
 } from '/@/renderer/components/item-list/item-table-list/default-columns';
 import { audiomotionanalyzerPresets } from '/@/renderer/features/visualizer/components/audiomotionanalyzer/presets';
 import { AppRoute } from '/@/renderer/router/routes';
+import { migrateAutoplayToStations } from '/@/renderer/store/autoplay-migration';
 import { getEnvSettingsOverrides } from '/@/renderer/store/env-settings-overrides';
 import { mergeOverridingColumns } from '/@/renderer/store/utils';
 import { FontValueSchema } from '/@/renderer/types/fonts';
@@ -822,19 +823,22 @@ const autoDjStrategyEnum = z.enum(['similar', 'library_random']);
 const AutoDJSettingsSchema = z.object({
     albumStrategy: autoDjStrategyEnum,
     allowDuplicates: z.boolean(),
-    // navi-connect: which engine tops up the queue when enabled. autoDj = the
-    // built-in similar/random; fingerprint/moodFlow = AudioMuse core (Tier 2).
-    autoplaySource: z.enum(['autoDj', 'fingerprint', 'moodFlow']).default('autoDj'),
     enabled: z.boolean(),
     itemCount: z.number(),
     mode: z.enum(['songs', 'albums']),
-    // navi-connect Tier 2: adaptive Mood Flow tuning preset (AudioMuse Song Alchemy
-    // temperature / subtract-distance). Only affects autoplaySource === 'moodFlow'.
-    moodCharacter: z.enum(['echo', 'steady', 'transition']).default('steady'),
     onlySimilar: z.boolean(),
     songStrategy: autoDjStrategyEnum,
     timing: z.number(),
 });
+
+// navi-connect (I-040): the character a new station starts with (PROTOCOL §18.3). Autoplay
+// itself is upstream's `autoDJ.enabled`: with the hub's station engine it continues the queue
+// as a station, without it upstream's Auto DJ runs.
+const StationSettingsSchema = z
+    .object({
+        character: z.enum(['close', 'balanced', 'explore']).default('balanced'),
+    })
+    .default({ character: 'balanced' });
 
 const TagAutocompleteSourceSchema = z.string();
 
@@ -891,6 +895,7 @@ export const ValidationSettingsStateSchema = z.object({
     playback: PlaybackSettingsSchema,
     queryBuilder: QueryBuilderSettingsSchema,
     remote: RemoteSettingsSchema,
+    station: StationSettingsSchema,
     tab: z.union([
         z.literal('general'),
         z.literal('hotkeys'),
@@ -1354,11 +1359,9 @@ const initialState: SettingsState = {
     autoDJ: {
         albumStrategy: AUTO_DJ_STRATEGY.SIMILAR,
         allowDuplicates: false,
-        autoplaySource: 'autoDj',
         enabled: false,
         itemCount: 5,
         mode: 'songs',
-        moodCharacter: 'steady',
         onlySimilar: false,
         songStrategy: AUTO_DJ_STRATEGY.SIMILAR,
         timing: 1,
@@ -2204,6 +2207,9 @@ const initialState: SettingsState = {
         port: 4333,
         username: 'feishin',
     },
+    station: {
+        character: 'balanced',
+    },
     tab: 'general',
     tagEditor: {
         tagConfigs: {
@@ -3007,10 +3013,19 @@ export const useSettingsStore = createWithEqualityFn<SettingsSlice>()(
                     });
                 }
 
+                // navi-connect (I-040): radio and autoplay are the hub's stations. Auto DJ's
+                // slice is upstream's again and the old Mood Flow preset becomes the station
+                // character (autoplay-migration.ts). Settings import runs this too.
+                if (version < 36) {
+                    migrateAutoplayToStations(
+                        state as unknown as Parameters<typeof migrateAutoplayToStations>[0],
+                    );
+                }
+
                 return persistedState;
             },
             name: 'store_settings',
-            version: 35,
+            version: 36,
         },
     ),
 );
@@ -3070,6 +3085,8 @@ export const useRemoteSettings = () => useSettingsStore((state) => state.remote,
 export const useHubSettings = () => useSettingsStore((state) => state.hub, shallow);
 
 export const useAudioMuseSettings = () => useSettingsStore((state) => state.audioMuse, shallow);
+
+export const useStationSettings = () => useSettingsStore((state) => state.station, shallow);
 
 export const useFontSettings = () => useSettingsStore((state) => state.font, shallow);
 

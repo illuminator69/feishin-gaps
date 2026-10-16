@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { LbModalLayout } from '/@/renderer/features/lbbot/components/lb-modal-layout';
 import { useMixRunner } from '/@/renderer/features/mixes/hooks/use-mixes';
+import { MixRun } from '/@/renderer/features/mixes/mix-engine';
 import { PreviewSongRow } from '/@/renderer/features/shared/components/preview-song-row';
 import { Mix } from '/@/renderer/store';
 import { Button } from '/@/shared/components/button/button';
@@ -11,7 +12,6 @@ import { closeAllModals } from '/@/shared/components/modal/modal';
 import { Skeleton } from '/@/shared/components/skeleton/skeleton';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
-import { Song } from '/@/shared/types/domain-types';
 
 /**
  * Looking inside a mix without committing to it.
@@ -38,14 +38,14 @@ import { Song } from '/@/shared/types/domain-types';
 export const MixPreview = ({ mix }: { mix: Mix }) => {
     const { t } = useTranslation();
     const { generate, playGenerated } = useMixRunner();
-    const [songs, setSongs] = useState<null | Song[]>(null);
+    const [run, setRun] = useState<MixRun | null>(null);
     const [done, setDone] = useState(false);
 
     useEffect(() => {
         let live = true;
         void generate(mix).then((result) => {
             if (!live) return;
-            setSongs(result);
+            setRun(result);
             setDone(true);
         });
         return () => {
@@ -83,7 +83,8 @@ export const MixPreview = ({ mix }: { mix: Mix }) => {
         );
     }
 
-    if (!songs || songs.length === 0) {
+    const songs = run?.songs ?? null;
+    if (!run || !songs || songs.length === 0) {
         return (
             <LbModalLayout footer={<Group justify="flex-end">{close}</Group>}>
                 <Text isMuted size="sm">
@@ -102,7 +103,7 @@ export const MixPreview = ({ mix }: { mix: Mix }) => {
                     {close}
                     <Button
                         onClick={() => {
-                            playGenerated(mix, songs);
+                            playGenerated(mix, run);
                             closeAllModals();
                         }}
                         variant="filled"

@@ -15,7 +15,6 @@ import { AutoDJHook } from '/@/renderer/features/player/hooks/use-auto-dj';
 import { AutosaveHook } from '/@/renderer/features/player/hooks/use-autosave';
 import { CastScrobbleHook } from '/@/renderer/features/player/hooks/use-cast-scrobble';
 import { MediaSessionHook } from '/@/renderer/features/player/hooks/use-media-session';
-import { MoodFlowSignalsHook } from '/@/renderer/features/player/hooks/use-mood-flow-signals';
 import { MPRISHook } from '/@/renderer/features/player/hooks/use-mpris';
 import { PlaybackHotkeysHook } from '/@/renderer/features/player/hooks/use-playback-hotkeys';
 import { PowerSaveBlockerHook } from '/@/renderer/features/player/hooks/use-power-save-blocker';
@@ -27,6 +26,10 @@ import { SavedQueuesCaptureHook } from '/@/renderer/features/player/hooks/use-sa
 import { ScrobbleHook } from '/@/renderer/features/player/hooks/use-scrobble';
 import { UpdateCurrentSongHook } from '/@/renderer/features/player/hooks/use-update-current-song';
 import { useWebAudio } from '/@/renderer/features/player/hooks/use-webaudio';
+import {
+    StationAutoplayHook,
+    StationServiceHook,
+} from '/@/renderer/features/player/station/use-station-autoplay';
 import { RadioDlnaPlayer } from '/@/renderer/features/radio/components/radio-dlna-player';
 import { RadioWebPlayer } from '/@/renderer/features/radio/components/radio-web-player';
 import {
@@ -152,7 +155,8 @@ export const AudioPlayers = () => {
             <RemoteRadioPushHook />
             <RemoteSettingsPushHook />
             <AutoDJHook />
-            <MoodFlowSignalsHook />
+            <StationAutoplayHook />
+            <StationServiceHook />
             <QueueRestoreTimestampHook />
             <InitialTimestampRestoreHook />
             <UpdateCurrentSongHook />
