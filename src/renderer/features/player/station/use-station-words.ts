@@ -7,6 +7,7 @@ import { signalStation } from '/@/renderer/features/player/station/station-clien
 import {
     characterLabel,
     charactersOf,
+    effectiveOrigin,
     StationBinding,
 } from '/@/renderer/features/player/station/station-logic';
 import {
@@ -90,12 +91,18 @@ export const useStationWords = () => {
         return parts.join(' · ');
     }, [bound, labelOf, mode, stationName, t]);
 
-    /** What autoplay is doing right now, for the line under it. */
+    /**
+     * What happens next, for the line under it. With Autoplay Off a radio still keeps going, and
+     * any other queue (an album, or a continuation autoplay started) stops at its end.
+     */
     const status = useMemo((): null | string => {
-        if (mode !== 'stations' || !autoplay) return null;
+        if (mode !== 'stations') return null;
+        const radio = bound !== null && effectiveOrigin(bound) === 'radio';
+        if (!autoplay && !radio) return t('naviConnect.station.offStops');
         if (bound?.exhausted) return t('naviConnect.station.exhausted');
         if (inFlight) return t('naviConnect.station.finding');
         if (lastPartial) return t('naviConnect.station.partial');
+        if (!autoplay) return t('naviConnect.station.offRadioContinues');
         if (!bound) return t('naviConnect.station.continues');
         return null;
     }, [autoplay, bound, inFlight, lastPartial, mode, t]);

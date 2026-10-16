@@ -11,11 +11,15 @@
 
 /** The answer to `start` and `next`, normalized. Fields `next` does not carry are left empty. */
 export interface StationAnswer {
+    /** `start` only: whether `bindSession` bound the session. Null when the hub did not say. */
+    bound: boolean | null;
     character: StationCharacterId;
     engine: null | StationEngine;
     exhausted: boolean;
     /** `start` only. */
     name: string;
+    /** As the hub echoed it; null from a hub that does not. */
+    origin: null | StationOrigin;
     partial: boolean;
     rev: number;
     /** `start` only. */
@@ -60,6 +64,12 @@ export interface StationNextBody {
 }
 
 /**
+ * What a station was started as. A `radio` keeps going whether or not Autoplay is on; a
+ * `continue` (autoplay carrying on a queue no station built) runs only while Autoplay is on.
+ */
+export type StationOrigin = 'continue' | 'radio';
+
+/**
  * Every station call's result. `status` 0 means the request never got an HTTP answer (no hub
  * configured, unreachable, timed out). `code` is the hub's machine-readable reason
  * (`bad_seed`, `seed_unknown`, `session_bound`, `station_unknown`, ...). `fallback` is the 503
@@ -101,6 +111,8 @@ export interface StationStartBody {
     count?: number;
     deviceId?: string;
     exclude?: string[];
+    /** Why it starts: a radio the user asked for, or autoplay continuing a queue no station built. */
+    origin?: StationOrigin;
     seed: StationSeed;
 }
 

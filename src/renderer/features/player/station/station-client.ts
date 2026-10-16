@@ -15,9 +15,9 @@ import type {
 import isElectron from 'is-electron';
 
 import { api } from '/@/renderer/api';
-import { resolveHubTracks } from '/@/renderer/features/hub/utils/resolve-songs';
 import {
     bindingFromAnswer,
+    keepResolved,
     SEED_TRACKS_MAX,
     spreadPick,
     START_COUNT,
@@ -102,25 +102,34 @@ export const signalStation = async (
 };
 
 /**
- * Served tracks as Songs, in the order served. resolveHubTracks keeps the list 1:1 (an id this
- * server cannot resolve becomes a playable stub from the station's own title and artist), and
- * reuses the songs the queue already holds.
+ * Served tracks as Songs, in the order served. An id this server cannot resolve is DROPPED: a
+ * placeholder would play with no duration and no metadata. The songs the queue already holds
+ * are reused rather than asked for again.
  */
 export const resolveStationSongs = async (
     tracks: StationTrack[],
     serverId: null | string,
     known?: Map<string, Song>,
-): Promise<Song[]> =>
-    resolveHubTracks(
-        tracks.map((track) => ({
-            album: track.album,
-            artist: track.artist,
-            id: track.id,
-            title: track.title,
-        })),
-        serverId,
-        known,
+): Promise<Song[]> => {
+    if (!serverId || tracks.length === 0) return [];
+    const resolved = await Promise.all(
+        tracks.map((track) => {
+            const already = known?.get(track.id);
+            if (already) return Promise.resolve(already);
+            return api.controller
+                .getSongDetail({ apiClientProps: { serverId }, query: { id: track.id } })
+                .catch(() => null);
+        }),
     );
+    const songs = keepResolved(resolved);
+    if (songs.length < tracks.length) {
+        logger.warn('Station tracks this server could not resolve were dropped', {
+            dropped: tracks.length - songs.length,
+            served: tracks.length,
+        });
+    }
+    return songs;
+};
 
 /** Whether a radio entry point should try a station before its own path. */
 export const stationsReady = (): boolean => getStationMode() === 'stations';
@@ -149,6 +158,8 @@ export const buildStationQueue = async (args: {
         character: args.character ?? currentCharacter(),
         count: Math.max(1, Math.min(50, args.count ?? START_COUNT)),
         exclude: args.leading.map((song) => song.id),
+        // Every entry point starts a radio: it keeps going whether or not Autoplay is on.
+        origin: 'radio',
         seed: args.seed,
     });
     if (!result.ok || !result.data) {
@@ -161,7 +172,10 @@ export const buildStationQueue = async (args: {
     const answer = result.data;
     const songs = await resolveStationSongs(answer.tracks, args.serverId);
     if (args.leading.length + songs.length === 0) return null;
-    return { binding: bindingFromAnswer(answer), songs: [...args.leading, ...songs] };
+    return {
+        binding: bindingFromAnswer(answer, { startedHere: true }),
+        songs: [...args.leading, ...songs],
+    };
 };
 
 /**

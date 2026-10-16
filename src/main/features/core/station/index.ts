@@ -99,10 +99,12 @@ const toAnswer = (body: Json): null | StationAnswer => {
     const stationId = str(body.stationId);
     if (!stationId) return null;
     return {
+        bound: typeof body.bound === 'boolean' ? body.bound : null,
         character: toCharacterId(body.character) ?? 'balanced',
         engine: toEngine(body.engine),
         exhausted: body.exhausted === true,
         name: str(body.name),
+        origin: body.origin === 'radio' || body.origin === 'continue' ? body.origin : null,
         partial: body.partial === true,
         rev: num(body.rev),
         seed: toSeed(body.seed),

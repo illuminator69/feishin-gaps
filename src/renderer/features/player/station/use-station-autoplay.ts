@@ -15,10 +15,12 @@ import {
     startStation,
 } from '/@/renderer/features/player/station/station-client';
 import {
+    afterResolving,
     AnswerOutcome,
     AutoplayInput,
     continueSeedIds,
     decideAutoplay,
+    effectiveOrigin,
     idsInPlayOrder,
     NEXT_COUNT,
     outcomeOf,
@@ -188,6 +190,13 @@ const StationAutoplayInner = () => {
                 case 'append': {
                     const songs = await resolveStationSongs(outcome.tracks, serverId, snap.known);
                     if (disposed || generation() !== askedAt) return 'done';
+                    const resolved = afterResolving(outcome, songs.length);
+                    if (resolved.kind !== 'append') {
+                        // Nothing in the batch is on this server: the cursor moved past it, so
+                        // this is a partial answer. Ask again shortly; never append stubs.
+                        useStationStore.setState({ lastPartial: true });
+                        return apply(resolved, asked, snap, askedAt, previous);
+                    }
                     actions.adopt(outcome.binding, { hold: asked === 'start' });
                     useStationStore.setState({ lastPartial: outcome.partial });
                     append(songs);
@@ -202,9 +211,11 @@ const StationAutoplayInner = () => {
                             engine: null,
                             exhausted: cursor?.exhausted ?? false,
                             name: cursor?.name ?? '',
+                            origin: cursor?.origin ?? null,
                             rev: cursor?.rev ?? 0,
                             seed: cursor?.seed ?? null,
                             seq: cursor?.seq ?? 0,
+                            startedHere: false,
                             stationId: outcome.stationId,
                         },
                         { hold: true },
@@ -267,7 +278,10 @@ const StationAutoplayInner = () => {
                         : await startStation(decision.body);
                 if (disposed || generation() !== askedAt) return;
                 next = await apply(
-                    outcomeOf(result, useStationStore.getState().bound, decision.kind),
+                    outcomeOf(result, useStationStore.getState().bound, decision.kind, {
+                        askedBind: decision.kind === 'start' && Boolean(decision.body.bindSession),
+                        startedHere: false,
+                    }),
                     decision.kind,
                     snap,
                     askedAt,
@@ -288,18 +302,25 @@ const StationAutoplayInner = () => {
                     if (!seed) {
                         next = 'again';
                     } else {
+                        // An unbound station stays unbound: its restart asks no bind either.
+                        const bindSession =
+                            snap.input.savedQueueId && !next.restart.unbound
+                                ? snap.input.savedQueueId
+                                : undefined;
                         const restarted = await startStation({
-                            ...(snap.input.savedQueueId
-                                ? { bindSession: snap.input.savedQueueId }
-                                : {}),
+                            ...(bindSession ? { bindSession } : {}),
                             character: next.restart.character,
                             count: NEXT_COUNT,
                             exclude: decision.body.exclude,
+                            origin: effectiveOrigin(next.restart),
                             seed,
                         });
                         if (disposed || generation() !== askedAt) return;
                         next = await apply(
-                            outcomeOf(restarted, null, 'start'),
+                            outcomeOf(restarted, null, 'start', {
+                                askedBind: Boolean(bindSession),
+                                startedHere: next.restart.startedHere,
+                            }),
                             'start',
                             snap,
                             askedAt,
@@ -375,6 +396,13 @@ const StationAutoplayInner = () => {
             sessionSerial += 1;
         });
 
+        // Autoplay switched On at a queue's end continues it at once; switched Off, only a radio
+        // goes on (decideAutoplay).
+        const unsubAutoplay = useSettingsStore.subscribe(
+            (state) => state.autoDJ.enabled,
+            () => void evaluate(),
+        );
+
         void evaluate();
 
         return () => {
@@ -384,6 +412,7 @@ const StationAutoplayInner = () => {
             unsubHub();
             unsubStation();
             unsubSession();
+            unsubAutoplay();
             useStationStore.getState().actions.setInFlight(false);
         };
     }, [player, serverId]);
@@ -391,10 +420,14 @@ const StationAutoplayInner = () => {
     return null;
 };
 
+/**
+ * Mounted whenever the engine is there, Autoplay On or Off: a radio keeps going either way, and
+ * the switch decides only whether a queue no radio built is continued (decideAutoplay).
+ * Upstream's Auto DJ, the fallback, obeys the switch as upstream does.
+ */
 export const StationAutoplayHook = () => {
-    const enabled = useSettingsStore((state) => state.autoDJ.enabled);
     const mode = useStationMode();
-    if (!enabled || mode !== 'stations') return null;
+    if (mode !== 'stations') return null;
     return React.createElement(StationAutoplayInner);
 };
 

@@ -245,7 +245,10 @@ export const useStationMode = (): StationMode => {
 export const stationIdForPublish = (): string | undefined => {
     const hub = useHubStore.getState();
     if (!hub.connected || !hub.features.includes('station')) return undefined;
-    return useStationStore.getState().bound?.stationId ?? undefined;
+    const bound = useStationStore.getState().bound;
+    // A station the hub declined to bind continues from this device without the session
+    // naming it: naming it here would be the retried bind the hub said no to.
+    return bound && !bound.unbound ? bound.stationId : undefined;
 };
 
 export const useStationBinding = () => useStationStore((s) => s.bound, shallow);

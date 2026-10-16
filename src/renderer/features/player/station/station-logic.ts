@@ -5,6 +5,7 @@ import type {
     StationCharacterId,
     StationEngine,
     StationNextBody,
+    StationOrigin,
     StationResult,
     StationSeed,
     StationStartBody,
@@ -218,19 +219,38 @@ export interface StationBinding {
     exhausted: boolean;
     /** The hub's name for it ("Cinnamon Girl radio", "Your mix"); empty when not yet told. */
     name: string;
+    /** As the hub echoed it; null from a hub that does not (see effectiveOrigin). */
+    origin?: null | StationOrigin;
     rev: number;
     /** Kept so an expired station (404 station_unknown) can be started again once. */
     seed: null | StationSeed;
     /** The `seq` this client last applied or learned: the `after` of its next `next`. */
     seq: number;
+    /** A radio entry point on THIS device started it. */
+    startedHere?: boolean;
     stationId: string;
+    /**
+     * Asked to bind the session and the hub answered `bound: false`: this queue continues the
+     * station from this device without the session naming it. No setQueue names it, no bind is
+     * tried again, and a session that names no station does not end it.
+     */
+    unbound?: boolean;
 }
+
+/**
+ * What a binding counts as, for whether it keeps going with Autoplay off. The hub's echo when it
+ * gave one; otherwise a station an entry point on this device started is a radio, and anything
+ * else (a continuation, or a station another device started that no hub said was one) is not.
+ */
+export const effectiveOrigin = (binding: StationBinding): StationOrigin =>
+    binding.origin ?? (binding.startedHere ? 'radio' : 'continue');
 
 /** A `station` frame or `welcome.station`, read defensively. Null when it names no station. */
 export interface StationCursor {
     character: null | StationCharacterId;
     exhausted: boolean;
     name?: string;
+    origin?: StationOrigin;
     rev: number;
     seed?: null | StationSeed;
     seq: number;
@@ -259,7 +279,10 @@ export const parseStationCursor = (value: unknown): null | StationCursor => {
     return {
         character: toCharacterId(frame.character),
         exhausted: frame.exhausted === true,
-        ...(typeof frame.name === 'string' ? { name: frame.name } : {}),
+        ...(typeof frame.name === 'string' && frame.name ? { name: frame.name } : {}),
+        ...(frame.origin === 'radio' || frame.origin === 'continue'
+            ? { origin: frame.origin }
+            : {}),
         ...('seed' in frame ? { seed: asSeed(frame.seed) } : {}),
         rev: num(frame.rev),
         seq: num(frame.seq),
@@ -277,26 +300,35 @@ export const bindingFromCursor = (
         character: cursor.character ?? same?.character ?? 'balanced',
         engine: same?.engine ?? null,
         exhausted: cursor.exhausted,
-        name: cursor.name ?? same?.name ?? '',
+        name: cursor.name || same?.name || '',
+        origin: cursor.origin ?? same?.origin ?? null,
         rev: cursor.rev,
         seed: cursor.seed !== undefined ? cursor.seed : (same?.seed ?? null),
         // A cursor never moves a binding backwards: a frame that left before this client's own
         // last batch was applied carries a smaller seq.
         seq: Math.max(cursor.seq, same?.seq ?? 0),
+        startedHere: same?.startedHere ?? false,
         stationId: cursor.stationId,
+        unbound: same?.unbound ?? false,
     };
 };
 
-/** A binding from a `start` answer. */
-export const bindingFromAnswer = (answer: StationAnswer): StationBinding => ({
+/** A binding from a `start` answer. `startedHere`: a radio entry point on this device asked. */
+export const bindingFromAnswer = (
+    answer: StationAnswer,
+    extra: { startedHere?: boolean; unbound?: boolean } = {},
+): StationBinding => ({
     character: answer.character,
     engine: answer.engine,
     exhausted: answer.exhausted,
     name: answer.name,
+    origin: answer.origin,
     rev: answer.rev,
     seed: answer.seed,
     seq: answer.seq,
+    startedHere: extra.startedHere ?? false,
     stationId: answer.stationId,
+    unbound: extra.unbound ?? false,
 });
 
 /** A `next` answer applied to the binding it was asked for. Other stations are left alone. */
@@ -310,6 +342,7 @@ export const applyNextAnswer = (
         character: answer.character,
         engine: answer.engine ?? bound.engine,
         exhausted: answer.servedElsewhere ? bound.exhausted : answer.exhausted,
+        origin: answer.origin ?? bound.origin ?? null,
         rev: Math.max(bound.rev, answer.rev),
         seq: Math.max(bound.seq, answer.seq),
     };
@@ -341,8 +374,13 @@ export const applySessionStationId = (args: {
     const { bound, cursors, incoming, localUntil, now } = args;
     if (incoming === undefined) return { bound, localUntil };
     const id = typeof incoming === 'string' && incoming ? incoming : null;
-    if ((bound?.stationId ?? null) === id) return { bound, localUntil: 0 };
+    if ((bound?.stationId ?? null) === id) {
+        // The session names this station: whatever the hub said at `start`, it is bound now.
+        return { bound: bound?.unbound ? { ...bound, unbound: false } : bound, localUntil: 0 };
+    }
     if (now < localUntil) return { bound, localUntil };
+    // A station the hub declined to bind is this queue's without the session naming it.
+    if (id === null && bound?.unbound) return { bound, localUntil };
     if (id === null) return { bound: null, localUntil: 0 };
     const cursor = cursors[id];
     return {
@@ -353,9 +391,11 @@ export const applySessionStationId = (args: {
                   engine: null,
                   exhausted: false,
                   name: '',
+                  origin: null,
                   rev: 0,
                   seed: null,
                   seq: 0,
+                  startedHere: false,
                   stationId: id,
               },
         localUntil: 0,
@@ -407,7 +447,11 @@ export const decideAutoplay = (
     input: AutoplayInput,
     character: StationCharacterId,
 ): AutoplayDecision => {
-    if (!input.enabled) return { kind: 'wait', reason: 'off' };
+    // Autoplay Off still lets a radio the user started keep going; it only stops autoplay
+    // from continuing a queue no radio built (and a continuation it started earlier).
+    if (!input.enabled && !(input.bound && effectiveOrigin(input.bound) === 'radio')) {
+        return { kind: 'wait', reason: 'off' };
+    }
     if (input.mode !== 'stations') return { kind: 'wait', reason: 'unavailable' };
     if (!input.driving) return { kind: 'wait', reason: 'not-driving' };
     if (!input.isPlaying) return { kind: 'wait', reason: 'not-playing' };
@@ -438,6 +482,7 @@ export const decideAutoplay = (
             character,
             count: NEXT_COUNT,
             exclude,
+            origin: 'continue',
             seed: { ids: input.seedIds.slice(-CONTINUE_SEED_MAX), kind: 'tracks' },
             ...deviceId,
         },
@@ -465,10 +510,36 @@ export type AnswerOutcome =
      */
     | { kind: 'retry'; status: number; transient: boolean };
 
+/**
+ * A batch after its ids were resolved to songs: an id this server could not resolve is dropped
+ * (never a placeholder with no duration), in the order served.
+ */
+export const keepResolved = <T>(resolved: readonly (null | T | undefined)[]): T[] =>
+    resolved.filter((song): song is T => song !== null && song !== undefined);
+
+/**
+ * What an `append` becomes once resolved: a batch none of whose tracks resolved is a partial
+ * answer (the cursor moved on; ask again shortly), never an append of nothing.
+ */
+export const afterResolving = (
+    outcome: Extract<AnswerOutcome, { kind: 'append' }>,
+    resolvedCount: number,
+): AnswerOutcome =>
+    resolvedCount > 0
+        ? outcome
+        : {
+              binding: outcome.binding,
+              kind: 'adopt',
+              recheck: !outcome.binding.exhausted,
+              servedElsewhere: false,
+          };
+
 export const outcomeOf = (
     result: StationResult<StationAnswer>,
     previous: null | StationBinding,
     asked: 'next' | 'start',
+    /** For a `start`: whether it asked to bind the session, and whether an entry point here asked. */
+    context: { askedBind?: boolean; startedHere?: boolean } = {},
 ): AnswerOutcome => {
     if (!result.ok || !result.data) {
         if (result.status === 503 || result.fallback) return { kind: 'fallback' };
@@ -489,9 +560,18 @@ export const outcomeOf = (
     const binding =
         asked === 'start' || !previous || previous.stationId !== answer.stationId
             ? {
-                  ...bindingFromAnswer(answer),
+                  ...bindingFromAnswer(answer, {
+                      startedHere: asked === 'start' ? context.startedHere : previous?.startedHere,
+                      // Asked to bind, not refused with 409, and the hub says it did not: this
+                      // queue continues the station unbound, and no bind is tried again.
+                      unbound:
+                          asked === 'start'
+                              ? context.askedBind === true && answer.bound === false
+                              : previous?.unbound,
+                  }),
                   // A `next` answer names no seed or name; keep what the binding had.
                   name: answer.name || previous?.name || '',
+                  origin: answer.origin ?? previous?.origin ?? null,
                   seed: answer.seed ?? previous?.seed ?? null,
               }
             : applyNextAnswer(previous, answer)!;

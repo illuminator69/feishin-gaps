@@ -5,14 +5,17 @@ import type { StationAnswer, StationResult } from '../../../../shared/types/stat
 import type { AutoplayInput, StationBinding, StationCursor } from './station-logic.ts';
 
 import {
+    afterResolving,
     applySessionStationId,
     applyStationFrame,
     bindingFromCursor,
     characterFromAny,
     continueSeedIds,
     decideAutoplay,
+    effectiveOrigin,
     EXCLUDE_MAX,
     idsInPlayOrder,
+    keepResolved,
     LOCAL_BINDING_HOLD_MS,
     LOOKAHEAD_MIN,
     NEXT_COUNT,
@@ -61,10 +64,12 @@ const input = (over: Partial<AutoplayInput> = {}): AutoplayInput => ({
 });
 
 const answer = (over: Partial<StationAnswer> = {}): StationAnswer => ({
+    bound: null,
     character: 'balanced',
     engine: 'tier2',
     exhausted: false,
     name: '',
+    origin: null,
     partial: false,
     rev: 0,
     seed: null,
@@ -594,4 +599,188 @@ test('every stored character name reads as one of the three', () => {
     assert.equal(characterFromAny('TransitionMaestro'), 'explore');
     assert.equal(characterFromAny('explore'), 'explore');
     assert.equal(characterFromAny(undefined), 'balanced');
+});
+
+// --- Autoplay Off: a radio keeps going, a continuation does not (coordinator ruling, I-040) ------
+
+const ORIGINS: Array<{
+    binding: Partial<StationBinding>;
+    counts: 'continue' | 'radio';
+    label: string;
+}> = [
+    { binding: { origin: 'radio' }, counts: 'radio', label: 'origin radio' },
+    { binding: { origin: 'continue' }, counts: 'continue', label: 'origin continue' },
+    // An older hub echoes nothing: an entry point on this device makes it a radio...
+    {
+        binding: { origin: null, startedHere: true },
+        counts: 'radio',
+        label: 'unknown, started here',
+    },
+    // ...and anything else (another device's station, a continuation) is not.
+    {
+        binding: { origin: null, startedHere: false },
+        counts: 'continue',
+        label: 'unknown, not here',
+    },
+    // A binding persisted before this field existed.
+    { binding: {}, counts: 'continue', label: 'unknown, no fields at all' },
+];
+
+for (const { binding, counts, label } of ORIGINS) {
+    test(`${label}: counts as ${counts}`, () => {
+        const b = bound({ ...binding });
+        if (!('origin' in binding)) delete b.origin;
+        assert.equal(effectiveOrigin(b), counts);
+    });
+    test(`${label}, Autoplay On: the station is continued`, () => {
+        const decision = decideAutoplay(
+            input({ bound: bound(binding), enabled: true }),
+            'balanced',
+        );
+        assert.equal(decision.kind, 'next');
+    });
+    test(`${label}, Autoplay Off: ${counts === 'radio' ? 'still continued' : 'stops'}`, () => {
+        const decision = decideAutoplay(
+            input({ bound: bound(binding), enabled: false }),
+            'balanced',
+        );
+        if (counts === 'radio') assert.equal(decision.kind, 'next');
+        else assert.deepEqual(decision, { kind: 'wait', reason: 'off' });
+    });
+}
+
+test('Autoplay On, a queue no station built: continued as a station, origin continue', () => {
+    const decision = decideAutoplay(input({ bound: null, enabled: true }), 'balanced');
+    assert.equal(decision.kind, 'start');
+    if (decision.kind !== 'start') return;
+    assert.equal(decision.body.origin, 'continue');
+});
+
+test('Autoplay Off, a queue no station built: never a continuation', () => {
+    assert.deepEqual(decideAutoplay(input({ bound: null, enabled: false }), 'balanced'), {
+        kind: 'wait',
+        reason: 'off',
+    });
+});
+
+test('Autoplay Off still respects an exhausted radio and one request at a time', () => {
+    const radio = { origin: 'radio' as const };
+    assert.deepEqual(
+        decideAutoplay(
+            input({ bound: bound({ ...radio, exhausted: true }), enabled: false }),
+            'close',
+        ),
+        { kind: 'wait', reason: 'exhausted' },
+    );
+    assert.deepEqual(
+        decideAutoplay(input({ bound: bound(radio), enabled: false, inFlight: true }), 'close'),
+        { kind: 'wait', reason: 'in-flight' },
+    );
+});
+
+test('the origin the hub echoes on start and next becomes the binding origin', () => {
+    const started = outcomeOf(ok(answer({ origin: 'continue', stationId: 'st_c' })), null, 'start');
+    assert.equal(started.kind === 'append' && started.binding.origin, 'continue');
+    const nexted = outcomeOf(ok(answer({ origin: null })), bound({ origin: 'radio' }), 'next');
+    assert.equal(nexted.kind === 'append' && nexted.binding.origin, 'radio');
+});
+
+test('a station frame carries origin and name, and the binding takes both', () => {
+    const cursor = parseStationCursor({
+        character: 'balanced',
+        exhausted: false,
+        name: 'Video Games radio',
+        origin: 'radio',
+        rev: 1,
+        seq: 30,
+        stationId: 'st_1',
+        t: 'station',
+    })!;
+    const b = applyStationFrame(bound({ name: '', origin: null }), cursor)!;
+    assert.equal(b.name, 'Video Games radio');
+    assert.equal(b.origin, 'radio');
+    // A frame without a name (or an empty one) keeps the name already held.
+    const kept = applyStationFrame(b, { ...cursor, name: undefined, seq: 35 })!;
+    assert.equal(kept.name, 'Video Games radio');
+    assert.equal(parseStationCursor({ name: '', seq: 1, stationId: 'x' })!.name, undefined);
+});
+
+// --- bound: false -----------------------------------------------------------------------------------
+
+test('asked to bind, answered bound:false: an unbound station, continued from here', () => {
+    const outcome = outcomeOf(ok(answer({ bound: false, stationId: 'st_u' })), null, 'start', {
+        askedBind: true,
+    });
+    assert.equal(outcome.kind, 'append');
+    if (outcome.kind !== 'append') return;
+    assert.equal(outcome.binding.unbound, true);
+    // It is continued with next, never started (bound) again.
+    const again = decideAutoplay(input({ bound: outcome.binding, remaining: 0 }), 'balanced');
+    assert.equal(again.kind, 'next');
+});
+
+test('bound:true, or bound:false without asking to bind, is not unbound', () => {
+    const yes = outcomeOf(ok(answer({ bound: true })), null, 'start', { askedBind: true });
+    assert.equal(yes.kind === 'append' && yes.binding.unbound, false);
+    const notAsked = outcomeOf(ok(answer({ bound: false })), null, 'start', { askedBind: false });
+    assert.equal(notAsked.kind === 'append' && notAsked.binding.unbound, false);
+    const older = outcomeOf(ok(answer({ bound: null })), null, 'start', { askedBind: true });
+    assert.equal(older.kind === 'append' && older.binding.unbound, false);
+});
+
+test('an unbound station survives a session that names no station, not one that names another', () => {
+    const mine = bound({ stationId: 'st_u', unbound: true });
+    let r = applySessionStationId({
+        bound: mine,
+        cursors: {},
+        incoming: null,
+        localUntil: 0,
+        now: 1,
+    });
+    assert.equal(r.bound, mine);
+    r = applySessionStationId({
+        bound: mine,
+        cursors: {},
+        incoming: 'st_other',
+        localUntil: 0,
+        now: 1,
+    });
+    assert.equal(r.bound!.stationId, 'st_other');
+    // The session naming it after all: it is bound now.
+    r = applySessionStationId({
+        bound: mine,
+        cursors: {},
+        incoming: 'st_u',
+        localUntil: 0,
+        now: 1,
+    });
+    assert.equal(r.bound!.unbound, false);
+});
+
+// --- Tracks this server cannot resolve are dropped ------------------------------------------------
+
+test('unresolved tracks are dropped, the rest keep the served order', () => {
+    assert.deepEqual(keepResolved(['a', null, 'c', undefined, 'e']), ['a', 'c', 'e']);
+    assert.deepEqual(keepResolved([null, null]), []);
+});
+
+test('a batch that resolves to nothing is a partial answer: ask again, append nothing', () => {
+    const outcome = outcomeOf(ok(answer({ seq: 25 })), bound({ seq: 20 }), 'next');
+    assert.equal(outcome.kind, 'append');
+    if (outcome.kind !== 'append') return;
+    const none = afterResolving(outcome, 0);
+    assert.equal(none.kind, 'adopt');
+    if (none.kind !== 'adopt') return;
+    assert.equal(none.recheck, true);
+    assert.equal(none.servedElsewhere, false);
+    // The cursor still moves past the batch, so the retry asks for the NEXT one.
+    assert.equal(none.binding.seq, 25);
+    assert.equal(afterResolving(outcome, 2), outcome);
+});
+
+test('an exhausted batch that resolves to nothing stops rather than asking again', () => {
+    const outcome = outcomeOf(ok(answer({ exhausted: true })), bound(), 'next');
+    if (outcome.kind !== 'append') return assert.fail('expected append');
+    const none = afterResolving(outcome, 0);
+    assert.equal(none.kind === 'adopt' && none.recheck, false);
 });
