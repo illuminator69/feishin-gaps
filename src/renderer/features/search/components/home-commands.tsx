@@ -4,6 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { createSearchParams, generatePath, useNavigate } from 'react-router';
 
 import { fetchClapAvailable } from '/@/renderer/features/player/auto-dj/audio-muse-source';
+import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import { playYourMix } from '/@/renderer/features/player/station/station-client';
+import { useStationMode } from '/@/renderer/features/player/station/station-store';
 import { openCreatePlaylistModal } from '/@/renderer/features/playlists/components/create-playlist-form';
 import { Command, CommandPalettePages } from '/@/renderer/features/search/components/command';
 import { openClapSearchModal } from '/@/renderer/features/sonic/components/clap-search-modal';
@@ -54,6 +57,19 @@ export const HomeCommands = ({
         openClapSearchModal();
     }, [handleClose]);
 
+    // navi-connect (I-040): "Your mix", the hub's seedless station, beside mood search.
+    const player = usePlayer();
+    const stationMode = useStationMode();
+    const handleYourMix = useCallback(() => {
+        handleClose();
+        if (!server?.id) return;
+        void playYourMix({
+            player,
+            serverId: server.id,
+            sessionName: t('naviConnect.station.yourMix'),
+        });
+    }, [handleClose, player, server, t]);
+
     const handleSearch = () => {
         navigate(
             {
@@ -83,6 +99,11 @@ export const HomeCommands = ({
                 <Command.Item onSelect={handleCreatePlaylistModal}>
                     {t('action.createPlaylist')}...
                 </Command.Item>
+                {stationMode === 'stations' && (
+                    <Command.Item onSelect={handleYourMix} value={t('naviConnect.mixes.yourMix')}>
+                        {t('naviConnect.mixes.yourMix')}
+                    </Command.Item>
+                )}
                 {clapAvailable && (
                     <Command.Item
                         onSelect={handleClapSearch}

@@ -11,6 +11,11 @@ import { JoinedArtists } from '/@/renderer/features/albums/components/joined-art
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
+    albumRadioSeed,
+    playStationRadio,
+    stationsReady,
+} from '/@/renderer/features/player/station/station-client';
+import {
     LibraryHeader,
     LibraryHeaderMenu,
 } from '/@/renderer/features/shared/components/library-header';
@@ -101,6 +106,22 @@ export const AlbumDetailHeader = forwardRef<HTMLDivElement>((_props, ref) => {
 
     const handleAlbumRadio = async () => {
         if (!server?.id || !albumId) return;
+
+        // navi-connect (I-040): a station seeded with up to five of the album's own tracks.
+        if (stationsReady() && detailQuery?.data) {
+            const seeded = await albumRadioSeed(server.id, detailQuery.data).catch(() => null);
+            if (
+                seeded &&
+                (await playStationRadio({
+                    ...seeded,
+                    player: { addToQueueByData },
+                    serverId: server.id,
+                    sessionName: detailQuery.data.name,
+                }))
+            ) {
+                return;
+            }
+        }
 
         try {
             const albumRadioSongs = await queryClient.fetchQuery({

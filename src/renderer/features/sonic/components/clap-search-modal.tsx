@@ -77,7 +77,10 @@ const ClapSearchModal = ({ initialQuery = '' }: { initialQuery?: string }) => {
                 });
                 return;
             }
-            if (type === Play.NOW) markNextQueueSource('moodFlow', query.trim() || undefined);
+            // I-040: a search result is a plain queue named after the search, not "Mood Flow".
+            if (type === Play.NOW) {
+                markNextQueueSource('manual', query.trim() ? `Search: ${query.trim()}` : undefined);
+            }
             player.addToQueueByData(songs, type);
             closeAllModals();
         } finally {

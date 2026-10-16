@@ -4,6 +4,10 @@ import { useTranslation } from 'react-i18next';
 
 import { queryKeys } from '/@/renderer/api/query-keys';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import {
+    playStationRadio,
+    trackRadioSeed,
+} from '/@/renderer/features/player/station/station-client';
 import { markNextQueueSource } from '/@/renderer/features/player/utils/saved-queue-source';
 import { songsQueries } from '/@/renderer/features/songs/api/songs-api';
 import { useArtistRadioCount, useCurrentServerId, usePlayButtonBehavior } from '/@/renderer/store';
@@ -33,6 +37,20 @@ export const PlayTrackRadioAction = ({
     const handlePlayTrackRadio = useCallback(
         async (playType: Play) => {
             if (!serverId || !song) return;
+
+            // navi-connect (I-040): Play starts a station on the hub when it has the engine; the
+            // queue is the song, then what the station serves, and autoplay continues it.
+            if (
+                playType === Play.NOW &&
+                (await playStationRadio({
+                    ...trackRadioSeed(song),
+                    player,
+                    serverId,
+                    sessionName: song.name,
+                }))
+            ) {
+                return;
+            }
 
             try {
                 const similarSongs = await queryClient.fetchQuery({

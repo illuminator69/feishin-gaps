@@ -4,6 +4,11 @@ import { useTranslation } from 'react-i18next';
 
 import { queryKeys } from '/@/renderer/api/query-keys';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import {
+    artistRadioSeed,
+    playStationRadio,
+    stationsReady,
+} from '/@/renderer/features/player/station/station-client';
 import { markNextQueueSource } from '/@/renderer/features/player/utils/saved-queue-source';
 import { songsQueries } from '/@/renderer/features/songs/api/songs-api';
 import { useArtistRadioCount, useCurrentServerId, usePlayButtonBehavior } from '/@/renderer/store';
@@ -27,6 +32,22 @@ export const PlayArtistRadioAction = ({ artist, disabled }: PlayArtistRadioActio
     const handlePlayArtistRadio = useCallback(
         async (playType: Play) => {
             if (!serverId || !artist) return;
+
+            // navi-connect (I-040): a station seeded with up to five of the artist's top songs.
+            if (playType === Play.NOW && stationsReady()) {
+                const seeded = await artistRadioSeed(serverId, artist).catch(() => null);
+                if (
+                    seeded &&
+                    (await playStationRadio({
+                        ...seeded,
+                        player,
+                        serverId,
+                        sessionName: artist.name,
+                    }))
+                ) {
+                    return;
+                }
+            }
 
             try {
                 const artistRadioSongs = await queryClient.fetchQuery({

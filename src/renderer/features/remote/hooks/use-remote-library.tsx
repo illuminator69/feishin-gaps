@@ -7,6 +7,10 @@ import { getItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { albumQueries } from '/@/renderer/features/albums/api/album-api';
 import { notePlayRequest } from '/@/renderer/features/hub/utils/play-request';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import {
+    playStationRadio,
+    trackRadioSeed,
+} from '/@/renderer/features/player/station/station-client';
 import { playlistsQueries } from '/@/renderer/features/playlists/api/playlists-api';
 import { radioQueries } from '/@/renderer/features/radio/api/radio-api';
 import { useRadioStore } from '/@/renderer/features/radio/hooks/use-radio-player';
@@ -372,6 +376,21 @@ export const useRemoteLibrary = () => {
             }
             if (!song) {
                 ackOperation(requestId, 'Track not found');
+                return;
+            }
+
+            // navi-connect (I-040): Play starts a station on the hub when it has the engine.
+            if (
+                (playType ?? Play.NOW) === Play.NOW &&
+                (await playStationRadio({
+                    ...trackRadioSeed(song),
+                    player: { addToQueueByData },
+                    serverId: server.id,
+                    sessionName: song.name,
+                    skipConfirmation: true,
+                }))
+            ) {
+                ackOperation(requestId);
                 return;
             }
 

@@ -41,6 +41,11 @@ import {
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { useIsPlayerFetching, usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
+    artistRadioSeed,
+    playStationRadio,
+    stationsReady,
+} from '/@/renderer/features/player/station/station-client';
+import {
     ListConfigMenu,
     SONG_DISPLAY_TYPES,
 } from '/@/renderer/features/shared/components/list-config-menu';
@@ -1381,6 +1386,26 @@ export const AlbumArtistDetailContent = ({
     const handleArtistRadio = useCallback(async () => {
         if (!server?.id || !routeId) return;
 
+        // navi-connect (I-040): a station seeded with up to five of the artist's top songs.
+        const artistName = detailQuery.data?.name;
+        if (stationsReady() && artistName) {
+            const seeded = await artistRadioSeed(server.id, {
+                id: routeId,
+                name: artistName,
+            }).catch(() => null);
+            if (
+                seeded &&
+                (await playStationRadio({
+                    ...seeded,
+                    player: { addToQueueByData },
+                    serverId: server.id,
+                    sessionName: artistName,
+                }))
+            ) {
+                return;
+            }
+        }
+
         try {
             const artistRadioSongs = await queryClient.fetchQuery({
                 ...songsQueries.artistRadio({
@@ -1398,7 +1423,14 @@ export const AlbumArtistDetailContent = ({
         } catch (error) {
             console.error('Failed to load artist radio:', error);
         }
-    }, [addToQueueByData, artistRadioCount, queryClient, routeId, server.id]);
+    }, [
+        addToQueueByData,
+        artistRadioCount,
+        detailQuery.data?.name,
+        queryClient,
+        routeId,
+        server.id,
+    ]);
 
     // Calculate order for genres and external links (show before other sections)
     // Use a very low order number to ensure they appear first
