@@ -52,11 +52,18 @@ export const AudioMuseGeneratorChip = () => {
         </Badge>
     );
 
-    return chip.exhausted ? (
-        <Tooltip label={t('naviConnect.station.exhausted')} openDelay={300}>
+    // The badge stops at 260 px, so a long name ("Sunshine Bright On Me radio · Explore") is cut
+    // with an ellipsis: the tooltip always carries the whole label.
+    return (
+        <Tooltip
+            label={
+                chip.exhausted
+                    ? `${chip.label} - ${t('naviConnect.station.exhausted')}`
+                    : chip.label
+            }
+            openDelay={300}
+        >
             {badge}
         </Tooltip>
-    ) : (
-        badge
     );
 };
