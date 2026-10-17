@@ -280,22 +280,30 @@ export const storedCharacter = (
 
 type CharacterWords = (id: StationCharacterId) => string;
 
-/** How each kind was built, in a phrase, for a row's second line. */
+/**
+ * How each kind was built, in a phrase, for a row's second line. Worded as Navic's
+ * `mixKindLabel` words it ("<Kind> from <seed>", then " · <character>" where the recipe plays as
+ * a station), so a mix reads the same on both clients. The legacy kinds that now play as Your mix
+ * are called Your mix.
+ */
 const KIND_LINE: Record<MixKind, (mix: RecipeFields, words: CharacterWords) => string> = {
-    adaptive: (mix, words) => `Adaptive · ${words(mixCharacter(mix))}`,
+    adaptive: (mix, words) => `Your mix · ${words(mixCharacter(mix))}`,
     // An Artist row names its character as a Radio row does; one that stores none is not given
     // a guessed one (Navic's `mixKindLabel`).
     artist: (mix, words) => {
         const character = storedCharacter(mix);
-        const line = `Artist · ${mix.seedName || 'an artist'}`;
+        const line = mix.seedName ? `Artist from ${mix.seedName}` : 'Artist';
         return character ? `${line} · ${words(character)}` : line;
     },
-    fingerprint: () => 'Built from your listening',
-    genre: (mix) => `Genre · ${genreNameOf(mix) || 'unknown'}`,
-    similar: (mix) => `Similar to ${mix.seedName || 'a track'}`,
+    fingerprint: () => 'Your mix',
+    genre: (mix) => {
+        const name = genreNameOf(mix);
+        return name ? `Genre from ${name}` : 'Genre';
+    },
+    similar: (mix) => (mix.seedName ? `Similar songs from ${mix.seedName}` : 'Similar songs'),
     station: (mix, words) =>
         mix.seedId
-            ? `Radio · ${mix.seedName || 'a track'} · ${words(mixCharacter(mix))}`
+            ? `${mix.seedName ? `Radio from ${mix.seedName}` : 'Radio'} · ${words(mixCharacter(mix))}`
             : `Your mix · ${words(mixCharacter(mix))}`,
 };
 

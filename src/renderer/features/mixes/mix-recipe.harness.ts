@@ -361,22 +361,22 @@ test('an Artist row names its character as a Radio row does; one that stores non
     const artist = mix({ kind: 'artist', seedId: 'ar_1', seedName: 'Ogre You Asshole' });
     assert.equal(
         mixLine({ ...artist, character: 'close', moodCharacter: 'EchoMatch' }, words),
-        'Artist · Ogre You Asshole · Close',
+        'Artist from Ogre You Asshole · Close',
     );
     // From a client that wrote only the legacy name.
     assert.equal(
         mixLine({ ...artist, moodCharacter: 'TransitionMaestro' }, words),
-        'Artist · Ogre You Asshole · Explore',
+        'Artist from Ogre You Asshole · Explore',
     );
-    assert.equal(mixLine(artist, words), 'Artist · Ogre You Asshole');
+    assert.equal(mixLine(artist, words), 'Artist from Ogre You Asshole');
     assert.equal(
         mixLine(mix({ character: 'explore', seedId: 'tr_1', seedName: 'Cinnamon Girl' }), words),
-        'Radio · Cinnamon Girl · Explore',
+        'Radio from Cinnamon Girl · Explore',
     );
     // A radio that stores none plays, and says, Balanced.
     assert.equal(
         mixLine(mix({ seedId: 'tr_1', seedName: 'Cinnamon Girl' }), words),
-        'Radio · Cinnamon Girl · Balanced',
+        'Radio from Cinnamon Girl · Balanced',
     );
     assert.equal(mixLine(mix({ character: 'close' }), words), 'Your mix · Close');
     assert.equal(mixLine(mix({ kind: 'journey' }), words), null);
@@ -392,4 +392,36 @@ test('a stored character: an id, a legacy name or an old preset id, else none', 
     );
     assert.equal(storedCharacter({ character: '', moodCharacter: '' }), null);
     assert.equal(storedCharacter({ character: 'nonsense', moodCharacter: '' }), null);
+});
+
+test('rows read as Navic words them: legacy kinds that play as Your mix are Your mix', () => {
+    const words = (id: string) =>
+        ({ balanced: 'Balanced', close: 'Close', explore: 'Explore' })[id] ?? id;
+    assert.equal(
+        mixLine(
+            {
+                kind: 'adaptive',
+                moodCharacter: 'TransitionMaestro',
+                seedId: '',
+                seedName: '',
+            } as never,
+            words as never,
+        ),
+        'Your mix · Explore',
+    );
+    assert.equal(
+        mixLine({ kind: 'fingerprint', seedId: '', seedName: '' } as never, words as never),
+        'Your mix',
+    );
+    assert.equal(
+        mixLine({ kind: 'genre', seedId: 'Rock', seedName: 'Rock' } as never, words as never),
+        'Genre from Rock',
+    );
+    assert.equal(
+        mixLine(
+            { kind: 'similar', seedId: 's1', seedName: 'Video Games' } as never,
+            words as never,
+        ),
+        'Similar songs from Video Games',
+    );
 });
