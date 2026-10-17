@@ -223,9 +223,23 @@ ipcMain.handle(
 ipcMain.handle(
     'station-signal',
     async (_event, body: StationSignalBody): Promise<StationResult<StationSignalAnswer>> =>
-        request('POST', '/sonic/station/signal', body as unknown as Json, (json) => ({
-            applied: json.applied === true,
-            ignored: str(json.ignored) || undefined,
-            rev: num(json.rev),
-        })),
+        request('POST', '/sonic/station/signal', body as unknown as Json, (json) => {
+            const edited = json.edited;
+            return {
+                applied: json.applied === true,
+                edited:
+                    edited === false
+                        ? false
+                        : edited && typeof edited === 'object'
+                          ? {
+                                added: num((edited as Json).added),
+                                from: num((edited as Json).from),
+                                removed: num((edited as Json).removed),
+                            }
+                          : null,
+                ignored: str(json.ignored) || undefined,
+                reason: str(json.reason) || undefined,
+                rev: num(json.rev),
+            };
+        }),
 );

@@ -793,3 +793,43 @@ test('an exhausted batch that resolves to nothing stops rather than asking again
     const none = afterResolving(outcome, 0);
     assert.equal(none.kind === 'adopt' && none.recheck, false);
 });
+
+// --- S-035: a chip tap does not wait for playback (B-144) ----------------------------------------------
+
+test('paused: autoplay waits, but a chip tap asks now (continuation still only under 2 left)', () => {
+    const paused = { isPlaying: false };
+    assert.deepEqual(decideAutoplay(input({ ...paused, bound: null }), 'close'), {
+        kind: 'wait',
+        reason: 'not-playing',
+    });
+    // The tap: a non-station queue near its end is continued while paused...
+    assert.equal(
+        decideAutoplay(input({ ...paused, bound: null, ignorePaused: true }), 'close').kind,
+        'start',
+    );
+    // ...but only near its end, as ever.
+    assert.deepEqual(
+        decideAutoplay(
+            input({ ...paused, bound: null, ignorePaused: true, remaining: 4 }),
+            'close',
+        ),
+        { kind: 'wait', reason: 'enough' },
+    );
+    // A station (no hub edits) is asked for its next batch while paused, too.
+    assert.equal(
+        decideAutoplay(input({ ...paused, bound: bound(), ignorePaused: true }), 'close').kind,
+        'next',
+    );
+    // And a stopped station or Autoplay off still win over the tap's urgency.
+    assert.deepEqual(
+        decideAutoplay(
+            input({ ...paused, bound: bound({ stopped: true }), ignorePaused: true }),
+            'close',
+        ),
+        { kind: 'wait', reason: 'stopped' },
+    );
+    assert.deepEqual(
+        decideAutoplay(input({ ...paused, enabled: false, ignorePaused: true }), 'close'),
+        { kind: 'wait', reason: 'off' },
+    );
+});

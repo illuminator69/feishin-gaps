@@ -13,6 +13,7 @@ import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
     ChipId,
     ChipTapPlan,
+    keepsNext,
     planChipTap,
     QueueEntry,
     remoteEditActs,
@@ -57,6 +58,7 @@ import {
     usePlayerStore,
     usePlayerStoreBase,
     useSettingsStore,
+    useTimestampStoreBase,
 } from '/@/renderer/store';
 import { logger } from '/@/renderer/utils/logger';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
@@ -86,6 +88,8 @@ interface Snapshot {
     key: string;
     /** Songs this client already holds, so the answer's ids resolve without a request each. */
     known: Map<string, Song>;
+    /** What is left of the playing track, ms, or null when its length is unknown (B-145). */
+    playingLeftMs: null | number;
     /** The playing row's place in `entries`. */
     position: number;
     remote: boolean;
@@ -135,6 +139,14 @@ const readSnapshot = (): Snapshot => {
             },
             key: `r:${ids[hub.remoteQueueIndex] ?? ''}:${hub.remoteQueueIndex}:${remaining}:${ids.length}`,
             known: new Map(),
+            playingLeftMs: (() => {
+                const duration = hub.remoteQueue[hub.remoteQueueIndex]?.durationMs;
+                if (!duration) return null;
+                const at =
+                    hub.remotePositionMs +
+                    (hub.remoteIsPlaying ? Date.now() - hub.remotePositionAt : 0);
+                return duration - at;
+            })(),
             position: Math.max(0, position),
             remote: true,
             rows: new Map(),
@@ -172,6 +184,9 @@ const readSnapshot = (): Snapshot => {
         },
         key: `l:${current?._uniqueId ?? ''}:${remaining}:${items.length}`,
         known: new Map(items.map((song) => [song.id, song as Song])),
+        playingLeftMs: current?.duration
+            ? current.duration - (useTimestampStoreBase.getState().timestamp || 0) * 1000
+            : null,
         position: playIndex,
         remote: false,
         rows: new Map(items.map((song) => [song._uniqueId, song])),
@@ -246,16 +261,27 @@ let chipRunner: ChipRunner | null = null;
 export const tapStationChip = (chip: ChipId): void => {
     const settings = useSettingsStore.getState();
     const station = useStationStore.getState();
+    const hub = useHubStore.getState();
     const snap = readSnapshot();
     const plan = planChipTap(
         chip,
         {
             autoplay: settings.autoDJ.enabled,
             bound: station.bound,
+            // B-143: the hub edits the session's bound station's queue itself, wherever it plays.
+            hubEdits:
+                hub.connected &&
+                hub.features.includes('stationEdits') &&
+                Boolean(station.bound) &&
+                !station.bound?.unbound,
             mode: getStationMode(),
             preferred: settings.station?.character ?? 'balanced',
         },
-        { playOrder: snap.entries, position: snap.position },
+        {
+            keepNext: keepsNext(snap.playingLeftMs),
+            playOrder: snap.entries,
+            position: snap.position,
+        },
     );
     settings.actions.setSettings({
         autoDJ: { enabled: plan.autoplay },
@@ -269,10 +295,10 @@ export const tapStationChip = (chip: ChipId): void => {
         void chipRunner(chip, plan);
     } else if (plan.signal) {
         // The hook is not running (the engine's probe has not answered): steer, edit nothing.
-        void signalStation(
-            plan.signal.kind,
-            plan.signal.kind === 'character' ? { value: plan.signal.value } : {},
-        );
+        void signalStation(plan.signal.kind, {
+            ...(plan.apply ? { apply: true } : {}),
+            ...(plan.signal.kind === 'character' ? { value: plan.signal.value } : {}),
+        });
     }
 };
 
@@ -430,7 +456,7 @@ const StationAutoplayInner = () => {
         };
 
         // `depth` bounds the chains one answer can start (409 -> next -> 404 -> start ...).
-        const evaluate = async (depth = 0): Promise<void> => {
+        const evaluate = async (depth = 0, fromTap = false): Promise<void> => {
             if (disposed || inFlight) return;
             const snap = readSnapshot();
             const s = useStationStore.getState();
@@ -439,6 +465,8 @@ const StationAutoplayInner = () => {
                     ...snap.input,
                     bound: s.bound,
                     elsewhereRecent: Date.now() - s.elsewhereAt < SERVED_ELSEWHERE_GRACE_MS,
+                    // B-144: a tap's top-up does not wait for playback to resume.
+                    ignorePaused: fromTap,
                     inFlight,
                     mode: getStationMode(),
                 },
@@ -604,13 +632,46 @@ const StationAutoplayInner = () => {
                     store.actions.adopt({ ...tapped, ...plan.optimistic });
                 }
 
+                if (plan.apply && plan.signal && tapped) {
+                    // B-143: the hub cuts the station's rows, inserts a batch for a character,
+                    // and tells the playing device; this queue changes through the session and
+                    // its queueChanged like any other edit. Nothing is removed, enqueued or asked
+                    // for from here.
+                    const signal = plan.signal;
+                    const answer = await signalStation(signal.kind, {
+                        apply: true,
+                        ...(signal.kind === 'character' ? { value: signal.value } : {}),
+                    });
+                    if (answer?.edited === false) {
+                        logger.info('Station chip: the hub edited nothing', {
+                            kind: signal.kind,
+                            reason: answer.reason,
+                        });
+                    }
+                    const now = useStationStore.getState().bound;
+                    if (answer?.applied && now?.stationId === tapped.stationId) {
+                        useStationStore.getState().actions.adopt({
+                            ...now,
+                            ...(signal.kind === 'character'
+                                ? { character: signal.value, exhausted: false, stopped: false }
+                                : { stopped: true }),
+                            rev: Math.max(now.rev, answer.rev),
+                        });
+                    }
+                    return;
+                }
+
                 if (plan.signal?.kind === 'stop') {
                     // Off: take out what the station queued that has not played, then stop it
                     // for every device. Nothing more is added while it stays Off.
                     const snap = readSnapshot();
                     await editQueue(
                         snap,
-                        removableStationRows(snap.entries, snap.position),
+                        removableStationRows(
+                            snap.entries,
+                            snap.position,
+                            keepsNext(snap.playingLeftMs),
+                        ),
                         [],
                         addToQueue,
                     );
@@ -624,7 +685,11 @@ const StationAutoplayInner = () => {
                     const snap = readSnapshot();
                     await editQueue(
                         snap,
-                        removableStationRows(snap.entries, snap.position),
+                        removableStationRows(
+                            snap.entries,
+                            snap.position,
+                            keepsNext(snap.playingLeftMs),
+                        ),
                         [],
                         addToQueue,
                     );
@@ -651,7 +716,14 @@ const StationAutoplayInner = () => {
                 const bound = useStationStore.getState().bound;
                 if (!plan.replaceCount || !bound || disposed) return;
                 const before = readSnapshot();
-                if (removableStationRows(before.entries, before.position).length === 0) return;
+                if (
+                    removableStationRows(
+                        before.entries,
+                        before.position,
+                        keepsNext(before.playingLeftMs),
+                    ).length === 0
+                )
+                    return;
                 // Swap what the station had queued for a batch in the new character, now.
                 const result = await nextStation({
                     after: bound.seq,
@@ -679,7 +751,11 @@ const StationAutoplayInner = () => {
                 const latest = readSnapshot();
                 await editQueue(
                     latest,
-                    removableStationRows(latest.entries, latest.position),
+                    removableStationRows(
+                        latest.entries,
+                        latest.position,
+                        keepsNext(latest.playingLeftMs),
+                    ),
                     stationSongs(songs, outcome.binding.stationId),
                     addToQueue,
                 );
@@ -689,7 +765,7 @@ const StationAutoplayInner = () => {
                 logger.error('Station chip failed', { chip, error: (error as Error).message });
             } finally {
                 if (!disposed) release();
-                if (plan.topUp && !swapped && !disposed) void evaluate();
+                if (plan.topUp && !swapped && !disposed) void evaluate(0, true);
             }
         };
 

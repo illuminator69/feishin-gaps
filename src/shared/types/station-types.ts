@@ -97,11 +97,23 @@ export type StationSeed =
 
 export interface StationSignalAnswer {
     applied: boolean;
+    /**
+     * With `apply` and a hub that has `stationEdits`: what the hub did to the session's queue
+     * (rows removed, rows added, the queue index it started at), or false when it edited nothing
+     * (`reason`, e.g. "transfer" while a handoff is in flight). Null when the hub did not say.
+     */
+    edited: false | null | { added: number; from: number; removed: number };
     ignored?: string;
+    reason?: string;
     rev: number;
 }
 
 export interface StationSignalBody {
+    /**
+     * `character` / `stop` on the session's bound station: the hub edits the session queue
+     * itself (B-143, `stationEdits` in welcome.features), so no client edits it as well.
+     */
+    apply?: boolean;
     kind: StationSignalKind;
     stationId: string;
     trackId?: string;

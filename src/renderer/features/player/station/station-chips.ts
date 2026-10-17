@@ -10,10 +10,11 @@ import type { StationCharacterId } from '/@/shared/types/station-types';
 //
 // A chip is a choice about the queue that is playing, and it takes effect now: Off takes out
 // what the station queued that has not played, a character replaces it with a batch in that
-// character. Neither ever touches the playing track or the one after it, so the music does not
-// stop for it, and neither reloads the player: a local queue is edited in place, a remote
-// session through `remove` acts and one `enqueue`, never a `setQueue` (the playing device would
-// reload it, a gap in the music).
+// character. On a hub with `stationEdits`, for the session's bound station, the HUB makes that
+// edit (B-143) and the client only signals. Otherwise the client edits: never the playing
+// track, and the next one only when under 20 s of the playing one is left (B-145); and never a
+// reload: a local queue in place, a remote session through `remove` acts and one `enqueue`,
+// never a `setQueue` (the playing device would reload it, a gap in the music).
 
 export type ChipId = 'autoDj' | 'off' | StationCharacterId;
 
@@ -28,6 +29,11 @@ export interface ChipState {
     /** This device's preference: `autoDJ.enabled`. */
     autoplay: boolean;
     bound: null | StationBinding;
+    /**
+     * The hub edits this station's queue itself (B-143): it has `stationEdits` and the queue is
+     * the session's bound station, whichever device plays it. A tap then only signals.
+     */
+    hubEdits?: boolean;
     mode: StationMode;
     /** This device's preferred character, what a new station starts with. */
     preferred: StationCharacterId;
@@ -56,15 +62,32 @@ export interface QueueEntry {
 }
 
 /**
- * The station's rows that a chip may take out: station-added, in play order AFTER the next one.
- * The playing track and the one after it (already decoding) are never touched.
+ * Under this much left of the playing track, the next one is already being prepared, so a
+ * chip's edit leaves it alone too. Otherwise the cut is right after the playing track (B-145):
+ * keeping the next song on every change was the "second song persists" report. The hub cuts
+ * the same way when it edits the queue itself.
+ */
+export const KEEP_NEXT_UNDER_MS = 20_000;
+
+/** Whether the next track stays: under 20 s left of the playing one, or no way to tell. */
+export const keepsNext = (playingLeftMs: null | number): boolean =>
+    playingLeftMs === null || !Number.isFinite(playingLeftMs) || playingLeftMs < KEEP_NEXT_UNDER_MS;
+
+/**
+ * The station's rows that a chip may take out: station-added, in play order after the playing
+ * track, or after the next one when `keepNext`. The playing track is never touched.
  */
 export const removableStationRows = (
     playOrder: readonly QueueEntry[],
     position: number,
-): QueueEntry[] => playOrder.slice(Math.max(0, position + 2)).filter((row) => row.stationAdded);
+    keepNext: boolean,
+): QueueEntry[] =>
+    playOrder.slice(Math.max(0, position + (keepNext ? 2 : 1))).filter((row) => row.stationAdded);
 
 export interface ChipTapPlan {
+    /** Ask the hub to edit the session queue itself (`signal` with `apply: true`); the client
+     *  edits nothing and asks for nothing for this tap. */
+    apply?: boolean;
     /** The preference to store. */
     autoplay: boolean;
     character?: StationCharacterId;
@@ -87,7 +110,7 @@ export const REPLACE_COUNT = 5;
 export const planChipTap = (
     chip: ChipId,
     state: ChipState,
-    queue: { playOrder: readonly QueueEntry[]; position: number },
+    queue: { keepNext: boolean; playOrder: readonly QueueEntry[]; position: number },
 ): ChipTapPlan => {
     if (state.mode === 'fallback') {
         // Upstream's Auto DJ, on or off. A character chip cannot be tapped here.
@@ -95,6 +118,32 @@ export const planChipTap = (
         return { autoplay: on, kickAutoDj: on && !state.autoplay, rows: [], topUp: false };
     }
     const bound = state.bound;
+    if (bound && state.hubEdits) {
+        // The hub cuts, inserts and tells the playing device (queueChanged, never a load); a
+        // second edit from here was the double handling of B-143.
+        if (chip === 'off' || chip === 'autoDj') {
+            return {
+                apply: true,
+                autoplay: false,
+                optimistic: { stopped: true },
+                rows: [],
+                signal: { kind: 'stop' },
+                topUp: false,
+            };
+        }
+        if (bound.stopped || bound.character !== chip) {
+            return {
+                apply: true,
+                autoplay: true,
+                character: chip,
+                optimistic: { character: chip, exhausted: false, stopped: false },
+                rows: [],
+                signal: { kind: 'character', value: chip },
+                topUp: false,
+            };
+        }
+        return { autoplay: true, character: chip, rows: [], topUp: true };
+    }
     if (chip === 'off' || chip === 'autoDj') {
         if (!bound) return { autoplay: false, rows: [], topUp: false };
         // Off stops the station for every device and takes out what it queued that has not
@@ -102,7 +151,7 @@ export const planChipTap = (
         return {
             autoplay: false,
             optimistic: { stopped: true },
-            rows: removableStationRows(queue.playOrder, queue.position),
+            rows: removableStationRows(queue.playOrder, queue.position, queue.keepNext),
             ...(bound.stopped ? {} : { signal: { kind: 'stop' as const } }),
             topUp: false,
         };
@@ -112,7 +161,7 @@ export const planChipTap = (
         // The character also lifts a stop (and the hub clears exhaustion on the change).
         plan.signal = { kind: 'character', value: chip };
         plan.optimistic = { character: chip, exhausted: false, stopped: false };
-        const rows = removableStationRows(queue.playOrder, queue.position);
+        const rows = removableStationRows(queue.playOrder, queue.position, queue.keepNext);
         if (rows.length > 0) {
             plan.rows = rows;
             plan.replaceCount = REPLACE_COUNT;
@@ -140,3 +189,12 @@ export const remoteEditActs = (
         .map((index) => ({ action: 'remove' as const, index })),
     ...(addCount > 0 ? [{ action: 'enqueue' as const, at: 'end' as const, count: addCount }] : []),
 ];
+
+/**
+ * The line under the chips (B-146): what built the queue, then what happens next, as one line
+ * the panel truncates (its tooltip carries this whole text). Null when there is nothing to say.
+ */
+export const chipLine = (origin: null | string, status: null | string): null | string => {
+    const parts = [origin, status].filter((part): part is string => Boolean(part?.trim()));
+    return parts.length > 0 ? parts.join(' · ') : null;
+};

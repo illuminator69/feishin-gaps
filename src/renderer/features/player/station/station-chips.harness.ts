@@ -5,7 +5,10 @@ import type { ChipState, QueueEntry } from './station-chips.ts';
 import type { StationBinding } from './station-logic.ts';
 
 import {
+    chipLine,
     chipsFor,
+    KEEP_NEXT_UNDER_MS,
+    keepsNext,
     planChipTap,
     remoteEditActs,
     removableStationRows,
@@ -87,22 +90,22 @@ test('without the engine: Auto DJ when on, else Off, whatever is bound', () => {
 
 // --- Which rows a tap may touch -----------------------------------------------------------------
 
-test('only station rows after the next one: never the playing track or the one after it', () => {
+test('under 20 s left: only station rows after the next one, never the playing or next track', () => {
     // Playing row 1; row 2 is next. Rows 3.. are candidates, and the user's row 3 stays.
-    const rows = removableStationRows(queue('ussusss'), 1);
+    const rows = removableStationRows(queue('ussusss'), 1, true);
     assert.deepEqual(
         rows.map((row) => row.queueIndex),
         [4, 5, 6],
     );
     // Playing the last-but-one: nothing after the next one.
-    assert.deepEqual(removableStationRows(queue('ssss'), 2), []);
+    assert.deepEqual(removableStationRows(queue('ssss'), 2, true), []);
 });
 
 test('shuffle: after the next one in PLAY order, whatever the queue order', () => {
     // Queue order u0 s1 s2 s3 s4 s5, played in the order 3,0,5,1,4,2. Playing queue row 0
     // (play position 1); next is row 5. After it in play order: rows 1, 4, 2.
     const playOrder = queue('usssss', [3, 0, 5, 1, 4, 2]);
-    const rows = removableStationRows(playOrder, 1);
+    const rows = removableStationRows(playOrder, 1, true);
     assert.deepEqual(
         rows.map((row) => row.queueIndex),
         [1, 4, 2],
@@ -118,6 +121,7 @@ test('shuffle: after the next one in PLAY order, whatever the queue order', () =
 
 test('Off on a station queue: autoplay off, stop the station, take out its unplayed rows', () => {
     const plan = planChipTap('off', state({ bound: bound() }), {
+        keepNext: true,
         playOrder: queue('usssss'),
         position: 1,
     });
@@ -134,6 +138,7 @@ test('Off on a station queue: autoplay off, stop the station, take out its unpla
 
 test('Off on a station already stopped: no second stop, still takes out what is left', () => {
     const plan = planChipTap('off', state({ bound: bound({ stopped: true }) }), {
+        keepNext: true,
         playOrder: queue('ussss'),
         position: 0,
     });
@@ -153,6 +158,7 @@ test('Off on a queue with no station: only the preference; nothing to stop or ta
 
 test('a new character on a station: steer it, swap its unplayed rows for 5 new, top up now', () => {
     const plan = planChipTap('explore', state({ bound: bound({ character: 'balanced' }) }), {
+        keepNext: true,
         playOrder: queue('ussss'),
         position: 0,
     });
@@ -170,6 +176,7 @@ test('a new character on a station: steer it, swap its unplayed rows for 5 new, 
 
 test('a character on a stopped station lifts the stop, even the same character', () => {
     const plan = planChipTap('balanced', state({ bound: bound({ stopped: true }) }), {
+        keepNext: true,
         playOrder: queue('us'),
         position: 0,
     });
@@ -182,6 +189,7 @@ test('a character on a stopped station lifts the stop, even the same character',
 
 test('the character the station already has: no signal, no swap, only the top-up', () => {
     const plan = planChipTap('balanced', state({ autoplay: false, bound: bound() }), {
+        keepNext: true,
         playOrder: queue('ussss'),
         position: 0,
     });
@@ -193,6 +201,7 @@ test('the character the station already has: no signal, no swap, only the top-up
 
 test('a character on a queue with no station: preference on, top-up now (it may continue it)', () => {
     const plan = planChipTap('close', state({ autoplay: false }), {
+        keepNext: true,
         playOrder: queue('uuu'),
         position: 1,
     });
@@ -201,6 +210,7 @@ test('a character on a queue with no station: preference on, top-up now (it may 
 
 test('a character with only user rows after the next one: steered, nothing swapped', () => {
     const plan = planChipTap('explore', state({ bound: bound() }), {
+        keepNext: true,
         playOrder: queue('ssuuu'),
         position: 0,
     });
@@ -213,11 +223,13 @@ test('a character with only user rows after the next one: steered, nothing swapp
 
 test('fallback: Auto DJ switches upstream Auto DJ on and has it look at once; Off switches it off', () => {
     const on = planChipTap('autoDj', state({ autoplay: false, mode: 'fallback' }), {
+        keepNext: true,
         playOrder: queue('uu'),
         position: 0,
     });
     assert.deepEqual(on, { autoplay: true, kickAutoDj: true, rows: [], topUp: false });
     const off = planChipTap('off', state({ autoplay: true, bound: bound(), mode: 'fallback' }), {
+        keepNext: true,
         playOrder: queue('uss'),
         position: 0,
     });
@@ -262,7 +274,7 @@ test('shuffled remote session: the acts leave the playing and next rows the same
     // next row 3. The station rows after it in play order: 1, 5, 2, 4.
     const ids = ['u0', 's1', 's2', 's3', 's4', 's5', 's6'];
     const playOrder = queue('ussssss', [6, 0, 3, 1, 5, 2, 4]);
-    const rows = removableStationRows(playOrder, 1);
+    const rows = removableStationRows(playOrder, 1, true);
     const acts = remoteEditActs(
         rows.map((row) => row.queueIndex),
         5,
@@ -281,7 +293,7 @@ test('the playing row after the removed ones keeps its place too (its index move
     // Queue order s0 s1 u2 s3 s4, played in the order 2,0,1,3,4. Playing row 1 (position 2);
     // next row 3; after it row 4, the only one taken out.
     const playOrder = queue('ssuss', [2, 0, 1, 3, 4]);
-    const rows = removableStationRows(playOrder, 2);
+    const rows = removableStationRows(playOrder, 2, true);
     assert.deepEqual(
         rows.map((row) => row.queueIndex),
         [4],
@@ -292,4 +304,155 @@ test('the playing row after the removed ones keeps its place too (its index move
         if (act.action === 'remove') applyHubRemove(hub, act.index);
     }
     assert.equal(hub.queue[hub.index], 'd');
+});
+
+// --- S-035: the cut point (B-145) -------------------------------------------------------------------
+
+test('the next song goes too, unless under 20 s of the playing one is left (or no way to tell)', () => {
+    assert.equal(keepsNext(60_000), false);
+    assert.equal(keepsNext(KEEP_NEXT_UNDER_MS), false);
+    assert.equal(keepsNext(KEEP_NEXT_UNDER_MS - 1), true);
+    assert.equal(keepsNext(3_000), true);
+    assert.equal(keepsNext(null), true);
+    assert.equal(keepsNext(Number.NaN), true);
+});
+
+test('more than 20 s left: the cut is right after the playing track (B-145)', () => {
+    // Playing row 0; the station's row 1 (the "second song") is taken out too now.
+    const rows = removableStationRows(queue('ussss'), 0, keepsNext(90_000));
+    assert.deepEqual(
+        rows.map((row) => row.queueIndex),
+        [1, 2, 3, 4],
+    );
+    // The playing track is never a candidate, whatever is left of it.
+    assert.equal(
+        rows.some((row) => row.queueIndex === 0),
+        false,
+    );
+});
+
+test('Off with more than 20 s left takes out the next station row too', () => {
+    const plan = planChipTap('off', state({ bound: bound() }), {
+        keepNext: false,
+        playOrder: queue('ussss'),
+        position: 0,
+    });
+    assert.deepEqual(
+        plan.rows.map((row) => row.queueIndex),
+        [1, 2, 3, 4],
+    );
+});
+
+test('a character with more than 20 s left swaps from the next row on', () => {
+    const plan = planChipTap('explore', state({ bound: bound() }), {
+        keepNext: false,
+        playOrder: queue('usss'),
+        position: 0,
+    });
+    assert.deepEqual(
+        plan.rows.map((row) => row.queueIndex),
+        [1, 2, 3],
+    );
+    assert.equal(plan.replaceCount, REPLACE_COUNT);
+});
+
+test('shuffle, more than 20 s left: from the next one in PLAY order', () => {
+    // Played 3,0,5,1,4,2; playing row 0 (position 1): rows 5, 1, 4, 2 are cut.
+    const rows = removableStationRows(queue('usssss', [3, 0, 5, 1, 4, 2]), 1, false);
+    assert.deepEqual(
+        rows.map((row) => row.queueIndex),
+        [5, 1, 4, 2],
+    );
+});
+
+// --- S-035: the hub edits the session's bound station itself (B-143) ----------------------------------
+
+for (const where of ['local', 'remote'] as const) {
+    // The plan does not depend on which device plays: the hub edits the SESSION queue and the
+    // playing device gets queueChanged. `where` only varies the rows' keys.
+    const rows = (pattern: string) =>
+        queue(pattern).map((row) => (where === 'remote' ? row : { ...row, key: `u${row.key}` }));
+
+    test(`${where}, hub edits: Off is only the stop signal with apply, no client edit`, () => {
+        const plan = planChipTap('off', state({ bound: bound(), hubEdits: true }), {
+            keepNext: false,
+            playOrder: rows('ussss'),
+            position: 0,
+        });
+        assert.deepEqual(plan, {
+            apply: true,
+            autoplay: false,
+            optimistic: { stopped: true },
+            rows: [],
+            signal: { kind: 'stop' },
+            topUp: false,
+        });
+    });
+
+    test(`${where}, hub edits: a character is only the signal with apply; no swap, no next`, () => {
+        const plan = planChipTap('explore', state({ bound: bound(), hubEdits: true }), {
+            keepNext: true,
+            playOrder: rows('ussssss'),
+            position: 1,
+        });
+        assert.deepEqual(plan, {
+            apply: true,
+            autoplay: true,
+            character: 'explore',
+            optimistic: { character: 'explore', exhausted: false, stopped: false },
+            rows: [],
+            signal: { kind: 'character', value: 'explore' },
+            topUp: false,
+        });
+    });
+
+    test(`${where}, hub edits: a character on a stopped station is the signal with apply too`, () => {
+        const plan = planChipTap(
+            'balanced',
+            state({ bound: bound({ stopped: true }), hubEdits: true }),
+            {
+                keepNext: false,
+                playOrder: rows('us'),
+                position: 0,
+            },
+        );
+        assert.equal(plan.apply, true);
+        assert.deepEqual(plan.signal, { kind: 'character', value: 'balanced' });
+        assert.deepEqual(plan.rows, []);
+        assert.equal(plan.replaceCount, undefined);
+    });
+}
+
+test('hub edits but no station bound: the preference and the top-up, as before', () => {
+    const plan = planChipTap('close', state({ autoplay: false, hubEdits: true }), {
+        keepNext: false,
+        playOrder: queue('uuu'),
+        position: 2,
+    });
+    assert.deepEqual(plan, { autoplay: true, character: 'close', rows: [], topUp: true });
+});
+
+test('hub edits, the character the station already has: no signal, just the top-up', () => {
+    const plan = planChipTap('balanced', state({ bound: bound(), hubEdits: true }), {
+        keepNext: false,
+        playOrder: queue('us'),
+        position: 0,
+    });
+    assert.deepEqual(plan, { autoplay: true, character: 'balanced', rows: [], topUp: true });
+});
+
+// --- S-035: the line under the chips (B-146) ------------------------------------------------------------
+
+test('the line is the origin then the status, either alone, or nothing', () => {
+    assert.equal(
+        chipLine('Moon Song radio · Balanced', 'Finding the next tracks...'),
+        'Moon Song radio · Balanced · Finding the next tracks...',
+    );
+    assert.equal(chipLine('Auto DJ', null), 'Auto DJ');
+    assert.equal(
+        chipLine(null, 'Autoplay is off. This queue stops at its end.'),
+        'Autoplay is off. This queue stops at its end.',
+    );
+    assert.equal(chipLine(null, null), null);
+    assert.equal(chipLine('  ', ''), null);
 });

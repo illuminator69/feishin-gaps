@@ -88,7 +88,7 @@ export const nextStation = async (body: StationNextBody): Promise<StationResult<
 /** A signal for the bound station. Fire and forget: a signal that does not land only steers less. */
 export const signalStation = async (
     kind: StationSignalKind,
-    extra: { trackId?: string; value?: StationCharacterId } = {},
+    extra: { apply?: boolean; trackId?: string; value?: StationCharacterId } = {},
 ): Promise<null | StationSignalAnswer> => {
     const station = bridge();
     const bound = useStationStore.getState().bound;

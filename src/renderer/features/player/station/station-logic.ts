@@ -418,6 +418,11 @@ export interface AutoplayInput {
     /** Another device served the bound station less than SERVED_ELSEWHERE_GRACE_MS ago. */
     elsewhereRecent?: boolean;
     enabled: boolean;
+    /**
+     * A chip tap asks now, playing or paused (B-144): the user just chose, so a queue near its
+     * end gets its batch at once rather than when playback resumes.
+     */
+    ignorePaused?: boolean;
     /** A request of this client's is already out. */
     inFlight: boolean;
     isPlaying: boolean;
@@ -458,7 +463,7 @@ export const decideAutoplay = (
     if (!input.bound && !input.enabled) return { kind: 'wait', reason: 'off' };
     if (input.mode !== 'stations') return { kind: 'wait', reason: 'unavailable' };
     if (!input.driving) return { kind: 'wait', reason: 'not-driving' };
-    if (!input.isPlaying) return { kind: 'wait', reason: 'not-playing' };
+    if (!input.isPlaying && !input.ignorePaused) return { kind: 'wait', reason: 'not-playing' };
     if (input.remaining >= LOOKAHEAD_MIN) return { kind: 'wait', reason: 'enough' };
     if (input.inFlight) return { kind: 'wait', reason: 'in-flight' };
     const exclude = excludeIds(input.queueIds);
