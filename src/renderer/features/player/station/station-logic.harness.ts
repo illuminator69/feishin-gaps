@@ -121,6 +121,20 @@ test('a queue that is not a station: start from the tracks just played, bound to
     assert.equal(decision.body.count, NEXT_COUNT);
 });
 
+test('a new queue the hub does not hold yet waits for its setQueue before a bound start', () => {
+    // Walk W7: a one-track album played over a radio. `savedQueueId` was still the radio's
+    // queue, the start asked to bind it, got the radio back as a 409 and continued it.
+    assert.deepEqual(decideAutoplay(input({ sessionHoldsQueue: false }), 'balanced'), {
+        kind: 'wait',
+        reason: 'publishing',
+    });
+    const held = decideAutoplay(input({ sessionHoldsQueue: true }), 'balanced');
+    assert.equal(held.kind, 'start');
+    // A station's own queue goes on: its `next` names the station, not the session.
+    const next = decideAutoplay(input({ bound: bound(), sessionHoldsQueue: false }), 'balanced');
+    assert.equal(next.kind, 'next');
+});
+
 test('a continuation is named after the track playing, not after the oldest seed (B-139)', () => {
     const decision = decideAutoplay(
         input({ seedIds: ['x', 'y', 'z'], seedName: 'Take a Picture' }),

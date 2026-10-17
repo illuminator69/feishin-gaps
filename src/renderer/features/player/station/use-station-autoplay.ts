@@ -162,6 +162,12 @@ const readSnapshot = (): Snapshot => {
     const current = playOrderSongs[playIndex];
     const remaining = remainingLocal(playIndex, playOrderSongs.length);
     const queueIndexOf = new Map(items.map((song, index) => [song._uniqueId, index]));
+    // This queue reaches the hub as a `setQueue` once its tracks are built (use-hub), so for a
+    // moment after a replace the session, and `hub.savedQueueId`, are still the queue before it.
+    const sessionHoldsQueue =
+        !hub.connected ||
+        (hub.remoteQueue.length === items.length &&
+            hub.remoteQueue.every((track, index) => track.id === items[index]?.id));
     return {
         entries: playOrderSongs
             .filter((song): song is QueueSong => Boolean(song))
@@ -181,6 +187,7 @@ const readSnapshot = (): Snapshot => {
             savedQueueId: hub.savedQueueId,
             seedIds: current ? continueSeedIds(playOrder, playIndex) : [],
             seedName: current?.name || undefined,
+            sessionHoldsQueue,
         },
         key: `l:${current?._uniqueId ?? ''}:${remaining}:${items.length}`,
         known: new Map(items.map((song) => [song.id, song as Song])),

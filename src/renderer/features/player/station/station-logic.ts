@@ -438,6 +438,13 @@ export interface AutoplayInput {
      *  it the hub names the station after its oldest seed track, which may not be the one playing
      *  (B-139). */
     seedName?: string;
+    /**
+     * The hub session holds the queue this client is looking at (its `setQueue` has landed).
+     * Until it does, `savedQueueId` still names the queue before it: a `start` then asked to bind
+     * THAT queue, was answered 409 with its station, and continued the old radio into the new
+     * queue under the old radio's name (walk W7: a one-track album after a radio). Absent = true.
+     */
+    sessionHoldsQueue?: boolean;
 }
 
 export type AutoplayWait =
@@ -448,6 +455,7 @@ export type AutoplayWait =
     | 'not-driving'
     | 'not-playing'
     | 'off'
+    | 'publishing'
     | 'served-elsewhere'
     | 'stopped'
     | 'unavailable';
@@ -485,6 +493,8 @@ export const decideAutoplay = (
         };
     }
     if (input.seedIds.length === 0) return { kind: 'wait', reason: 'no-seed' };
+    // The session frame that names this queue brings the next look (use-station-autoplay).
+    if (input.sessionHoldsQueue === false) return { kind: 'wait', reason: 'publishing' };
     return {
         body: {
             ...(input.savedQueueId ? { bindSession: input.savedQueueId } : {}),
