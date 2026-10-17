@@ -34,18 +34,10 @@
 /* One line, always there (so it coming and going never moves the queue), cut to the panel. */
 .line {
     display: flex;
-    gap: 6px;
     align-items: center;
     width: 100%;
     min-width: 0;
     min-height: 18px;
-}
-
-.dot {
-    flex-shrink: 0;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
 }
 
 .text {

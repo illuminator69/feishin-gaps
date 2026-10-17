@@ -27,7 +27,8 @@ import { Tooltip } from '/@/shared/components/tooltip/tooltip';
  * Under the row, one line says what built the queue ("Moon Song radio · Balanced", "Auto DJ")
  * and what happens next, cut with an ellipsis and whole in its tooltip (B-146: as a badge in the
  * toolbar a long radio name made the side queue scroll sideways). The row scrolls inside
- * itself, and the line is always there, so it coming and going never moves the queue.
+ * itself, and the line is always there, so it coming and going never moves the queue. It is
+ * text only: no coloured dot before it (B-152).
  */
 export const QueueStationChips = () => {
     const { t } = useTranslation();
@@ -89,17 +90,6 @@ export const QueueStationChips = () => {
                 })}
             </div>
             <div className={styles.line}>
-                {origin && (
-                    <span
-                        aria-hidden
-                        className={styles.dot}
-                        style={{
-                            backgroundColor: origin.exhausted
-                                ? 'var(--theme-colors-foreground-muted)'
-                                : origin.color,
-                        }}
-                    />
-                )}
                 {line && (
                     <Tooltip label={line} multiline openDelay={300} w={320}>
                         <Text className={styles.text} isMuted isNoSelect size="xs">
