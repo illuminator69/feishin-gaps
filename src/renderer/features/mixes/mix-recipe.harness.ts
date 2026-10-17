@@ -32,11 +32,14 @@ const {
     formKindTakesCharacter,
     genreNameOf,
     matchGenres,
+    mixLine,
     mixPlan,
     PICKER_LIMIT,
     pickerOptions,
     pickerTerm,
+    storedCharacter,
     suggestedMixName,
+    yourMixLine,
 } = await import('./mix-recipe.ts');
 
 const mix = (over: Partial<Mix>): Mix => ({
@@ -344,4 +347,49 @@ test('the artist dropdown: nothing without a term; searching, then what the serv
     );
     // Navidrome answers a one-letter search with nothing, whatever the library holds.
     assert.equal(artistPickerEmpty({ ...state, term: 'a' }), 'Keep typing...');
+});
+
+// --- The row's words (B-149, Navic's `mixKindLabel`) ----------------------------------------------
+
+const words = (id: string) => ({ balanced: 'Balanced', close: 'Close', explore: 'Explore' })[id]!;
+
+test('the Your mix entry: built from what you play most, in the character autoplay uses', () => {
+    assert.equal(yourMixLine('Explore'), 'Built from what you play most · Explore');
+});
+
+test('an Artist row names its character as a Radio row does; one that stores none, none', () => {
+    const artist = mix({ kind: 'artist', seedId: 'ar_1', seedName: 'Ogre You Asshole' });
+    assert.equal(
+        mixLine({ ...artist, character: 'close', moodCharacter: 'EchoMatch' }, words),
+        'Artist · Ogre You Asshole · Close',
+    );
+    // From a client that wrote only the legacy name.
+    assert.equal(
+        mixLine({ ...artist, moodCharacter: 'TransitionMaestro' }, words),
+        'Artist · Ogre You Asshole · Explore',
+    );
+    assert.equal(mixLine(artist, words), 'Artist · Ogre You Asshole');
+    assert.equal(
+        mixLine(mix({ character: 'explore', seedId: 'tr_1', seedName: 'Cinnamon Girl' }), words),
+        'Radio · Cinnamon Girl · Explore',
+    );
+    // A radio that stores none plays, and says, Balanced.
+    assert.equal(
+        mixLine(mix({ seedId: 'tr_1', seedName: 'Cinnamon Girl' }), words),
+        'Radio · Cinnamon Girl · Balanced',
+    );
+    assert.equal(mixLine(mix({ character: 'close' }), words), 'Your mix · Close');
+    assert.equal(mixLine(mix({ kind: 'journey' }), words), null);
+});
+
+test('a stored character: an id, a legacy name or an old preset id, else none', () => {
+    assert.equal(storedCharacter({ character: 'explore', moodCharacter: '' }), 'explore');
+    assert.equal(storedCharacter({ character: '', moodCharacter: 'SteadyVibes' }), 'balanced');
+    assert.equal(storedCharacter({ character: '', moodCharacter: 'echo' }), 'close');
+    assert.equal(
+        storedCharacter({ character: 'nonsense', moodCharacter: 'transition' }),
+        'explore',
+    );
+    assert.equal(storedCharacter({ character: '', moodCharacter: '' }), null);
+    assert.equal(storedCharacter({ character: 'nonsense', moodCharacter: '' }), null);
 });

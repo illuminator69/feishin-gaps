@@ -246,6 +246,70 @@ export const genreNameOf = (
     return (byId || mix.seedName || mix.seedId).trim();
 };
 
+// --- The row's words -----------------------------------------------------------------------------
+
+/**
+ * The character a recipe stores, read as Navic reads it: its `character`, else its legacy
+ * `moodCharacter`, each as an id, a hub MoodCharacter name or this client's old preset id. Null
+ * when it stores none (an Artist recipe from before characters), unlike `mixCharacter`, which
+ * plays such a recipe on Balanced.
+ */
+export const storedCharacter = (
+    mix: Pick<Mix, 'character' | 'moodCharacter'>,
+): null | StationCharacterId => {
+    for (const value of [mix.character, mix.moodCharacter]) {
+        const id = toCharacterId(value);
+        if (id) return id;
+        switch (value) {
+            case 'Balanced':
+            case 'steady':
+            case 'SteadyVibes':
+                return 'balanced';
+            case 'Close':
+            case 'echo':
+            case 'EchoMatch':
+                return 'close';
+            case 'Explore':
+            case 'transition':
+            case 'TransitionMaestro':
+                return 'explore';
+        }
+    }
+    return null;
+};
+
+type CharacterWords = (id: StationCharacterId) => string;
+
+/** How each kind was built, in a phrase, for a row's second line. */
+const KIND_LINE: Record<MixKind, (mix: RecipeFields, words: CharacterWords) => string> = {
+    adaptive: (mix, words) => `Adaptive · ${words(mixCharacter(mix))}`,
+    // An Artist row names its character as a Radio row does; one that stores none is not given
+    // a guessed one (Navic's `mixKindLabel`).
+    artist: (mix, words) => {
+        const character = storedCharacter(mix);
+        const line = `Artist · ${mix.seedName || 'an artist'}`;
+        return character ? `${line} · ${words(character)}` : line;
+    },
+    fingerprint: () => 'Built from your listening',
+    genre: (mix) => `Genre · ${genreNameOf(mix) || 'unknown'}`,
+    similar: (mix) => `Similar to ${mix.seedName || 'a track'}`,
+    station: (mix, words) =>
+        mix.seedId
+            ? `Radio · ${mix.seedName || 'a track'} · ${words(mixCharacter(mix))}`
+            : `Your mix · ${words(mixCharacter(mix))}`,
+};
+
+/** A recipe's row line, or null for a kind this build does not know. */
+export const mixLine = (mix: RecipeFields, words: CharacterWords): null | string =>
+    Object.hasOwn(KIND_LINE, mix.kind) ? KIND_LINE[mix.kind as MixKind](mix, words) : null;
+
+/**
+ * The always-present Your mix entry's line, as Navic words it: what it is built from, then the
+ * character it plays in, the one autoplay uses.
+ */
+export const yourMixLine = (characterWords: string): string =>
+    `${YOUR_MIX_LINE} · ${characterWords}`;
+
 // --- The seed pickers ---------------------------------------------------------------------------
 
 /** How many options a picker lists at once. */

@@ -9,13 +9,10 @@ import { GeneratedArtwork, MixArtwork } from '/@/renderer/features/mixes/compone
 import { MixForm } from '/@/renderer/features/mixes/components/mix-form';
 import { MixPreview } from '/@/renderer/features/mixes/components/mix-preview';
 import { useMixActions, usePlayMix } from '/@/renderer/features/mixes/hooks/use-mixes';
-import { genreNameOf, YOUR_MIX_LINE } from '/@/renderer/features/mixes/mix-recipe';
+import { mixLine, yourMixLine } from '/@/renderer/features/mixes/mix-recipe';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { playYourMix } from '/@/renderer/features/player/station/station-client';
-import {
-    characterFromAny,
-    characterLabel,
-} from '/@/renderer/features/player/station/station-logic';
+import { characterLabel } from '/@/renderer/features/player/station/station-logic';
 import {
     useStationCatalog,
     useStationMode,
@@ -25,11 +22,11 @@ import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-e
 import {
     isKnownMixKind,
     Mix,
-    MixKind,
     useCurrentServerId,
     useHubConnected,
     useMixes,
 } from '/@/renderer/store';
+import { useStationSettings } from '/@/renderer/store/settings.store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Button } from '/@/shared/components/button/button';
 import { ContextMenu } from '/@/shared/components/context-menu/context-menu';
@@ -41,6 +38,7 @@ import { Stack } from '/@/shared/components/stack/stack';
 import { TextInput } from '/@/shared/components/text-input/text-input';
 import { Text } from '/@/shared/components/text/text';
 import { toast } from '/@/shared/components/toast/toast';
+import { StationCharacterId } from '/@/shared/types/station-types';
 
 /**
  * navi-connect: "Mixed for You" — the recipes, not the results.
@@ -57,26 +55,11 @@ import { toast } from '/@/shared/components/toast/toast';
  * frozen tracklist would also appear to pass on first use.
  */
 
-type CharacterLabel = (mix: Mix) => string;
-
-/** How the mix was built, in a phrase, for the row's second line. */
-const KIND_LINE: Record<MixKind, (mix: Mix, character: CharacterLabel) => string> = {
-    adaptive: (mix, character) => `Adaptive · ${character(mix)}`,
-    artist: (mix, character) => `Artist · ${mix.seedName || 'an artist'} · ${character(mix)}`,
-    fingerprint: () => 'Built from your listening',
-    genre: (mix) => `Genre · ${genreNameOf(mix) || 'unknown'}`,
-    similar: (mix) => `Similar to ${mix.seedName || 'a track'}`,
-    station: (mix, character) =>
-        mix.seedId
-            ? `Radio · ${mix.seedName || 'a track'} · ${character(mix)}`
-            : `Your mix · ${character(mix)}`,
-};
-
-/** A recipe from a newer client. Named, not hidden — the row is still worth
+/** A recipe from a newer client. Named, not hidden - the row is still worth
  *  renaming and deleting, and saying which kind is what makes "update the app"
  *  actionable rather than mysterious. */
-const kindLine = (mix: Mix, character: CharacterLabel): string =>
-    isKnownMixKind(mix.kind) ? KIND_LINE[mix.kind](mix, character) : `Unknown kind · ${mix.kind}`;
+const kindLine = (mix: Mix, words: (id: StationCharacterId) => string): string =>
+    mixLine(mix, words) ?? `Unknown kind · ${mix.kind}`;
 
 const RenameMixForm = ({ mix, onSubmit }: { mix: Mix; onSubmit: (name: string) => void }) => {
     const [value, setValue] = useState(mix.name);
@@ -112,8 +95,7 @@ const RenameMixForm = ({ mix, onSubmit }: { mix: Mix; onSubmit: (name: string) =
 
 const MixRow = ({ mix }: { mix: Mix }) => {
     const catalog = useStationCatalog();
-    const character = (row: Mix) =>
-        characterLabel(catalog, characterFromAny(row.character || row.moodCharacter));
+    const words = (id: StationCharacterId) => characterLabel(catalog, id);
     const { deleteMix, renameMix } = useMixActions();
     const { play, playingId } = usePlayMix();
     const busy = playingId === mix.id;
@@ -168,7 +150,7 @@ const MixRow = ({ mix }: { mix: Mix }) => {
                                 {mix.name}
                             </Text>
                             <Text isMuted lineClamp={1} size="sm">
-                                {kindLine(mix, character)} · {mix.count} tracks
+                                {kindLine(mix, words)} · {mix.count} tracks
                             </Text>
                             {/* Said plainly on every row, because it is the property
                             that distinguishes this page from Saved Queues and it is
@@ -225,6 +207,9 @@ const YourMixRow = () => {
     const { t } = useTranslation();
     const player = usePlayer();
     const serverId = useCurrentServerId();
+    const catalog = useStationCatalog();
+    // The character a tap plays it in: the one autoplay uses.
+    const preferred = useStationSettings()?.character ?? 'balanced';
     const [busy, setBusy] = useState(false);
 
     return (
@@ -255,7 +240,7 @@ const YourMixRow = () => {
                         {t('naviConnect.mixes.yourMix')}
                     </Text>
                     <Text isMuted lineClamp={1} size="sm">
-                        {YOUR_MIX_LINE}
+                        {yourMixLine(characterLabel(catalog, preferred))}
                     </Text>
                     <Text isMuted lineClamp={1} size="xs">
                         {busy ? 'Building…' : 'Rebuilt fresh each time you play it'}
