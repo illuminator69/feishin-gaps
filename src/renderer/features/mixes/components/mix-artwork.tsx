@@ -31,13 +31,22 @@ import { LibraryItem } from '/@/shared/types/domain-types';
  * what will play".
  */
 
-const KIND_ICON: Record<MixKind, 'album' | 'artist' | 'audioLines' | 'genre' | 'radio'> = {
+type Glyph = 'album' | 'artist' | 'audioLines' | 'genre' | 'radio' | 'user';
+
+const KIND_ICON: Record<MixKind, Glyph> = {
     adaptive: 'audioLines',
     artist: 'artist',
     fingerprint: 'radio',
     genre: 'genre',
     similar: 'album',
     station: 'radio',
+};
+
+/** Your mix (a `station` with no seed) is a person's glyph: it is built from what you play. */
+const glyphOf = (mix: Mix): Glyph => {
+    if (!isKnownMixKind(mix.kind)) return 'radio';
+    if (mix.kind === 'station' && !mix.seedId) return 'user';
+    return KIND_ICON[mix.kind];
 };
 
 /**
@@ -72,7 +81,26 @@ export const MixArtwork = ({ className, mix }: MixArtworkProps) => {
         );
     }
 
-    const hue = hueFor(mix.id);
+    // An unknown kind still gets a glyph rather than an empty square: the row is shown and
+    // named even though playing it is refused, and a blank tile would read as a broken mix
+    // rather than an unsupported one.
+    return <GeneratedArtwork className={className} glyph={glyphOf(mix)} hueKey={mix.id} />;
+};
+
+/**
+ * The art-less tile: a glyph over a gradient keyed on `hueKey`. Also the always-present Your mix
+ * entry's artwork (B-149), which is not a stored recipe and so has no `Mix` to draw from.
+ */
+export const GeneratedArtwork = ({
+    className,
+    glyph,
+    hueKey,
+}: {
+    className?: string;
+    glyph: Glyph;
+    hueKey: string;
+}) => {
+    const hue = hueFor(hueKey);
     return (
         <div
             className={clsx(styles.cover, styles.generated, className)}
@@ -80,14 +108,7 @@ export const MixArtwork = ({ className, mix }: MixArtworkProps) => {
                 background: `linear-gradient(135deg, hsl(${hue} 45% 32%), hsl(${(hue + 48) % 360} 40% 20%))`,
             }}
         >
-            <Icon
-                // An unknown kind still gets a glyph rather than an empty
-                // square: the row is shown and named even though playing it is
-                // refused, and a blank tile would read as a broken mix rather
-                // than an unsupported one.
-                icon={isKnownMixKind(mix.kind) ? KIND_ICON[mix.kind] : 'radio'}
-                size="xl"
-            />
+            <Icon icon={glyph} size="xl" />
         </div>
     );
 };

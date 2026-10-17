@@ -1,12 +1,25 @@
-import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { ReactNode, useMemo, useState } from 'react';
 
-import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
 import { genresQueries } from '/@/renderer/features/genres/api/genres-api';
-import { legacyMoodCharacter } from '/@/renderer/features/player/station/station-logic';
+import {
+    artistPickerEmpty,
+    buildRecipe,
+    FormKind,
+    formKindsFor,
+    formKindTakesCharacter,
+    matchGenres,
+    MixRecipe,
+    PICKER_DEBOUNCE_MS,
+    PICKER_LIMIT,
+    pickerOptions,
+    pickerTerm,
+    suggestedMixName,
+} from '/@/renderer/features/mixes/mix-recipe';
 import { useStationMode } from '/@/renderer/features/player/station/station-store';
 import { useStationWords } from '/@/renderer/features/player/station/use-station-words';
-import { MixKind, useCurrentServerId, usePlayerSong } from '/@/renderer/store';
+import { searchQueries } from '/@/renderer/features/search/api/search-api';
+import { useCurrentServerId, usePlayerSong } from '/@/renderer/store';
 import { useStationSettings } from '/@/renderer/store/settings.store';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
@@ -16,109 +29,142 @@ import { Select } from '/@/shared/components/select/select';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextInput } from '/@/shared/components/text-input/text-input';
 import { Text } from '/@/shared/components/text/text';
-import { AlbumArtistListSort, GenreListSort, SortOrder } from '/@/shared/types/domain-types';
+import { useDebouncedValue } from '/@/shared/hooks/use-debounced-value';
+import { GenreListSort, SortOrder } from '/@/shared/types/domain-types';
 import { StationCharacterId } from '/@/shared/types/station-types';
 
 /**
- * Creating a recipe.
+ * Creating a recipe (B-149, B-151; the same spec as Navic's form).
  *
- * The common path is still "save what I am listening to": the form opens on the
- * playing song, and (I-040) on a Radio with the character autoplay uses, when the
- * hub's station engine is there. A new mix is 50 tracks long; Auto DJ's item
- * count is a top-up of five and was never a mix length.
+ * Four kinds, in this order: Radio (around the playing song), Your mix (the hub's station from
+ * what you play most; only with the station engine, which is what builds it), Genre and Artist.
+ * The kinds, their words and the recipe each saves live in `mix-recipe.ts`.
  *
- * **But three of the five kinds cannot be expressed that way, and two of them
- * had no create path at all.** `similar`, `adaptive` and `fingerprint` are the
- * autoplay modes; `genre` and `artist` are not, so seeding them from the playing
- * track meant a genre mix could only ever be the genre of whatever happened to
- * be on, and an artist mix that artist — and neither could be made at all with
- * nothing playing. An earlier revision of this file argued a picker would be "a
- * second search UI for a field whose right answer is always *this*". That holds
- * for `similar` and `adaptive`, where the seed is a track and the track is the
- * one you are listening to. It does not hold for a genre or an artist, which are
- * choices rather than context — Navic reached the same conclusion from the
- * opposite direction, where those two kinds were entirely unreachable.
- *
- * So the seed control is **per kind**: a stated fact for the track kinds, a
- * searchable list of the library's own artists or genres for the two that are
- * choices, and nothing at all for `fingerprint`, which is seeded from listening
- * history and has no seed to pick.
+ * A genre or an artist is a choice rather than context, so those two have a picker, and **the
+ * picker lists nothing until you type**. It used to open on the first 500 artists, which is all
+ * an artist mix could ever be seeded with in a library of thousands. The artist picker asks the
+ * server (search3) as you type; the genre picker filters the whole genre list, which is loaded
+ * once and is small enough to hold.
  */
-
-const KIND_LABEL: Record<MixKind, string> = {
-    adaptive: 'Adaptive - built from what you listen to, with a character',
-    artist: 'Artist radio - more like one artist',
-    fingerprint: 'Sonic fingerprint - built from what you listen to',
-    genre: 'Genre - a random run through one genre',
-    similar: 'Similar - tracks close to a seed track',
-    station: 'Radio - around a track, steered by your skips and likes',
-};
-
-/** Radio first: with the hub's station engine it is what a new mix usually is. */
-const KIND_ORDER: MixKind[] = ['station', 'similar', 'adaptive', 'fingerprint', 'artist', 'genre'];
-
-/** The kinds seeded by the playing track. The other three are: two picked from
- *  the library, and `fingerprint`, which needs no seed. */
-const NEEDS_SEED_SONG = new Set<MixKind>(['adaptive', 'similar', 'station']);
-
-/** The kinds a character steers (I-040): a radio, and adaptive, which plays as Your mix. */
-const TAKES_CHARACTER = new Set<MixKind>(['adaptive', 'station']);
 
 /** A new mix's length. Not Auto DJ's item count, which is a top-up size of five. */
 const NEW_MIX_COUNT = 50;
 
 interface MixFormProps {
-    onSubmit: (mix: {
-        character: string;
-        count: number;
-        coverArtId: string;
-        kind: MixKind;
-        moodCharacter: string;
-        name: string;
-        seedId: string;
-        seedName: string;
-    }) => void;
+    onSubmit: (mix: MixRecipe) => void;
 }
 
-const defaultName = (kind: MixKind, songName?: string): string =>
-    songName ? (kind === 'station' ? `${songName} radio` : `Like ${songName}`) : 'Your Mix';
+/**
+ * A searchable Select that opens only on typed text. Its options are already the matches (from
+ * the server, or filtered here), so Mantine's own filter is turned off; with no options and no
+ * message, Mantine hides the dropdown. The pick stays in the box: Mantine keeps a picked option's
+ * label after it leaves `data`, and puts it back on blur.
+ */
+const TypeToPick = ({
+    label,
+    nothingFound,
+    onPick,
+    onTyped,
+    options,
+    placeholder,
+    typed,
+    value,
+}: {
+    label: string;
+    nothingFound?: ReactNode;
+    onPick: (value: null | string, label: string) => void;
+    onTyped: (typed: string) => void;
+    options: { label: string; value: string }[];
+    placeholder: string;
+    typed: string;
+    value: null | string;
+}) => (
+    <Select
+        data={options}
+        filter={({ options: all }) => all}
+        label={label}
+        nothingFoundMessage={nothingFound}
+        onChange={(next, option) => onPick(next, option?.label ?? '')}
+        onSearchChange={onTyped}
+        placeholder={placeholder}
+        searchable
+        searchValue={typed}
+        value={value}
+    />
+);
 
-export const MixForm = ({ onSubmit }: MixFormProps) => {
-    const song = usePlayerSong();
-    const serverId = useCurrentServerId();
-    // The Radio kind plays through the hub's station engine and is offered only with it.
-    const stationMode = useStationMode();
-    const words = useStationWords();
-    const stationSettings = useStationSettings();
-    const offered = KIND_ORDER.filter((value) => value !== 'station' || stationMode !== 'fallback');
-    const [kind, setKind] = useState<MixKind>(offered[0]);
-    const [character, setCharacter] = useState<StationCharacterId>(
-        stationSettings?.character ?? 'balanced',
-    );
-    const [name, setName] = useState(defaultName(offered[0], song?.name));
-    const [nameEdited, setNameEdited] = useState(false);
-    // The picked seed for the two library kinds, held separately so switching
-    // kinds and switching back does not silently keep the other kind's choice.
-    const [pickedArtist, setPickedArtist] = useState<null | string>(null);
-    const [pickedGenre, setPickedGenre] = useState<null | string>(null);
-
-    // Both lists are fetched only for the kind that needs them. They are the
-    // library's own artists and genres, so a mix can only ever be seeded with
-    // something this server actually has.
-    const artists = useQuery({
-        ...artistsQueries.albumArtistList({
+const ArtistPicker = ({
+    onPick,
+    picked,
+    serverId,
+}: {
+    onPick: (artist: null | { id: string; name: string }) => void;
+    picked: null | { id: string; name: string };
+    serverId: string;
+}) => {
+    const [typed, setTyped] = useState(picked?.name ?? '');
+    const term = pickerTerm(typed, picked?.name);
+    const [debounced] = useDebouncedValue(term, PICKER_DEBOUNCE_MS);
+    const search = useQuery({
+        ...searchQueries.search({
             query: {
-                limit: 500,
-                sortBy: AlbumArtistListSort.NAME,
-                sortOrder: SortOrder.ASC,
-                startIndex: 0,
+                albumArtistLimit: PICKER_LIMIT,
+                albumArtistStartIndex: 0,
+                albumLimit: 0,
+                albumStartIndex: 0,
+                query: debounced,
+                songLimit: 0,
+                songStartIndex: 0,
             },
             serverId,
         }),
-        enabled: kind === 'artist' && Boolean(serverId),
+        enabled: Boolean(serverId && debounced),
+        placeholderData: keepPreviousData,
     });
-    const genres = useQuery({
-        ...genresQueries.list({
+
+    const options = useMemo(() => {
+        // One option per id: Mantine refuses to render a list with a repeated value.
+        const byId = new Map<string, { label: string; value: string }>();
+        for (const artist of pickerOptions(term, search.data?.albumArtists ?? [])) {
+            if (!byId.has(artist.id)) byId.set(artist.id, { label: artist.name, value: artist.id });
+        }
+        return [...byId.values()];
+    }, [search.data, term]);
+
+    return (
+        <TypeToPick
+            label="Artist"
+            nothingFound={
+                artistPickerEmpty({
+                    error: search.isError,
+                    results: options.length,
+                    settled: debounced === term && !search.isFetching,
+                    term,
+                }) ?? undefined
+            }
+            onPick={(id, name) => onPick(id ? { id, name } : null)}
+            onTyped={setTyped}
+            options={options}
+            placeholder="Type to search your artists"
+            typed={typed}
+            value={picked?.id ?? null}
+        />
+    );
+};
+
+const GenrePicker = ({
+    onPick,
+    picked,
+    serverId,
+}: {
+    onPick: (genre: null | string) => void;
+    picked: null | string;
+    serverId: string;
+}) => {
+    const [typed, setTyped] = useState(picked ?? '');
+    const term = pickerTerm(typed, picked);
+    const genres = useQuery(
+        genresQueries.list({
             query: {
                 limit: -1,
                 sortBy: GenreListSort.NAME,
@@ -127,72 +173,116 @@ export const MixForm = ({ onSubmit }: MixFormProps) => {
             },
             serverId,
         }),
-        enabled: kind === 'genre' && Boolean(serverId),
+    );
+    // By NAME: a recipe holds the genre's name, which Navic and getRandomSongs both take.
+    const options = useMemo(
+        () =>
+            matchGenres(term, genres.data?.items ?? []).map((name) => ({
+                label: name,
+                value: name,
+            })),
+        [genres.data, term],
+    );
+
+    return (
+        <TypeToPick
+            label="Genre"
+            nothingFound={
+                !term || options.length > 0
+                    ? undefined
+                    : genres.isLoading
+                      ? 'Loading genres...'
+                      : 'No genre matches'
+            }
+            onPick={(name) => onPick(name)}
+            onTyped={setTyped}
+            options={options}
+            placeholder="Type to search your genres"
+            typed={typed}
+            value={picked}
+        />
+    );
+};
+
+export const MixForm = ({ onSubmit }: MixFormProps) => {
+    const song = usePlayerSong();
+    const serverId = useCurrentServerId();
+    // Your mix is the hub's station from what you play most, so it is offered only with it.
+    const offered = formKindsFor(useStationMode() === 'stations');
+    const words = useStationWords();
+    const stationSettings = useStationSettings();
+    const [chosenKind, setKind] = useState<FormKind>('radio');
+    // A kind that stopped being offered while the form was open (the engine went away).
+    const kind = offered.some((row) => row.id === chosenKind) ? chosenKind : 'radio';
+    const [character, setCharacter] = useState<StationCharacterId>(
+        stationSettings?.character ?? 'balanced',
+    );
+    // The picked seed for the two library kinds, held separately so switching kinds and back
+    // keeps each kind's own choice and never hands one kind's seed to the other.
+    const [pickedArtist, setPickedArtist] = useState<null | { id: string; name: string }>(null);
+    const [pickedGenre, setPickedGenre] = useState<null | string>(null);
+
+    // The name follows the recipe (the kind, the song, the pick) until the user writes their own:
+    // while the box is empty or still holds the last suggestion.
+    const suggested = suggestedMixName(kind, {
+        artist: pickedArtist?.name,
+        genre: pickedGenre,
+        song: song?.name,
     });
+    const [name, setName] = useState(suggested);
+    const [lastSuggested, setLastSuggested] = useState(suggested);
+    if (suggested !== lastSuggested) {
+        setLastSuggested(suggested);
+        if (name.trim() === '' || name === lastSuggested) setName(suggested);
+    }
 
-    const needsSong = NEEDS_SEED_SONG.has(kind);
-    const artistRow = (artists.data?.items ?? []).find((row) => row.id === pickedArtist);
-    const genreRow = (genres.data?.items ?? []).find((row) => row.id === pickedGenre);
-
-    const seedId =
-        kind === 'artist'
-            ? (pickedArtist ?? '')
-            : kind === 'genre'
-              ? (pickedGenre ?? '')
-              : (song?.id ?? '');
-    const seedName =
-        kind === 'artist'
-            ? (artistRow?.name ?? '')
-            : kind === 'genre'
-              ? (genreRow?.name ?? '')
-              : (song?.name ?? '');
-
-    /**
-     * The cover, stamped from the **seed** rather than from a generated queue.
-     *
-     * The seed is a fixed part of the recipe, so it stays true on a second play;
-     * the tracklist is the one thing about a mix guaranteed to change, so a
-     * cover taken from it would be a picture of what played last time.
-     *
-     * A genre has no cover art of its own and a fingerprint has no seed at all —
-     * both fall through to the kind glyph `MixArtwork` draws, which is an honest
-     * answer rather than a missing one.
-     */
-    const coverArtId =
-        kind === 'artist' ? (artistRow?.id ?? '') : needsSong ? (song?.albumId ?? '') : '';
-
-    const blocked =
-        (needsSong && !song?.id) ||
-        (kind === 'artist' && !pickedArtist) ||
-        (kind === 'genre' && !pickedGenre) ||
-        name.trim().length === 0;
+    const recipe = buildRecipe({
+        artist: pickedArtist,
+        character,
+        count: NEW_MIX_COUNT,
+        genre: pickedGenre,
+        kind,
+        name,
+        song: song ? { albumId: song.albumId, id: song.id, name: song.name } : null,
+    });
 
     return (
         <Stack gap="md">
             <TextInput
                 autoFocus
                 label="Name"
-                onChange={(event) => {
-                    setName(event.currentTarget.value);
-                    setNameEdited(true);
-                }}
+                onChange={(event) => setName(event.currentTarget.value)}
                 value={name}
             />
-            <Select
-                data={offered.map((value) => ({
-                    label: KIND_LABEL[value],
-                    value,
-                }))}
-                label="How it is built"
-                onChange={(value) => {
-                    const next = (value as MixKind) ?? offered[0];
-                    setKind(next);
-                    // The suggested name follows the kind until the user writes their own.
-                    if (!nameEdited) setName(defaultName(next, song?.name));
-                }}
-                value={kind}
-            />
-            {TAKES_CHARACTER.has(kind) && (
+            <Stack gap={4}>
+                <Text size="sm">How it is built</Text>
+                <SegmentedControl
+                    data={offered.map((row) => ({ label: row.label, value: row.id }))}
+                    onChange={(value) => setKind(value as FormKind)}
+                    value={kind}
+                    w="100%"
+                />
+                <Text isMuted size="xs">
+                    {offered.find((row) => row.id === kind)?.description}
+                </Text>
+            </Stack>
+            {/* The song is not editable, so it is stated rather than offered - and stated as a
+                fact about what will be saved, since "the playing song" stops being true the
+                moment playback moves on. */}
+            {kind === 'radio' && (
+                <Text isMuted size="sm">
+                    {song?.name
+                        ? `Seeded from "${song.name}" by ${song.artistName}.`
+                        : 'Play something first - a radio is built around a song.'}
+                </Text>
+            )}
+            {kind === 'artist' && serverId && (
+                <ArtistPicker onPick={setPickedArtist} picked={pickedArtist} serverId={serverId} />
+            )}
+            {kind === 'genre' && serverId && (
+                <GenrePicker onPick={setPickedGenre} picked={pickedGenre} serverId={serverId} />
+            )}
+            {formKindTakesCharacter(kind) && (
                 <Stack gap={4}>
                     <Text size="sm">Character</Text>
                     <SegmentedControl
@@ -206,68 +296,15 @@ export const MixForm = ({ onSubmit }: MixFormProps) => {
                     </Text>
                 </Stack>
             )}
-            {/* The track seed is not editable, so it is stated rather than
-                offered - and stated as a fact about what will be saved, since
-                "the currently playing track" stops being true the moment
-                playback moves on. */}
-            {needsSong && (
-                <Text isMuted size="sm">
-                    {song?.name
-                        ? `Seeded from "${song.name}" by ${song.artistName}.`
-                        : 'Play something first - this kind of mix is built around a track.'}
-                </Text>
-            )}
-            {kind === 'artist' && (
-                <Select
-                    data={(artists.data?.items ?? []).map((row) => ({
-                        label: row.name,
-                        value: row.id,
-                    }))}
-                    label="Artist"
-                    onChange={setPickedArtist}
-                    placeholder={artists.isLoading ? 'Loading artists…' : 'Pick an artist'}
-                    searchable
-                    value={pickedArtist}
-                />
-            )}
-            {kind === 'genre' && (
-                <Select
-                    data={(genres.data?.items ?? []).map((row) => ({
-                        label: row.name,
-                        value: row.id,
-                    }))}
-                    label="Genre"
-                    onChange={setPickedGenre}
-                    placeholder={genres.isLoading ? 'Loading genres…' : 'Pick a genre'}
-                    searchable
-                    value={pickedGenre}
-                />
-            )}
-            {kind === 'fingerprint' && (
-                <Text isMuted size="sm">
-                    Built from your listening history, so it needs no seed - and changes on its own
-                    over time.
-                </Text>
-            )}
             <Group justify="flex-end">
                 <Button onClick={() => closeAllModals()} variant="subtle">
                     Cancel
                 </Button>
                 <Button
-                    disabled={blocked}
+                    disabled={!recipe}
                     onClick={() => {
-                        onSubmit({
-                            // Both names of the character: `moodCharacter` is what a client from
-                            // before stations reads (PROTOCOL §17.1).
-                            character,
-                            count: NEW_MIX_COUNT,
-                            coverArtId,
-                            kind,
-                            moodCharacter: legacyMoodCharacter(character),
-                            name: name.trim(),
-                            seedId: kind === 'fingerprint' ? '' : seedId,
-                            seedName: kind === 'fingerprint' ? '' : seedName,
-                        });
+                        if (!recipe) return;
+                        onSubmit(recipe);
                         closeAllModals();
                     }}
                     variant="filled"

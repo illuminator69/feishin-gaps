@@ -64,9 +64,10 @@ export interface Mix {
      */
     moodCharacter: string;
     name: string;
-    /** A Navidrome id whose meaning depends on `kind`: a song for `similar` and
-     *  `adaptive`, an artist for `artist`, a genre for `genre`, and nothing at
-     *  all for `fingerprint`, which is seeded from listening history. */
+    /** Depends on `kind`: a song id for `similar`, `adaptive` and a radio `station`
+     *  (empty for Your mix), an artist id for `artist`, a genre NAME for `genre`
+     *  (Navidrome's genre id in a recipe from before B-151), and nothing at all for
+     *  `fingerprint`, which is seeded from listening history. */
     seedId: string;
     /** What to call the seed on screen. Stored rather than resolved, so a mix
      *  reads correctly without a round trip — and still reads correctly after the

@@ -1683,7 +1683,6 @@
             "noHub": "Mixes are stored on your navi-connect hub, so they are unavailable while this device is not connected to it.",
             "title": "Mixed for You",
             "yourMix": "Your mix",
-            "yourMix_description": "A radio of what you play most, from your navi-connect hub.",
             "yourMix_failed": "Your mix could not be started just now."
         },
         "savedQueuePreview": {

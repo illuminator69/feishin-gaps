@@ -5,10 +5,11 @@ import styles from './mixes-route.module.css';
 
 import i18n from '/@/i18n/i18n';
 import { lbModalSettings } from '/@/renderer/features/lbbot/components/lb-modal-layout';
-import { MixArtwork } from '/@/renderer/features/mixes/components/mix-artwork';
+import { GeneratedArtwork, MixArtwork } from '/@/renderer/features/mixes/components/mix-artwork';
 import { MixForm } from '/@/renderer/features/mixes/components/mix-form';
 import { MixPreview } from '/@/renderer/features/mixes/components/mix-preview';
 import { useMixActions, usePlayMix } from '/@/renderer/features/mixes/hooks/use-mixes';
+import { genreNameOf, YOUR_MIX_LINE } from '/@/renderer/features/mixes/mix-recipe';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { playYourMix } from '/@/renderer/features/player/station/station-client';
 import {
@@ -34,14 +35,12 @@ import { Button } from '/@/shared/components/button/button';
 import { ContextMenu } from '/@/shared/components/context-menu/context-menu';
 import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
 import { Group } from '/@/shared/components/group/group';
-import { Icon } from '/@/shared/components/icon/icon';
 import { closeAllModals, openModal } from '/@/shared/components/modal/modal';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextInput } from '/@/shared/components/text-input/text-input';
 import { Text } from '/@/shared/components/text/text';
 import { toast } from '/@/shared/components/toast/toast';
-import { Tooltip } from '/@/shared/components/tooltip/tooltip';
 
 /**
  * navi-connect: "Mixed for You" — the recipes, not the results.
@@ -63,9 +62,9 @@ type CharacterLabel = (mix: Mix) => string;
 /** How the mix was built, in a phrase, for the row's second line. */
 const KIND_LINE: Record<MixKind, (mix: Mix, character: CharacterLabel) => string> = {
     adaptive: (mix, character) => `Adaptive · ${character(mix)}`,
-    artist: (mix) => `Artist radio · ${mix.seedName || 'an artist'}`,
+    artist: (mix, character) => `Artist · ${mix.seedName || 'an artist'} · ${character(mix)}`,
     fingerprint: () => 'Built from your listening',
-    genre: (mix) => `Genre · ${mix.seedName || 'unknown'}`,
+    genre: (mix) => `Genre · ${genreNameOf(mix) || 'unknown'}`,
     similar: (mix) => `Similar to ${mix.seedName || 'a track'}`,
     station: (mix, character) =>
         mix.seedId
@@ -217,25 +216,22 @@ const MixRow = ({ mix }: { mix: Mix }) => {
 };
 
 /**
- * "Your mix" (I-040): the hub's seedless station, from what its Navidrome user plays most. Not a
- * saved recipe, so it sits beside "New mix" rather than in the list; offered only with the
- * station engine, which is what builds it.
+ * "Your mix" (I-040, B-149): the hub's seedless station, from what its Navidrome user plays most,
+ * as the page's first entry whenever the station engine is there (it is what builds it). Drawn
+ * like a mix but not a stored recipe, so it has no menu: there is nothing to rename or delete. A
+ * tap plays it in the character autoplay uses.
  */
-const YourMixButton = () => {
+const YourMixRow = () => {
     const { t } = useTranslation();
     const player = usePlayer();
     const serverId = useCurrentServerId();
-    const mode = useStationMode();
     const [busy, setBusy] = useState(false);
 
-    if (mode !== 'stations') return null;
-
     return (
-        <Tooltip label={t('naviConnect.mixes.yourMix_description')} openDelay={300}>
-            <Button
+        <div className={styles.row}>
+            <button
+                className={styles.rowMain}
                 disabled={busy || !serverId}
-                leftSection={<Icon icon="radio" />}
-                loading={busy}
                 onClick={async () => {
                     setBusy(true);
                     try {
@@ -251,17 +247,29 @@ const YourMixButton = () => {
                         setBusy(false);
                     }
                 }}
-                variant="default"
+                type="button"
             >
-                {t('naviConnect.mixes.yourMix')}
-            </Button>
-        </Tooltip>
+                <GeneratedArtwork className={styles.art} glyph="user" hueKey="your-mix" />
+                <div className={styles.meta}>
+                    <Text lineClamp={1} size="md" weight={600}>
+                        {t('naviConnect.mixes.yourMix')}
+                    </Text>
+                    <Text isMuted lineClamp={1} size="sm">
+                        {YOUR_MIX_LINE}
+                    </Text>
+                    <Text isMuted lineClamp={1} size="xs">
+                        {busy ? 'Building…' : 'Rebuilt fresh each time you play it'}
+                    </Text>
+                </div>
+            </button>
+        </div>
     );
 };
 
 const MixesRoute = () => {
     const mixes = useMixes();
     const connected = useHubConnected();
+    const stations = useStationMode() === 'stations';
     const { saveMix } = useMixActions();
     const { t } = useTranslation();
 
@@ -274,30 +282,26 @@ const MixesRoute = () => {
     return (
         <ForkListPage
             actions={
-                <Group gap="sm" wrap="nowrap">
-                    <YourMixButton />
-                    <Button disabled={!connected} onClick={openCreate} variant="filled">
-                        {t('naviConnect.mixes.new')}
-                    </Button>
-                </Group>
+                <Button disabled={!connected} onClick={openCreate} variant="filled">
+                    {t('naviConnect.mixes.new')}
+                </Button>
             }
             count={connected ? mixes.length : undefined}
             title={t('naviConnect.mixes.title')}
         >
-            {/* Not an error, and not a retry: the recipes live on the
-                hub, so with no hub there is nothing to show and
-                nothing this page could do about it. */}
-            {!connected ? (
-                <Text isMuted>{t('naviConnect.mixes.noHub')}</Text>
-            ) : mixes.length === 0 ? (
-                <Text isMuted>{t('naviConnect.mixes.empty')}</Text>
-            ) : (
-                <Stack gap="sm">
-                    {mixes.map((mix) => (
-                        <MixRow key={mix.id} mix={mix} />
-                    ))}
-                </Stack>
-            )}
+            <Stack gap="sm">
+                {stations && <YourMixRow />}
+                {/* Not an error, and not a retry: the recipes live on the
+                    hub, so with no hub there is nothing to show and
+                    nothing this page could do about it. */}
+                {!connected ? (
+                    <Text isMuted>{t('naviConnect.mixes.noHub')}</Text>
+                ) : mixes.length === 0 ? (
+                    <Text isMuted>{t('naviConnect.mixes.empty')}</Text>
+                ) : (
+                    mixes.map((mix) => <MixRow key={mix.id} mix={mix} />)
+                )}
+            </Stack>
         </ForkListPage>
     );
 };

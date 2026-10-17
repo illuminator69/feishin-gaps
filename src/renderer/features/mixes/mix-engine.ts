@@ -1,7 +1,15 @@
+import type { StationSeed } from '/@/shared/types/station-types';
 import type { QueryClient } from '@tanstack/react-query';
 
 import { api } from '/@/renderer/api';
 import { queryKeys } from '/@/renderer/api/query-keys';
+import { genresQueries } from '/@/renderer/features/genres/api/genres-api';
+import {
+    genreNameOf,
+    mixCharacter,
+    mixPlan,
+    StationPlan,
+} from '/@/renderer/features/mixes/mix-recipe';
 import {
     AlchemyParams,
     AudioMuseSettings,
@@ -10,20 +18,25 @@ import {
 } from '/@/renderer/features/player/auto-dj/audio-muse-source';
 import { runAutoDjSongs } from '/@/renderer/features/player/auto-dj/auto-dj-songs';
 import {
+    artistRadioSeed,
     buildStationQueue,
     currentCharacter,
     stationsReady,
+    trackRadioSeed,
 } from '/@/renderer/features/player/station/station-client';
-import {
-    characterFromAny,
-    StationBinding,
-    toCharacterId,
-} from '/@/renderer/features/player/station/station-logic';
+import { StationBinding } from '/@/renderer/features/player/station/station-logic';
 import { songsQueries } from '/@/renderer/features/songs/api/songs-api';
 import { Mix, MixKind } from '/@/renderer/store';
 import { AUTO_DJ_STRATEGY } from '/@/renderer/store/settings.store';
 import { shuffleInPlace } from '/@/renderer/utils/shuffle';
-import { Played, QueueSong, ServerListItem, Song } from '/@/shared/types/domain-types';
+import {
+    GenreListSort,
+    Played,
+    QueueSong,
+    ServerListItem,
+    Song,
+    SortOrder,
+} from '/@/shared/types/domain-types';
 
 /**
  * Regenerating a mix from its recipe.
@@ -41,13 +54,6 @@ import { Played, QueueSong, ServerListItem, Song } from '/@/shared/types/domain-
  * other kinds, and every kind without the engine, route into machinery this
  * client already runs for Auto DJ.
  */
-
-/**
- * The station character a recipe asks for (PROTOCOL §17.1): its own `character`, else the one
- * its legacy `moodCharacter` names. An unknown value is Balanced, the hub's default, rather
- * than an error: a mix made by a newer client must still play here.
- */
-const mixCharacter = (mix: Mix) => characterFromAny(mix.character || mix.moodCharacter);
 
 /**
  * Song Alchemy knobs for an `adaptive` mix played without the station engine: the numbers the
@@ -99,51 +105,41 @@ const seedSong = (serverId: string, id: string): Promise<null | Song> =>
     api.controller.getSongDetail({ apiClientProps: { serverId }, query: { id } }).catch(() => null);
 
 /**
- * With the hub's station engine (PROTOCOL §17.1): `similar` is a track radio on Balanced,
- * `fingerprint` and `adaptive` are Your mix (adaptive keeping its character), and `station` is
- * the radio its recipe names. Null: not a station kind, or the engine did not start one, and
- * the old path runs.
+ * Start the station a recipe's plan names (`mixPlan`, PROTOCOL §17.1) and build its queue. An
+ * Artist mix starts exactly what the artist-radio entry point starts: a `tracks` seed of the
+ * artist's songs (`artistRadioSeed`), named after the artist. Null: the seed is gone, or the
+ * engine started nothing, and the recipe's local path runs.
  */
-const runThroughStation = async (
-    mix: Mix,
+const runStation = async (
+    plan: StationPlan,
     serverId: string,
     count: number,
 ): Promise<MixRun | null> => {
-    const start = async (
-        seed: 'yourMix' | Song,
-        character: ReturnType<typeof mixCharacter>,
-    ): Promise<MixRun | null> => {
-        const queue = await buildStationQueue({
-            character,
-            count,
-            leading: seed === 'yourMix' ? [] : [seed],
-            seed:
-                seed === 'yourMix'
-                    ? { kind: 'yourMix' }
-                    : { ids: [seed.id], kind: 'track', name: seed.name },
-            serverId,
-        });
-        return queue ? { songs: queue.songs, station: queue.binding } : null;
-    };
-
-    switch (mix.kind as MixKind) {
-        case 'adaptive':
-            return start('yourMix', mixCharacter(mix));
-        case 'fingerprint':
-            return start('yourMix', toCharacterId(mix.character) ?? currentCharacter());
-        case 'similar': {
-            if (!mix.seedId) return null;
-            const seed = await seedSong(serverId, mix.seedId);
-            return seed ? start(seed, 'balanced') : null;
+    let seeded: null | { leading: Song[]; seed: StationSeed } = null;
+    switch (plan.kind) {
+        case 'artist':
+            seeded = await artistRadioSeed(serverId, {
+                id: plan.artistId,
+                name: plan.artistName,
+            }).catch(() => null);
+            break;
+        case 'track': {
+            const song = await seedSong(serverId, plan.songId);
+            seeded = song ? trackRadioSeed(song) : null;
+            break;
         }
-        case 'station': {
-            if (!mix.seedId) return start('yourMix', mixCharacter(mix));
-            const seed = await seedSong(serverId, mix.seedId);
-            return seed ? start(seed, mixCharacter(mix)) : null;
-        }
-        default:
-            return null;
+        case 'yourMix':
+            seeded = { leading: [], seed: { kind: 'yourMix' } };
+            break;
     }
+    if (!seeded) return null;
+    const queue = await buildStationQueue({
+        character: plan.character,
+        count,
+        ...seeded,
+        serverId,
+    });
+    return queue ? { songs: queue.songs, station: queue.binding } : null;
 };
 
 /**
@@ -156,23 +152,27 @@ const runThroughStation = async (
 export const regenerateMix = async (mix: Mix, deps: MixEngineDeps): Promise<MixRun> => {
     const { serverId } = deps;
     const count = Math.max(1, Math.min(50, mix.count || 50));
+    const plan = mixPlan(mix, { engine: stationsReady(), preferred: currentCharacter() });
 
-    if (stationsReady()) {
-        const viaStation = await runThroughStation(mix, serverId, count);
+    if (plan.station) {
+        const viaStation = await runStation(plan.station, serverId, count);
         if (viaStation) return viaStation;
     }
 
-    return { songs: await regenerateLocally(mix, deps, Math.max(1, mix.count || 50)) };
+    // A kind this build does not know. Refused, not approximated - see `isKnownMixKind`. The
+    // caller checks first and says so; this is the second line of that defence.
+    if (!plan.local) return { songs: [] };
+    return { songs: await regenerateLocally(mix, plan.local, deps, Math.max(1, mix.count || 50)) };
 };
 
 /** The paths that run without the station engine, as they always did. */
-const regenerateLocally = async (mix: Mix, deps: MixEngineDeps, count: number): Promise<Song[]> => {
+const regenerateLocally = async (
+    mix: Mix,
+    kind: Exclude<MixKind, 'station'>,
+    deps: MixEngineDeps,
+    count: number,
+): Promise<Song[]> => {
     const { audioMuse, queryClient, server, serverId } = deps;
-
-    // Without the engine a radio recipe plays as its nearest old kind: a seeded one as
-    // `similar`, Your mix as `fingerprint` (PROTOCOL §18 "Without the engine").
-    const kind: MixKind =
-        mix.kind === 'station' ? (mix.seedId ? 'similar' : 'fingerprint') : (mix.kind as MixKind);
 
     switch (kind) {
         case 'adaptive': {
@@ -215,14 +215,32 @@ const regenerateLocally = async (mix: Mix, deps: MixEngineDeps, count: number): 
             return resolveSongsByIds(serverId, ids);
         }
         case 'genre': {
-            // `getRandomSongList` takes a genre NAME, not an id — hence
-            // `seedName` being the load-bearing field here while every other
-            // kind reads `seedId`.
+            // `getRandomSongList` takes a genre NAME, and so does Navic: a recipe holds the
+            // name (B-151). One from before that holds Navidrome's genre id; with no stored
+            // name beside it, the id is looked up in the genre list.
+            const genres = mix.seedName.trim()
+                ? null
+                : await queryClient
+                      .fetchQuery(
+                          genresQueries.list({
+                              query: {
+                                  limit: -1,
+                                  sortBy: GenreListSort.NAME,
+                                  sortOrder: SortOrder.ASC,
+                                  startIndex: 0,
+                              },
+                              serverId,
+                          }),
+                      )
+                      .catch(() => null);
+            const genre = genreNameOf(mix, genres?.items);
+            // No genre is not "any genre": a run through the whole library is not this mix.
+            if (!genre) return [];
             const random = await queryClient
                 .fetchQuery({
                     ...songsQueries.random({
                         query: {
-                            genre: mix.seedName || undefined,
+                            genre,
                             limit: count,
                             played: Played.All,
                         },
@@ -257,12 +275,5 @@ const regenerateLocally = async (mix: Mix, deps: MixEngineDeps, count: number): 
                 trySimilarSongs: true,
             });
         }
-        default:
-            // A kind this build does not know, from a newer client. Refused, not
-            // approximated — see `isKnownMixKind`. The caller checks first and
-            // says so; this is the second line of that defence, because falling
-            // through to `similar` here would undo the whole point of carrying
-            // the unknown kind through the parser.
-            return [];
     }
 };
