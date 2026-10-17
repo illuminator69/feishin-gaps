@@ -608,7 +608,10 @@ const StationAutoplayInner = () => {
             ].join('|');
             if (sig === hubSig) return;
             hubSig = sig;
-            void evaluate();
+            // After the rest of this frame's handler: use-hub writes the session's queue first and
+            // its `stationId` after, so looking now saw a new queue still bound to the old
+            // station, and a controller topped the new queue up from the old radio (walk W7).
+            queueMicrotask(() => void evaluate());
         });
 
         let stationSig = '';

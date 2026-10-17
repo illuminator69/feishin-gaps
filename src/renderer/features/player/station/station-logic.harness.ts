@@ -9,6 +9,7 @@ import {
     applySessionStationId,
     applyStationFrame,
     bindingFromCursor,
+    boundByAnotherDevice,
     characterFromAny,
     continueSeedIds,
     decideAutoplay,
@@ -846,4 +847,15 @@ test('paused: autoplay waits, but a chip tap asks now (continuation still only u
         decideAutoplay(input({ ...paused, enabled: false, ignorePaused: true }), 'close'),
         { kind: 'wait', reason: 'off' },
     );
+});
+
+test('a station another device bound to the session is waited for, not topped up at once', () => {
+    // Walk W7: Navic continued an album as a new station; Feishin, controlling, saw the session
+    // bound to it with the queue still one track long and asked `next`: two batches, one top-up.
+    assert.equal(boundByAnotherDevice(null, bound(), false), true);
+    assert.equal(boundByAnotherDevice(bound({ stationId: 'st_0' }), bound(), false), true);
+    // The same station, nothing; unbound, nothing; this client's own request out, its own start.
+    assert.equal(boundByAnotherDevice(bound(), bound(), false), false);
+    assert.equal(boundByAnotherDevice(bound(), null, false), false);
+    assert.equal(boundByAnotherDevice(null, bound(), true), false);
 });

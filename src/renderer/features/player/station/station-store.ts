@@ -9,6 +9,7 @@ import {
     applyStationFrame,
     ARM_TTL_MS,
     bindingFromCursor,
+    boundByAnotherDevice,
     LOCAL_BINDING_HOLD_MS,
     StationBinding,
     StationCursor,
@@ -143,7 +144,14 @@ export const useStationStore = createWithEqualityFn<StationActions & StationStat
                         localUntil: s.localUntil,
                         now: Date.now(),
                     });
-                    if (next.bound !== s.bound || next.localUntil !== s.localUntil) set(next);
+                    if (next.bound !== s.bound || next.localUntil !== s.localUntil) {
+                        set({
+                            ...next,
+                            ...(boundByAnotherDevice(s.bound, next.bound, s.inFlight)
+                                ? { elsewhereAt: Date.now() }
+                                : {}),
+                        });
+                    }
                 },
                 setCatalog: (catalog) =>
                     set((s) => ({

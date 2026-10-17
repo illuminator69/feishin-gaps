@@ -401,6 +401,18 @@ export const applySessionStationId = (args: {
     };
 };
 
+/**
+ * A `session` frame bound this client's queue to a station it did not ask for while it asked
+ * nothing: another device started it, and that device is appending its first batch. It is waited
+ * for like a batch served elsewhere (SERVED_ELSEWHERE_GRACE_MS); asking `next` at once added a
+ * second batch to the same top-up (walk W7, Navic continuing an album, Feishin controlling).
+ */
+export const boundByAnotherDevice = (
+    before: null | StationBinding,
+    after: null | StationBinding,
+    inFlight: boolean,
+): boolean => after !== null && after.stationId !== before?.stationId && !inFlight;
+
 // --- The autoplay decision ---------------------------------------------------------------------
 
 export type AutoplayDecision =
