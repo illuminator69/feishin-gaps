@@ -1,16 +1,8 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { queryKeys } from '/@/renderer/api/query-keys';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
-import {
-    artistRadioSeed,
-    playStationRadio,
-    stationsReady,
-} from '/@/renderer/features/player/station/station-client';
-import { markNextQueueSource } from '/@/renderer/features/player/utils/saved-queue-source';
-import { songsQueries } from '/@/renderer/features/songs/api/songs-api';
+import { playArtistRadio } from '/@/renderer/features/player/station/station-client';
 import { useArtistRadioCount, useCurrentServerId, usePlayButtonBehavior } from '/@/renderer/store';
 import { ContextMenu } from '/@/shared/components/context-menu/context-menu';
 import { AlbumArtist, Artist } from '/@/shared/types/domain-types';
@@ -26,49 +18,26 @@ export const PlayArtistRadioAction = ({ artist, disabled }: PlayArtistRadioActio
     const { t } = useTranslation();
     const player = usePlayer();
     const serverId = useCurrentServerId();
-    const queryClient = useQueryClient();
     const playButtonBehavior = usePlayButtonBehavior();
 
     const handlePlayArtistRadio = useCallback(
         async (playType: Play) => {
             if (!serverId || !artist) return;
-
-            // navi-connect (I-040): a station seeded with up to five of the artist's top songs.
-            if (playType === Play.NOW && stationsReady()) {
-                const seeded = await artistRadioSeed(serverId, artist).catch(() => null);
-                if (
-                    seeded &&
-                    (await playStationRadio({
-                        ...seeded,
-                        player,
-                        serverId,
-                        sessionName: artist.name,
-                    }))
-                ) {
-                    return;
-                }
-            }
-
+            // navi-connect (B-149): the artist's own most played songs, then a station from them
+            // (played now, with the engine) or Navidrome's similar songs.
             try {
-                const artistRadioSongs = await queryClient.fetchQuery({
-                    ...songsQueries.artistRadio({
-                        query: {
-                            artistId: artist.id,
-                            count: artistRadioCount,
-                        },
-                        serverId: serverId,
-                    }),
-                    queryKey: queryKeys.player.fetch({ artistId: artist.id }),
+                await playArtistRadio({
+                    artist,
+                    count: artistRadioCount,
+                    player,
+                    playType,
+                    serverId,
                 });
-                if (artistRadioSongs && artistRadioSongs.length > 0) {
-                    if (playType === Play.NOW) markNextQueueSource('radio', artist.name);
-                    player.addToQueueByData(artistRadioSongs, playType);
-                }
             } catch (error) {
-                console.error('Failed to load track radio:', error);
+                console.error('Failed to load artist radio:', error);
             }
         },
-        [artist, artistRadioCount, player, queryClient, serverId],
+        [artist, artistRadioCount, player, serverId],
     );
 
     const handlePlayArtistRadioNow = useCallback(() => {

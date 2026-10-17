@@ -8,6 +8,8 @@ import {
     afterResolving,
     applySessionStationId,
     applyStationFrame,
+    artistFallbackQueue,
+    artistSeedSongs,
     bindingFromCursor,
     boundByAnotherDevice,
     characterFromAny,
@@ -20,6 +22,7 @@ import {
     LOOKAHEAD_MIN,
     NEXT_COUNT,
     outcomeOf,
+    ownArtistSongs,
     parseStationCursor,
     remainingLocal,
     remainingRemote,
@@ -241,6 +244,88 @@ test('album seeds are spread over the album, first and last included', () => {
     const tracks = Array.from({ length: 12 }, (_, i) => i + 1);
     assert.deepEqual(spreadPick(tracks, 5), [1, 4, 7, 9, 12]);
     assert.deepEqual(spreadPick([1, 2, 3], 5), [1, 2, 3]);
+});
+
+// --- An artist radio's seed (B-149, Navic's `artistSeedSongs`) ---------------------------------
+
+const song = (id: string, albumId: string, playCount: number, artistId = 'oya') => ({
+    albumId,
+    artists: [{ id: artistId }],
+    id,
+    playCount,
+});
+
+const ids = (songs: readonly { id: string }[]) => songs.map((row) => row.id);
+
+test('artist seed: the most played, one per album before a second from any', () => {
+    const songs = [
+        song('a1', 'A', 40),
+        song('a2', 'A', 30),
+        song('a3', 'A', 20),
+        song('b1', 'B', 10),
+        song('c1', 'C', 5),
+        song('d1', 'D', 0),
+        song('e1', 'E', 1),
+        song('f1', 'F', 2),
+    ];
+    // Six albums, five seeds: the best song of the five albums with the most played tops.
+    assert.deepEqual(ids(artistSeedSongs(songs)), ['a1', 'b1', 'c1', 'f1', 'e1']);
+});
+
+test('artist seed: fewer albums than seeds, the rest by plays from any album', () => {
+    const songs = [
+        song('a1', 'A', 9),
+        song('a2', 'A', 8),
+        song('a3', 'A', 7),
+        song('b1', 'B', 1),
+        song('b2', 'B', 6),
+    ];
+    assert.deepEqual(ids(artistSeedSongs(songs)), ['a1', 'b2', 'a2', 'a3', 'b1']);
+});
+
+test('artist seed: equal play counts keep the order given (album order), at most five', () => {
+    const songs = ['A', 'B', 'C', 'D', 'E', 'F', 'G'].flatMap((album) => [
+        song(`${album}1`, album, 0),
+        song(`${album}2`, album, 0),
+    ]);
+    assert.deepEqual(ids(artistSeedSongs(songs)), ['A1', 'B1', 'C1', 'D1', 'E1']);
+    // One song with one play is enough to put it first.
+    songs[5] = song('C2', 'C', 1);
+    assert.deepEqual(ids(artistSeedSongs(songs)), ['C2', 'A1', 'B1', 'D1', 'E1']);
+});
+
+test('artist seed: a single album, a single song, nothing', () => {
+    const one = [song('x2', 'X', 3), song('x1', 'X', 5), song('x3', 'X', 0)];
+    assert.deepEqual(ids(artistSeedSongs(one)), ['x1', 'x2', 'x3']);
+    assert.deepEqual(ids(artistSeedSongs([song('only', 'X', 0)])), ['only']);
+    assert.deepEqual(artistSeedSongs([]), []);
+    // A song without an album is an album of its own; a missing count is no plays.
+    assert.deepEqual(
+        ids(
+            artistSeedSongs([{ albumId: '', id: 'loose' }, song('x1', 'X', 0), song('x2', 'X', 0)]),
+        ),
+        ['loose', 'x1', 'x2'],
+    );
+});
+
+test("artist seed: only the artist's own songs, not a guest spot or someone else's on its album", () => {
+    const songs = [
+        song('own', 'A', 1),
+        song('guest', 'B', 50, 'someone'),
+        { albumId: 'C', artists: [{ id: 'someone' }, { id: 'oya' }], id: 'feat', playCount: 30 },
+        { albumId: 'D', artists: [], id: 'unnamed', playCount: 0 },
+    ];
+    assert.deepEqual(ids(ownArtistSongs(songs, 'oya')), ['own', 'unnamed']);
+});
+
+test('artist radio without a station: the seeds, then the similar songs in order, cut at the cap', () => {
+    const seeds = [{ id: 's1' }, { id: 's2' }];
+    const similar = [{ id: 'm1' }, { id: 's2' }, { id: 'm2' }, { id: 'm3' }];
+    assert.deepEqual(ids(artistFallbackQueue(seeds, similar)), ['s1', 's2', 'm1', 'm2', 'm3']);
+    assert.deepEqual(ids(artistFallbackQueue(seeds, similar, 4)), ['s1', 's2', 'm1', 'm2']);
+    assert.deepEqual(ids(artistFallbackQueue([], similar, 2)), ['m1', 's2']);
+    // Nothing similar leaves the seeds.
+    assert.deepEqual(ids(artistFallbackQueue(seeds, [])), ['s1', 's2']);
 });
 
 // --- What an answer means ------------------------------------------------------------------------

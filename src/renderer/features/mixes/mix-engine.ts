@@ -18,6 +18,7 @@ import {
 } from '/@/renderer/features/player/auto-dj/audio-muse-source';
 import { runAutoDjSongs } from '/@/renderer/features/player/auto-dj/auto-dj-songs';
 import {
+    artistRadioQueue,
     artistRadioSeed,
     buildStationQueue,
     currentCharacter,
@@ -191,22 +192,11 @@ const regenerateLocally = async (
             );
             return resolveSongsByIds(serverId, ids);
         }
-        case 'artist': {
+        case 'artist':
+            // The artist radio without a station (B-149): the artist's own most played songs,
+            // then Navidrome's similar songs, cut at the mix's length. Never a shuffle.
             if (!mix.seedId) return [];
-            const radio = await queryClient
-                .fetchQuery({
-                    ...songsQueries.artistRadio({
-                        query: { artistId: mix.seedId, count },
-                        serverId,
-                    }),
-                    // A fresh key each run, so react-query cannot hand back the
-                    // previous regeneration's answer — which would turn the mix
-                    // back into a snapshot for as long as the cache lived.
-                    queryKey: queryKeys.player.fetch({ at: Date.now(), mixArtist: mix.id }),
-                })
-                .catch(() => null);
-            return radio ?? [];
-        }
+            return artistRadioQueue({ artistId: mix.seedId, cap: count, count, serverId });
         case 'fingerprint': {
             // Seeded from listening history rather than from a stored id, which
             // is why this is the one kind with no seed: its recipe is "me,

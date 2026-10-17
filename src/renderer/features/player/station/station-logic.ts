@@ -205,6 +205,76 @@ export const spreadPick = <T>(items: readonly T[], max: number = SEED_TRACKS_MAX
     return Array.from({ length: max }, (_, i) => items[Math.round(i * step)]);
 };
 
+/** The fields an artist radio's seed is chosen by. */
+export interface ArtistSeedCandidate {
+    albumId?: null | string;
+    /** The song's track artists, primary first. Empty when the server says none. */
+    artists?: readonly { id: string }[];
+    id: string;
+    playCount?: null | number;
+}
+
+/**
+ * The artist's own songs among `songs` (an artist filter that also matched them as album artist
+ * or as a guest): those whose primary track artist is `artistId`, which is what Navic's library
+ * holds a song under. A song that names no track artist is kept.
+ */
+export const ownArtistSongs = <T extends ArtistSeedCandidate>(
+    songs: readonly T[],
+    artistId: string,
+): T[] => songs.filter((song) => !song.artists?.length || song.artists[0].id === artistId);
+
+/**
+ * An artist radio's seed, Navic's `artistSeedSongs` (B-149): up to `max` of the artist's songs,
+ * the most played first, one per album before a second from any album. Equal play counts keep
+ * the order given. A song with no album counts as an album of its own.
+ */
+export const artistSeedSongs = <T extends ArtistSeedCandidate>(
+    songs: readonly T[],
+    max: number = SEED_TRACKS_MAX,
+): T[] => {
+    if (max <= 0) return [];
+    // Array.prototype.sort is stable, as Kotlin's sortedByDescending is.
+    const ranked = [...songs].sort((a, b) => (b.playCount ?? 0) - (a.playCount ?? 0));
+    const albums = new Set<string>();
+    const firstPerAlbum = ranked.filter((song) => {
+        const album = song.albumId || song.id;
+        if (albums.has(album)) return false;
+        albums.add(album);
+        return true;
+    });
+    const ids = new Set<string>();
+    const out: T[] = [];
+    for (const song of [...firstPerAlbum, ...ranked]) {
+        if (out.length >= max) break;
+        if (ids.has(song.id)) continue;
+        ids.add(song.id);
+        out.push(song);
+    }
+    return out;
+};
+
+/**
+ * What an artist radio plays without a station (Navic's `artistSimilarQueue`, B-149): the seed
+ * songs, then Navidrome's similar songs for the artist (`getSimilarSongs2`) in the order it gave
+ * them, without repeats, cut at `cap` when one is given (a mix's length). Never a shuffle.
+ */
+export const artistFallbackQueue = <T extends { id: string }>(
+    seeds: readonly T[],
+    similar: readonly T[],
+    cap?: number,
+): T[] => {
+    const ids = new Set<string>();
+    const out: T[] = [];
+    for (const song of [...seeds, ...similar]) {
+        if (cap !== undefined && out.length >= cap) break;
+        if (ids.has(song.id)) continue;
+        ids.add(song.id);
+        out.push(song);
+    }
+    return out;
+};
+
 /** What is queued, for `exclude`: the newest EXCLUDE_MAX distinct ids. */
 export const excludeIds = (ids: readonly string[]): string[] => {
     const distinct = [...new Set(ids.filter(Boolean))];

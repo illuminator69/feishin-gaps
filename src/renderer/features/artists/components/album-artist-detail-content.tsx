@@ -1,9 +1,4 @@
-import {
-    useQuery,
-    useQueryClient,
-    useSuspenseQuery,
-    UseSuspenseQueryResult,
-} from '@tanstack/react-query';
+import { useQuery, useSuspenseQuery, UseSuspenseQueryResult } from '@tanstack/react-query';
 import { motion } from 'motion/react';
 import { memo, Suspense, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,7 +6,6 @@ import { createSearchParams, generatePath, Link, useLocation, useParams } from '
 
 import styles from './album-artist-detail-content.module.css';
 
-import { queryKeys } from '/@/renderer/api/query-keys';
 import { DataRow, MemoizedItemCard } from '/@/renderer/components/item-card/item-card';
 import { useDefaultItemListControls } from '/@/renderer/components/item-list/helpers/item-list-controls';
 import { playSongFromItemListControl } from '/@/renderer/components/item-list/helpers/play-row-from-list';
@@ -40,11 +34,7 @@ import {
     withoutOwned,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { useIsPlayerFetching, usePlayer } from '/@/renderer/features/player/context/player-context';
-import {
-    artistRadioSeed,
-    playStationRadio,
-    stationsReady,
-} from '/@/renderer/features/player/station/station-client';
+import { playArtistRadio } from '/@/renderer/features/player/station/station-client';
 import {
     ListConfigMenu,
     SONG_DISPLAY_TYPES,
@@ -61,7 +51,6 @@ import {
 } from '/@/renderer/features/shared/components/play-button-group';
 import { usePlayButtonClick } from '/@/renderer/features/shared/hooks/use-play-button-click';
 import { searchLibraryItems } from '/@/renderer/features/shared/utils';
-import { songsQueries } from '/@/renderer/features/songs/api/songs-api';
 import { useContainerQuery } from '/@/renderer/hooks';
 import { useGenreRoute } from '/@/renderer/hooks/use-genre-route';
 import { useHotkeys } from '/@/renderer/hooks/use-hotkeys';
@@ -1341,7 +1330,6 @@ export const AlbumArtistDetailContent = ({
     const routeId = (artistId || albumArtistId) as string;
     const server = useCurrentServer();
     const { addToQueueByData } = usePlayer();
-    const queryClient = useQueryClient();
 
     const [enabledItem, itemOrder] = useMemo(() => {
         const enabled: { [key in ArtistItem]?: boolean } = {};
@@ -1384,53 +1372,22 @@ export const AlbumArtistDetailContent = ({
     const mbzId = useEffectiveArtistMbid(routeId, tagMbid);
 
     const handleArtistRadio = useCallback(async () => {
-        if (!server?.id || !routeId) return;
-
-        // navi-connect (I-040): a station seeded with up to five of the artist's top songs.
         const artistName = detailQuery.data?.name;
-        if (stationsReady() && artistName) {
-            const seeded = await artistRadioSeed(server.id, {
-                id: routeId,
-                name: artistName,
-            }).catch(() => null);
-            if (
-                seeded &&
-                (await playStationRadio({
-                    ...seeded,
-                    player: { addToQueueByData },
-                    serverId: server.id,
-                    sessionName: artistName,
-                }))
-            ) {
-                return;
-            }
-        }
-
+        if (!server?.id || !routeId || !artistName) return;
+        // navi-connect (B-149): the artist's own most played songs, then a station from them
+        // (with the engine) or Navidrome's similar songs.
         try {
-            const artistRadioSongs = await queryClient.fetchQuery({
-                ...songsQueries.artistRadio({
-                    query: {
-                        artistId: routeId,
-                        count: artistRadioCount,
-                    },
-                    serverId: server.id,
-                }),
-                queryKey: queryKeys.player.fetch({ artistId: routeId }),
+            await playArtistRadio({
+                artist: { id: routeId, name: artistName },
+                count: artistRadioCount,
+                player: { addToQueueByData },
+                playType: Play.NOW,
+                serverId: server.id,
             });
-            if (artistRadioSongs && artistRadioSongs.length > 0) {
-                addToQueueByData(artistRadioSongs, Play.NOW);
-            }
         } catch (error) {
             console.error('Failed to load artist radio:', error);
         }
-    }, [
-        addToQueueByData,
-        artistRadioCount,
-        detailQuery.data?.name,
-        queryClient,
-        routeId,
-        server.id,
-    ]);
+    }, [addToQueueByData, artistRadioCount, detailQuery.data?.name, routeId, server.id]);
 
     // Calculate order for genres and external links (show before other sections)
     // Use a very low order number to ensure they appear first

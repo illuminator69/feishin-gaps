@@ -16,8 +16,11 @@ import isElectron from 'is-electron';
 
 import { api } from '/@/renderer/api';
 import {
+    artistFallbackQueue,
+    artistSeedSongs,
     bindingFromAnswer,
     keepResolved,
+    ownArtistSongs,
     SEED_TRACKS_MAX,
     spreadPick,
     START_COUNT,
@@ -28,7 +31,7 @@ import { beginQueueSession } from '/@/renderer/features/player/utils/saved-queue
 import { useHubStore } from '/@/renderer/store/hub.store';
 import { useSettingsStore } from '/@/renderer/store/settings.store';
 import { logger } from '/@/renderer/utils/logger';
-import { Album, Song } from '/@/shared/types/domain-types';
+import { Album, Song, SongListSort, SortOrder } from '/@/shared/types/domain-types';
 import { Play } from '/@/shared/types/types';
 
 /**
@@ -263,23 +266,100 @@ export const albumRadioSeed = async (
     };
 };
 
-/** An artist radio's seed: up to five of the artist's top songs, which play first. */
+/**
+ * An artist radio's seed songs, the rule Navic uses (`artistSeedSongs`, B-149): up to five of
+ * the artist's own songs in the library, the most played (this user's play counts), one per
+ * album first. Not `getTopSongs` (Last.fm's list matched to the library through Navidrome): it
+ * answered nothing for Radiohead's 17 songs here. Asked in album order, so equal play counts fall
+ * in that order.
+ */
+export const artistSeedSongsFor = async (serverId: string, artistId: string): Promise<Song[]> => {
+    const list = await api.controller
+        .getSongList({
+            apiClientProps: { serverId },
+            query: {
+                artistIds: [artistId],
+                sortBy: SongListSort.ALBUM,
+                sortOrder: SortOrder.ASC,
+                startIndex: 0,
+            },
+        })
+        .catch(() => null);
+    return artistSeedSongs(ownArtistSongs(list?.items ?? [], artistId));
+};
+
+const artistStationSeed = (leading: Song[], name: string) => ({
+    leading,
+    seed: { ids: leading.map((song) => song.id), kind: 'tracks', name } satisfies StationSeed,
+});
+
+/** An artist radio's station seed: its seed songs (`artistSeedSongsFor`), which play first. */
 export const artistRadioSeed = async (
     serverId: string,
     artist: { id: string; name: string },
 ): Promise<null | { leading: Song[]; seed: StationSeed }> => {
-    const top = await api.controller
-        .getTopSongs({
-            apiClientProps: { serverId },
-            query: { artist: artist.name, artistId: artist.id, limit: SEED_TRACKS_MAX },
-        })
-        .catch(() => null);
-    const leading = (top?.items ?? []).slice(0, SEED_TRACKS_MAX);
-    if (leading.length === 0) return null;
-    return {
-        leading,
-        seed: { ids: leading.map((song) => song.id), kind: 'tracks', name: artist.name },
-    };
+    const leading = await artistSeedSongsFor(serverId, artist.id);
+    return leading.length === 0 ? null : artistStationSeed(leading, artist.name);
+};
+
+/**
+ * An artist radio without a station (Navic's `artistSimilarQueue`): the seed songs, then
+ * `count` of Navidrome's similar songs for the artist (`getSimilarSongs2`), cut at `cap` when
+ * given. Never a shuffle of the artist's own songs.
+ */
+export const artistRadioQueue = async (args: {
+    artistId: string;
+    cap?: number;
+    count: number;
+    seeds?: Song[];
+    serverId: string;
+}): Promise<Song[]> => {
+    const [seeds, similar] = await Promise.all([
+        args.seeds ?? artistSeedSongsFor(args.serverId, args.artistId),
+        api.controller
+            .getArtistRadio({
+                apiClientProps: { serverId: args.serverId },
+                query: { artistId: args.artistId, count: args.count },
+            })
+            .catch(() => [] as Song[]),
+    ]);
+    return artistFallbackQueue(seeds, similar, args.cap);
+};
+
+/**
+ * An artist's radio from the artist page or an artist's menu, one rule with an Artist mix
+ * (B-149): played now with the engine, a station from the seed songs, which play first;
+ * otherwise (or when no station starts) the seed songs and Navidrome's similar songs. False:
+ * nothing to play.
+ */
+export const playArtistRadio = async (args: {
+    artist: { id: string; name: string };
+    count: number;
+    player: Pick<PlayerContext, 'addToQueueByData'>;
+    playType: Play;
+    serverId: string;
+}): Promise<boolean> => {
+    const { artist, player, playType, serverId } = args;
+    const seeds = await artistSeedSongsFor(serverId, artist.id);
+    if (playType === Play.NOW && stationsReady() && seeds.length > 0) {
+        const started = await playStationRadio({
+            ...artistStationSeed(seeds, artist.name),
+            player,
+            serverId,
+            sessionName: artist.name,
+        });
+        if (started) return true;
+    }
+    const queue = await artistRadioQueue({
+        artistId: artist.id,
+        count: args.count,
+        seeds,
+        serverId,
+    });
+    if (queue.length === 0) return false;
+    if (playType === Play.NOW) beginQueueSession('radio', artist.name);
+    player.addToQueueByData(queue, playType);
+    return true;
 };
 
 /** "Your mix": the seedless station, from the hub's Navidrome user's own most-played. */
