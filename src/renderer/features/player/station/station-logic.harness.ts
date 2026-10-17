@@ -121,6 +121,20 @@ test('a queue that is not a station: start from the tracks just played, bound to
     assert.equal(decision.body.count, NEXT_COUNT);
 });
 
+test('a continuation is named after the track playing, not after the oldest seed (B-139)', () => {
+    const decision = decideAutoplay(
+        input({ seedIds: ['x', 'y', 'z'], seedName: 'Take a Picture' }),
+        'close',
+    );
+    assert.equal(decision.kind, 'start');
+    if (decision.kind !== 'start') return;
+    assert.deepEqual(decision.body.seed, {
+        ids: ['x', 'y', 'z'],
+        kind: 'tracks',
+        name: 'Take a Picture',
+    });
+});
+
 test('no saved-queue id: start without bindSession (the setQueue that follows binds it)', () => {
     const decision = decideAutoplay(input({ savedQueueId: null }), 'balanced');
     assert.equal(decision.kind, 'start');

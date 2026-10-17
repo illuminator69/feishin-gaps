@@ -429,6 +429,10 @@ export interface AutoplayInput {
     savedQueueId: null | string;
     /** The last tracks played, for a queue that is not a station's (continueSeedIds). */
     seedIds: readonly string[];
+    /** The playing track's title: what a continuation is named after ("<title> radio"). Without
+     *  it the hub names the station after its oldest seed track, which may not be the one playing
+     *  (B-139). */
+    seedName?: string;
 }
 
 export type AutoplayWait =
@@ -483,7 +487,11 @@ export const decideAutoplay = (
             count: NEXT_COUNT,
             exclude,
             origin: 'continue',
-            seed: { ids: input.seedIds.slice(-CONTINUE_SEED_MAX), kind: 'tracks' },
+            seed: {
+                ids: input.seedIds.slice(-CONTINUE_SEED_MAX),
+                kind: 'tracks',
+                ...(input.seedName ? { name: input.seedName } : {}),
+            },
             ...deviceId,
         },
         kind: 'start',

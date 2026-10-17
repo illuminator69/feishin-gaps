@@ -131,6 +131,7 @@ const readSnapshot = (): Snapshot => {
                 remaining,
                 savedQueueId: hub.savedQueueId,
                 seedIds: continueSeedIds(playOrder, Math.max(0, position)),
+                seedName: hub.remoteQueue[hub.remoteQueueIndex]?.title || undefined,
             },
             key: `r:${ids[hub.remoteQueueIndex] ?? ''}:${hub.remoteQueueIndex}:${remaining}:${ids.length}`,
             known: new Map(),
@@ -167,6 +168,7 @@ const readSnapshot = (): Snapshot => {
             remaining,
             savedQueueId: hub.savedQueueId,
             seedIds: current ? continueSeedIds(playOrder, playIndex) : [],
+            seedName: current?.name || undefined,
         },
         key: `l:${current?._uniqueId ?? ''}:${remaining}:${items.length}`,
         known: new Map(items.map((song) => [song.id, song as Song])),
@@ -483,7 +485,11 @@ const StationAutoplayInner = () => {
                     const seed: null | StationSeed =
                         next.restart.seed ??
                         (snap.input.seedIds.length > 0
-                            ? { ids: [...snap.input.seedIds], kind: 'tracks' }
+                            ? {
+                                  ids: [...snap.input.seedIds],
+                                  kind: 'tracks',
+                                  ...(snap.input.seedName ? { name: snap.input.seedName } : {}),
+                              }
                             : null);
                     useStationStore.getState().actions.adopt(null, { hold: true });
                     if (!seed) {
