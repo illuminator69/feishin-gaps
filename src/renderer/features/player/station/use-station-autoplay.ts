@@ -4,7 +4,11 @@ import React, { useEffect } from 'react';
 
 import { eventEmitter } from '/@/renderer/events/event-emitter';
 import { UserFavoriteEventPayload } from '/@/renderer/events/events';
-import { isRemoteSessionActive, remoteAct } from '/@/renderer/features/hub/utils/remote-queue';
+import {
+    enqueueToRemote,
+    isRemoteSessionActive,
+    remoteAct,
+} from '/@/renderer/features/hub/utils/remote-queue';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
     ChipId,
@@ -179,22 +183,45 @@ const readSnapshot = (): Snapshot => {
  * first, and one `enqueue` (through the player context), never a `setQueue`, which would make
  * the playing device reload its queue.
  */
-const editQueue = (
+/**
+ * Wait until the hub's mirror of a remote session holds `length` rows (or `ms` passed). An edit
+ * sent through the hub lands a round trip later; until then the mirror still shows the queue
+ * before it, and a top-up decided on that would ask for a batch the edit already supplied.
+ */
+const remoteSettled = (length: number, ms = 4000): Promise<void> =>
+    new Promise((resolve) => {
+        if (useHubStore.getState().remoteQueue.length === length) return resolve();
+        const timer = setTimeout(done, ms);
+        const unsub = useHubStore.subscribe((state) => {
+            if (state.remoteQueue.length === length) done();
+        });
+        function done() {
+            clearTimeout(timer);
+            unsub();
+            resolve();
+        }
+    });
+
+const editQueue = async (
     snap: Snapshot,
     remove: QueueEntry[],
     add: Song[],
-    addToQueue: (songs: Song[]) => void,
-) => {
+    addToQueue: (songs: Song[]) => Promise<void> | void,
+): Promise<void> => {
     if (snap.remote) {
         const acts = remoteEditActs(
             remove.map((row) => row.queueIndex),
             add.length,
         );
+        const removing = acts.filter((act) => act.action === 'remove').length;
         for (const act of acts) {
             if (act.action === 'remove') remoteAct('remove', { index: act.index });
-            // The player context sends this as the session's one `enqueue` at the end.
-            else addToQueue(add);
+            // The session's one `enqueue` at the end.
+            else await addToQueue(add);
         }
+        await remoteSettled(
+            snap.entries.length - removing + (acts.length > removing ? add.length : 0),
+        );
         return;
     }
     if (remove.length > 0) {
@@ -203,7 +230,7 @@ const editQueue = (
             .filter((row): row is QueueSong => Boolean(row));
         usePlayerStore.getState().clearSelected(rows);
     }
-    if (add.length > 0) addToQueue(add);
+    if (add.length > 0) await addToQueue(add);
 };
 
 type ChipRunner = (chip: ChipId, plan: ChipTapPlan) => Promise<void>;
@@ -295,19 +322,31 @@ const StationAutoplayInner = () => {
         const stationSongs = (songs: Song[], stationId: string): Song[] =>
             songs.map((song) => ({ ...song, _stationId: stationId }));
 
-        const addToQueue = (songs: Song[]) => {
+        /**
+         * Add at the end of the queue being listened to. On a remote session this is the one
+         * `enqueue` (never a setQueue), awaited until the hub's mirror shows it, so no top-up is
+         * decided on the queue as it was before.
+         */
+        const addToQueue = async (songs: Song[]) => {
             if (songs.length === 0) return;
+            if (isRemoteSessionActive()) {
+                const before = useHubStore.getState().remoteQueue.length;
+                if (await enqueueToRemote(songs, 'end')) {
+                    await remoteSettled(before + songs.length);
+                    return;
+                }
+            }
             player.addToQueueByData(songs, Play.LAST);
             eventEmitter.emit('AUTODJ_QUEUE_ADDED', { songCount: songs.length });
         };
 
-        const append = (songs: Song[], stationId: string) => {
+        const append = async (songs: Song[], stationId: string) => {
             if (songs.length === 0) return;
             useStationStore.getState().actions.noteServed(
                 stationId,
                 songs.map((song) => song.id),
             );
-            addToQueue(stationSongs(songs, stationId));
+            await addToQueue(stationSongs(songs, stationId));
         };
 
         /** Carry out what an answer means. Returns true when it asks to look again at once. */
@@ -348,7 +387,7 @@ const StationAutoplayInner = () => {
                     useStationStore.setState({
                         lastPartial: outcome.partial && songs.length < NEXT_COUNT,
                     });
-                    append(songs, outcome.binding.stationId);
+                    await append(songs, outcome.binding.stationId);
                     return 'done';
                 }
                 case 'continue': {
@@ -547,6 +586,7 @@ const StationAutoplayInner = () => {
         chipRunner = async (chip, plan) => {
             await waitIdle();
             if (disposed) return;
+            let swapped = false;
             inFlight = true;
             useStationStore.getState().actions.setInFlight(true);
             const askedAt = generation();
@@ -562,7 +602,7 @@ const StationAutoplayInner = () => {
                     // Off: take out what the station queued that has not played, then stop it
                     // for every device. Nothing more is added while it stays Off.
                     const snap = readSnapshot();
-                    editQueue(
+                    await editQueue(
                         snap,
                         removableStationRows(snap.entries, snap.position),
                         [],
@@ -576,7 +616,7 @@ const StationAutoplayInner = () => {
                     // anything of the station's left behind.
                     if (!tapped) return;
                     const snap = readSnapshot();
-                    editQueue(
+                    await editQueue(
                         snap,
                         removableStationRows(snap.entries, snap.position),
                         [],
@@ -631,17 +671,19 @@ const StationAutoplayInner = () => {
                 );
                 // Read the queue again: the playing track may have moved on while this asked.
                 const latest = readSnapshot();
-                editQueue(
+                await editQueue(
                     latest,
                     removableStationRows(latest.entries, latest.position),
                     stationSongs(songs, outcome.binding.stationId),
                     addToQueue,
                 );
+                // The swap put a batch after the next track: the top-up has nothing to add.
+                swapped = true;
             } catch (error) {
                 logger.error('Station chip failed', { chip, error: (error as Error).message });
             } finally {
                 if (!disposed) release();
-                if (plan.topUp && !disposed) void evaluate();
+                if (plan.topUp && !swapped && !disposed) void evaluate();
             }
         };
 
