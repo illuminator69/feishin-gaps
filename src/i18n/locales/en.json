@@ -1696,16 +1696,10 @@
             "title": "Saved Queues"
         },
         "station": {
-            "autoplay": "Autoplay",
-            "autoplayFallback_description": "Add songs to the queue when it is about to run out.",
-            "autoplay_description": "When a queue is about to run out, it carries on as a radio from what you just played. A radio you start keeps going either way. Skips and likes steer what comes next.",
-            "character": "Character",
-            "character_description": "How far a radio may move from what it started with. A change steers the radio that is playing from its next few tracks.",
+            "chipOff": "Off",
             "continues": "When this queue runs out, it carries on as a radio from its last tracks.",
             "exhausted": "Nothing left that fits",
-            "explore": "Explore",
             "finding": "Finding the next tracks...",
-            "offRadioContinues": "Autoplay is off. This radio keeps going.",
             "offStops": "Autoplay is off. This queue stops at its end.",
             "partial": "Fewer tracks than asked this time. More at the next track.",
             "radio": "Radio",

@@ -10,6 +10,7 @@ import { SONG_TABLE_COLUMNS } from '/@/renderer/components/item-list/item-table-
 import { ItemListHandle } from '/@/renderer/components/item-list/types';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { useRestoreQueue, useSaveQueue } from '/@/renderer/features/player/hooks/use-queue-restore';
+import { QueueStationChips } from '/@/renderer/features/player/station/queue-station-chips';
 import { openCreatePrefilledPlaylistModal } from '/@/renderer/features/playlists/components/create-playlist-form';
 import {
     ListConfigMenu,
@@ -126,167 +127,171 @@ export const PlayQueueListControls = ({
     const showTier3Menu = overflowTier >= 3;
 
     return (
-        <Group
-            align="center"
-            className={clsx(styles.toolbar, {
-                [styles.hasRestore]: supportsQueue,
-            })}
-            data-overflow-tier={overflowTier}
-            gap="sm"
-            justify="flex-start"
-            px="md"
-            py="xs"
-            ref={toolbarRef}
-            style={{ borderBottom: '1px solid var(--theme-colors-border)' }}
-            w="100%"
-            wrap="nowrap"
-        >
-            <Group gap="xs" style={{ flexShrink: 0 }} wrap="nowrap">
-                {supportsQueue && (
-                    <span className={styles.overflowTier1}>
+        // The header's rule runs under the chips, so they read as part of the header.
+        <div style={{ borderBottom: '1px solid var(--theme-colors-border)', width: '100%' }}>
+            <Group
+                align="center"
+                className={clsx(styles.toolbar, {
+                    [styles.hasRestore]: supportsQueue,
+                })}
+                data-overflow-tier={overflowTier}
+                gap="sm"
+                justify="flex-start"
+                px="md"
+                py="xs"
+                ref={toolbarRef}
+                w="100%"
+                wrap="nowrap"
+            >
+                <Group gap="xs" style={{ flexShrink: 0 }} wrap="nowrap">
+                    {supportsQueue && (
+                        <span className={styles.overflowTier1}>
+                            <ActionIcon
+                                disabled={Boolean(isFetching)}
+                                icon="upload"
+                                iconProps={{ size: 'lg' }}
+                                loading={isSavingQueue}
+                                onClick={() => handleSaveQueue()}
+                                tooltip={{
+                                    label: t('player.saveQueueToServer'),
+                                }}
+                                variant="subtle"
+                            />
+                            <ActionIcon
+                                disabled={isRestoreBusy}
+                                icon="download"
+                                iconProps={{ size: 'lg' }}
+                                loading={Boolean(isFetching)}
+                                onClick={handleRestoreQueue}
+                                tooltip={{
+                                    label: t('player.restoreQueueFromServer'),
+                                }}
+                                variant="subtle"
+                            />
+                        </span>
+                    )}
+                    <span className={styles.overflowTier3}>
                         <ActionIcon
-                            disabled={Boolean(isFetching)}
-                            icon="upload"
+                            icon="mediaShuffle"
                             iconProps={{ size: 'lg' }}
-                            loading={isSavingQueue}
-                            onClick={() => handleSaveQueue()}
-                            tooltip={{
-                                label: t('player.saveQueueToServer'),
-                            }}
+                            onClick={handleShuffleQueue}
+                            tooltip={{ label: t('player.shuffle') }}
                             variant="subtle"
                         />
                         <ActionIcon
-                            disabled={isRestoreBusy}
-                            icon="download"
+                            icon="delete"
                             iconProps={{ size: 'lg' }}
-                            loading={Boolean(isFetching)}
-                            onClick={handleRestoreQueue}
-                            tooltip={{
-                                label: t('player.restoreQueueFromServer'),
-                            }}
+                            onClick={handleClearQueue}
+                            tooltip={{ label: t('action.clearQueue') }}
                             variant="subtle"
                         />
                     </span>
-                )}
-                <span className={styles.overflowTier3}>
-                    <ActionIcon
-                        icon="mediaShuffle"
-                        iconProps={{ size: 'lg' }}
-                        onClick={handleShuffleQueue}
-                        tooltip={{ label: t('player.shuffle') }}
-                        variant="subtle"
+                    <span className={styles.overflowTier2}>
+                        <ActionIcon
+                            icon="goToItem"
+                            iconProps={{ size: 'lg' }}
+                            onClick={handleJumpToCurrent}
+                            tooltip={{ label: t('action.goToCurrent') }}
+                            variant="subtle"
+                        />
+                        <ActionIcon
+                            icon="playlistAdd"
+                            iconProps={{ size: 'lg' }}
+                            onClick={handleCreatePlaylistFromQueue}
+                            tooltip={{ label: t('action.createPlaylistFromQueue') }}
+                            variant="subtle"
+                        />
+                    </span>
+                    <span className={styles.moreTrigger}>
+                        <DropdownMenu position="bottom-start">
+                            <DropdownMenu.Target>
+                                <MoreButton />
+                            </DropdownMenu.Target>
+                            <DropdownMenu.Dropdown>
+                                {showTier1Menu && (
+                                    <>
+                                        <DropdownMenu.Item
+                                            disabled={Boolean(isFetching) || isSavingQueue}
+                                            leftSection={<Icon icon="upload" />}
+                                            onClick={() => handleSaveQueue()}
+                                        >
+                                            {t('player.saveQueueToServer')}
+                                        </DropdownMenu.Item>
+                                        <DropdownMenu.Item
+                                            disabled={isRestoreBusy}
+                                            leftSection={<Icon icon="download" />}
+                                            onClick={handleRestoreQueue}
+                                        >
+                                            {t('player.restoreQueueFromServer')}
+                                        </DropdownMenu.Item>
+                                    </>
+                                )}
+                                {showTier3Menu && (
+                                    <>
+                                        <DropdownMenu.Item
+                                            leftSection={<Icon icon="mediaShuffle" />}
+                                            onClick={handleShuffleQueue}
+                                        >
+                                            {t('player.shuffle')}
+                                        </DropdownMenu.Item>
+                                        <DropdownMenu.Item
+                                            leftSection={<Icon icon="delete" />}
+                                            onClick={handleClearQueue}
+                                        >
+                                            {t('action.clearQueue')}
+                                        </DropdownMenu.Item>
+                                    </>
+                                )}
+                                {showTier2Menu && (
+                                    <>
+                                        <DropdownMenu.Item
+                                            leftSection={<Icon icon="goToItem" />}
+                                            onClick={handleJumpToCurrent}
+                                        >
+                                            {t('action.goToCurrent')}
+                                        </DropdownMenu.Item>
+                                        <DropdownMenu.Item
+                                            leftSection={<Icon icon="playlistAdd" />}
+                                            onClick={() => handleCreatePlaylistFromQueue()}
+                                        >
+                                            {t('action.createPlaylistFromQueue')}
+                                        </DropdownMenu.Item>
+                                    </>
+                                )}
+                            </DropdownMenu.Dropdown>
+                        </DropdownMenu>
+                    </span>
+                </Group>
+                <AudioMuseGeneratorChip />
+                <Divider h="60%" orientation="vertical" style={{ alignSelf: 'center' }} />
+                <Box style={{ display: 'flex', flex: 1, minWidth: 0 }}>
+                    <SearchInput
+                        enableHotkey={false}
+                        fillContainer
+                        onChange={(e) => handleSearch(e.target.value)}
+                        value={searchTerm}
                     />
-                    <ActionIcon
-                        icon="delete"
-                        iconProps={{ size: 'lg' }}
-                        onClick={handleClearQueue}
-                        tooltip={{ label: t('action.clearQueue') }}
-                        variant="subtle"
+                </Box>
+                <Divider h="60%" orientation="vertical" style={{ alignSelf: 'center' }} />
+                <Box style={{ flexShrink: 0 }}>
+                    <ListConfigMenu
+                        displayTypes={[
+                            { hidden: true, value: ListDisplayType.GRID },
+                            ...SONG_DISPLAY_TYPES,
+                        ]}
+                        listKey={type}
+                        optionsConfig={{
+                            table: {
+                                itemsPerPage: { hidden: true },
+                                pagination: { hidden: true },
+                            },
+                        }}
+                        tableColumnsData={SONG_TABLE_COLUMNS}
                     />
-                </span>
-                <span className={styles.overflowTier2}>
-                    <ActionIcon
-                        icon="goToItem"
-                        iconProps={{ size: 'lg' }}
-                        onClick={handleJumpToCurrent}
-                        tooltip={{ label: t('action.goToCurrent') }}
-                        variant="subtle"
-                    />
-                    <ActionIcon
-                        icon="playlistAdd"
-                        iconProps={{ size: 'lg' }}
-                        onClick={handleCreatePlaylistFromQueue}
-                        tooltip={{ label: t('action.createPlaylistFromQueue') }}
-                        variant="subtle"
-                    />
-                </span>
-                <span className={styles.moreTrigger}>
-                    <DropdownMenu position="bottom-start">
-                        <DropdownMenu.Target>
-                            <MoreButton />
-                        </DropdownMenu.Target>
-                        <DropdownMenu.Dropdown>
-                            {showTier1Menu && (
-                                <>
-                                    <DropdownMenu.Item
-                                        disabled={Boolean(isFetching) || isSavingQueue}
-                                        leftSection={<Icon icon="upload" />}
-                                        onClick={() => handleSaveQueue()}
-                                    >
-                                        {t('player.saveQueueToServer')}
-                                    </DropdownMenu.Item>
-                                    <DropdownMenu.Item
-                                        disabled={isRestoreBusy}
-                                        leftSection={<Icon icon="download" />}
-                                        onClick={handleRestoreQueue}
-                                    >
-                                        {t('player.restoreQueueFromServer')}
-                                    </DropdownMenu.Item>
-                                </>
-                            )}
-                            {showTier3Menu && (
-                                <>
-                                    <DropdownMenu.Item
-                                        leftSection={<Icon icon="mediaShuffle" />}
-                                        onClick={handleShuffleQueue}
-                                    >
-                                        {t('player.shuffle')}
-                                    </DropdownMenu.Item>
-                                    <DropdownMenu.Item
-                                        leftSection={<Icon icon="delete" />}
-                                        onClick={handleClearQueue}
-                                    >
-                                        {t('action.clearQueue')}
-                                    </DropdownMenu.Item>
-                                </>
-                            )}
-                            {showTier2Menu && (
-                                <>
-                                    <DropdownMenu.Item
-                                        leftSection={<Icon icon="goToItem" />}
-                                        onClick={handleJumpToCurrent}
-                                    >
-                                        {t('action.goToCurrent')}
-                                    </DropdownMenu.Item>
-                                    <DropdownMenu.Item
-                                        leftSection={<Icon icon="playlistAdd" />}
-                                        onClick={() => handleCreatePlaylistFromQueue()}
-                                    >
-                                        {t('action.createPlaylistFromQueue')}
-                                    </DropdownMenu.Item>
-                                </>
-                            )}
-                        </DropdownMenu.Dropdown>
-                    </DropdownMenu>
-                </span>
+                </Box>
             </Group>
-            <AudioMuseGeneratorChip />
-            <Divider h="60%" orientation="vertical" style={{ alignSelf: 'center' }} />
-            <Box style={{ display: 'flex', flex: 1, minWidth: 0 }}>
-                <SearchInput
-                    enableHotkey={false}
-                    fillContainer
-                    onChange={(e) => handleSearch(e.target.value)}
-                    value={searchTerm}
-                />
-            </Box>
-            <Divider h="60%" orientation="vertical" style={{ alignSelf: 'center' }} />
-            <Box style={{ flexShrink: 0 }}>
-                <ListConfigMenu
-                    displayTypes={[
-                        { hidden: true, value: ListDisplayType.GRID },
-                        ...SONG_DISPLAY_TYPES,
-                    ]}
-                    listKey={type}
-                    optionsConfig={{
-                        table: {
-                            itemsPerPage: { hidden: true },
-                            pagination: { hidden: true },
-                        },
-                    }}
-                    tableColumnsData={SONG_TABLE_COLUMNS}
-                />
-            </Box>
-        </Group>
+            {/* navi-connect (I-041): autoplay as chips, under the queue's header. */}
+            <QueueStationChips />
+        </div>
     );
 };

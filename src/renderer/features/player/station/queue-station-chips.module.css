@@ -1,0 +1,27 @@
+.row {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: var(--theme-spacing-xs);
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    padding: 0 var(--theme-spacing-sm) var(--theme-spacing-xs);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.row::-webkit-scrollbar {
+    display: none;
+}
+
+.chip {
+    flex-shrink: 0;
+}
+
+.status {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
