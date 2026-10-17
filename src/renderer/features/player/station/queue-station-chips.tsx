@@ -2,11 +2,18 @@ import { useTranslation } from 'react-i18next';
 
 import styles from './queue-station-chips.module.css';
 
-import { ChipId, chipsFor, selectedChip } from '/@/renderer/features/player/station/station-chips';
+import {
+    ChipId,
+    chipLine,
+    chipsFor,
+    selectedChip,
+} from '/@/renderer/features/player/station/station-chips';
 import { tapStationChip } from '/@/renderer/features/player/station/use-station-autoplay';
 import { useStationWords } from '/@/renderer/features/player/station/use-station-words';
+import { describeQueueSource } from '/@/renderer/features/sonic/audio-muse-palette';
 import { Button } from '/@/shared/components/button/button';
 import { Text } from '/@/shared/components/text/text';
+import { Tooltip } from '/@/shared/components/tooltip/tooltip';
 
 /**
  * The queue's autoplay chips (I-041), one row under the queue's header as YouTube Music has
@@ -14,11 +21,13 @@ import { Text } from '/@/shared/components/text/text';
  * The selected one is filled. A queue that belongs to a station shows that station's state,
  * which every device shares; any other queue shows this device's preference.
  *
- * A tap acts on the queue now (station-chips.ts): Off takes out what the station queued that
- * has not played and stops it, a character swaps that for a batch in the new character. The
- * playing track and the next one are never touched, so the music does not stop for it.
+ * A tap acts on the queue now (station-chips.ts). With a hub that edits stations itself the tap
+ * only signals and the queue changes through the session; otherwise this client edits it.
  *
- * The status sits on the same row, so a line coming and going never moves the queue under it.
+ * Under the row, one line says what built the queue ("Moon Song radio · Balanced", "Auto DJ")
+ * and what happens next, cut with an ellipsis and whole in its tooltip (B-146: as a badge in the
+ * toolbar a long radio name made the side queue scroll sideways). The row scrolls inside
+ * itself, and the line is always there, so it coming and going never moves the queue.
  */
 export const QueueStationChips = () => {
     const { t } = useTranslation();
@@ -29,6 +38,19 @@ export const QueueStationChips = () => {
         mode: words.mode,
         preferred: words.preferred,
     });
+
+    const origin = describeQueueSource({
+        autoplay: words.autoplay,
+        bound: words.bound,
+        characterLabel: words.characterLabel,
+        labels: {
+            autoDj: t('setting.autoDJ'),
+            viaNavidrome: t('naviConnect.station.viaNavidrome'),
+        },
+        mode: words.mode,
+        stationName: words.stationName,
+    });
+    const line = chipLine(origin?.label ?? null, words.status);
 
     const labelOf = (chip: ChipId): string => {
         if (chip === 'off') return t('naviConnect.station.chipOff');
@@ -41,32 +63,51 @@ export const QueueStationChips = () => {
             : words.characters.find((row) => row.id === chip)?.description;
 
     return (
-        <div className={styles.row} role="radiogroup">
-            {chipsFor(words.mode).map((chip) => {
-                const description = descriptionOf(chip);
-                return (
-                    <Button
-                        aria-checked={selected === chip}
-                        className={styles.chip}
-                        key={chip}
-                        onClick={() => {
-                            if (selected !== chip) tapStationChip(chip);
+        <div className={styles.root}>
+            <div className={styles.row} role="radiogroup">
+                {chipsFor(words.mode).map((chip) => {
+                    const description = descriptionOf(chip);
+                    return (
+                        <Button
+                            aria-checked={selected === chip}
+                            className={styles.chip}
+                            key={chip}
+                            onClick={() => {
+                                if (selected !== chip) tapStationChip(chip);
+                            }}
+                            radius="xl"
+                            role="radio"
+                            size="compact-sm"
+                            tooltip={
+                                description ? { label: description, openDelay: 500 } : undefined
+                            }
+                            variant={selected === chip ? 'filled' : 'default'}
+                        >
+                            {labelOf(chip)}
+                        </Button>
+                    );
+                })}
+            </div>
+            <div className={styles.line}>
+                {origin && (
+                    <span
+                        aria-hidden
+                        className={styles.dot}
+                        style={{
+                            backgroundColor: origin.exhausted
+                                ? 'var(--theme-colors-foreground-muted)'
+                                : origin.color,
                         }}
-                        radius="xl"
-                        role="radio"
-                        size="compact-sm"
-                        tooltip={description ? { label: description, openDelay: 500 } : undefined}
-                        variant={selected === chip ? 'filled' : 'default'}
-                    >
-                        {labelOf(chip)}
-                    </Button>
-                );
-            })}
-            {words.status && (
-                <Text className={styles.status} isMuted isNoSelect size="xs">
-                    {words.status}
-                </Text>
-            )}
+                    />
+                )}
+                {line && (
+                    <Tooltip label={line} multiline openDelay={300} w={320}>
+                        <Text className={styles.text} isMuted isNoSelect size="xs">
+                            {line}
+                        </Text>
+                    </Tooltip>
+                )}
+            </div>
         </div>
     );
 };

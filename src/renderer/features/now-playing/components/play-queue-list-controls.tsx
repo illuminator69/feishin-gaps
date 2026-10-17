@@ -18,7 +18,6 @@ import {
 } from '/@/renderer/features/shared/components/list-config-menu';
 import { MoreButton } from '/@/renderer/features/shared/components/more-button';
 import { SearchInput } from '/@/renderer/features/shared/components/search-input';
-import { AudioMuseGeneratorChip } from '/@/renderer/features/sonic/components/audio-muse-generator-chip';
 import { useCurrentServer, usePlayerStoreBase } from '/@/renderer/store';
 import { hasFeature } from '/@/shared/api/utils';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
@@ -127,8 +126,17 @@ export const PlayQueueListControls = ({
     const showTier3Menu = overflowTier >= 3;
 
     return (
-        // The header's rule runs under the chips, so they read as part of the header.
-        <div style={{ borderBottom: '1px solid var(--theme-colors-border)', width: '100%' }}>
+        // The header's rule runs under the chips, so they read as part of the header. Nothing in
+        // the header may be wider than the panel (B-146): it never scrolls the queue sideways.
+        <div
+            style={{
+                borderBottom: '1px solid var(--theme-colors-border)',
+                maxWidth: '100%',
+                minWidth: 0,
+                overflow: 'hidden',
+                width: '100%',
+            }}
+        >
             <Group
                 align="center"
                 className={clsx(styles.toolbar, {
@@ -262,7 +270,6 @@ export const PlayQueueListControls = ({
                         </DropdownMenu>
                     </span>
                 </Group>
-                <AudioMuseGeneratorChip />
                 <Divider h="60%" orientation="vertical" style={{ alignSelf: 'center' }} />
                 <Box style={{ display: 'flex', flex: 1, minWidth: 0 }}>
                     <SearchInput

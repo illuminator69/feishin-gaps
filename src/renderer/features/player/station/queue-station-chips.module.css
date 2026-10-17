@@ -1,3 +1,17 @@
+/* The chip row and the line under it. Nothing in here may be wider than the queue panel: the
+   row scrolls inside itself and the line is cut with an ellipsis, so the panel never scrolls
+   sideways (B-146). */
+.root {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0 var(--theme-spacing-sm) var(--theme-spacing-xs);
+    overflow: hidden;
+}
+
 .row {
     display: flex;
     flex-wrap: nowrap;
@@ -5,7 +19,6 @@
     align-items: center;
     width: 100%;
     min-width: 0;
-    padding: 0 var(--theme-spacing-sm) var(--theme-spacing-xs);
     overflow-x: auto;
     scrollbar-width: none;
 }
@@ -18,8 +31,25 @@
     flex-shrink: 0;
 }
 
-.status {
-    flex-shrink: 1;
+/* One line, always there (so it coming and going never moves the queue), cut to the panel. */
+.line {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    min-height: 18px;
+}
+
+.dot {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.text {
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
