@@ -4,8 +4,17 @@ import React, { useEffect } from 'react';
 
 import { eventEmitter } from '/@/renderer/events/event-emitter';
 import { UserFavoriteEventPayload } from '/@/renderer/events/events';
-import { isRemoteSessionActive } from '/@/renderer/features/hub/utils/remote-queue';
+import { isRemoteSessionActive, remoteAct } from '/@/renderer/features/hub/utils/remote-queue';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import {
+    ChipId,
+    ChipTapPlan,
+    planChipTap,
+    QueueEntry,
+    remoteEditActs,
+    removableStationRows,
+    REPLACE_COUNT,
+} from '/@/renderer/features/player/station/station-chips';
 import {
     currentCharacter,
     nextStation,
@@ -20,7 +29,7 @@ import {
     AutoplayInput,
     continueSeedIds,
     decideAutoplay,
-    effectiveOrigin,
+    excludeIds,
     idsInPlayOrder,
     NEXT_COUNT,
     outcomeOf,
@@ -46,7 +55,7 @@ import {
     useSettingsStore,
 } from '/@/renderer/store';
 import { logger } from '/@/renderer/utils/logger';
-import { LibraryItem, Song } from '/@/shared/types/domain-types';
+import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { Play, PlayerStatus } from '/@/shared/types/types';
 
 /**
@@ -66,16 +75,31 @@ import { Play, PlayerStatus } from '/@/shared/types/types';
  */
 
 interface Snapshot {
+    /** The queue rows in play order, for the chips' edits (I-041). */
+    entries: QueueEntry[];
     input: Omit<AutoplayInput, 'bound' | 'elsewhereRecent' | 'inFlight' | 'mode'>;
     /** Identifies the trigger: what is playing and how much is left. Retries are counted per key. */
     key: string;
     /** Songs this client already holds, so the answer's ids resolve without a request each. */
     known: Map<string, Song>;
+    /** The playing row's place in `entries`. */
+    position: number;
+    remote: boolean;
+    /** Local rows by `_uniqueId`, for an in-place removal. */
+    rows: Map<string, QueueSong>;
 }
 
 const readSnapshot = (): Snapshot => {
     const hub = useHubStore.getState();
     const deviceId = hub.myDeviceId ?? undefined;
+    // What the bound station served this client: how a remote session's rows, which carry ids
+    // only, are told apart from the user's (and a local row a controller added).
+    const served = useStationStore.getState().served;
+    const servedIds = new Set(
+        served.stationId && served.stationId === useStationStore.getState().bound?.stationId
+            ? served.ids
+            : [],
+    );
     if (isRemoteSessionActive()) {
         const ids = hub.remoteQueue.map((track) => track.id);
         const order = hub.remoteOrder;
@@ -85,7 +109,15 @@ const readSnapshot = (): Snapshot => {
                 ? order.indexOf(hub.remoteQueueIndex)
                 : hub.remoteQueueIndex;
         const remaining = remainingRemote(hub.remoteQueueIndex, ids.length, order);
+        const playIndexes =
+            order && order.length === ids.length ? order : ids.map((_, index) => index);
         return {
+            entries: playIndexes.map((queueIndex) => ({
+                id: ids[queueIndex],
+                key: String(queueIndex),
+                queueIndex,
+                stationAdded: servedIds.has(ids[queueIndex]),
+            })),
             input: {
                 deviceId,
                 driving: true,
@@ -98,6 +130,9 @@ const readSnapshot = (): Snapshot => {
             },
             key: `r:${ids[hub.remoteQueueIndex] ?? ''}:${hub.remoteQueueIndex}:${remaining}:${ids.length}`,
             known: new Map(),
+            position: Math.max(0, position),
+            remote: true,
+            rows: new Map(),
         };
     }
 
@@ -109,7 +144,16 @@ const readSnapshot = (): Snapshot => {
     const playOrder = playOrderSongs.map((song) => song?.id ?? '');
     const current = playOrderSongs[playIndex];
     const remaining = remainingLocal(playIndex, playOrderSongs.length);
+    const queueIndexOf = new Map(items.map((song, index) => [song._uniqueId, index]));
     return {
+        entries: playOrderSongs
+            .filter((song): song is QueueSong => Boolean(song))
+            .map((song) => ({
+                id: song.id,
+                key: song._uniqueId,
+                queueIndex: queueIndexOf.get(song._uniqueId) ?? -1,
+                stationAdded: Boolean(song._stationId) || servedIds.has(song.id),
+            })),
         input: {
             deviceId,
             driving: true,
@@ -122,7 +166,85 @@ const readSnapshot = (): Snapshot => {
         },
         key: `l:${current?._uniqueId ?? ''}:${remaining}:${items.length}`,
         known: new Map(items.map((song) => [song.id, song as Song])),
+        position: playIndex,
+        remote: false,
+        rows: new Map(items.map((song) => [song._uniqueId, song])),
     };
+};
+
+/**
+ * A chip's queue edit (I-041), around the playing track and the one after it, which
+ * `removableStationRows` never includes: take out `remove`, then add `add` at the end. Locally an
+ * in-place removal and an append; on a remote session one `remove` act per row, highest index
+ * first, and one `enqueue` (through the player context), never a `setQueue`, which would make
+ * the playing device reload its queue.
+ */
+const editQueue = (
+    snap: Snapshot,
+    remove: QueueEntry[],
+    add: Song[],
+    addToQueue: (songs: Song[]) => void,
+) => {
+    if (snap.remote) {
+        const acts = remoteEditActs(
+            remove.map((row) => row.queueIndex),
+            add.length,
+        );
+        for (const act of acts) {
+            if (act.action === 'remove') remoteAct('remove', { index: act.index });
+            // The player context sends this as the session's one `enqueue` at the end.
+            else addToQueue(add);
+        }
+        return;
+    }
+    if (remove.length > 0) {
+        const rows = remove
+            .map((row) => snap.rows.get(row.key))
+            .filter((row): row is QueueSong => Boolean(row));
+        usePlayerStore.getState().clearSelected(rows);
+    }
+    if (add.length > 0) addToQueue(add);
+};
+
+type ChipRunner = (chip: ChipId, plan: ChipTapPlan) => Promise<void>;
+let chipRunner: ChipRunner | null = null;
+
+/**
+ * A chip was tapped (I-041). The preference and what the chip row shows change at once; the
+ * signal and the queue edit then run in the autoplay hook, one at a time with its own requests,
+ * and the top-up decision runs straight after, so the queue changes now, not at the next top-up.
+ */
+export const tapStationChip = (chip: ChipId): void => {
+    const settings = useSettingsStore.getState();
+    const station = useStationStore.getState();
+    const snap = readSnapshot();
+    const plan = planChipTap(
+        chip,
+        {
+            autoplay: settings.autoDJ.enabled,
+            bound: station.bound,
+            mode: getStationMode(),
+            preferred: settings.station?.character ?? 'balanced',
+        },
+        { playOrder: snap.entries, position: snap.position },
+    );
+    settings.actions.setSettings({
+        autoDJ: { enabled: plan.autoplay },
+        ...(plan.character ? { station: { character: plan.character } } : {}),
+    });
+    if (plan.kickAutoDj) station.actions.kickAutoDj();
+    if (station.bound && plan.optimistic) {
+        station.actions.adopt({ ...station.bound, ...plan.optimistic });
+    }
+    if (chipRunner) {
+        void chipRunner(chip, plan);
+    } else if (plan.signal) {
+        // The hook is not running (the engine's probe has not answered): steer, edit nothing.
+        void signalStation(
+            plan.signal.kind,
+            plan.signal.kind === 'character' ? { value: plan.signal.value } : {},
+        );
+    }
 };
 
 const StationAutoplayInner = () => {
@@ -154,15 +276,38 @@ const StationAutoplayInner = () => {
             }, delay);
         };
 
+        // Waiters for the request in flight to end: a chip's edit runs after it, never beside it.
+        let idleWaiters: Array<() => void> = [];
+        const waitIdle = () =>
+            inFlight
+                ? new Promise<void>((resolve) => idleWaiters.push(resolve))
+                : Promise.resolve();
+
         const release = () => {
             inFlight = false;
             useStationStore.getState().actions.setInFlight(false);
+            const waiters = idleWaiters;
+            idleWaiters = [];
+            for (const resolve of waiters) resolve();
         };
 
-        const append = (songs: Song[]) => {
+        /** The station's songs, marked as its own (the chips take out only those). */
+        const stationSongs = (songs: Song[], stationId: string): Song[] =>
+            songs.map((song) => ({ ...song, _stationId: stationId }));
+
+        const addToQueue = (songs: Song[]) => {
             if (songs.length === 0) return;
             player.addToQueueByData(songs, Play.LAST);
             eventEmitter.emit('AUTODJ_QUEUE_ADDED', { songCount: songs.length });
+        };
+
+        const append = (songs: Song[], stationId: string) => {
+            if (songs.length === 0) return;
+            useStationStore.getState().actions.noteServed(
+                stationId,
+                songs.map((song) => song.id),
+            );
+            addToQueue(stationSongs(songs, stationId));
         };
 
         /** Carry out what an answer means. Returns true when it asks to look again at once. */
@@ -203,7 +348,7 @@ const StationAutoplayInner = () => {
                     useStationStore.setState({
                         lastPartial: outcome.partial && songs.length < NEXT_COUNT,
                     });
-                    append(songs);
+                    append(songs, outcome.binding.stationId);
                     return 'done';
                 }
                 case 'continue': {
@@ -219,8 +364,8 @@ const StationAutoplayInner = () => {
                             rev: cursor?.rev ?? 0,
                             seed: cursor?.seed ?? null,
                             seq: cursor?.seq ?? 0,
-                            startedHere: false,
                             stationId: outcome.stationId,
+                            stopped: cursor?.stopped ?? false,
                         },
                         { hold: true },
                     );
@@ -284,7 +429,6 @@ const StationAutoplayInner = () => {
                 next = await apply(
                     outcomeOf(result, useStationStore.getState().bound, decision.kind, {
                         askedBind: decision.kind === 'start' && Boolean(decision.body.bindSession),
-                        startedHere: false,
                     }),
                     decision.kind,
                     snap,
@@ -316,14 +460,13 @@ const StationAutoplayInner = () => {
                             character: next.restart.character,
                             count: NEXT_COUNT,
                             exclude: decision.body.exclude,
-                            origin: effectiveOrigin(next.restart),
+                            ...(next.restart.origin ? { origin: next.restart.origin } : {}),
                             seed,
                         });
                         if (disposed || generation() !== askedAt) return;
                         next = await apply(
                             outcomeOf(restarted, null, 'start', {
                                 askedBind: Boolean(bindSession),
-                                startedHere: next.restart.startedHere,
                             }),
                             'start',
                             snap,
@@ -400,6 +543,108 @@ const StationAutoplayInner = () => {
             sessionSerial += 1;
         });
 
+        // I-041: a chip's signal and queue edit, after any request of this hook's own.
+        chipRunner = async (chip, plan) => {
+            await waitIdle();
+            if (disposed) return;
+            inFlight = true;
+            useStationStore.getState().actions.setInFlight(true);
+            const askedAt = generation();
+            try {
+                const store = useStationStore.getState();
+                const tapped = store.bound;
+                // An answer that landed while this waited may have restated the old state.
+                if (tapped && plan.optimistic) {
+                    store.actions.adopt({ ...tapped, ...plan.optimistic });
+                }
+
+                if (plan.signal?.kind === 'stop') {
+                    // Off: take out what the station queued that has not played, then stop it
+                    // for every device. Nothing more is added while it stays Off.
+                    const snap = readSnapshot();
+                    editQueue(
+                        snap,
+                        removableStationRows(snap.entries, snap.position),
+                        [],
+                        addToQueue,
+                    );
+                    await signalStation('stop');
+                    return;
+                }
+                if (chip === 'off') {
+                    // No station: only the preference changed. Already stopped: still take out
+                    // anything of the station's left behind.
+                    if (!tapped) return;
+                    const snap = readSnapshot();
+                    editQueue(
+                        snap,
+                        removableStationRows(snap.entries, snap.position),
+                        [],
+                        addToQueue,
+                    );
+                    return;
+                }
+
+                if (plan.signal?.kind === 'character' && tapped) {
+                    const value = plan.signal.value;
+                    const answer = await signalStation('character', { value });
+                    if (disposed || generation() !== askedAt) return;
+                    const now = useStationStore.getState().bound;
+                    if (answer?.applied && now?.stationId === tapped.stationId) {
+                        // The hub has the change: exhaustion and a stop are lifted with it.
+                        useStationStore.getState().actions.adopt({
+                            ...now,
+                            character: value,
+                            exhausted: false,
+                            rev: Math.max(now.rev, answer.rev),
+                            stopped: false,
+                        });
+                    }
+                }
+
+                const bound = useStationStore.getState().bound;
+                if (!plan.replaceCount || !bound || disposed) return;
+                const before = readSnapshot();
+                if (removableStationRows(before.entries, before.position).length === 0) return;
+                // Swap what the station had queued for a batch in the new character, now.
+                const result = await nextStation({
+                    after: bound.seq,
+                    count: REPLACE_COUNT,
+                    exclude: excludeIds(before.input.queueIds),
+                    stationId: bound.stationId,
+                });
+                if (disposed || generation() !== askedAt) return;
+                const outcome = outcomeOf(result, useStationStore.getState().bound, 'next');
+                if (outcome.kind !== 'append') {
+                    // Nothing to swap in (exhausted, served elsewhere, a failure): keep what is
+                    // queued rather than leave the queue shorter.
+                    if (outcome.kind === 'adopt') store.actions.adopt(outcome.binding);
+                    return;
+                }
+                const songs = await resolveStationSongs(outcome.tracks, serverId, before.known);
+                if (disposed || generation() !== askedAt) return;
+                useStationStore.getState().actions.adopt(outcome.binding);
+                if (songs.length === 0) return;
+                useStationStore.getState().actions.noteServed(
+                    outcome.binding.stationId,
+                    songs.map((song) => song.id),
+                );
+                // Read the queue again: the playing track may have moved on while this asked.
+                const latest = readSnapshot();
+                editQueue(
+                    latest,
+                    removableStationRows(latest.entries, latest.position),
+                    stationSongs(songs, outcome.binding.stationId),
+                    addToQueue,
+                );
+            } catch (error) {
+                logger.error('Station chip failed', { chip, error: (error as Error).message });
+            } finally {
+                if (!disposed) release();
+                if (plan.topUp && !disposed) void evaluate();
+            }
+        };
+
         // Autoplay switched On at a queue's end continues it at once; switched Off, only a radio
         // goes on (decideAutoplay).
         const unsubAutoplay = useSettingsStore.subscribe(
@@ -417,6 +662,7 @@ const StationAutoplayInner = () => {
             unsubStation();
             unsubSession();
             unsubAutoplay();
+            chipRunner = null;
             useStationStore.getState().actions.setInFlight(false);
         };
     }, [player, serverId]);

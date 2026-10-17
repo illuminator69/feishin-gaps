@@ -12,7 +12,6 @@ import {
     characterFromAny,
     continueSeedIds,
     decideAutoplay,
-    effectiveOrigin,
     EXCLUDE_MAX,
     idsInPlayOrder,
     keepResolved,
@@ -76,6 +75,7 @@ const answer = (over: Partial<StationAnswer> = {}): StationAnswer => ({
     seq: 25,
     servedElsewhere: false,
     stationId: 'st_1',
+    stopped: null,
     tracks: [1, 2, 3, 4, 5].map((n) => ({ album: '', artist: '', id: `t${n}`, title: '' })),
     ...over,
 });
@@ -601,53 +601,63 @@ test('every stored character name reads as one of the three', () => {
     assert.equal(characterFromAny(undefined), 'balanced');
 });
 
-// --- Autoplay Off: a radio keeps going, a continuation does not (coordinator ruling, I-040) ------
+// --- Off stops everything, radios included (I-041) ------------------------------------------------
 
-const ORIGINS: Array<{
-    binding: Partial<StationBinding>;
-    counts: 'continue' | 'radio';
-    label: string;
-}> = [
-    { binding: { origin: 'radio' }, counts: 'radio', label: 'origin radio' },
-    { binding: { origin: 'continue' }, counts: 'continue', label: 'origin continue' },
-    // An older hub echoes nothing: an entry point on this device makes it a radio...
-    {
-        binding: { origin: null, startedHere: true },
-        counts: 'radio',
-        label: 'unknown, started here',
-    },
-    // ...and anything else (another device's station, a continuation) is not.
-    {
-        binding: { origin: null, startedHere: false },
-        counts: 'continue',
-        label: 'unknown, not here',
-    },
-    // A binding persisted before this field existed.
-    { binding: {}, counts: 'continue', label: 'unknown, no fields at all' },
-];
-
-for (const { binding, counts, label } of ORIGINS) {
-    test(`${label}: counts as ${counts}`, () => {
-        const b = bound({ ...binding });
-        if (!('origin' in binding)) delete b.origin;
-        assert.equal(effectiveOrigin(b), counts);
+for (const origin of ['radio', 'continue', null] as const) {
+    test(`a ${origin ?? 'unknown-origin'} station picked Off (stopped): nothing is asked, On or Off`, () => {
+        for (const enabled of [true, false]) {
+            assert.deepEqual(
+                decideAutoplay(
+                    input({ bound: bound({ origin, stopped: true }), enabled }),
+                    'close',
+                ),
+                { kind: 'wait', reason: 'stopped' },
+            );
+        }
     });
-    test(`${label}, Autoplay On: the station is continued`, () => {
-        const decision = decideAutoplay(
-            input({ bound: bound(binding), enabled: true }),
-            'balanced',
-        );
-        assert.equal(decision.kind, 'next');
-    });
-    test(`${label}, Autoplay Off: ${counts === 'radio' ? 'still continued' : 'stops'}`, () => {
-        const decision = decideAutoplay(
-            input({ bound: bound(binding), enabled: false }),
-            'balanced',
-        );
-        if (counts === 'radio') assert.equal(decision.kind, 'next');
-        else assert.deepEqual(decision, { kind: 'wait', reason: 'off' });
+    test(`a ${origin ?? 'unknown-origin'} station not stopped: continued, whatever this device prefers`, () => {
+        // Its state is shared: the chip shows its character on every device, so it goes on.
+        for (const enabled of [true, false]) {
+            assert.equal(
+                decideAutoplay(
+                    input({ bound: bound({ origin, stopped: false }), enabled }),
+                    'close',
+                ).kind,
+                'next',
+            );
+        }
     });
 }
+
+test('next answered stopped (Off was picked elsewhere): adopt it, nothing to retry, then stop', () => {
+    const outcome = outcomeOf(ok(answer({ stopped: true, tracks: [] })), bound(), 'next');
+    assert.equal(outcome.kind, 'adopt');
+    if (outcome.kind !== 'adopt') return;
+    assert.equal(outcome.recheck, false);
+    assert.equal(outcome.binding.stopped, true);
+    assert.deepEqual(decideAutoplay(input({ bound: outcome.binding }), 'close'), {
+        kind: 'wait',
+        reason: 'stopped',
+    });
+});
+
+test('a station frame carries stopped; a frame without it leaves this client own Off standing', () => {
+    const frame = (extra: Record<string, unknown>) =>
+        parseStationCursor({
+            character: 'balanced',
+            rev: 1,
+            seq: 20,
+            stationId: 'st_1',
+            ...extra,
+        })!;
+    assert.equal(applyStationFrame(bound(), frame({ stopped: true }))!.stopped, true);
+    assert.equal(
+        applyStationFrame(bound({ stopped: true }), frame({ stopped: false }))!.stopped,
+        false,
+    );
+    // An older hub sends no `stopped`: the Off picked here is kept.
+    assert.equal(applyStationFrame(bound({ stopped: true }), frame({}))!.stopped, true);
+});
 
 test('Autoplay On, a queue no station built: continued as a station, origin continue', () => {
     const decision = decideAutoplay(input({ bound: null, enabled: true }), 'balanced');
@@ -661,21 +671,6 @@ test('Autoplay Off, a queue no station built: never a continuation', () => {
         kind: 'wait',
         reason: 'off',
     });
-});
-
-test('Autoplay Off still respects an exhausted radio and one request at a time', () => {
-    const radio = { origin: 'radio' as const };
-    assert.deepEqual(
-        decideAutoplay(
-            input({ bound: bound({ ...radio, exhausted: true }), enabled: false }),
-            'close',
-        ),
-        { kind: 'wait', reason: 'exhausted' },
-    );
-    assert.deepEqual(
-        decideAutoplay(input({ bound: bound(radio), enabled: false, inFlight: true }), 'close'),
-        { kind: 'wait', reason: 'in-flight' },
-    );
 });
 
 test('the origin the hub echoes on start and next becomes the binding origin', () => {

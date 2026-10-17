@@ -1,8 +1,6 @@
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { StationControls } from '/@/renderer/features/player/station/station-controls';
-import { useStationWords } from '/@/renderer/features/player/station/use-station-words';
 import {
     SettingOption,
     SettingsSection,
@@ -23,10 +21,6 @@ export const AutoDJSettings = memo(() => {
     const { t } = useTranslation();
     const settings = useAutoDJSettings();
     const { setSettings } = useSettingsStoreActions();
-    // navi-connect (I-040): with the hub's station engine, autoplay continues the queue as a
-    // station and has one more setting, its character. Without it, upstream's Auto DJ settings.
-    const words = useStationWords();
-    const showStations = words.mode !== 'fallback';
 
     const itemLabels = useMemo(() => {
         return {
@@ -49,35 +43,7 @@ export const AutoDJSettings = memo(() => {
         [t],
     );
 
-    const autoplayOption: SettingOption = {
-        control: (
-            <Switch
-                aria-label={t('naviConnect.station.autoplay')}
-                checked={settings.enabled}
-                onChange={(e) => words.setAutoplay(e.currentTarget.checked)}
-            />
-        ),
-        description: showStations
-            ? t('naviConnect.station.autoplay_description')
-            : t('naviConnect.station.autoplayFallback_description'),
-        title: showStations ? t('naviConnect.station.autoplay') : t('setting.autoDJ_enabled'),
-    };
-
-    const stationOptions: SettingOption[] = [
-        autoplayOption,
-        {
-            control: (
-                <div style={{ maxWidth: 420, width: '100%' }}>
-                    <StationControls words={words} />
-                </div>
-            ),
-            description: t('naviConnect.station.character_description'),
-            title: t('naviConnect.station.character'),
-        },
-    ];
-
     const autoDJOptions: SettingOption[] = [
-        autoplayOption,
         {
             control: (
                 <SegmentedControl
@@ -216,9 +182,5 @@ export const AutoDJSettings = memo(() => {
         },
     ];
 
-    return showStations ? (
-        <SettingsSection options={stationOptions} title={t('naviConnect.station.autoplay')} />
-    ) : (
-        <SettingsSection options={autoDJOptions} title={t('setting.autoDJ')} />
-    );
+    return <SettingsSection options={autoDJOptions} title={t('setting.autoDJ')} />;
 });

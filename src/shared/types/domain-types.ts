@@ -411,6 +411,11 @@ export type Song = {
     _previewStreamUrl?: string;
     _serverId: string;
     _serverType: ServerType;
+    /**
+     * navi-connect (I-041): the station that put this song in the queue, so the queue's chips
+     * can take out or replace what a station queued and leave the user's own songs alone.
+     */
+    _stationId?: string;
     album: null | string;
     albumArtistName: string;
     albumArtists: RelatedArtist[];

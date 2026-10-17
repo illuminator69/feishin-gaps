@@ -111,6 +111,7 @@ const toAnswer = (body: Json): null | StationAnswer => {
         seq: num(body.seq),
         servedElsewhere: body.servedElsewhere === true,
         stationId,
+        stopped: typeof body.stopped === 'boolean' ? body.stopped : null,
         tracks: toTracks(body.tracks),
     };
 };

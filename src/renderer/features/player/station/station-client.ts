@@ -158,7 +158,7 @@ export const buildStationQueue = async (args: {
         character: args.character ?? currentCharacter(),
         count: Math.max(1, Math.min(50, args.count ?? START_COUNT)),
         exclude: args.leading.map((song) => song.id),
-        // Every entry point starts a radio: it keeps going whether or not Autoplay is on.
+        // Every entry point starts a radio (the hub's word; since I-041 Off stops radios too).
         origin: 'radio',
         seed: args.seed,
     });
@@ -170,10 +170,15 @@ export const buildStationQueue = async (args: {
         return null;
     }
     const answer = result.data;
-    const songs = await resolveStationSongs(answer.tracks, args.serverId);
+    // The station's own rows carry its id, so a chip can take them out later and leave the
+    // seed and anything the user adds alone (I-041).
+    const songs = (await resolveStationSongs(answer.tracks, args.serverId)).map((song) => ({
+        ...song,
+        _stationId: answer.stationId,
+    }));
     if (args.leading.length + songs.length === 0) return null;
     return {
-        binding: bindingFromAnswer(answer, { startedHere: true }),
+        binding: bindingFromAnswer(answer),
         songs: [...args.leading, ...songs],
     };
 };
@@ -195,7 +200,17 @@ export const playStationQueue = (
     skipConfirmation?: boolean,
 ): void => {
     player.addToQueueByData(queue.songs, Play.NOW, undefined, undefined, skipConfirmation, () => {
-        useStationStore.getState().actions.arm(queue.binding);
+        const { actions } = useStationStore.getState();
+        actions.arm(queue.binding);
+        actions.noteServed(
+            queue.binding.stationId,
+            queue.songs.filter((song) => song._stationId).map((song) => song.id),
+        );
+        // I-041: starting a radio turns autoplay back on (the character is kept), so a radio
+        // goes on until the user picks Off.
+        if (!useSettingsStore.getState().autoDJ.enabled) {
+            useSettingsStore.getState().actions.setSettings({ autoDJ: { enabled: true } });
+        }
         beginQueueSession('radio', sessionName);
     });
 };

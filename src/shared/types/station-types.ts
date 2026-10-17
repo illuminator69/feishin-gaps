@@ -28,6 +28,11 @@ export interface StationAnswer {
     /** `next` only: another device already topped this station up; `tracks` is empty. */
     servedElsewhere: boolean;
     stationId: string;
+    /**
+     * Someone picked Off (a `stop` signal): the station serves nothing until a character is
+     * picked again, for every device. Null from a hub that does not say.
+     */
+    stopped: boolean | null;
     tracks: StationTrack[];
 }
 
@@ -103,7 +108,14 @@ export interface StationSignalBody {
     value?: StationCharacterId;
 }
 
-export type StationSignalKind = 'character' | 'dislike' | 'like' | 'played' | 'skip' | 'unlike';
+export type StationSignalKind =
+    | 'character'
+    | 'dislike'
+    | 'like'
+    | 'played'
+    | 'skip'
+    | 'stop'
+    | 'unlike';
 
 export interface StationStartBody {
     bindSession?: string;

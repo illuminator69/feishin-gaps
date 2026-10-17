@@ -45,7 +45,11 @@ interface StationActions {
         arm: (binding: StationBinding) => void;
         connectionLost: () => void;
         consumeFallbackKick: () => boolean;
+        /** Set the fallback kick on its own: Auto DJ was just switched on from a chip. */
+        kickAutoDj: () => void;
         latchFallback: () => void;
+        /** Ids the bound station served this client. */
+        noteServed: (stationId: string, ids: string[]) => void;
         sessionStationId: (incoming: unknown) => void;
         setCatalog: (catalog: null | StationCatalog) => void;
         setInFlight: (inFlight: boolean) => void;
@@ -79,9 +83,16 @@ interface StationState {
     localUntil: number;
     /** Whether this connection's probe has answered. */
     probed: boolean;
+    /**
+     * The ids this client received from the bound station (I-041), so a chip can tell the
+     * station's rows from the user's in a queue whose rows carry no mark of their own: a remote
+     * session's, where only ids travel. Reset when the binding moves to another station.
+     */
+    served: { ids: string[]; stationId: string };
 }
 
 const MAX_CURSORS = 8;
+const MAX_SERVED = 600;
 
 const keepCursor = (
     cursors: Record<string, StationCursor>,
@@ -110,7 +121,19 @@ export const useStationStore = createWithEqualityFn<StationActions & StationStat
                     set({ fallbackKick: false });
                     return true;
                 },
+                kickAutoDj: () => set({ fallbackKick: true }),
                 latchFallback: () => set({ fallbackKick: true, fallbackLatched: true }),
+                noteServed: (stationId, ids) =>
+                    set((s) => {
+                        const kept = s.served.stationId === stationId ? s.served.ids : [];
+                        const next = [...new Set([...ids, ...kept])];
+                        return {
+                            served: {
+                                ids: next.length > MAX_SERVED ? next.slice(-MAX_SERVED) : next,
+                                stationId,
+                            },
+                        };
+                    }),
                 sessionStationId: (incoming) => {
                     const s = get();
                     const next = applySessionStationId({
@@ -177,10 +200,15 @@ export const useStationStore = createWithEqualityFn<StationActions & StationStat
             lastPartial: false,
             localUntil: 0,
             probed: false,
+            served: { ids: [], stationId: '' },
         }),
         {
             name: 'store_station',
-            partialize: (state) => ({ bound: state.bound, catalog: state.catalog }),
+            partialize: (state) => ({
+                bound: state.bound,
+                catalog: state.catalog,
+                served: state.served,
+            }),
             version: 1,
         },
     ),

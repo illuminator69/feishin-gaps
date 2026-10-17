@@ -19,8 +19,6 @@ import { PlayerConfig } from '/@/renderer/features/player/components/player-conf
 import { CustomPlayerbarSlider } from '/@/renderer/features/player/components/playerbar-slider';
 import { SleepTimerButton } from '/@/renderer/features/player/components/sleep-timer-button';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
-import { StationControls } from '/@/renderer/features/player/station/station-controls';
-import { useStationWords } from '/@/renderer/features/player/station/use-station-words';
 import { useAudioDevices } from '/@/renderer/features/settings/components/playback/audio-settings';
 import {
     ListConfigBooleanControl,
@@ -102,11 +100,6 @@ const AutoDJButton = () => {
     const { t } = useTranslation();
     const settings = useAutoDJSettings();
     const { setSettings } = useSettingsStoreActions();
-    // navi-connect (I-040): with the hub's station engine, autoplay is On/Off plus the
-    // station's character, and the popover names what is playing. Without it, upstream's own
-    // Auto DJ controls, unchanged.
-    const words = useStationWords();
-    const showStations = words.mode !== 'fallback';
 
     const strategySelectData = useMemo(
         () => [
@@ -146,12 +139,10 @@ const AutoDJButton = () => {
                     />
                 ),
                 id: 'enabled',
-                label: showStations
-                    ? t('naviConnect.station.autoplay')
-                    : t('setting.autoDJ_enabled'),
+                label: t('setting.autoDJ_enabled'),
             },
         ],
-        [setSettings, settings.enabled, showStations, t],
+        [setSettings, settings.enabled, t],
     );
 
     const configOptions = useMemo(
@@ -298,7 +289,7 @@ const AutoDJButton = () => {
                     uppercase
                     variant="transparent"
                 >
-                    {showStations ? t('naviConnect.station.autoplay') : t('setting.autoDJ')}
+                    {t('setting.autoDJ')}
                 </Button>
             </Popover.Target>
             <Popover.Dropdown maw={480} miw={320} onClick={(e) => e.stopPropagation()} p="sm">
@@ -306,39 +297,30 @@ const AutoDJButton = () => {
                     <Paper p="md" radius="md">
                         <ListConfigTable options={enabledOptions} />
                     </Paper>
-                    {showStations ? (
-                        <StationControls words={words} />
-                    ) : (
-                        <>
-                            <SegmentedControl
-                                data={[
-                                    {
-                                        label: t('setting.autoDJ_mode_songs'),
-                                        value: AUTO_DJ_MODE.SONGS,
-                                    },
-                                    {
-                                        label: t('setting.autoDJ_mode_albums'),
-                                        value: AUTO_DJ_MODE.ALBUMS,
-                                    },
-                                ]}
-                                onChange={(value) =>
-                                    setSettings({
-                                        autoDJ: {
-                                            mode: value as 'albums' | 'songs',
-                                        },
-                                    })
-                                }
-                                value={settings.mode}
-                                w="100%"
-                            />
-                            <Paper p="md" radius="md">
-                                <ListConfigTable options={configOptions} />
-                            </Paper>
-                            <Paper p="md" radius="md">
-                                <ListConfigTable options={toggleOptions} />
-                            </Paper>
-                        </>
-                    )}
+                    <SegmentedControl
+                        data={[
+                            { label: t('setting.autoDJ_mode_songs'), value: AUTO_DJ_MODE.SONGS },
+                            {
+                                label: t('setting.autoDJ_mode_albums'),
+                                value: AUTO_DJ_MODE.ALBUMS,
+                            },
+                        ]}
+                        onChange={(value) =>
+                            setSettings({
+                                autoDJ: {
+                                    mode: value as 'albums' | 'songs',
+                                },
+                            })
+                        }
+                        value={settings.mode}
+                        w="100%"
+                    />
+                    <Paper p="md" radius="md">
+                        <ListConfigTable options={configOptions} />
+                    </Paper>
+                    <Paper p="md" radius="md">
+                        <ListConfigTable options={toggleOptions} />
+                    </Paper>
                 </Stack>
             </Popover.Dropdown>
         </Popover>
