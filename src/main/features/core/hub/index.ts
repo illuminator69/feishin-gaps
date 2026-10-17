@@ -379,6 +379,11 @@ function stop(): void {
     } catch {
         /* ignore */
     }
+    // The close handler stays silent for a socket of an older generation, so a socket closed
+    // here on purpose (navi-connect switched off, or its settings changed) is reported here:
+    // without it the renderer went on believing it was connected, with every hub feature,
+    // the station chips included, still showing as available (I-041).
+    if (closing) emitStatus('disconnected');
 }
 
 ipcMain.on('hub-send', (_event, obj: unknown) => send(obj));
