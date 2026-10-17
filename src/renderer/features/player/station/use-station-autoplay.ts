@@ -198,7 +198,11 @@ const StationAutoplayInner = () => {
                         return apply(resolved, asked, snap, askedAt, previous);
                     }
                     actions.adopt(outcome.binding, { hold: asked === 'start' });
-                    useStationStore.setState({ lastPartial: outcome.partial });
+                    // "Fewer tracks than asked" only when there were: a hub that cannot reach
+                    // AudioMuse answers every Tier 1 batch `partial`, full ones included.
+                    useStationStore.setState({
+                        lastPartial: outcome.partial && songs.length < NEXT_COUNT,
+                    });
                     append(songs);
                     return 'done';
                 }

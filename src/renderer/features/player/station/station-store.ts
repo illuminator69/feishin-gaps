@@ -199,6 +199,8 @@ onQueueSessionBegin(() => {
     useStationStore.setState({
         armed: null,
         bound: binding,
+        // The last queue's short batch says nothing about this one.
+        lastPartial: false,
         localUntil: now + LOCAL_BINDING_HOLD_MS,
     });
 });
