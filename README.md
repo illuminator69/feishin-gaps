@@ -7,63 +7,80 @@
 > releases, and its issue tracker.
 >
 > Licensed **GPL-3.0**, same as upstream. This repository is the corresponding source for
-> the desktop binaries published in
-> [navi-connect's releases](https://github.com/illuminator69/navi-connect/releases).
+> the binaries on its own [releases page](https://github.com/illuminator69/feishin-gaps/releases).
 
 ## What this fork adds
 
-It turns Feishin into a client for **[navi-connect](https://github.com/illuminator69/navi-connect)** —
-a shared playback session across devices — and a front end for
+It turns Feishin into a client for **[navi-connect](https://github.com/illuminator69/navi-connect)**,
+a shared playback session across devices, and a front end for
 **[lb-bot](https://github.com/illuminator69/lb-bot)**, which knows what your library is missing.
+Its Android counterpart is **[Navic](https://github.com/illuminator69/navic-gaps)** with the same
+layer, and the two are kept in step.
 
 **The albums you don't own, on the artist page next to the ones you do.**
 
 ![Feishin artist page showing owned albums alongside greyed-out ones marked NOT IN LIBRARY, with a +38 MISSING badge](docs/screenshots/feishin-artist-missing-albums.png)
 
-**Downloads are reviewed, not fired blind** — pick the edition, check it against the canonical
+**Downloads are reviewed, not fired blind:** pick the edition, check it against the canonical
 MusicBrainz tracklist, choose a quality, then look at real Soulseek sources ranked by coverage.
 
 ![Missing-album dialog showing edition tabs, media-format tabs, the tracklist, a quality selector and a Find sources button](docs/screenshots/feishin-missing-album-review.png)
 
 Also:
 
-- **Remote control + transfer with resume.** One player bar drives local *or* remote playback via
-  transport interception — there is no separate remote UI. Move a song mid-play to a phone or a
-  Chromecast and it resumes on the same beat.
+- **One session across devices.** The player bar drives local *or* remote playback; there is no
+  separate remote UI. Move a song mid-play to a phone or a Chromecast and it resumes where it was.
+  A play, pause, seek or volume change shows at once and holds until the hub confirms it.
+- **Devices.** The picker says what each device is and how loud it is, and any device's volume can
+  be set from its own row, playing or not. The sleep timer belongs to the session, so it works from
+  every device.
 - **Chromecast bridge.** `bonjour-service` + `castv2-client` in the main process; no Cast SDK. Every
   discovered speaker is registered with the hub so it shows up in every client's device picker.
-- **AudioMuse-AI.** Auto DJ, Sonic Fingerprint, adaptive Mood Flow, CLAP text→mood search, and a
-  mood-reactive visualizer palette.
-- **Saved queues / Continue Listening**, synced through the hub and shared with the Android client.
+- **Stations.** Radio and autoplay are computed by the hub from
+  [AudioMuse-AI](https://github.com/NeptuneHub/AudioMuse-AI) (or Navidrome's similar songs alone),
+  so every device continues the same station. Autoplay sits in the queue as four chips (Off,
+  Close, Balanced, Explore), and a chip changes the upcoming songs at once on whichever device is
+  playing. Without the hub's engine, upstream's Auto DJ takes over.
+- **Mixed for You.** Radio, Your mix (built from what you play most), Genre and Artist mixes,
+  offered the same way as in Navic, plus AudioMuse's text-to-music search.
+- **Discover and Listening.** A Discover page of rows (fresh releases, ListenBrainz playlists,
+  rediscovery, similar artists, moods, mixes) and a listening-history page mirrored from
+  ListenBrainz.
+- **lb-bot in the library.** Missing albums and their review, downloads, a wishlist, library
+  matches, and album and artist corrections, all through the hub.
+- **Saved queues / Continue Listening**, synced through the hub and shared with Navic.
 
 ## Setup
 
-Don't start here — the stack has several pieces and they have an order.
+Don't start here: the stack has several pieces and they have an order.
 **→ [navi-connect setup guide](https://github.com/illuminator69/navi-connect/blob/main/TESTING-SETUP.md)**
 
-Prebuilt Windows binaries are on
-[navi-connect's releases page](https://github.com/illuminator69/navi-connect/releases). To build
-instead, upstream's instructions below still apply; note that the NSIS installer is unusable
-(Windows Defender quarantines the unsigned binary), so use the portable build:
+Prebuilt binaries for Windows, macOS and Linux are on this repo's
+[releases page](https://github.com/illuminator69/feishin-gaps/releases), as pre-releases named
+`<feishin version>-navi-connect-<date>`. Nothing there is code-signed: Windows shows a SmartScreen
+warning (if Defender quarantines the installer, use the portable `.zip`), and the macOS builds are
+not notarized, so Gatekeeper blocks them until you allow the app.
+
+To build instead, upstream's instructions below still apply, for example:
 
 ```bash
 pnpm install
-pnpm run build && pnpm exec electron-builder --win --x64 --dir   # → dist/win-unpacked/
+pnpm run build && pnpm exec electron-builder --linux --x64 --dir   # → dist/linux-unpacked/
 ```
 
 ## Relationship to upstream
 
-This fork tracks upstream and merges its releases — `v1.13.0` through `v1.15.1` so far. Upstream's
-full history is preserved here precisely so that `git merge upstream/<tag>` keeps working:
+This fork tracks upstream and merges its releases; it is on **`v1.17.0`**. Upstream's full history
+is preserved here precisely so that merging the next tag keeps working:
 
 ```bash
 git remote add upstream https://github.com/jeffvli/feishin.git
 git fetch upstream --tags
-git merge v1.16.0
+git merge v1.18.0        # whichever upstream tag is next
 ```
 
-Please report bugs in **Feishin itself** to [upstream](https://github.com/jeffvli/feishin/issues) —
-they will not be fixed here. Bugs in the hub, cast, lb-bot or AudioMuse layers belong in
+Please report bugs in **Feishin itself** to [upstream](https://github.com/jeffvli/feishin/issues);
+they will not be fixed here. Bugs in the hub, stations, cast, lb-bot or AudioMuse layers belong in
 [navi-connect](https://github.com/illuminator69/navi-connect/issues).
 
 ---
