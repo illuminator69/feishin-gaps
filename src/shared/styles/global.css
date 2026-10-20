@@ -490,9 +490,11 @@ button {
     initial-value: oklch(79% 0.126 160deg);
 }
 
-/* Only while the cover colours the window: a theme switch and the remote SPA stay instant. */
+/* Only while the cover colours the window: a theme switch and the remote SPA stay instant. The
+   attribute is set a frame after the wash first applies (use-cover-wash.ts), so a cold start opens on
+   the cover's colours instead of easing in from the registered initial values. */
 @media (prefers-reduced-motion: no-preference) {
-    :root[data-cover-wash='true'] {
+    :root[data-cover-wash-ease='true'] {
         transition-timing-function: cubic-bezier(0.3, 0.7, 0.2, 1);
         transition-duration: 300ms;
         transition-property:

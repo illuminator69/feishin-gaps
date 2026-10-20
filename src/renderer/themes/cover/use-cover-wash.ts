@@ -1,7 +1,8 @@
-import { useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 
 import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { useRemoteAwarePlayerSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
+import { usePlayerStoreBase } from '/@/renderer/store/player.store';
 import { useCoverColours } from '/@/renderer/store/settings.store';
 import { applyWashVars, washVars } from '/@/renderer/themes/cover/apply-wash-vars';
 import { type CoverSeed, NEUTRAL_SEED, rolesFor } from '/@/renderer/themes/cover/cover-roles';
@@ -67,13 +68,23 @@ export const useCoverWash = (): void => {
         on && song?._serverId && song.imageId ? seedKey(song._serverId, song.imageId) : undefined;
     const cover = useCoverSeed({ key, src });
 
+    // The player store hydrates from IndexedDB after the first render: until it has, "no song" means
+    // "not known yet", not "nothing playing", so a cold start keeps the last seed instead of neutral.
+    const [playerReady, setPlayerReady] = useState(() => usePlayerStoreBase.persist.hasHydrated());
+    useEffect(() => {
+        if (playerReady) return undefined;
+        if (usePlayerStoreBase.persist.hasHydrated()) {
+            setPlayerReady(true);
+            return undefined;
+        }
+        return usePlayerStoreBase.persist.onFinishHydration(() => setPlayerReady(true));
+    }, [playerReady]);
+    const playingKnown = Boolean(song) || playerReady;
+
     const [shown, setShown] = useState<Shown>(() => {
         const last = readLastSeed();
-        const first = nextShown(
-            { artSrc: null, light: chooseLight(last.meanL, false), seed: last },
-            Boolean(song),
-            { ...cover, src },
-        );
+        const initial = { artSrc: null, light: chooseLight(last.meanL, false), seed: last };
+        const first = playingKnown ? nextShown(initial, Boolean(song), { ...cover, src }) : initial;
         // Seeded here, once, so `useAppTheme`'s first render already has the mode and leaves the accent
         // to the wash; afterwards only the layout effect below writes the store.
         if (on) {
@@ -86,7 +97,7 @@ export const useCoverWash = (): void => {
         return first;
     });
 
-    const next = nextShown(shown, Boolean(song), { ...cover, src });
+    const next = playingKnown ? nextShown(shown, Boolean(song), { ...cover, src }) : shown;
     if (next !== shown) setShown(next);
 
     useLayoutEffect(() => {
@@ -110,6 +121,21 @@ export const useCoverWash = (): void => {
             light: shown.light,
         });
     }, [on, shown]);
+
+    // The colours ease only from the second frame on: the first frame shows the seed directly, not a
+    // fade from the registered properties' initial (neutral) values.
+    useEffect(() => {
+        if (!on) return undefined;
+        let frame = requestAnimationFrame(() => {
+            frame = requestAnimationFrame(() =>
+                document.documentElement.setAttribute('data-cover-wash-ease', 'true'),
+            );
+        });
+        return () => {
+            cancelAnimationFrame(frame);
+            document.documentElement.removeAttribute('data-cover-wash-ease');
+        };
+    }, [on]);
 
     useLayoutEffect(() => {
         if (!on) return undefined;

@@ -40,6 +40,21 @@ const MAP_KEYS = [
     '--wash-acc',
     '--wash-accc',
     '--wash-accct',
+    // Task 7's sweep: Mantine's derived primary colours (the `c="primary"` text, links, light and
+    // outline variants), which still wore the theme's accent.
+    '--mantine-color-anchor',
+    '--mantine-color-primary-filled',
+    '--mantine-color-primary-filled-hover',
+    '--mantine-color-primary-light',
+    '--mantine-color-primary-light-color',
+    '--mantine-color-primary-light-hover',
+    '--mantine-color-primary-outline',
+    '--mantine-color-primary-outline-hover',
+    '--mantine-color-primary-text',
+    '--mantine-primary-color-filled-hover',
+    '--mantine-primary-color-light',
+    '--mantine-primary-color-light-color',
+    '--mantine-primary-color-light-hover',
 ];
 
 /** Error, warning and success are constants per mode, not the seed's: they keep their chroma. */

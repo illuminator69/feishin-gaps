@@ -11,13 +11,29 @@ import { oklchCss, oklchToRgb, rgbCss } from './oklch.ts';
 const css = (role: Role) => oklchCss(role, role.a);
 
 export const washVars = (roles: Roles): Record<string, string> => ({
+    // Mantine's derived primary colours: text and links in the accent, fills in the filled accent,
+    // the light variant on the accent container with its own text colour.
+    '--mantine-color-anchor': 'var(--theme-colors-primary)',
     // Mantine's names point at the registered `--theme-colors-*` ones, so they ease with them.
     '--mantine-color-body': 'var(--theme-colors-background)',
     '--mantine-color-default-border': 'var(--theme-colors-border)',
     '--mantine-color-dimmed': 'var(--theme-colors-foreground-muted)',
+    '--mantine-color-primary-filled': 'var(--theme-colors-primary-filled)',
+    '--mantine-color-primary-filled-hover': 'var(--theme-colors-primary-filled)',
+    '--mantine-color-primary-light': 'var(--wash-accc)',
+    '--mantine-color-primary-light-color': 'var(--wash-accct)',
+    '--mantine-color-primary-light-hover': 'var(--wash-accc)',
+    '--mantine-color-primary-outline': 'var(--theme-colors-primary)',
+    '--mantine-color-primary-outline-hover':
+        'color-mix(in oklch, var(--theme-colors-primary-filled) 5%, transparent)',
+    '--mantine-color-primary-text': 'var(--theme-colors-primary)',
     '--mantine-color-text': 'var(--theme-colors-foreground)',
     '--mantine-primary-color-contrast': 'var(--theme-colors-primary-contrast)',
     '--mantine-primary-color-filled': 'var(--theme-colors-primary-filled)',
+    '--mantine-primary-color-filled-hover': 'var(--theme-colors-primary-filled)',
+    '--mantine-primary-color-light': 'var(--wash-accc)',
+    '--mantine-primary-color-light-color': 'var(--wash-accct)',
+    '--mantine-primary-color-light-hover': 'var(--wash-accc)',
     '--theme-colors-background': css(roles.mid),
     '--theme-colors-background-alternate': css(roles.surf),
     '--theme-colors-border': css(roles.line),

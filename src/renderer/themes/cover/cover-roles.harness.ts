@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import type { CoverSeed, Role, Roles } from './cover-roles.ts';
 
 import { NEUTRAL_SEED, rolesFor, surfaceOver } from './cover-roles.ts';
-import { contrast, oklchToRgb } from './oklch.ts';
+import { composite, contrast, oklchToRgb } from './oklch.ts';
 
 /**
  * F2 Task 1:  node --test src/renderer/themes/cover/cover-roles.harness.ts
@@ -157,5 +158,55 @@ test('hueIsTheSeedsHue', () => {
         const roles = rolesFor({ hue: 123, k: 1, meanL: 0.5 }, light);
         for (const name of SEEDED) assert.equal(roles[name].h, 123, `${name} (light ${light})`);
         assert.equal(roles.light, light);
+    }
+});
+
+/**
+ * F2 Task 7: the light page over the darkest possible artwork (solid black), with the wash values read
+ * from the CSS itself, so this pins the file. The artwork is lifted with white, drawn at its opacity
+ * over the tone gradient, then veiled with the band's role (`ov1` at the top, `ov2` from 46%); over
+ * black the blur changes nothing. Measured on rendered pixels with the board's values (white lift
+ * 55%), the accent on the raised surface was 4.34 at hue 120 and the error and success colours were
+ * 4.45 to 4.48 on the top band; this case failed then.
+ */
+test('lightWashOverBlackArtKeepsTextPassing', () => {
+    const css = readFileSync(
+        new URL('../../layouts/default-layout/window-wash.module.css', import.meta.url),
+        'utf8',
+    );
+    const light = /\.wash\.light\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+    const num = (re: RegExp, text: string) => Number(re.exec(text)?.[1]);
+    const ov1 = num(/--wash-ov1:\s*([\d.]+)%/, light) / 100;
+    const ov2 = num(/--wash-ov2:\s*([\d.]+)%/, light) / 100;
+    const artOpacity = num(/--wash-art-opacity:\s*([\d.]+)/, light);
+    const lift = num(/rgb\(255 255 255 \/ ([\d.]+)%\)/, css) / 100;
+    for (const value of [ov1, ov2, artOpacity, lift])
+        assert.ok(value > 0 && value <= 1, String(value));
+
+    for (const hue of HUES) {
+        const roles = rolesFor(seed(hue), true);
+        for (const [band, veil] of [
+            ['top', ov1],
+            ['mid', ov2],
+        ] as const) {
+            const tone = rgb(roles[band]);
+            const art = composite(composite([1, 1, 1], [0, 0, 0], lift), tone, artOpacity);
+            const page = composite(tone, art, veil);
+            const raised = composite(rgb(roles.surf2), page, roles.surf2.a ?? 1);
+            for (const name of ['on', 'on2', 'acc', ...STATES] as const) {
+                const ratio = contrast(rgb(roles[name]), page);
+                assert.ok(
+                    ratio >= 4.5,
+                    `${name} on ${band} over black, hue ${hue}: ${ratio.toFixed(2)}`,
+                );
+            }
+            for (const name of ['on2', 'acc'] as const) {
+                const ratio = contrast(rgb(roles[name]), raised);
+                assert.ok(
+                    ratio >= 4.5,
+                    `${name} on raised ${band} over black, hue ${hue}: ${ratio.toFixed(2)}`,
+                );
+            }
+        }
     }
 });

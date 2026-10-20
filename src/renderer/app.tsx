@@ -11,7 +11,6 @@ import isElectron from 'is-electron';
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import i18n from '/@/i18n/i18n';
-import { api } from '/@/renderer/api';
 import { WebAudioContext } from '/@/renderer/features/player/context/webaudio-context';
 import { useCheckForUpdates } from '/@/renderer/hooks/use-check-for-updates';
 import { useFullscreenAutoOpen } from '/@/renderer/hooks/use-fullscreen-auto-open';
@@ -22,12 +21,9 @@ import { useFillAnnouncements } from '/@/renderer/features/lbbot/hooks/use-fill-
 import { useFillLedgerWatcher } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { AppRouter } from '/@/renderer/router/app-router';
 import {
-    useAuthStore,
     useCssSettings,
     useHotkeySettings,
     useLanguage,
-    usePlayerStore,
-    useSettingsStore,
     useSettingsStoreActions,
 } from '/@/renderer/store';
 import { initCustomThemes } from '/@/renderer/store/custom-themes.store';
@@ -52,11 +48,7 @@ const ipc = isElectron() ? window.api.ipc : null;
 const utils = isElectron() ? window.api.utils : null;
 
 if (import.meta.env.DEV) {
-    // Dev-only handle so a headless check (CDP) can add a server, set the playing song and read
-    // cover seeds without a real library.
-    Object.assign(window, {
-        __f2: { api, coverSeeds, useAuthStore, usePlayerStore, useSettingsStore },
-    });
+    void import('/@/renderer/dev-handle');
 }
 
 export const App = () => {

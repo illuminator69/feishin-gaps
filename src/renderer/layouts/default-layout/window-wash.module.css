@@ -74,13 +74,15 @@
     opacity: 1;
 }
 
-/* Light pages lift the artwork with white, inside the blur, as the board does. */
+/* Light pages lift the artwork with white, inside the blur, as the board does. 60%, not the board's 55%:
+   over dark artwork the light page's accent and state colours measured under 4.5:1 at 55%
+   (cover-roles.harness.ts, lightWashOverBlackArtKeepsTextPassing). */
 .art::after {
     position: absolute;
     inset: 0;
     z-index: 2;
     content: '';
-    background: rgb(255 255 255 / 55%);
+    background: rgb(255 255 255 / 60%);
     opacity: 0;
 }
 
