@@ -11,6 +11,7 @@ import isElectron from 'is-electron';
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import i18n from '/@/i18n/i18n';
+import { api } from '/@/renderer/api';
 import { WebAudioContext } from '/@/renderer/features/player/context/webaudio-context';
 import { useCheckForUpdates } from '/@/renderer/hooks/use-check-for-updates';
 import { useFullscreenAutoOpen } from '/@/renderer/hooks/use-fullscreen-auto-open';
@@ -21,13 +22,18 @@ import { useFillAnnouncements } from '/@/renderer/features/lbbot/hooks/use-fill-
 import { useFillLedgerWatcher } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { AppRouter } from '/@/renderer/router/app-router';
 import {
+    useAuthStore,
     useCssSettings,
     useHotkeySettings,
     useLanguage,
+    usePlayerStore,
+    useSettingsStore,
     useSettingsStoreActions,
 } from '/@/renderer/store';
 import { initCustomThemes } from '/@/renderer/store/custom-themes.store';
+import * as coverSeeds from '/@/renderer/themes/cover/cover-seed-store';
 import { useAppTheme } from '/@/renderer/themes/use-app-theme';
+import { logger } from '/@/renderer/utils/logger';
 import { sanitizeCss } from '/@/renderer/utils/sanitize';
 import { WebAudio } from '/@/shared/types/types';
 import '/@/shared/styles/global.css';
@@ -44,21 +50,37 @@ const UpdateAvailableDialog = lazy(() =>
 const ipc = isElectron() ? window.api.ipc : null;
 const utils = isElectron() ? window.api.utils : null;
 
+if (import.meta.env.DEV) {
+    // Dev-only handle so a headless check (CDP) can add a server, set the playing song and read
+    // cover seeds without a real library.
+    Object.assign(window, {
+        __f2: { api, coverSeeds, useAuthStore, usePlayerStore, useSettingsStore },
+    });
+}
+
 export const App = () => {
     // Custom themes must be loaded (and registered into the shared theme
     // registry) before the first render of ThemedApp, otherwise a user whose
     // selected theme is a custom one would flash the default theme first.
-    const [customThemesReady, setCustomThemesReady] = useState(!isElectron());
+    // Cover seeds likewise, so a cached cover is coloured in the first frame.
+    const [ready, setReady] = useState(false);
 
     useEffect(() => {
-        if (!isElectron()) return;
-
-        initCustomThemes()
-            .catch((error) => console.error('Failed to load custom themes', error))
-            .finally(() => setCustomThemesReady(true));
+        Promise.all([
+            isElectron()
+                ? initCustomThemes().catch((error) =>
+                      console.error('Failed to load custom themes', error),
+                  )
+                : undefined,
+            coverSeeds
+                .hydrateCoverSeeds()
+                .catch((error) =>
+                    logger.warn('cover seed: could not hydrate seeds', { error: String(error) }),
+                ),
+        ]).finally(() => setReady(true));
     }, []);
 
-    if (!customThemesReady) {
+    if (!ready) {
         return null;
     }
 
