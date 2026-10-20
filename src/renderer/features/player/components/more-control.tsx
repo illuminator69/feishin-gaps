@@ -1,12 +1,20 @@
 import clsx from 'clsx';
 import isElectron from 'is-electron';
-import { MouseEvent, ReactNode, useEffect, useState } from 'react';
+import { MouseEvent, ReactNode, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 
 import styles from './more-control.module.css';
 
+import { AutoDjPanel } from '/@/renderer/features/player/components/auto-dj-panel';
+import { DlnaCastPanel } from '/@/renderer/features/player/components/dlna-cast-panel';
+import { PlaybackOptionsPanel } from '/@/renderer/features/player/components/playback-options-panel';
+import {
+    SleepTimerPanel,
+    useSleepTimerValue,
+} from '/@/renderer/features/player/components/sleep-timer-panel';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import { useDlnaCast } from '/@/renderer/features/player/hooks/use-dlna-cast';
 import { MoreItemId, moreMenuItems } from '/@/renderer/features/player/utils/more-menu-items';
 import { toggleLyrics } from '/@/renderer/features/player/utils/toggle-lyrics';
 import {
@@ -18,7 +26,6 @@ import { useSettingsStoreActions } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { AppIconSelection, Icon } from '/@/shared/components/icon/icon';
 import { Popover } from '/@/shared/components/popover/popover';
-import { Text } from '/@/shared/components/text/text';
 
 type PanelId = Extract<MoreItemId, 'autoDj' | 'dlna' | 'playbackOptions' | 'sleepTimer'>;
 type View = 'list' | PanelId;
@@ -59,9 +66,23 @@ export const MoreControl = () => {
     const [opened, setOpened] = useState(false);
     const [view, setView] = useState<View>('list');
 
-    const close = () => {
+    const close = useCallback(() => {
         setOpened(false);
         setView('list');
+    }, []);
+
+    // Mounted whether or not More is open: DLNA discovery and group events keep arriving.
+    const dlna = useDlnaCast(opened && view === 'dlna', close);
+    const sleepTimerValue = useSleepTimerValue();
+
+    const values: Partial<Record<MoreItemId, null | string>> = {
+        dlna: dlna.isConnected ? dlna.connectedDeviceName : null,
+        sleepTimer: sleepTimerValue,
+    };
+
+    const openPanel = (panel: PanelId) => {
+        if (panel === 'dlna') dlna.onOpen();
+        setView(panel);
     };
 
     useEffect(() => {
@@ -108,11 +129,18 @@ export const MoreControl = () => {
 
     const items = moreMenuItems({ isElectron: isElectron(), isRadioActive });
 
-    const renderPanel = (panel: PanelId): ReactNode => (
-        <Text isMuted p="sm" size="sm">
-            {labels[panel]}
-        </Text>
-    );
+    const renderPanel = (panel: PanelId): ReactNode => {
+        switch (panel) {
+            case 'autoDj':
+                return <AutoDjPanel />;
+            case 'dlna':
+                return <DlnaCastPanel {...dlna} />;
+            case 'playbackOptions':
+                return <PlaybackOptionsPanel />;
+            case 'sleepTimer':
+                return <SleepTimerPanel onClose={close} />;
+        }
+    };
 
     return (
         <Popover
@@ -147,7 +175,7 @@ export const MoreControl = () => {
                                     className={styles.row}
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        if (item.kind === 'panel') setView(item.id as PanelId);
+                                        if (item.kind === 'panel') openPanel(item.id as PanelId);
                                         else act(item.id);
                                     }}
                                     role="menuitem"
@@ -155,6 +183,9 @@ export const MoreControl = () => {
                                 >
                                     <Icon icon={ICONS[item.id]} />
                                     <span className={styles.label}>{labels[item.id]}</span>
+                                    {values[item.id] && (
+                                        <span className={styles.value}>{values[item.id]}</span>
+                                    )}
                                     {item.kind === 'panel' && (
                                         <Icon className={styles.chevron} icon="arrowRightS" />
                                     )}
