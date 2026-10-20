@@ -29,23 +29,27 @@ export const CenterControls = () => {
 
     const isRadioActive = useIsRadioActive();
 
+    // Play sits in the middle column of its own grid, so it stays centred on the bar whatever
+    // stands either side of it (Stop moved to More; Shuffle all stays, on the right).
     if (isRadioActive) {
         return (
-            <>
-                <div className={styles.controlsContainer}>
-                    <div className={styles.buttonsContainer}>
+            <div className={styles.controlsContainer}>
+                <div className={styles.buttonsContainer}>
+                    <div className={styles.side}>
                         <RadioStopButton />
                         <ShuffleButton disabled={isRadioActive} />
                         <PreviousButton disabled={isRadioActive} />
                         {skip?.enabled && <SkipBackwardButton disabled={isRadioActive} />}
-                        <RadioCenterPlayButton />
+                    </div>
+                    <RadioCenterPlayButton />
+                    <div className={styles.side}>
                         {skip?.enabled && <SkipForwardButton disabled={isRadioActive} />}
                         <NextButton disabled={isRadioActive} />
                         <RepeatButton disabled={isRadioActive} />
                         <ShuffleAllButton disabled={isRadioActive} />
                     </div>
                 </div>
-            </>
+            </div>
         );
     }
 
@@ -53,15 +57,18 @@ export const CenterControls = () => {
         <>
             <div className={styles.controlsContainer}>
                 <div className={styles.buttonsContainer}>
-                    <StopButton />
-                    <ShuffleButton />
-                    <PreviousButton />
-                    {skip?.enabled && <SkipBackwardButton />}
+                    <div className={styles.side}>
+                        <ShuffleButton />
+                        <PreviousButton />
+                        {skip?.enabled && <SkipBackwardButton />}
+                    </div>
                     <CenterPlayButton />
-                    {skip?.enabled && <SkipForwardButton />}
-                    <NextButton />
-                    <RepeatButton />
-                    <ShuffleAllButton />
+                    <div className={styles.side}>
+                        {skip?.enabled && <SkipForwardButton />}
+                        <NextButton />
+                        <RepeatButton />
+                        <ShuffleAllButton />
+                    </div>
                 </div>
             </div>
             <PlayerbarSlider />
@@ -95,25 +102,6 @@ const RadioStopButton = ({ disabled }: { disabled?: boolean }) => {
             disabled={disabled}
             icon={<Icon fill="default" icon="mediaStop" size={buttonSize - 2} />}
             onClick={stop}
-            tooltip={{
-                label: t('player.stop'),
-                openDelay: 0,
-            }}
-            variant="tertiary"
-        />
-    );
-};
-
-const StopButton = ({ disabled }: { disabled?: boolean }) => {
-    const { t } = useTranslation();
-    const buttonSize = useButtonSize();
-    const { mediaStop } = usePlayer();
-
-    return (
-        <PlayerButton
-            disabled={disabled}
-            icon={<Icon fill="default" icon="mediaStop" size={buttonSize - 2} />}
-            onClick={() => mediaStop()}
             tooltip={{
                 label: t('player.stop'),
                 openDelay: 0,

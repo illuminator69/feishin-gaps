@@ -6,18 +6,22 @@
 
 .controls-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+
+    /* The centre column is a fixed width, so the transport stays centred on the bar whatever the
+       sides hold (the pill comes and goes on its own). */
+    grid-template-columns: minmax(0, 1fr) 420px minmax(0, 1fr);
     gap: 1rem;
     height: 100%;
 
-    @media (width < 768px) {
-        grid-template-columns: minmax(0, 0.5fr) minmax(0, 1fr) minmax(0, 0.5fr);
+    @media (width <= 1100px) {
+        grid-template-columns: minmax(0, 1fr) 300px minmax(0, 1fr);
     }
 }
 
 .right-grid-item {
     align-self: center;
     width: 100%;
+    min-width: 0;
     height: 100%;
     overflow: visible;
 }

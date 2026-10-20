@@ -1,0 +1,14 @@
+.group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-items: flex-end;
+    justify-content: center;
+}
+
+.volume {
+    display: flex;
+    flex-shrink: 0;
+    gap: var(--theme-spacing-xs);
+    align-items: center;
+}

@@ -161,7 +161,7 @@ export const MoreControl = () => {
                         else setOpened(true);
                     }}
                     size="sm"
-                    tooltip={{ label: t('player.moreControls'), openDelay: 0 }}
+                    tooltip={{ disabled: opened, label: t('player.moreControls'), openDelay: 0 }}
                     variant="subtle"
                 />
             </Popover.Target>

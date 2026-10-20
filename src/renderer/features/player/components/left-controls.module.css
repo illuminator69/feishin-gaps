@@ -66,7 +66,6 @@
 .line-item {
     display: inline-block;
     width: 100%;
-    max-width: 20vw;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -78,6 +77,43 @@
     a {
         color: var(--theme-colors-foreground-muted);
     }
+}
+
+.line-item.artist,
+.line-item.artist a {
+    color: var(--theme-colors-primary);
+}
+
+/* The song's kebab is a hover action beside the heart; keyboard focus shows it too. */
+.kebab {
+    opacity: 0;
+}
+
+.title-line:hover .kebab,
+.kebab:focus-visible {
+    opacity: 1;
+}
+
+.status {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: var(--theme-font-size-xs);
+    color: var(--theme-colors-primary);
+}
+
+.status-dot {
+    flex-shrink: 0;
+    width: 7px;
+    height: 7px;
+    background: var(--theme-colors-primary);
+    border-radius: 50%;
+}
+
+.status-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .joined-artists {

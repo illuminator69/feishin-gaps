@@ -18,6 +18,7 @@ import {
     useRemoteAwareStatus,
 } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { RadioMetadataDisplay } from '/@/renderer/features/player/components/radio-metadata-display';
+import { FavoriteButton } from '/@/renderer/features/player/components/right-controls';
 import {
     useIsRadioActive,
     useRadioPlayer,
@@ -31,7 +32,9 @@ import {
     useHotkeySettings,
     useHubActiveDeviceName,
     useHubIsRemoteActive,
+    useHubStore,
     useSetFullScreenPlayerStore,
+    useShowFavorites,
     useSidebarImageEnabled,
 } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
@@ -70,6 +73,16 @@ export const LeftControls = () => {
     // navi-connect: the play state the play button shows. A paused device still holds the
     // session, and the line under the cover must not call that "playing".
     const remoteIsPlaying = useRemoteAwareStatus() === PlayerStatus.PLAYING;
+    const remoteIsCast = useHubStore(
+        (s) => s.devices.find((d) => d.id === s.activeDeviceId)?.platform === 'chromecast',
+    );
+    const showFavorites = useShowFavorites();
+    // Below the album, in the accent: where the music is, when it is not here.
+    const remoteStatus = remoteIsCast
+        ? t('player.castingTo', { device: remoteDeviceName })
+        : remoteIsPlaying
+          ? t('player.playingOnDevice', { device: remoteDeviceName })
+          : t('player.pausedOnDevice', { device: remoteDeviceName });
     const isRadioActive = useIsRadioActive();
     const { currentStationArt } = useRadioPlayer();
     const { bindings } = useHotkeySettings();
@@ -239,26 +252,11 @@ export const LeftControls = () => {
                         />
                     ) : (
                         <>
-                            {isRemote && (
-                                <div className={styles.lineItem} onClick={stopPropagation}>
-                                    <Group align="center" gap="xs" wrap="nowrap">
-                                        <Icon color="success" icon="radio" size="sm" />
-                                        <Text isMuted overflow="hidden" size="xs">
-                                            {remoteIsPlaying
-                                                ? t('player.playingOnDevice', {
-                                                      defaultValue: 'Playing on {{device}}',
-                                                      device: remoteDeviceName,
-                                                  })
-                                                : t('player.pausedOnDevice', {
-                                                      defaultValue: 'Paused on {{device}}',
-                                                      device: remoteDeviceName,
-                                                  })}
-                                        </Text>
-                                    </Group>
-                                </div>
-                            )}
-                            <div className={styles.lineItem} onClick={stopPropagation}>
-                                <Group align="center" gap="xs" wrap="nowrap">
+                            <div
+                                className={clsx(styles.lineItem, styles.titleLine)}
+                                onClick={stopPropagation}
+                            >
+                                <Group align="center" gap={4} wrap="nowrap">
                                     <Text
                                         className={PlaybackSelectors.songTitle}
                                         component={Link}
@@ -266,6 +264,7 @@ export const LeftControls = () => {
                                         isLink
                                         onContextMenu={handleToggleContextMenu}
                                         overflow="hidden"
+                                        title={title}
                                         to={AppRoute.NOW_PLAYING}
                                     >
                                         {title || '—'}
@@ -277,8 +276,10 @@ export const LeftControls = () => {
                                             </Text>
                                         )}
                                     </Text>
+                                    {isSongDefined && showFavorites && <FavoriteButton />}
                                     {isSongDefined && (
                                         <ActionIcon
+                                            className={styles.kebab}
                                             icon="ellipsisVertical"
                                             onClick={(e) => {
                                                 e.preventDefault();
@@ -307,7 +308,7 @@ export const LeftControls = () => {
                             <div
                                 className={clsx(
                                     styles.lineItem,
-                                    styles.secondary,
+                                    styles.artist,
                                     PlaybackSelectors.songArtist,
                                 )}
                                 onClick={stopPropagation}
@@ -347,6 +348,7 @@ export const LeftControls = () => {
                                     isLink={Boolean(currentSong?.albumId)}
                                     overflow="hidden"
                                     size="md"
+                                    title={currentSong?.album || undefined}
                                     to={
                                         currentSong?.albumId
                                             ? generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, {
@@ -358,6 +360,16 @@ export const LeftControls = () => {
                                     {currentSong?.album || '—'}
                                 </Text>
                             </div>
+                            {isRemote && (
+                                <div
+                                    className={clsx(styles.lineItem, styles.status)}
+                                    onClick={stopPropagation}
+                                    title={remoteStatus}
+                                >
+                                    <span aria-hidden className={styles.statusDot} />
+                                    <span className={styles.statusText}>{remoteStatus}</span>
+                                </div>
+                            )}
                         </>
                     )}
                 </motion.div>
