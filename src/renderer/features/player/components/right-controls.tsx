@@ -4,9 +4,9 @@ import { useTranslation } from 'react-i18next';
 
 import styles from './right-controls.module.css';
 
-import { HubDevicePicker } from '/@/renderer/features/hub/components/hub-device-picker';
 import { useRemoteAwarePlayerSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { PopoverPlayQueue } from '/@/renderer/features/now-playing/components/popover-play-queue';
+import { DeviceControl } from '/@/renderer/features/player/components/device-control';
 import { MoreControl } from '/@/renderer/features/player/components/more-control';
 import { VolumeGroup } from '/@/renderer/features/player/components/volume-group';
 import { useCreateFavorite } from '/@/renderer/features/shared/mutations/create-favorite-mutation';
@@ -29,7 +29,7 @@ import { LibraryItem, QueueSong } from '/@/shared/types/domain-types';
  */
 export const RightControls = () => (
     <div className={styles.cluster}>
-        <HubDevicePicker />
+        <DeviceControl />
         <span aria-hidden className={styles.vr} />
         <QueueButton />
         <span aria-hidden className={styles.vr} />
@@ -128,12 +128,14 @@ export const FavoriteButton = () => {
     return (
         <ActionIcon
             icon="favorite"
-            iconProps={{ fill: currentSong?.userFavorite ? 'primary' : undefined, size: 'lg' }}
+            iconProps={{ fill: currentSong?.userFavorite ? 'primary' : undefined, size: 'md' }}
             onClick={(e) => {
                 e.stopPropagation();
                 handleToggleFavorite(currentSong);
             }}
-            size="sm"
+            // Beside the title (left-controls.tsx), inside one text line's height.
+            size="xs"
+            styles={{ root: { '--ai-size-xs': '1.25rem' } }}
             tooltip={{
                 label: currentSong?.userFavorite ? t('player.unfavorite') : t('player.favorite'),
                 openDelay: 0,

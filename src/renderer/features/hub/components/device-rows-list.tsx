@@ -1,7 +1,6 @@
-import isElectron from 'is-electron';
 import { useEffect, useState } from 'react';
 
-import styles from './hub-device-picker.module.css';
+import styles from './device-rows-list.module.css';
 
 import {
     deviceIcon,
@@ -30,13 +29,10 @@ import {
     useSettingsStoreActions,
 } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
-import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
 import { Icon } from '/@/shared/components/icon/icon';
 import { Text } from '/@/shared/components/text/text';
 import { toast } from '/@/shared/components/toast/toast';
 import { useThrottledCallback } from '/@/shared/hooks/use-throttled-callback';
-
-const hub = isElectron() ? window.api.hub : null;
 
 const platformLabel = (platform: string): string => {
     switch (platform) {
@@ -91,8 +87,7 @@ const DeviceVolume = ({ device }: { device: HubDevice }) => {
     const level = dragged ?? hold?.value ?? observed;
 
     return (
-        // Arrow keys on the thumb belong to the slider; the menu around it would move its
-        // own focus on them as well.
+        // Arrow keys on the thumb belong to the slider, not to the list's own keys.
         <div className={styles.volume} onKeyDown={(e) => e.stopPropagation()}>
             <Icon
                 color="muted"
@@ -122,23 +117,20 @@ const DeviceVolume = ({ device }: { device: HubDevice }) => {
 };
 
 /**
- * Spotify-style "Connect to a device" picker. Lists hub devices and transfers
- * playback to the chosen one (the hub resumes it from the same spot). Each row
- * shows an icon for what the device is, its name, platform and status, so two
- * clients are distinguishable; the icon, the order of the rows, the status and
- * whether a row carries a volume slider are decided in device-rows.ts.
+ * The hub's devices, for the bar's device box (device-control.tsx). A row transfers playback to
+ * its device (the hub resumes it from the same spot). Each row shows an icon for what the device
+ * is, its name, platform and status, so two clients are distinguishable; the icon, the order of
+ * the rows, the status and whether a row carries a volume slider are decided in device-rows.ts.
  * Offline devices auto-hide and manually-hidden ones are tucked behind a toggle.
- * Hidden unless navi-connect is enabled.
  *
- * Rows have THREE states, not two. `online` means a socket claiming that id is
- * attached — for a Chromecast that is the bridging client's socket, which says
- * nothing about the speaker. A speaker that is off, asleep, or on a network nobody
- * here is on stays `online` and used to be offered as a perfectly good target; the
- * transfer then committed and every device showed a playing bar over silence. So an
- * unreachable device is shown (it is real, and it will come back) but greyed and not
- * selectable — see PROTOCOL §3.2.
+ * Rows have THREE states, not two. `online` means a socket claiming that id is attached - for a
+ * Chromecast that is the bridging client's socket, which says nothing about the speaker. A
+ * speaker that is off, asleep, or on a network nobody here is on stays `online` and used to be
+ * offered as a perfectly good target; the transfer then committed and every device showed a
+ * playing bar over silence. So an unreachable device is shown (it is real, and it will come
+ * back) but greyed and not selectable - see PROTOCOL §3.2.
  */
-export const HubDevicePicker = () => {
+export const DeviceRowsList = () => {
     const settings = useHubSettings();
     const devices = useHubDevices();
     const activeId = useHubActiveDeviceId();
@@ -147,12 +139,10 @@ export const HubDevicePicker = () => {
     const features = useHubStore((s) => s.features);
     const { setSettings } = useSettingsStoreActions();
     const [showExtra, setShowExtra] = useState(false);
-    // navi-connect: non-null while the queue holds a preview the speaker could
-    // not fetch. Cast rows are then shown, disabled, with the reason — the same
-    // grammar an unreachable device already uses.
+    // navi-connect: non-null while the queue holds a preview the speaker could not fetch. Cast
+    // rows are then shown, disabled, with the reason - the same grammar an unreachable device
+    // already uses.
     const previewBlocked = usePreviewCastBlocked();
-
-    if (!hub || !settings.enabled) return null;
 
     const hidden = new Set(settings.hiddenDeviceIds ?? []);
 
@@ -174,9 +164,9 @@ export const HubDevicePicker = () => {
 
     const session = { activeDeviceId: activeId, isPlaying: remoteIsPlaying, myDeviceId: myId };
 
-    // Visible by default = online AND not manually hidden. Offline (auto-hidden)
-    // and manually-hidden devices live behind the "Show offline & hidden" toggle.
-    // Each list in the picker's order: the playing device, this one, the rest by name.
+    // Visible by default = online AND not manually hidden. Offline (auto-hidden) and
+    // manually-hidden devices live behind the "Show offline & hidden" toggle. Each list in the
+    // picker's order: the playing device, this one, the rest by name.
     const visible = sortDeviceRows(
         devices.filter((d) => d.online && !hidden.has(d.id)),
         session,
@@ -185,7 +175,6 @@ export const HubDevicePicker = () => {
         devices.filter((d) => !d.online || hidden.has(d.id)),
         session,
     );
-    const hasActive = devices.some((d) => d.id === activeId);
 
     const renderRow = (device: HubDevice) => {
         const castBlocked = Boolean(previewBlocked) && isCastTarget(device);
@@ -193,34 +182,40 @@ export const HubDevicePicker = () => {
         const statusText = status === 'blocked' ? 'no preview support' : deviceStatusLabel(status);
         const isHidden = hidden.has(device.id);
         return (
-            // The hide/unhide control is a SIBLING of the menu item, not its child: a
-            // disabled item disables everything inside it, which left offline and
-            // already-hidden devices permanently un-unhideable. The volume slider is a
-            // sibling for the other reason: inside the item, a drag would end as the
-            // click that transfers playback.
+            // The hide/unhide control is a SIBLING of the row's button, not its child: a disabled
+            // button disables everything inside it, which left offline and already-hidden devices
+            // permanently un-unhideable. The volume slider is a sibling for the other reason:
+            // inside the button, a drag would end as the click that transfers playback.
             <div className={styles.row} key={device.id}>
-                <div style={{ alignItems: 'center', display: 'flex', gap: 4, width: '100%' }}>
-                    <DropdownMenu.Item
-                        closeMenuOnClick={false}
+                <div className={styles.rowMain}>
+                    <button
+                        className={styles.rowButton}
+                        data-active={device.id === activeId || undefined}
+                        data-device-row
                         disabled={
                             !isHubDeviceTransferable(device) ||
                             device.id === activeId ||
                             castBlocked
                         }
-                        leftSection={<Icon icon={deviceIcon(device.kind)} />}
-                        onClick={() => transfer(device.id)}
-                        rightSection={
-                            <Text isMuted size="xs">
-                                {platformLabel(device.platform)} · {statusText}
-                            </Text>
-                        }
-                        style={{ flex: 1, minWidth: 0 }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            transfer(device.id);
+                        }}
+                        type="button"
                     >
-                        {device.name}
-                    </DropdownMenu.Item>
+                        <Icon icon={deviceIcon(device.kind)} />
+                        <span className={styles.name} title={device.name}>
+                            {device.name}
+                        </span>
+                        <Text className={styles.meta} isMuted size="xs">
+                            {platformLabel(device.platform)} · {statusText}
+                        </Text>
+                    </button>
                     <ActionIcon
+                        aria-label={`${isHidden ? 'Unhide' : 'Hide'} ${device.name}`}
                         icon={isHidden ? 'visibility' : 'visibilityOff'}
-                        iconProps={{ size: 'sm' }}
+                        // A filled glyph: without a fill it draws nothing.
+                        iconProps={{ fill: 'muted', size: 'sm' }}
                         onClick={(e) => {
                             e.stopPropagation();
                             setDeviceHidden(device.id, !isHidden);
@@ -236,51 +231,46 @@ export const HubDevicePicker = () => {
     };
 
     return (
-        <DropdownMenu position="top-end">
-            <DropdownMenu.Target>
-                <ActionIcon
-                    icon="radio"
-                    iconProps={{ size: 'xl' }}
-                    size="sm"
-                    tooltip={{
-                        label: hasActive ? 'Connected' : 'Connect to a device',
-                        openDelay: 0,
+        <div className={styles.list}>
+            {visible.length === 0 && (
+                <Text className={styles.note} isMuted size="sm">
+                    No devices found
+                </Text>
+            )}
+            {visible.map(renderRow)}
+            {/* A disabled row explains nothing on its own and a tooltip on one never fires, so
+                the reason goes in the list itself - once, not per row. */}
+            {previewBlocked && visible.some(isCastTarget) && (
+                <button
+                    className={styles.rowButton}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        toast.show({ message: previewBlocked });
                     }}
-                    variant="subtle"
-                />
-            </DropdownMenu.Target>
-            <DropdownMenu.Dropdown>
-                <DropdownMenu.Label>Connect to a device</DropdownMenu.Label>
-                {visible.length === 0 && (
-                    <DropdownMenu.Item disabled>No devices found</DropdownMenu.Item>
-                )}
-                {visible.map(renderRow)}
-                {/* A disabled row explains nothing on its own and a tooltip on
-                    one never fires, so the reason goes in the menu itself —
-                    once, not per row. */}
-                {previewBlocked && visible.some(isCastTarget) && (
-                    <DropdownMenu.Item
-                        closeMenuOnClick={false}
-                        onClick={() => toast.show({ message: previewBlocked })}
+                    type="button"
+                >
+                    <Text isMuted size="xs">
+                        {previewBlocked}
+                    </Text>
+                </button>
+            )}
+            {extra.length > 0 && (
+                <>
+                    <div className={styles.divider} />
+                    <button
+                        aria-expanded={showExtra}
+                        className={styles.rowButton}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setShowExtra((v) => !v);
+                        }}
+                        type="button"
                     >
-                        <Text isMuted size="xs">
-                            {previewBlocked}
-                        </Text>
-                    </DropdownMenu.Item>
-                )}
-                {extra.length > 0 && (
-                    <>
-                        <DropdownMenu.Divider />
-                        <DropdownMenu.Item
-                            closeMenuOnClick={false}
-                            onClick={() => setShowExtra((v) => !v)}
-                        >
-                            {showExtra ? 'Hide' : 'Show'} offline & hidden ({extra.length})
-                        </DropdownMenu.Item>
-                        {showExtra && extra.map(renderRow)}
-                    </>
-                )}
-            </DropdownMenu.Dropdown>
-        </DropdownMenu>
+                        {showExtra ? 'Hide' : 'Show'} offline & hidden ({extra.length})
+                    </button>
+                    {showExtra && extra.map(renderRow)}
+                </>
+            )}
+        </div>
     );
 };

@@ -79,11 +79,6 @@
     }
 }
 
-.line-item.artist,
-.line-item.artist a {
-    color: var(--theme-colors-primary);
-}
-
 /* The song's kebab is a hover action beside the heart; keyboard focus shows it too. */
 .kebab {
     opacity: 0;
