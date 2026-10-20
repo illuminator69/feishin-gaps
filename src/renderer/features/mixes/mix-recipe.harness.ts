@@ -31,12 +31,15 @@ const {
     formKindsFor,
     formKindTakesCharacter,
     genreNameOf,
+    isCustomRadio,
     matchGenres,
+    mixArtistIds,
     mixLine,
     mixPlan,
     PICKER_LIMIT,
     pickerOptions,
     pickerTerm,
+    radioTitle,
     storedCharacter,
     suggestedMixName,
     yourMixLine,
@@ -53,8 +56,10 @@ const mix = (over: Partial<Mix>): Mix => ({
     moodCharacter: '',
     name: 'A mix',
     seedId: '',
+    seedIds: [],
     seedName: '',
     updatedAt: 0,
+    variety: '',
     ...over,
 });
 
@@ -70,7 +75,7 @@ test('with the engine: Radio, Your mix, Genre, Artist, in that order, with the s
             ['radio', 'Radio', 'Around a song, steered by your skips and likes'],
             ['yourMix', 'Your mix', 'Built from what you play most'],
             ['genre', 'Genre', 'A random run through one genre'],
-            ['artist', 'Artist', 'More like one artist'],
+            ['artist', 'Artist', 'More like the artists you pick'],
         ],
     );
 });
@@ -107,14 +112,18 @@ test('the suggested name follows the kind and its seed', () => {
     assert.equal(suggestedMixName('radio', {}), '');
     assert.equal(suggestedMixName('yourMix', { song: 'Cinnamon Girl' }), 'Your mix');
     assert.equal(suggestedMixName('genre', { genre: 'Shoegaze' }), 'Shoegaze');
-    assert.equal(suggestedMixName('artist', { artist: 'Slowdive' }), 'Slowdive');
-    assert.equal(suggestedMixName('artist', { artist: null }), '');
+    assert.equal(suggestedMixName('artist', { artists: ['Slowdive'] }), 'Slowdive');
+    assert.equal(suggestedMixName('artist', { artists: [] }), '');
+    assert.equal(
+        suggestedMixName('artist', { artists: ['Moth Season', 'Ida Verrall', 'Hollow Orchard'] }),
+        'Moth Season, Ida Verrall, Hollow Orchard',
+    );
 });
 
 // --- The recipe each kind saves -------------------------------------------------------------------
 
 const input = {
-    artist: { id: 'ar1', name: 'Slowdive' },
+    artists: [{ id: 'ar1', name: 'Slowdive' }],
     character: 'close' as const,
     count: 50,
     genre: 'Shoegaze',
@@ -177,7 +186,7 @@ test('nothing is saved without a name or without the kind seed', () => {
     assert.equal(buildRecipe({ ...input, kind: 'yourMix', name: '   ' }), null);
     assert.equal(buildRecipe({ ...input, kind: 'radio', song: null }), null);
     assert.equal(buildRecipe({ ...input, genre: ' ', kind: 'genre' }), null);
-    assert.equal(buildRecipe({ ...input, artist: null, kind: 'artist' }), null);
+    assert.equal(buildRecipe({ ...input, artists: [], kind: 'artist' }), null);
 });
 
 // --- What a stored recipe plays as ------------------------------------------------------------------
@@ -209,7 +218,12 @@ test('an Artist recipe: an artist radio in its character; without the engine, ar
     });
     assert.deepEqual(mixPlan(artist, engine), {
         local: 'artist',
-        station: { artistId: 'ar1', artistName: 'Slowdive', character: 'explore', kind: 'artist' },
+        station: {
+            artistIds: ['ar1'],
+            artistName: 'Slowdive',
+            character: 'explore',
+            kind: 'artist',
+        },
     });
     assert.deepEqual(mixPlan(artist, noEngine), { local: 'artist', station: null });
     // An artist recipe from before stations has no character: Balanced, the hub's default.
@@ -424,4 +438,99 @@ test('rows read as Navic words them: legacy kinds that play as Your mix are Your
         ),
         'Similar songs from Video Games',
     );
+});
+
+// --- A custom radio (P5) --------------------------------------------------------------------------
+
+test('Artist with several artists: a custom radio, every id in seedIds, the first in seedId', () => {
+    const artists = [
+        { id: 'ar1', name: 'Moth Season' },
+        { id: 'ar2', name: 'Ida Verrall' },
+        { id: 'ar1', name: 'Moth Season' },
+        { id: 'ar3', name: 'Hollow Orchard' },
+    ];
+    assert.deepEqual(
+        buildRecipe({ ...input, artists, character: 'explore', kind: 'artist', variety: 'high' }),
+        {
+            character: 'explore',
+            count: 50,
+            coverArtId: 'ar1',
+            kind: 'artist',
+            moodCharacter: 'TransitionMaestro',
+            name: 'My mix',
+            seedId: 'ar1',
+            seedIds: ['ar1', 'ar2', 'ar3'],
+            seedName: 'Moth Season',
+            variety: 'high',
+        },
+    );
+    // Medium is the character's own spacing, which an absent value means: not written.
+    assert.equal(
+        buildRecipe({ ...input, artists, kind: 'artist', variety: 'medium' })?.variety,
+        undefined,
+    );
+    // At most eight.
+    const ten = Array.from({ length: 10 }, (_, i) => ({ id: `a${i}`, name: `A${i}` }));
+    assert.equal(buildRecipe({ ...input, artists: ten, kind: 'artist' })?.seedIds?.length, 8);
+});
+
+test('a custom radio plays every artist, with its variety, under its own name', () => {
+    const custom = mix({
+        character: 'balanced',
+        kind: 'artist',
+        name: 'Moth Season, Ida Verrall',
+        seedId: 'ar1',
+        seedIds: ['ar1', 'ar2'],
+        seedName: 'Moth Season',
+        variety: 'low',
+    });
+    assert.deepEqual(mixPlan(custom, engine), {
+        local: 'artist',
+        station: {
+            artistIds: ['ar1', 'ar2'],
+            artistName: 'Moth Season, Ida Verrall',
+            character: 'balanced',
+            kind: 'artist',
+            variety: 'low',
+        },
+    });
+    // A variety this build does not know is not sent.
+    assert.equal(mixPlan({ ...custom, variety: 'wild' }, engine).station?.kind, 'artist');
+    assert.equal(
+        (mixPlan({ ...custom, variety: 'wild' }, engine).station as { variety?: string }).variety,
+        undefined,
+    );
+});
+
+test('a recipe from Navic round-trips; one without seedIds is the artist radio it always was', () => {
+    assert.deepEqual(mixArtistIds(mix({ kind: 'artist', seedId: 'ar1' })), ['ar1']);
+    assert.deepEqual(
+        mixArtistIds(mix({ kind: 'artist', seedId: 'ar1', seedIds: ['ar1', 'ar2', 'ar2'] })),
+        ['ar1', 'ar2'],
+    );
+    assert.equal(isCustomRadio(mix({ kind: 'artist', seedIds: ['ar1', 'ar2'] })), true);
+    assert.equal(isCustomRadio(mix({ kind: 'artist', seedIds: ['ar1'] })), false);
+    assert.equal(isCustomRadio(mix({ kind: 'station', seedIds: ['ar1', 'ar2'] })), false);
+});
+
+test('a custom radio row says Custom radio and its character', () => {
+    const words = (id: string) =>
+        ({ balanced: 'Blend', close: 'Familiar', explore: 'Discover' })[id]!;
+    assert.equal(
+        mixLine(
+            mix({ character: 'close', kind: 'artist', seedIds: ['a', 'b'], seedName: 'A' }),
+            words,
+        ),
+        'Custom radio · Familiar',
+    );
+    assert.equal(
+        mixLine(mix({ character: 'close', kind: 'artist', seedId: 'a', seedName: 'A' }), words),
+        'Artist from A · Familiar',
+    );
+});
+
+test('radioTitle joins the names in pick order', () => {
+    assert.equal(radioTitle(['Moth Season']), 'Moth Season');
+    assert.equal(radioTitle(['Moth Season', ' Ida Verrall ', '']), 'Moth Season, Ida Verrall');
+    assert.equal(radioTitle([]), '');
 });

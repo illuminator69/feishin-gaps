@@ -33,6 +33,8 @@ export const START_COUNT = 20;
 export const EXCLUDE_MAX = 1000;
 /** The hub's limit on a `tracks` seed. */
 export const SEED_TRACKS_MAX = 5;
+/** The hub's seed cap since P5 (PROTOCOL §18.1), shared among a custom radio's artists. */
+export const STATION_SEEDS_MAX = 12;
 /** How many of the last tracks played seed the station a queue continues as. */
 export const CONTINUE_SEED_MAX = 3;
 /** How long a local change of binding outranks a `session` frame that disagrees with it. */
@@ -59,19 +61,19 @@ export const BUNDLED_CHARACTERS: readonly StationCharacter[] = [
     {
         description: 'Stays right next to what you started with.',
         id: 'close',
-        label: 'Close',
+        label: 'Familiar',
         legacy: 'EchoMatch',
     },
     {
         description: 'Near what you started with, with room to move.',
         id: 'balanced',
-        label: 'Balanced',
+        label: 'Blend',
         legacy: 'SteadyVibes',
     },
     {
         description: 'Wanders further, steered by what you skip and like.',
         id: 'explore',
-        label: 'Explore',
+        label: 'Discover',
         legacy: 'TransitionMaestro',
     },
 ];
@@ -110,9 +112,25 @@ export const legacyMoodCharacter = (character: StationCharacterId): string => {
     }
 };
 
-/** The characters to render: the hub's, or the bundled copy when it has given none. */
+/** The words before P5, which an older hub (or a catalogue stored before it) may still send. */
+const OLD_LABELS = new Set(['Balanced', 'Close', 'Explore']);
+
+/**
+ * The characters to render: the hub's, or the bundled copy when it has given none. The words
+ * before P5 (Close, Balanced, Explore) read as today's (Familiar, Blend, Discover); a hub's own
+ * other words win. Navic's `StationCatalogue.infoFor` is the twin.
+ */
 export const charactersOf = (catalog: null | StationCatalog): readonly StationCharacter[] =>
-    catalog && catalog.characters.length > 0 ? catalog.characters : BUNDLED_CHARACTERS;
+    catalog && catalog.characters.length > 0
+        ? catalog.characters.map((row) =>
+              OLD_LABELS.has(row.label)
+                  ? {
+                        ...row,
+                        label: BUNDLED_CHARACTERS.find((b) => b.id === row.id)?.label ?? row.label,
+                    }
+                  : row,
+          )
+        : BUNDLED_CHARACTERS;
 
 export const characterLabel = (
     catalog: null | StationCatalog,
@@ -120,6 +138,10 @@ export const characterLabel = (
 ): string =>
     charactersOf(catalog).find((row) => row.id === character)?.label ??
     BUNDLED_CHARACTERS.find((row) => row.id === character)!.label;
+
+/** Whether `start` takes this Artist variety here: the probe lists it (P5). */
+export const takesVariety = (catalog: null | StationCatalog, variety: string): boolean =>
+    Boolean(variety) && (catalog?.varieties ?? []).includes(variety as never);
 
 // --- Which path runs ---------------------------------------------------------------------------
 
@@ -273,6 +295,49 @@ export const artistFallbackQueue = <T extends { id: string }>(
         out.push(song);
     }
     return out;
+};
+
+/**
+ * Seed songs per artist for a custom radio (P5): twelve shared out, one to five each. Navic's
+ * `seedsPerArtist` is the twin.
+ */
+export const seedsPerArtist = (artists: number): number =>
+    artists <= 0 ? 0 : Math.max(1, Math.min(5, Math.floor(STATION_SEEDS_MAX / artists)));
+
+/** One seed from each artist's list in turn, then the second of each; a song in two lists once. */
+export const interleaveSeeds = <T extends { id: string }>(
+    perArtist: readonly (readonly T[])[],
+): T[] => {
+    const out: T[] = [];
+    const seen = new Set<string>();
+    const longest = Math.max(0, ...perArtist.map((list) => list.length));
+    for (let i = 0; i < longest; i += 1) {
+        for (const list of perArtist) {
+            const song = list[i];
+            if (song && !seen.has(song.id)) {
+                seen.add(song.id);
+                out.push(song);
+            }
+        }
+    }
+    return out;
+};
+
+/**
+ * A custom radio's seeds: each held artist's `artistSeedSongs`, `seedsPerArtist` of them, dealt
+ * in turn, twelve at most. An artist with no songs here is skipped; one artist is exactly the
+ * artist radio's five.
+ */
+export const customRadioSeeds = <T extends ArtistSeedCandidate>(
+    perArtist: readonly (readonly T[])[],
+): T[] => {
+    const held = perArtist.filter((songs) => songs.length > 0);
+    if (held.length <= 1) return artistSeedSongs(held[0] ?? []);
+    const each = seedsPerArtist(held.length);
+    return interleaveSeeds(held.map((songs) => artistSeedSongs(songs, each))).slice(
+        0,
+        STATION_SEEDS_MAX,
+    );
 };
 
 /** What is queued, for `exclude`: the newest EXCLUDE_MAX distinct ids. */

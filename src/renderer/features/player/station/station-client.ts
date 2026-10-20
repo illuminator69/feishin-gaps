@@ -3,6 +3,7 @@ import type {
     StationAnswer,
     StationCatalog,
     StationCharacterId,
+    StationCount,
     StationNextBody,
     StationResult,
     StationSeed,
@@ -10,6 +11,7 @@ import type {
     StationSignalKind,
     StationStartBody,
     StationTrack,
+    StationVariety,
 } from '/@/shared/types/station-types';
 
 import isElectron from 'is-electron';
@@ -19,12 +21,14 @@ import {
     artistFallbackQueue,
     artistSeedSongs,
     bindingFromAnswer,
+    customRadioSeeds,
     keepResolved,
     ownArtistSongs,
     SEED_TRACKS_MAX,
     spreadPick,
     START_COUNT,
     StationBinding,
+    takesVariety,
 } from '/@/renderer/features/player/station/station-logic';
 import { getStationMode, useStationStore } from '/@/renderer/features/player/station/station-store';
 import { beginQueueSession } from '/@/renderer/features/player/utils/saved-queue-source';
@@ -80,6 +84,23 @@ export const startStation = async (
     // PROTOCOL §18.1), while a radio would still play through Navidrome. That says nothing about
     // the engine as a whole, so it does not switch autoplay over to Auto DJ.
     return body.seed.kind === 'yourMix' ? result : noteFallback(result, 'start');
+};
+
+/**
+ * `POST /sonic/station/count` (P5): how many songs a seed set could draw from, read-only. Not
+ * asked of a hub whose probe does not list `count` (answered as a 404 with no code, like an older
+ * hub's).
+ */
+export const countStation = async (
+    seed: StationSeed,
+    character: StationCharacterId,
+): Promise<StationResult<StationCount>> => {
+    const station = bridge();
+    if (!station) return noBridge();
+    if (!useStationStore.getState().catalog?.count) {
+        return { data: null, error: 'This hub cannot count.', ok: false, status: 404 };
+    }
+    return station.count({ character, seed });
 };
 
 export const nextStation = async (body: StationNextBody): Promise<StationResult<StationAnswer>> => {
@@ -155,9 +176,16 @@ export const buildStationQueue = async (args: {
     leading: Song[];
     seed: StationSeed;
     serverId: string;
+    /** Artist variety (P5); sent only when the probe lists it, so an older hub sees no new key. */
+    variety?: StationVariety;
 }): Promise<null | StationQueue> => {
     if (getStationMode() !== 'stations') return null;
+    const variety =
+        args.variety && takesVariety(useStationStore.getState().catalog, args.variety)
+            ? args.variety
+            : undefined;
     const result = await startStation({
+        ...(variety ? { variety } : {}),
         character: args.character ?? currentCharacter(),
         count: Math.max(1, Math.min(50, args.count ?? START_COUNT)),
         exclude: args.leading.map((song) => song.id),
@@ -266,14 +294,8 @@ export const albumRadioSeed = async (
     };
 };
 
-/**
- * An artist radio's seed songs, the rule Navic uses (`artistSeedSongs`, B-149): up to five of
- * the artist's own songs in the library, the most played (this user's play counts), one per
- * album first. Not `getTopSongs` (Last.fm's list matched to the library through Navidrome): it
- * answered nothing for Radiohead's 17 songs here. Asked in album order, so equal play counts fall
- * in that order.
- */
-export const artistSeedSongsFor = async (serverId: string, artistId: string): Promise<Song[]> => {
+/** An artist's own songs in the library, in album order: what its radio's seeds are chosen from. */
+export const ownSongsOf = async (serverId: string, artistId: string): Promise<Song[]> => {
     const list = await api.controller
         .getSongList({
             apiClientProps: { serverId },
@@ -285,13 +307,37 @@ export const artistSeedSongsFor = async (serverId: string, artistId: string): Pr
             },
         })
         .catch(() => null);
-    return artistSeedSongs(ownArtistSongs(list?.items ?? [], artistId));
+    return ownArtistSongs(list?.items ?? [], artistId);
 };
+
+/**
+ * An artist radio's seed songs, the rule Navic uses (`artistSeedSongs`, B-149): up to five of
+ * the artist's own songs in the library, the most played (this user's play counts), one per
+ * album first. Not `getTopSongs` (Last.fm's list matched to the library through Navidrome): it
+ * answered nothing for Radiohead's 17 songs here. Asked in album order, so equal play counts fall
+ * in that order.
+ */
+export const artistSeedSongsFor = async (serverId: string, artistId: string): Promise<Song[]> =>
+    artistSeedSongs(await ownSongsOf(serverId, artistId));
 
 const artistStationSeed = (leading: Song[], name: string) => ({
     leading,
     seed: { ids: leading.map((song) => song.id), kind: 'tracks', name } satisfies StationSeed,
 });
+
+/**
+ * A custom radio's seed (P5): `customRadioSeeds` over each artist's own songs, which play first,
+ * named after the radio. An artist the library no longer holds adds nothing; null: none holds any.
+ */
+export const customRadioSeed = async (
+    serverId: string,
+    artistIds: readonly string[],
+    name: string,
+): Promise<null | { leading: Song[]; seed: StationSeed }> => {
+    const perArtist = await Promise.all(artistIds.map((id) => ownSongsOf(serverId, id)));
+    const leading = customRadioSeeds(perArtist);
+    return leading.length === 0 ? null : artistStationSeed(leading, name);
+};
 
 /** An artist radio's station seed: its seed songs (`artistSeedSongsFor`), which play first. */
 export const artistRadioSeed = async (

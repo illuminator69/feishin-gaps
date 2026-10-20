@@ -1,5 +1,5 @@
 import type { Mix, MixKind } from '/@/renderer/store/mixes.store';
-import type { StationCharacterId } from '/@/shared/types/station-types';
+import type { StationCharacterId, StationVariety } from '/@/shared/types/station-types';
 
 import {
     characterFromAny,
@@ -36,7 +36,7 @@ export const FORM_KINDS: readonly FormKindRow[] = [
     { description: 'Around a song, steered by your skips and likes', id: 'radio', label: 'Radio' },
     { description: YOUR_MIX_LINE, id: 'yourMix', label: 'Your mix' },
     { description: 'A random run through one genre', id: 'genre', label: 'Genre' },
-    { description: 'More like one artist', id: 'artist', label: 'Artist' },
+    { description: 'More like the artists you pick', id: 'artist', label: 'Artist' },
 ];
 
 /**
@@ -52,11 +52,11 @@ export const formKindTakesCharacter = (kind: FormKind): boolean => kind !== 'gen
 /** The name the form suggests, until the user writes their own. Empty: nothing to suggest yet. */
 export const suggestedMixName = (
     kind: FormKind,
-    seeds: { artist?: null | string; genre?: null | string; song?: null | string },
+    seeds: { artists?: readonly string[]; genre?: null | string; song?: null | string },
 ): string => {
     switch (kind) {
         case 'artist':
-            return seeds.artist ?? '';
+            return radioTitle(seeds.artists ?? []);
         case 'genre':
             return seeds.genre ?? '';
         case 'radio':
@@ -78,11 +78,26 @@ export interface MixRecipe {
     moodCharacter?: string;
     name: string;
     seedId: string;
+    /** A custom radio's artists (P5), when there are several. */
+    seedIds?: string[];
     seedName: string;
+    /** Artist variety (P5), when not the character's own. */
+    variety?: StationVariety;
 }
 
+/** The most artists one custom radio takes (the hub keeps at most 8 `seedIds`, PROTOCOL §17.1). */
+export const CUSTOM_RADIO_MAX_ARTISTS = 8;
+
+/** A custom radio's name: the artists' names in pick order (Navic's `radioTitle`). */
+export const radioTitle = (names: readonly string[]): string =>
+    names
+        .map((name) => name.trim())
+        .filter(Boolean)
+        .join(', ');
+
 export interface RecipeInput {
-    artist: null | { id: string; name: string };
+    /** Artist: one to CUSTOM_RADIO_MAX_ARTISTS, in pick order. More than one is a custom radio. */
+    artists: readonly { id: string; name: string }[];
     character: StationCharacterId;
     count: number;
     /** A genre NAME. Navidrome's genre ids are not portable: Navic and `getRandomSongs` take names. */
@@ -91,6 +106,8 @@ export interface RecipeInput {
     name: string;
     /** The playing song, for Radio. */
     song: null | undefined | { albumId?: string; id: string; name: string };
+    /** Artist variety; medium (the character's own) is not written. */
+    variety?: StationVariety;
 }
 
 /** The recipe to save, or null while it cannot be: no name, or the kind's seed is missing. */
@@ -103,18 +120,27 @@ export const buildRecipe = (input: RecipeInput): MixRecipe | null => {
     };
     const { count } = input;
     switch (input.kind) {
-        case 'artist':
-            if (!input.artist?.id) return null;
+        case 'artist': {
+            const seen = new Set<string>();
+            const artists = input.artists
+                .filter((a) => a.id && !seen.has(a.id) && seen.add(a.id))
+                .slice(0, CUSTOM_RADIO_MAX_ARTISTS);
+            const first = artists[0];
+            if (!first) return null;
             return {
                 ...character,
                 count,
-                // The seed's artwork (§17.1), stamped once: the artist's own image.
-                coverArtId: input.artist.id,
+                // The seed's artwork (§17.1), stamped once: the (first) artist's own image.
+                coverArtId: first.id,
                 kind: 'artist',
                 name,
-                seedId: input.artist.id,
-                seedName: input.artist.name,
+                seedId: first.id,
+                // A custom radio (P5): every artist; `seedId` stays the first, for older clients.
+                ...(artists.length > 1 ? { seedIds: artists.map((a) => a.id) } : {}),
+                seedName: first.name,
+                ...(input.variety && input.variety !== 'medium' ? { variety: input.variety } : {}),
             };
+        }
         case 'genre': {
             const genre = input.genre?.trim();
             if (!genre) return null;
@@ -146,7 +172,23 @@ export const buildRecipe = (input: RecipeInput): MixRecipe | null => {
 
 // --- What a stored recipe plays as --------------------------------------------------------------
 
-type RecipeFields = Pick<Mix, 'character' | 'kind' | 'moodCharacter' | 'seedId' | 'seedName'>;
+type RecipeFields = Partial<Pick<Mix, 'name' | 'seedIds' | 'variety'>> &
+    Pick<Mix, 'character' | 'kind' | 'moodCharacter' | 'seedId' | 'seedName'>;
+
+/** The artists an `artist` mix plays: its `seedIds`, else its `seedId` (Navic's `mixArtistIds`). */
+export const mixArtistIds = (
+    mix: Partial<Pick<Mix, 'seedIds'>> & Pick<Mix, 'seedId'>,
+): string[] => {
+    const ids = [...new Set((mix.seedIds ?? []).filter(Boolean))];
+    return ids.length > 0 ? ids : mix.seedId ? [mix.seedId] : [];
+};
+
+/** A custom radio: an `artist` mix of more than one artist (P5). */
+export const isCustomRadio = (mix: Partial<Pick<Mix, 'seedIds'>> & Pick<Mix, 'kind'>): boolean =>
+    mix.kind === 'artist' && mixArtistIds({ seedId: '', seedIds: mix.seedIds }).length > 1;
+
+const varietyOf = (value: string | undefined): StationVariety | undefined =>
+    value === 'low' || value === 'medium' || value === 'high' ? value : undefined;
 
 /**
  * A recipe's character: its own `character`, else the one its legacy `moodCharacter` names. An
@@ -167,7 +209,15 @@ export interface MixPlan {
 
 /** A station to start for a recipe (PROTOCOL §18.1). */
 export type StationPlan =
-    | { artistId: string; artistName: string; character: StationCharacterId; kind: 'artist' }
+    | {
+          /** One, or a custom radio's several (P5), in pick order. */
+          artistIds: string[];
+          /** The station's name: the artist's, or the custom radio's. */
+          artistName: string;
+          character: StationCharacterId;
+          kind: 'artist';
+          variety?: StationVariety;
+      }
     | { character: StationCharacterId; kind: 'track'; songId: string }
     | { character: StationCharacterId; kind: 'yourMix' };
 
@@ -200,15 +250,17 @@ const stationPlan = (mix: RecipeFields, preferred: StationCharacterId): null | S
     switch (mix.kind) {
         case 'adaptive':
             return { character: mixCharacter(mix), kind: 'yourMix' };
-        case 'artist':
-            return mix.seedId
-                ? {
-                      artistId: mix.seedId,
-                      artistName: mix.seedName,
-                      character: mixCharacter(mix),
-                      kind: 'artist',
-                  }
-                : null;
+        case 'artist': {
+            const artistIds = mixArtistIds(mix);
+            if (artistIds.length === 0) return null;
+            return {
+                artistIds,
+                artistName: artistIds.length > 1 ? mix.name || mix.seedName : mix.seedName,
+                character: mixCharacter(mix),
+                kind: 'artist',
+                ...(varietyOf(mix.variety) ? { variety: varietyOf(mix.variety) } : {}),
+            };
+        }
         case 'fingerprint':
             return { character: toCharacterId(mix.character) ?? preferred, kind: 'yourMix' };
         case 'similar':
@@ -292,7 +344,12 @@ const KIND_LINE: Record<MixKind, (mix: RecipeFields, words: CharacterWords) => s
     // a guessed one (Navic's `mixKindLabel`).
     artist: (mix, words) => {
         const character = storedCharacter(mix);
-        const line = mix.seedName ? `Artist from ${mix.seedName}` : 'Artist';
+        // A custom radio (P5): its name already lists the artists (Navic's `mixKindLabel`).
+        const line = isCustomRadio(mix)
+            ? 'Custom radio'
+            : mix.seedName
+              ? `Artist from ${mix.seedName}`
+              : 'Artist';
         return character ? `${line} · ${words(character)}` : line;
     },
     fingerprint: () => 'Your mix',
