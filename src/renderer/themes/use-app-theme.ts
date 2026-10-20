@@ -12,6 +12,7 @@ import {
     useNativeAspectRatio,
     useThemeSettings,
 } from '/@/renderer/store/settings.store';
+import { useCoverWashOn, useCoverWashStore } from '/@/renderer/themes/cover/cover-wash.store';
 import { createMantineTheme } from '/@/renderer/themes/mantine-theme';
 import { getAppTheme } from '/@/shared/themes/app-theme';
 import { AppTheme, AppThemeConfiguration } from '/@/shared/themes/app-theme-types';
@@ -56,6 +57,9 @@ export const useAppTheme = (overrideTheme?: AppTheme) => {
     const accent = useAccent();
     const nativeImageAspect = useNativeAspectRatio();
     const expressiveMotion = useExpressiveMotion();
+    // Only the renderer's `useCoverWash` turns this on; the remote SPA never does.
+    const coverWash = useCoverWashOn();
+    const coverWashLight = useCoverWashStore((state) => state.light);
     const { builtIn, custom, system, type } = useFontSettings();
     // Not read directly, but its identity changes whenever the custom
     // themes folder is reloaded, which is what we want to react to below.
@@ -200,6 +204,9 @@ export const useAppTheme = (overrideTheme?: AppTheme) => {
     ]);
 
     useEffect(() => {
+        // While the cover colours the window the wash owns this variable (and removes it when it ends,
+        // which re-runs this effect).
+        if (coverWash) return;
         const root = document.documentElement;
         const themeProperties = getAppTheme(selectedTheme);
         const primaryColor = useThemeAccentColor
@@ -223,6 +230,7 @@ export const useAppTheme = (overrideTheme?: AppTheme) => {
         root.style.setProperty('--theme-colors-primary', primaryAtShade);
     }, [
         accent,
+        coverWash,
         customThemes,
         isDarkTheme,
         primaryShade,
@@ -296,7 +304,7 @@ export const useAppTheme = (overrideTheme?: AppTheme) => {
     );
 
     return {
-        mode: appTheme?.mode || 'dark',
+        mode: coverWash ? (coverWashLight ? 'light' : 'dark') : appTheme?.mode || 'dark',
         theme: mantineTheme,
     };
 };

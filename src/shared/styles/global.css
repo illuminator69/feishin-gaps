@@ -350,3 +350,173 @@ button {
     --motion-duration-long: 450ms;
     --motion-ease: cubic-bezier(0.2, 0, 0, 1);
 }
+
+/*
+ * Cover colours (src/renderer/themes/cover): the window's colour roles, registered as colours so a
+ * change of cover eases instead of snapping. The initial values are the neutral dark roles (nothing
+ * playing). Every built-in theme and this file set each `--theme-colors-*` here to a colour, so with
+ * the wash off (and in the remote SPA, which never turns it on) the initial values never show.
+ */
+
+@property --wash-top {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(36% 0.019 260deg);
+}
+
+@property --wash-mid {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(29% 0.015 260deg);
+}
+
+@property --wash-bot {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(20% 0.012 260deg);
+}
+
+@property --wash-bar {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(15% 0.009 260deg / 94%);
+}
+
+@property --wash-surf {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(90% 0.007 260deg / 8%);
+}
+
+@property --wash-surf2 {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(90% 0.007 260deg / 15%);
+}
+
+@property --wash-acc {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(88% 0.024 260deg);
+}
+
+@property --wash-accc {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(45% 0.020 260deg);
+}
+
+@property --wash-accct {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(94% 0.007 260deg);
+}
+
+@property --theme-colors-background {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(29% 0.015 260deg);
+}
+
+@property --theme-colors-background-alternate {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(90% 0.007 260deg / 8%);
+}
+
+@property --theme-colors-surface {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(90% 0.007 260deg / 15%);
+}
+
+@property --theme-colors-surface-foreground {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(97% 0.003 260deg);
+}
+
+@property --theme-colors-foreground {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(97% 0.003 260deg);
+}
+
+@property --theme-colors-foreground-muted {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(91% 0.006 260deg);
+}
+
+@property --theme-colors-primary {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: rgb(206 216 232);
+}
+
+@property --theme-colors-primary-filled {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(88% 0.024 260deg);
+}
+
+@property --theme-colors-primary-contrast {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(20% 0.011 260deg);
+}
+
+@property --theme-colors-border {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(92% 0.007 260deg / 14%);
+}
+
+@property --theme-colors-state-error {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(75.9% 0.125 25deg);
+}
+
+@property --theme-colors-state-warning {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(83.7% 0.142 82deg);
+}
+
+@property --theme-colors-state-success {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: oklch(79% 0.126 160deg);
+}
+
+/* Only while the cover colours the window: a theme switch and the remote SPA stay instant. */
+@media (prefers-reduced-motion: no-preference) {
+    :root[data-cover-wash='true'] {
+        transition-timing-function: cubic-bezier(0.3, 0.7, 0.2, 1);
+        transition-duration: 300ms;
+        transition-property:
+            --wash-top,
+            --wash-mid,
+            --wash-bot,
+            --wash-bar,
+            --wash-surf,
+            --wash-surf2,
+            --wash-acc,
+            --wash-accc,
+            --wash-accct,
+            --theme-colors-background,
+            --theme-colors-background-alternate,
+            --theme-colors-surface,
+            --theme-colors-surface-foreground,
+            --theme-colors-foreground,
+            --theme-colors-foreground-muted,
+            --theme-colors-primary,
+            --theme-colors-primary-filled,
+            --theme-colors-primary-contrast,
+            --theme-colors-border,
+            --theme-colors-state-error,
+            --theme-colors-state-warning,
+            --theme-colors-state-success;
+    }
+}

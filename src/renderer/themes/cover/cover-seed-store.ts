@@ -53,11 +53,6 @@ export const getCachedSeed = (key: string): CoverSeed | undefined => cache.get(k
 
 export const putSeed = (key: string, seed: CoverSeed): void => {
     cache.set(key, seed);
-    try {
-        localStorage.setItem(LAST_SEED_KEY, JSON.stringify(seed));
-    } catch (error) {
-        logger.warn('cover seed: could not keep the last seed', { error: String(error) });
-    }
     writeTimer ??= setTimeout(() => {
         writeTimer = undefined;
         const value: Persisted = { rows: cache.toRows(), schema: SEED_SCHEMA };
@@ -65,6 +60,18 @@ export const putSeed = (key: string, seed: CoverSeed): void => {
             logger.warn('cover seed: could not persist seeds', { error: String(error) }),
         );
     }, WRITE_EVERY_MS);
+};
+
+/**
+ * The last seed the window showed, for a synchronous cold start. Only `useCoverWash` writes it, so a
+ * page header's seed or a discarded stale load never becomes the window's first colour.
+ */
+export const writeLastSeed = (seed: CoverSeed): void => {
+    try {
+        localStorage.setItem(LAST_SEED_KEY, JSON.stringify(seed));
+    } catch (error) {
+        logger.warn('cover seed: could not keep the last seed', { error: String(error) });
+    }
 };
 
 export const readLastSeed = (): CoverSeed => {

@@ -230,6 +230,7 @@ export const ThemeSettings = memo(() => {
                 <Select
                     data={groupedThemeData}
                     defaultValue={settings.theme}
+                    disabled={settings.coverColours}
                     onChange={(e) => {
                         const theme = e as string;
 
@@ -263,6 +264,7 @@ export const ThemeSettings = memo(() => {
                 <Select
                     data={groupedThemeData}
                     defaultValue={settings.themeDark}
+                    disabled={settings.coverColours}
                     onChange={(e) => {
                         setSettings({
                             general: {
@@ -285,6 +287,7 @@ export const ThemeSettings = memo(() => {
                 <Select
                     data={groupedThemeData}
                     defaultValue={settings.themeLight}
+                    disabled={settings.coverColours}
                     onChange={(e) => {
                         setSettings({
                             general: {
@@ -326,7 +329,7 @@ export const ThemeSettings = memo(() => {
                 <Stack align="center">
                     <ColorInput
                         defaultValue={settings.accent}
-                        disabled={settings.useThemeAccentColor}
+                        disabled={settings.coverColours || settings.useThemeAccentColor}
                         format="rgb"
                         onChangeEnd={(e) => {
                             setSettings({
@@ -375,6 +378,7 @@ export const ThemeSettings = memo(() => {
             control: (
                 <Slider
                     defaultValue={settings.primaryShade}
+                    disabled={settings.coverColours}
                     label={(value) => value}
                     max={9}
                     min={0}
@@ -413,6 +417,25 @@ export const ThemeSettings = memo(() => {
             }),
             isHidden: false,
             title: t('setting.expressiveMotion'),
+        },
+        {
+            control: (
+                <Switch
+                    checked={settings.coverColours}
+                    onChange={(e) => {
+                        setSettings({
+                            general: {
+                                coverColours: e.currentTarget.checked,
+                            },
+                        });
+                    }}
+                />
+            ),
+            description: t('setting.coverColours', {
+                context: 'description',
+            }),
+            isHidden: false,
+            title: t('setting.coverColours'),
         },
     ];
 

@@ -532,6 +532,7 @@ export const GeneralSettingsSchema = z.object({
     collections: z.array(CollectionSchema),
     combinedLyricsAndVisualizer: z.boolean(),
     confirmQueueChanges: z.boolean(),
+    coverColours: z.boolean(),
     disabledContextMenu: z.record(z.string(), z.boolean()),
     enableGridMultiSelect: z.boolean(),
     expressiveMotion: z.boolean(),
@@ -1408,6 +1409,7 @@ const initialState: SettingsState = {
         collections: [],
         combinedLyricsAndVisualizer: false,
         confirmQueueChanges: true,
+        coverColours: true,
         disabledContextMenu: {},
         enableGridMultiSelect: false,
         expressiveMotion: false,
@@ -3041,6 +3043,8 @@ export const useGeneralSettings = () => useSettingsStore((state) => state.genera
 
 export const useExpressiveMotion = () =>
     useSettingsStore((state) => state.general.expressiveMotion, shallow);
+
+export const useCoverColours = () => useSettingsStore((state) => state.general.coverColours);
 
 export const usePlaybackType = () => useSettingsStore((state) => state.playback.type, shallow);
 

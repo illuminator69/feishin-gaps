@@ -32,6 +32,7 @@ import {
 } from '/@/renderer/store';
 import { initCustomThemes } from '/@/renderer/store/custom-themes.store';
 import * as coverSeeds from '/@/renderer/themes/cover/cover-seed-store';
+import { useCoverWash } from '/@/renderer/themes/cover/use-cover-wash';
 import { useAppTheme } from '/@/renderer/themes/use-app-theme';
 import { logger } from '/@/renderer/utils/logger';
 import { sanitizeCss } from '/@/renderer/utils/sanitize';
@@ -88,6 +89,7 @@ export const App = () => {
 };
 
 const ThemedApp = () => {
+    useCoverWash();
     const { mode, theme } = useAppTheme();
 
     return (
