@@ -1,0 +1,119 @@
+/*
+ * The cover wash: one layer behind the whole window (the layout's first child). The tone gradient is
+ * this element's own background; over it the blurred artwork, then the veil that tones the artwork
+ * down towards the bottom. Colours come from the `--wash-*` roles on <html> (registered, so they ease).
+ */
+
+/* Registered so a change of mode or of state eases the veil instead of snapping it. */
+@property --wash-ov1 {
+    syntax: '<percentage>';
+    inherits: true;
+    initial-value: 78%;
+}
+
+@property --wash-ov2 {
+    syntax: '<percentage>';
+    inherits: true;
+    initial-value: 86%;
+}
+
+.wash {
+    --wash-ov1: 78%;
+    --wash-ov2: 86%;
+    --wash-art-opacity: 0.55;
+
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+    background: linear-gradient(
+        180deg,
+        var(--wash-top) 0,
+        var(--wash-mid) 52%,
+        var(--wash-bot) 100%
+    );
+
+    /* Its own compositing layer: without it, scrolling a page re-rasterised the blurred cover every frame. */
+    will-change: transform;
+}
+
+.wash.light {
+    --wash-ov1: 50%;
+    --wash-ov2: 60%;
+    --wash-art-opacity: 0.85;
+}
+
+/* Nothing playing: no artwork, the plain gradient. */
+.wash.neutral {
+    --wash-ov1: 100%;
+    --wash-ov2: 100%;
+    --wash-art-opacity: 0;
+}
+
+.art {
+    position: absolute;
+    inset: -60px -60px auto;
+    height: 560px;
+    opacity: var(--wash-art-opacity);
+    filter: blur(40px);
+}
+
+/* Two layers, always rendered: a new cover fades in on the top one over the old one. */
+.layer {
+    position: absolute;
+    inset: 0;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: cover;
+    opacity: 0;
+}
+
+.layer.front {
+    z-index: 1;
+    opacity: 1;
+}
+
+/* Light pages lift the artwork with white, inside the blur, as the board does. */
+.art::after {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    content: '';
+    background: rgb(255 255 255 / 55%);
+    opacity: 0;
+}
+
+.light .art::after {
+    opacity: 1;
+}
+
+.veil {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        180deg,
+        color-mix(in oklch, var(--wash-top) var(--wash-ov1), transparent) 0,
+        color-mix(in oklch, var(--wash-mid) var(--wash-ov2), transparent) 46%,
+        var(--wash-bot) 100%
+    );
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .wash {
+        transition:
+            --wash-ov1 280ms ease,
+            --wash-ov2 280ms ease;
+    }
+
+    .art,
+    .art::after,
+    .layer.front {
+        transition: opacity 280ms ease;
+    }
+
+    /* The old cover stays under the new one until it has fully faded in. */
+    .layer {
+        transition: opacity 0s linear 280ms;
+    }
+}

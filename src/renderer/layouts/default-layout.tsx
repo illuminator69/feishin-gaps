@@ -6,6 +6,7 @@ import styles from './default-layout.module.css';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
 import { MainContent } from '/@/renderer/layouts/default-layout/main-content';
 import { PlayerBar } from '/@/renderer/layouts/default-layout/player-bar';
+import { WindowWash } from '/@/renderer/layouts/default-layout/window-wash';
 import { WindowBar } from '/@/renderer/layouts/window-bar';
 import { useSettingsStore, useWindowBarStyle } from '/@/renderer/store/settings.store';
 import { Platform, PlayerType } from '/@/shared/types/types';
@@ -34,6 +35,7 @@ export const DefaultLayout = ({ shell }: DefaultLayoutProps) => {
                 })}
                 id="default-layout"
             >
+                <WindowWash />
                 <WindowBar />
                 <MainContent shell={shell} />
                 <PlayerBar />

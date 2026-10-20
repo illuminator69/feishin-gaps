@@ -10,6 +10,12 @@
     gap: 0;
     height: 100%;
     overflow: hidden;
+
+    /* The cover wash (window-wash.tsx) sits behind the grid, inside the layout's own stacking context. */
+    :root[data-cover-wash='true'] & {
+        position: relative;
+        isolation: isolate;
+    }
 }
 
 .windows {

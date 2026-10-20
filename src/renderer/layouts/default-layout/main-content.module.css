@@ -7,6 +7,11 @@
     gap: 0;
     background: var(--theme-colors-background);
 
+    /* The cover wash shows through; the sidebars keep their translucent surface. */
+    :root[data-cover-wash='true'] & {
+        background: transparent;
+    }
+
     /*
      * Expressive motion: smoothly tween the grid tracks when the left sidebar minimizes or
      * the side-queue opens/collapses. Gated on data-motion so OFF snaps as before; suppressed
