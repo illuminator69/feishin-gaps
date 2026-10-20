@@ -1,6 +1,6 @@
 // navi-connect (I-032): what the device picker says about a device - its icon, its place in the
 // list and its status. Pure, so the rules can be tested without React or the hub store
-// (device-rows.harness.ts); hub-device-picker.tsx draws them.
+// (device-rows.harness.ts); device-rows-list.tsx draws them.
 //
 // A row used to tell a speaker from a phone by an emoji in its name, the list came in the hub's
 // order (the order devices first registered in), and the device that is playing could be

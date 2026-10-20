@@ -806,7 +806,17 @@
         "sleepTimer_cancel": "Cancel timer",
         "sleepTimer_setOnDevice": "Set on {{device}}",
         "sleepTimer_setElsewhere": "Set on another device",
-        "scrobbleForceSubmit": "Force scrobble"
+        "scrobbleForceSubmit": "Force scrobble",
+        "moreControls": "More controls",
+        "castToTv": "Cast to a TV (DLNA)",
+        "playbackOptions": "Playback options",
+        "stopPlayback": "Stop playback",
+        "transferHere": "Transfer here",
+        "switchTo": "Switch to {{device}}",
+        "playingOnDevice": "Playing on {{device}}",
+        "pausedOnDevice": "Paused on {{device}}",
+        "castingTo": "Casting to {{device}}",
+        "connectToDevice": "Connect to a device"
     },
     "queryBuilder": {
         "standardTags": "Standard tags",

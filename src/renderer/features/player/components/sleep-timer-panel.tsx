@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import styles from './sleep-timer-button.module.css';
+import styles from './sleep-timer-panel.module.css';
 
 import { sendHubAct } from '/@/renderer/features/hub/utils/remote-queue';
 import {
@@ -31,13 +31,11 @@ import {
     useSleepTimerRemaining,
     useSleepTimerStore,
 } from '/@/renderer/store/sleep-timer.store';
-import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Button } from '/@/shared/components/button/button';
 import { Grid } from '/@/shared/components/grid/grid';
 import { Group } from '/@/shared/components/group/group';
 import { NumberInput } from '/@/shared/components/number-input/number-input';
 import { Paper } from '/@/shared/components/paper/paper';
-import { Popover } from '/@/shared/components/popover/popover';
 import { Stack } from '/@/shared/components/stack/stack';
 import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { Text } from '/@/shared/components/text/text';
@@ -160,7 +158,7 @@ const useSleepTimer = () => {
 
     // End-of-song mode: set the pauseOnNextSongEnd flag so that
     // mediaAutoNext returns PAUSED status when the current song ends.
-    // This is a generic player mechanism — the web player handles it
+    // This is a generic player mechanism - the web player handles it
     // without needing to know about the sleep timer.
     // End-of-album mode: set the same flag conditionally, here we run
     // the intial evaluation in case the timer was started while already
@@ -208,7 +206,37 @@ export const SleepTimerHook = () => {
 /** `welcome.features`: the hub holds the session's sleep timer (PROTOCOL, `act:sleepTimer`). */
 const HUB_SLEEP_TIMER = 'sleepTimer';
 
-export const SleepTimerButton = () => {
+/** Date.now(), read on mount and ticked every 500 ms while `ticking`. */
+const useNow = (ticking: boolean) => {
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        if (!ticking) return undefined;
+        setNow(Date.now());
+        const interval = window.setInterval(() => setNow(Date.now()), 500);
+        return () => window.clearInterval(interval);
+    }, [ticking]);
+    return now;
+};
+
+/** What the timer is set to, for the More menu's row ("12:04", "End of song"), or null. */
+export const useSleepTimerValue = (): null | string => {
+    const { t } = useTranslation();
+    const active = useSleepTimerActive();
+    const mode = useSleepTimerMode();
+    const remaining = useSleepTimerRemaining();
+    const sessionTimer = useHubSleepTimer();
+    const now = useNow(Boolean(sessionTimer));
+    if (sessionTimer) {
+        return formatRemaining(Math.ceil(sleepRemainingMs(sessionTimer, now) / 1000));
+    }
+    if (!active) return null;
+    if (mode === 'endOfSong') return t('player.sleepTimer_endOfSong');
+    if (mode === 'endOfAlbum') return t('player.sleepTimer_endOfAlbum');
+    return formatRemaining(remaining);
+};
+
+/** The sleep timer's controls, drawn inside the player bar's More menu (F1). */
+export const SleepTimerPanel = ({ onClose }: { onClose: () => void }) => {
     const { t } = useTranslation();
     const active = useSleepTimerActive();
     const mode = useSleepTimerMode();
@@ -241,21 +269,10 @@ export const SleepTimerButton = () => {
     const [customHours, setCustomHours] = useState<number>(0);
     const [customMinutes, setCustomMinutes] = useState<number>(20);
     const [customSeconds, setCustomSeconds] = useState<number>(0);
-    const [opened, setOpened] = useState(false);
-
     // The session's timer counts down from the end the last frame gave, on this clock: the
-    // hub sends nothing while it runs. `now` is read when the popover opens and ticked only
-    // while the number is on screen.
-    const [now, setNow] = useState(() => Date.now());
-    const changeOpened = useCallback((next: boolean) => {
-        if (next) setNow(Date.now());
-        setOpened(next);
-    }, []);
-    useEffect(() => {
-        if (!opened || !sessionTimer) return undefined;
-        const interval = window.setInterval(() => setNow(Date.now()), 500);
-        return () => window.clearInterval(interval);
-    }, [opened, sessionTimer]);
+    // hub sends nothing while it runs. The panel is mounted only while it is on screen, so
+    // `now` is read on mount and ticked while it shows.
+    const now = useNow(Boolean(sessionTimer));
 
     const handlePreset = useCallback(
         (option: (typeof PRESET_OPTIONS)[number]) => {
@@ -269,9 +286,9 @@ export const SleepTimerButton = () => {
                 startTimedTimer(option.minutes * 60);
             }
             setShowCustom(false);
-            setOpened(false);
+            onClose();
         },
-        [startEndOfAlbumTimer, startEndOfSongTimer, startTimedTimer, viaHub],
+        [onClose, startEndOfAlbumTimer, startEndOfSongTimer, startTimedTimer, viaHub],
     );
 
     const handleCustomStart = useCallback(() => {
@@ -281,16 +298,16 @@ export const SleepTimerButton = () => {
             if (minutes === null) return;
             sendHubAct('sleepTimer', { minutes });
             setShowCustom(false);
-            setOpened(false);
+            onClose();
             return;
         }
         const totalSeconds = customHours * 3600 + customMinutes * 60 + customSeconds;
         if (totalSeconds > 0) {
             startTimedTimer(totalSeconds);
             setShowCustom(false);
-            setOpened(false);
+            onClose();
         }
-    }, [customHours, customMinutes, customSeconds, startTimedTimer, viaHub]);
+    }, [customHours, customMinutes, customSeconds, onClose, startTimedTimer, viaHub]);
 
     // Cancels everything the control shows: the session's timer, at the hub, and this app's
     // own. With the link down the session's can only be dropped here, which is also what
@@ -316,216 +333,190 @@ export const SleepTimerButton = () => {
     };
 
     return (
-        <Popover onChange={changeOpened} opened={opened} position="top" withArrow>
-            <Popover.Target>
-                <ActionIcon
-                    icon={active || sessionTimer ? 'sleepTimer' : 'sleepTimerOff'}
-                    iconProps={{
-                        color: active || sessionTimer ? 'primary' : undefined,
-                        size: 'lg',
-                    }}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        changeOpened(!opened);
-                    }}
-                    size="sm"
-                    tooltip={{
-                        label: t('player.sleepTimer'),
-                        openDelay: 0,
-                    }}
-                    variant="subtle"
-                />
-            </Popover.Target>
-            <Popover.Dropdown maw={480} miw={320} onClick={(e) => e.stopPropagation()} p="sm">
-                <Stack gap="sm">
-                    <Paper className={styles.activeStatus} p="md" radius="md">
-                        <Text fw={600} size="sm" ta="center">
-                            {t('player.sleepTimer')}
+        <Stack gap="sm">
+            <Paper className={styles.activeStatus} p="md" radius="md">
+                <Text fw={600} size="sm" ta="center">
+                    {t('player.sleepTimer')}
+                </Text>
+
+                {sessionTimer && (
+                    <>
+                        <TextTitle c="primary" order={3}>
+                            {formatRemaining(Math.ceil(sleepRemainingMs(sessionTimer, now) / 1000))}
+                        </TextTitle>
+                        {sleepTimerSetElsewhere(sessionTimer, myDeviceId) && (
+                            <Text isMuted size="xs">
+                                {sessionTimerSetOn
+                                    ? t('player.sleepTimer_setOnDevice', {
+                                          device: sessionTimerSetOn,
+                                      })
+                                    : t('player.sleepTimer_setElsewhere')}
+                            </Text>
+                        )}
+                    </>
+                )}
+                {active &&
+                    (mode === 'endOfSong' ? (
+                        <Text c="primary" size="xl">
+                            {t('player.sleepTimer_endOfSong')}
                         </Text>
+                    ) : mode === 'endOfAlbum' ? (
+                        <Text c="primary" size="xl">
+                            {t('player.sleepTimer_endOfAlbum')}
+                        </Text>
+                    ) : (
+                        <TextTitle c="primary" order={3}>
+                            {formatRemaining(remaining)}
+                        </TextTitle>
+                    ))}
+                {(active || sessionTimer) && (
+                    <Button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleCancel();
+                        }}
+                        size="compact-xs"
+                        variant="subtle"
+                    >
+                        {t('player.sleepTimer_cancel')}
+                    </Button>
+                )}
+            </Paper>
 
-                        {sessionTimer && (
-                            <>
-                                <TextTitle c="primary" order={3}>
-                                    {formatRemaining(
-                                        Math.ceil(sleepRemainingMs(sessionTimer, now) / 1000),
-                                    )}
-                                </TextTitle>
-                                {sleepTimerSetElsewhere(sessionTimer, myDeviceId) && (
-                                    <Text isMuted size="xs">
-                                        {sessionTimerSetOn
-                                            ? t('player.sleepTimer_setOnDevice', {
-                                                  device: sessionTimerSetOn,
-                                              })
-                                            : t('player.sleepTimer_setElsewhere')}
-                                    </Text>
-                                )}
-                            </>
-                        )}
-                        {active &&
-                            (mode === 'endOfSong' ? (
-                                <Text c="primary" size="xl">
-                                    {t('player.sleepTimer_endOfSong')}
-                                </Text>
-                            ) : mode === 'endOfAlbum' ? (
-                                <Text c="primary" size="xl">
-                                    {t('player.sleepTimer_endOfAlbum')}
-                                </Text>
-                            ) : (
-                                <TextTitle c="primary" order={3}>
-                                    {formatRemaining(remaining)}
-                                </TextTitle>
-                            ))}
-                        {(active || sessionTimer) && (
+            <Paper p="md" radius="md">
+                <Stack gap="xs">
+                    {PRESET_OPTIONS.filter(
+                        (option) => option.mode === 'endOfSong' || option.mode === 'endOfAlbum',
+                    ).map((option) => {
+                        const disabled = option.mode === 'endOfAlbum' && isTrackShuffle;
+
+                        return (
                             <Button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleCancel();
-                                }}
-                                size="compact-xs"
-                                variant="subtle"
-                            >
-                                {t('player.sleepTimer_cancel')}
-                            </Button>
-                        )}
-                    </Paper>
-
-                    <Paper p="md" radius="md">
-                        <Stack gap="xs">
-                            {PRESET_OPTIONS.filter(
-                                (option) =>
-                                    option.mode === 'endOfSong' || option.mode === 'endOfAlbum',
-                            ).map((option) => {
-                                const disabled = option.mode === 'endOfAlbum' && isTrackShuffle;
-
-                                return (
-                                    <Button
-                                        disabled={disabled}
-                                        fullWidth
-                                        justify="center"
-                                        key={option.mode}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handlePreset(option);
-                                        }}
-                                        variant="outline"
-                                    >
-                                        {getPresetLabel(option)}
-                                    </Button>
-                                );
-                            })}
-                        </Stack>
-                    </Paper>
-
-                    <Paper p="md" radius="md">
-                        <Grid gap="xs">
-                            {PRESET_OPTIONS.filter((option) => option.mode === 'timed').map(
-                                (option, index) => (
-                                    <Grid.Col key={index} span={4}>
-                                        <Button
-                                            fullWidth
-                                            justify="center"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handlePreset(option);
-                                            }}
-                                            size="md"
-                                            variant="outline"
-                                        >
-                                            {getPresetLabel(option)}
-                                        </Button>
-                                    </Grid.Col>
-                                ),
-                            )}
-                        </Grid>
-                    </Paper>
-
-                    <Paper p="md" radius="md">
-                        {!showCustom ? (
-                            <Button
+                                disabled={disabled}
                                 fullWidth
                                 justify="center"
+                                key={option.mode}
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    setShowCustom(true);
+                                    handlePreset(option);
+                                }}
+                                variant="outline"
+                            >
+                                {getPresetLabel(option)}
+                            </Button>
+                        );
+                    })}
+                </Stack>
+            </Paper>
+
+            <Paper p="md" radius="md">
+                <Grid gap="xs">
+                    {PRESET_OPTIONS.filter((option) => option.mode === 'timed').map(
+                        (option, index) => (
+                            <Grid.Col key={index} span={4}>
+                                <Button
+                                    fullWidth
+                                    justify="center"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handlePreset(option);
+                                    }}
+                                    size="md"
+                                    variant="outline"
+                                >
+                                    {getPresetLabel(option)}
+                                </Button>
+                            </Grid.Col>
+                        ),
+                    )}
+                </Grid>
+            </Paper>
+
+            <Paper p="md" radius="md">
+                {!showCustom ? (
+                    <Button
+                        fullWidth
+                        justify="center"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setShowCustom(true);
+                        }}
+                        size="xs"
+                        ta="center"
+                    >
+                        {t('player.sleepTimer_custom')}
+                    </Button>
+                ) : (
+                    <Stack gap="sm">
+                        <Group gap={4} wrap="nowrap">
+                            <NumberInput
+                                max={23}
+                                min={0}
+                                onChange={(val) => setCustomHours(Number(val) || 0)}
+                                rightSection={
+                                    <Text pr="md" size="xs">
+                                        hr
+                                    </Text>
+                                }
+                                size="sm"
+                                value={customHours}
+                                variant="filled"
+                            />
+                            <Text>:</Text>
+                            <NumberInput
+                                max={59}
+                                min={0}
+                                onChange={(val) => setCustomMinutes(Number(val) || 0)}
+                                rightSection={
+                                    <Text pr="md" size="xs">
+                                        min
+                                    </Text>
+                                }
+                                size="sm"
+                                value={customMinutes}
+                                variant="filled"
+                            />
+                            <Text>:</Text>
+                            <NumberInput
+                                disabled={viaHub}
+                                max={59}
+                                min={0}
+                                onChange={(val) => setCustomSeconds(Number(val) || 0)}
+                                rightSection={
+                                    <Text pr="md" size="xs">
+                                        sec
+                                    </Text>
+                                }
+                                size="sm"
+                                value={customSeconds}
+                                variant="filled"
+                            />
+                        </Group>
+                        <Group gap="xs" grow>
+                            <Button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCustomStart();
                                 }}
                                 size="xs"
-                                ta="center"
+                                variant="filled"
                             >
-                                {t('player.sleepTimer_custom')}
+                                {t('player.sleepTimer_setCustom')}
                             </Button>
-                        ) : (
-                            <Stack gap="sm">
-                                <Group gap={4} wrap="nowrap">
-                                    <NumberInput
-                                        max={23}
-                                        min={0}
-                                        onChange={(val) => setCustomHours(Number(val) || 0)}
-                                        rightSection={
-                                            <Text pr="md" size="xs">
-                                                hr
-                                            </Text>
-                                        }
-                                        size="sm"
-                                        value={customHours}
-                                        variant="filled"
-                                    />
-                                    <Text>:</Text>
-                                    <NumberInput
-                                        max={59}
-                                        min={0}
-                                        onChange={(val) => setCustomMinutes(Number(val) || 0)}
-                                        rightSection={
-                                            <Text pr="md" size="xs">
-                                                min
-                                            </Text>
-                                        }
-                                        size="sm"
-                                        value={customMinutes}
-                                        variant="filled"
-                                    />
-                                    <Text>:</Text>
-                                    <NumberInput
-                                        disabled={viaHub}
-                                        max={59}
-                                        min={0}
-                                        onChange={(val) => setCustomSeconds(Number(val) || 0)}
-                                        rightSection={
-                                            <Text pr="md" size="xs">
-                                                sec
-                                            </Text>
-                                        }
-                                        size="sm"
-                                        value={customSeconds}
-                                        variant="filled"
-                                    />
-                                </Group>
-                                <Group gap="xs" grow>
-                                    <Button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleCustomStart();
-                                        }}
-                                        size="xs"
-                                        variant="filled"
-                                    >
-                                        {t('player.sleepTimer_setCustom')}
-                                    </Button>
-                                    <Button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setShowCustom(false);
-                                        }}
-                                        size="xs"
-                                        variant="default"
-                                    >
-                                        {t('common.cancel')}
-                                    </Button>
-                                </Group>
-                            </Stack>
-                        )}
-                    </Paper>
-                </Stack>
-            </Popover.Dropdown>
-        </Popover>
+                            <Button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowCustom(false);
+                                }}
+                                size="xs"
+                                variant="default"
+                            >
+                                {t('common.cancel')}
+                            </Button>
+                        </Group>
+                    </Stack>
+                )}
+            </Paper>
+        </Stack>
     );
 };

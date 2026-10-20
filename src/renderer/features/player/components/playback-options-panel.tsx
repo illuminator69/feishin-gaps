@@ -34,7 +34,6 @@ import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
 import { Paper } from '/@/shared/components/paper/paper';
-import { Popover } from '/@/shared/components/popover/popover';
 import { SegmentedControl } from '/@/shared/components/segmented-control/segmented-control';
 import { Select } from '/@/shared/components/select/select';
 import { Slider } from '/@/shared/components/slider/slider';
@@ -44,7 +43,8 @@ import { CrossfadeStyle, PlayerStatus, PlayerStyle, PlayerType } from '/@/shared
 
 const ipc = isElectron() ? window.api.ipc : null;
 
-export const PlayerConfig = () => {
+/** The playback options (engine, device, transitions, sidebar), inside the More menu (F1). */
+export const PlaybackOptionsPanel = () => {
     const { t } = useTranslation();
     const preservePitch = useSettingsStore((state) => state.playback.preservePitch);
     const showLyricsInSidebar = useShowLyricsInSidebar();
@@ -206,39 +206,20 @@ export const PlayerConfig = () => {
     );
 
     return (
-        <Popover position="top" withArrow>
-            <Popover.Target>
-                <ActionIcon
-                    icon="mediaSettings"
-                    iconProps={{
-                        size: 'lg',
-                    }}
-                    size="sm"
-                    stopsPropagation
-                    tooltip={{
-                        label: t('common.setting', { count: 2 }),
-                        openDelay: 0,
-                    }}
-                    variant="subtle"
-                />
-            </Popover.Target>
-            <Popover.Dropdown maw={720} miw={540} onClick={(e) => e.stopPropagation()} p="sm">
-                <Stack gap="sm">
-                    <Paper p="md" radius="md">
-                        <ListConfigTable options={audioOptions} />
-                    </Paper>
-                    <Paper p="md" radius="md">
-                        <ListConfigTable options={transitionOptions} />
-                    </Paper>
-                    <Paper p="md" radius="md">
-                        <ListConfigTable options={playbackOptions} />
-                    </Paper>
-                    <Paper p="md" radius="md">
-                        <ListConfigTable options={sidebarOptions} />
-                    </Paper>
-                </Stack>
-            </Popover.Dropdown>
-        </Popover>
+        <Stack gap="sm">
+            <Paper p="md" radius="md">
+                <ListConfigTable options={audioOptions} />
+            </Paper>
+            <Paper p="md" radius="md">
+                <ListConfigTable options={transitionOptions} />
+            </Paper>
+            <Paper p="md" radius="md">
+                <ListConfigTable options={playbackOptions} />
+            </Paper>
+            <Paper p="md" radius="md">
+                <ListConfigTable options={sidebarOptions} />
+            </Paper>
+        </Stack>
     );
 };
 
