@@ -7,13 +7,14 @@ import styles from './library-background-overlay.module.css';
 import { useAppThemeColors } from '/@/renderer/themes/use-app-theme';
 
 interface LibraryBackgroundOverlayProps {
-    backgroundColor?: string;
+    /** A full CSS `background` (a colour or a gradient), drawn under the theme's subheader shade. */
+    background?: string;
     headerRef: React.RefObject<HTMLDivElement | null>;
     opacity?: number;
 }
 
 export const LibraryBackgroundOverlay = ({
-    backgroundColor,
+    background,
     headerRef,
     opacity = 0.7,
 }: LibraryBackgroundOverlayProps) => {
@@ -23,7 +24,9 @@ export const LibraryBackgroundOverlay = ({
         <div
             className={styles.overlay}
             style={{
-                backgroundColor,
+                background: background
+                    ? `var(--theme-overlay-subheader), ${background}`
+                    : undefined,
                 height: height ? `${height + 64}px` : undefined,
                 opacity,
             }}

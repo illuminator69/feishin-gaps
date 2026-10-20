@@ -22,8 +22,8 @@ import {
 import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
 import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
-import { useFastAverageColor } from '/@/renderer/hooks';
 import { useArtistBackground, useCurrentServer, useCurrentServerId } from '/@/renderer/store';
+import { useCoverHeaderWash } from '/@/renderer/themes/cover/use-cover-header-wash';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { AlbumListSort, LibraryItem, SortOrder } from '/@/shared/types/domain-types';
 
@@ -82,13 +82,11 @@ const AlbumArtistDetailRouteContent = () => {
 
     const selectedImageUrl = imageUrl || detailQuery.data?.imageUrl;
 
-    const { background: backgroundColor } = useFastAverageColor({
-        id: artistId,
+    const { background } = useCoverHeaderWash({
+        id: detailQuery.data?.imageId || undefined,
+        serverId: detailQuery.data?._serverId,
         src: selectedImageUrl,
-        srcLoaded: true,
     });
-
-    const background = backgroundColor;
 
     const showBlurredImage = artistBackground;
 
@@ -100,7 +98,7 @@ const AlbumArtistDetailRouteContent = () => {
         <AnimatedPage key={`album-artist-detail-${routeId}`}>
             <NativeScrollArea
                 pageHeaderProps={{
-                    backgroundColor: backgroundColor || undefined,
+                    backgroundColor: background || undefined,
                     children: (
                         <LibraryHeaderBar>
                             <LibraryHeaderBar.PlayButton
@@ -125,7 +123,7 @@ const AlbumArtistDetailRouteContent = () => {
                         imageUrl={libraryBackgroundImageUrl || ''}
                     />
                 ) : (
-                    <LibraryBackgroundOverlay backgroundColor={background} headerRef={headerRef} />
+                    <LibraryBackgroundOverlay background={background} headerRef={headerRef} />
                 )}
                 <LibraryContainer>
                     <AlbumArtistDetailHeader

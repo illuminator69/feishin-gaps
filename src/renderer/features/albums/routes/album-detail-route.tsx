@@ -15,8 +15,9 @@ import {
 import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
 import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
-import { useFastAverageColor } from '/@/renderer/hooks';
 import { useAlbumBackground, useCurrentServerId } from '/@/renderer/store';
+import { useCoverWashOn } from '/@/renderer/themes/cover/cover-wash.store';
+import { useCoverHeaderWash } from '/@/renderer/themes/cover/use-cover-header-wash';
 import { LibraryItem } from '/@/shared/types/domain-types';
 
 const ALBUM_DETAIL_BG_FALLBACK = 'var(--theme-colors-foreground-muted)';
@@ -40,13 +41,15 @@ const AlbumDetailRoute = () => {
             type: 'itemCard',
         }) || '';
 
-    const { background: backgroundColor } = useFastAverageColor({
-        id: albumId,
+    const washOn = useCoverWashOn();
+    const { background: headerBackground } = useCoverHeaderWash({
+        id: detailQuery?.data?.imageId || undefined,
+        serverId,
         src: imageUrl,
-        srcLoaded: true,
     });
 
-    const background = backgroundColor ?? ALBUM_DETAIL_BG_FALLBACK;
+    // With the cover wash on, no band while the cover is unresolved: the window wash shows instead.
+    const background = headerBackground ?? (washOn ? undefined : ALBUM_DETAIL_BG_FALLBACK);
 
     const showBlurredImage = albumBackground;
 
@@ -54,7 +57,7 @@ const AlbumDetailRoute = () => {
         <AnimatedPage key={`album-detail-${albumId}`}>
             <NativeScrollArea
                 pageHeaderProps={{
-                    backgroundColor: backgroundColor ?? ALBUM_DETAIL_BG_FALLBACK,
+                    backgroundColor: background,
                     children: (
                         <LibraryHeaderBar>
                             <LibraryHeaderBar.PlayButton
@@ -77,7 +80,7 @@ const AlbumDetailRoute = () => {
                         imageUrl={imageUrl}
                     />
                 ) : (
-                    <LibraryBackgroundOverlay backgroundColor={background} headerRef={headerRef} />
+                    <LibraryBackgroundOverlay background={background} headerRef={headerRef} />
                 )}
                 <LibraryContainer>
                     <AlbumDetailHeader ref={headerRef as React.Ref<HTMLDivElement>} />

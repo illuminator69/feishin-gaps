@@ -126,7 +126,7 @@ const BasePageHeader = ({
                     </AnimatePresence>
                 </div>
                 {backgroundColor && (
-                    <LibraryBackgroundOverlay backgroundColor={backgroundColor} headerRef={ref} />
+                    <LibraryBackgroundOverlay background={backgroundColor} headerRef={ref} />
                 )}
             </Flex>
         </>
