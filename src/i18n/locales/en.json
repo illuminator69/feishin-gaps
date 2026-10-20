@@ -876,6 +876,8 @@
         "useThemePrimaryShade_description": "Use the primary shade defined in the selected theme for primary color variants",
         "expressiveMotion": "Expressive motion",
         "expressiveMotion_description": "Use smoother, emphasized transitions for modals, menus, and page changes. Turn off for instant transitions.",
+        "coverColours": "Cover colours",
+        "coverColours_description": "The playing cover sets the colours of the whole window. Themes are ignored while this is on.",
         "primaryShade": "Primary shade",
         "primaryShade_description": "Override the primary shade (0–9) used for buttons, links, and other primary-colored elements",
         "albumBackground_description": "Adds a background image for album pages containing the album art",

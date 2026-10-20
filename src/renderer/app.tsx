@@ -27,7 +27,10 @@ import {
     useSettingsStoreActions,
 } from '/@/renderer/store';
 import { initCustomThemes } from '/@/renderer/store/custom-themes.store';
+import * as coverSeeds from '/@/renderer/themes/cover/cover-seed-store';
+import { useCoverWash } from '/@/renderer/themes/cover/use-cover-wash';
 import { useAppTheme } from '/@/renderer/themes/use-app-theme';
+import { logger } from '/@/renderer/utils/logger';
 import { sanitizeCss } from '/@/renderer/utils/sanitize';
 import { WebAudio } from '/@/shared/types/types';
 import '/@/shared/styles/global.css';
@@ -44,21 +47,33 @@ const UpdateAvailableDialog = lazy(() =>
 const ipc = isElectron() ? window.api.ipc : null;
 const utils = isElectron() ? window.api.utils : null;
 
+if (import.meta.env.DEV) {
+    void import('/@/renderer/dev-handle');
+}
+
 export const App = () => {
     // Custom themes must be loaded (and registered into the shared theme
     // registry) before the first render of ThemedApp, otherwise a user whose
     // selected theme is a custom one would flash the default theme first.
-    const [customThemesReady, setCustomThemesReady] = useState(!isElectron());
+    // Cover seeds likewise, so a cached cover is coloured in the first frame.
+    const [ready, setReady] = useState(false);
 
     useEffect(() => {
-        if (!isElectron()) return;
-
-        initCustomThemes()
-            .catch((error) => console.error('Failed to load custom themes', error))
-            .finally(() => setCustomThemesReady(true));
+        Promise.all([
+            isElectron()
+                ? initCustomThemes().catch((error) =>
+                      console.error('Failed to load custom themes', error),
+                  )
+                : undefined,
+            coverSeeds
+                .hydrateCoverSeeds()
+                .catch((error) =>
+                    logger.warn('cover seed: could not hydrate seeds', { error: String(error) }),
+                ),
+        ]).finally(() => setReady(true));
     }, []);
 
-    if (!customThemesReady) {
+    if (!ready) {
         return null;
     }
 
@@ -66,6 +81,7 @@ export const App = () => {
 };
 
 const ThemedApp = () => {
+    useCoverWash();
     const { mode, theme } = useAppTheme();
 
     return (

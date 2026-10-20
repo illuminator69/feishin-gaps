@@ -47,14 +47,16 @@
 }
 
 .slider-container {
-    --slider-value-width: 4.75rem;
+    /* Each time column fits "1:23:45" plus the scrobble dot and no more, so in the 420 px centre
+       column the track spans the transport buttons above it and the row reads as centred. */
+    --slider-value-width: 3.5rem;
     --slider-value-gap: var(--theme-spacing-sm);
 
     display: grid;
     grid-template-columns: var(--slider-value-width) minmax(0, 1fr) var(--slider-value-width);
     gap: var(--slider-value-gap);
     align-items: center;
-    width: 95%;
+    width: 100%;
     height: 20px;
 }
 

@@ -7,23 +7,30 @@ import styles from './library-background-overlay.module.css';
 import { useAppThemeColors } from '/@/renderer/themes/use-app-theme';
 
 interface LibraryBackgroundOverlayProps {
-    backgroundColor?: string;
+    /** A full CSS `background` (a colour or a gradient), drawn under the theme's subheader shade. */
+    background?: string;
     headerRef: React.RefObject<HTMLDivElement | null>;
     opacity?: number;
 }
 
 export const LibraryBackgroundOverlay = ({
-    backgroundColor,
+    background,
     headerRef,
     opacity = 0.7,
 }: LibraryBackgroundOverlayProps) => {
     const height = useHeaderHeight(headerRef);
+    const isGradient = background?.includes('gradient(');
 
     return (
         <div
             className={styles.overlay}
             style={{
-                backgroundColor,
+                // A colour stays a background colour under the class's subheader image, as before; a
+                // gradient (the cover header wash) joins the image list under the subheader shade.
+                backgroundColor: isGradient ? undefined : background,
+                backgroundImage: isGradient
+                    ? `var(--theme-overlay-subheader), ${background}`
+                    : undefined,
                 height: height ? `${height + 64}px` : undefined,
                 opacity,
             }}

@@ -15,6 +15,8 @@ Custom themes are **Electron / desktop only**. They are not available in the web
 
 You can also click **Reload** in Settings if a change was not picked up automatically.
 
+**Cover colours** (Settings → General → Theme, on by default) colours the whole window from the playing song's cover. While it is on, the colours of every theme, custom ones included, are ignored and the theme, accent and shade pickers are greyed out; a custom theme's linked stylesheets and your own CSS still apply. Turn Cover colours off to use your theme's colours again.
+
 ### Themes folder location
 
 | Platform | Typical path |

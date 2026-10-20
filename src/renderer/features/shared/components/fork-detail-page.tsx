@@ -10,7 +10,7 @@ import { LibraryBackgroundOverlay } from '/@/renderer/features/shared/components
 import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
 import { LibraryHeader } from '/@/renderer/features/shared/components/library-header';
 import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
-import { useFastAverageColor } from '/@/renderer/hooks';
+import { useCoverHeaderWash } from '/@/renderer/themes/cover/use-cover-header-wash';
 import { LibraryItem } from '/@/shared/types/domain-types';
 
 /**
@@ -36,10 +36,12 @@ export const ForkDetailPage = ({
     title: string;
 }) => {
     const headerRef = useRef<HTMLDivElement>(null);
-    const { background } = useFastAverageColor({
+    // A fork page's art is a public Cover Art Archive URL (no credential, no per-request token), so
+    // the URL itself is the cover's identity here.
+    const { background } = useCoverHeaderWash({
         id: imageUrl || title,
+        serverId: 'external',
         src: imageUrl,
-        srcLoaded: true,
     });
 
     return (
@@ -56,7 +58,7 @@ export const ForkDetailPage = ({
                     target: headerRef,
                 }}
             >
-                <LibraryBackgroundOverlay backgroundColor={background} headerRef={headerRef} />
+                <LibraryBackgroundOverlay background={background} headerRef={headerRef} />
                 <LibraryContainer>
                     <LibraryHeader
                         imageUrl={imageUrl}
