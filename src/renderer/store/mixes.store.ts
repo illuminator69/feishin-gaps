@@ -69,11 +69,18 @@ export interface Mix {
      *  (Navidrome's genre id in a recipe from before B-151), and nothing at all for
      *  `fingerprint`, which is seeded from listening history. */
     seedId: string;
+    /**
+     * A custom radio's artists (P5, PROTOCOL §17.1), in pick order; `seedId` is the first, so a
+     * client that predates this plays that artist's radio. Empty on every other recipe.
+     */
+    seedIds: string[];
     /** What to call the seed on screen. Stored rather than resolved, so a mix
      *  reads correctly without a round trip — and still reads correctly after the
      *  seed has been deleted from the library. */
     seedName: string;
     updatedAt: number;
+    /** A custom radio's Artist variety (`low` / `medium` / `high`); empty: the character's own. */
+    variety: string;
 }
 
 /**
@@ -144,8 +151,18 @@ export const mixFromHub = (record: any): Mix | null => {
         moodCharacter: str(record?.moodCharacter),
         name: str(record?.name) || 'Your Mix',
         seedId: str(record?.seedId),
+        seedIds: Array.isArray(record?.seedIds)
+            ? [
+                  ...new Set<string>(
+                      record.seedIds.filter(
+                          (v: unknown): v is string => typeof v === 'string' && v !== '',
+                      ),
+                  ),
+              ]
+            : [],
         seedName: str(record?.seedName),
         updatedAt: num(record?.updatedAt),
+        variety: str(record?.variety),
     };
 };
 

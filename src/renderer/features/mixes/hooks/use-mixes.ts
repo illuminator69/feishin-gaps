@@ -55,7 +55,11 @@ export const useMixActions = () => {
             moodCharacter?: string;
             name: string;
             seedId?: string;
+            /** A custom radio's artists (P5); sent only when there are some. */
+            seedIds?: string[];
             seedName?: string;
+            /** Artist variety (P5); sent only when set. */
+            variety?: string;
         }): boolean => sendHubAct('saveMix', mix) || notConnected(),
         [],
     );
