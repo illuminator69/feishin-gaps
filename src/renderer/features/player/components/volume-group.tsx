@@ -33,6 +33,7 @@ import {
 } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { ContextMenu } from '/@/shared/components/context-menu/context-menu';
+import { Popover } from '/@/shared/components/popover/popover';
 import { Rating } from '/@/shared/components/rating/rating';
 import { useMediaQuery } from '/@/shared/hooks/use-media-query';
 import { useThrottledCallback } from '/@/shared/hooks/use-throttled-callback';
@@ -102,7 +103,10 @@ const VolumeButton = () => {
     const volumeWheelStep = useVolumeWheelStep();
     const volumeWidth = useVolumeWidth();
     const { decreaseVolume, increaseVolume, mediaToggleMute, setVolume } = usePlayer();
-    const isMinWidth = useMediaQuery('(max-width: 480px)');
+    // At 1180 px and under the slider folds into the icon: a click opens it in a popover, and a
+    // click while it is open mutes, as the icon does on its own at full width (F1).
+    const isFolded = useMediaQuery('(max-width: 1180px)');
+    const [sliderOpen, setSliderOpen] = useState(false);
 
     const playbackType = usePlaybackType();
     const playbackSettings = usePlaybackSettings();
@@ -212,71 +216,92 @@ const VolumeButton = () => {
         [bindings.volumeMute.isGlobal ? '' : bindings.volumeMute.hotkey, handleMute],
     ]);
 
-    return (
-        <>
-            <ContextMenu>
-                <ContextMenu.Target>
-                    {/*
-                     * ActionIcon renders a Mantine Tooltip wrapper, which does not
-                     * forward the onContextMenu/ref that Radix injects via asChild to
-                     * the underlying button. Wrap in a real DOM node so right-click
-                     * reliably opens the menu.
-                     */}
-                    <div style={{ alignItems: 'center', display: 'flex' }}>
-                        <ActionIcon
-                            icon={muted ? 'volumeMute' : volume > 50 ? 'volumeMax' : 'volumeNormal'}
-                            iconProps={{
-                                color: muted ? 'muted' : undefined,
-                                size: 'xl',
-                            }}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                handleMute();
-                            }}
-                            onWheel={handleVolumeWheel}
-                            size="sm"
-                            tooltip={{
-                                label: muted ? t('player.muted') : volume,
-                                openDelay: 0,
-                            }}
-                            variant="subtle"
-                        />
-                    </div>
-                </ContextMenu.Target>
-                <ContextMenu.Content>
+    const slider = (
+        <CustomPlayerbarSlider
+            className={styles.slider}
+            max={100}
+            min={0}
+            onChange={handleVolumeSlider}
+            onChangeEnd={handleVolumeSliderEnd}
+            onClick={(e) => {
+                e.stopPropagation();
+            }}
+            onWheel={handleVolumeWheel}
+            size={6}
+            value={sliderValue}
+            w={volumeWidth}
+        />
+    );
+
+    const icon = (
+        <ContextMenu>
+            <ContextMenu.Target>
+                {/*
+                 * ActionIcon renders a Mantine Tooltip wrapper, which does not
+                 * forward the onContextMenu/ref that Radix injects via asChild to
+                 * the underlying button. Wrap in a real DOM node so right-click
+                 * reliably opens the menu.
+                 */}
+                <div style={{ alignItems: 'center', display: 'flex' }}>
+                    <ActionIcon
+                        icon={muted ? 'volumeMute' : volume > 50 ? 'volumeMax' : 'volumeNormal'}
+                        iconProps={{
+                            color: muted ? 'muted' : undefined,
+                            size: 'xl',
+                        }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (isFolded && !sliderOpen) setSliderOpen(true);
+                            else handleMute();
+                        }}
+                        onWheel={handleVolumeWheel}
+                        size="sm"
+                        tooltip={{
+                            label: muted ? t('player.muted') : volume,
+                            openDelay: 0,
+                        }}
+                        variant="subtle"
+                    />
+                </div>
+            </ContextMenu.Target>
+            <ContextMenu.Content>
+                <ContextMenu.Item
+                    isSelected={!currentAudioDeviceId}
+                    onSelect={() => handleSelectAudioDevice(null)}
+                >
+                    {t('setting.audioDeviceDefault', { defaultValue: 'System default' })}
+                </ContextMenu.Item>
+                {audioDevices.length > 0 && <ContextMenu.Divider />}
+                {audioDevices.map((device) => (
                     <ContextMenu.Item
-                        isSelected={!currentAudioDeviceId}
-                        onSelect={() => handleSelectAudioDevice(null)}
+                        isSelected={device.value === currentAudioDeviceId}
+                        key={device.value}
+                        onSelect={() => handleSelectAudioDevice(device.value)}
                     >
-                        {t('setting.audioDeviceDefault', { defaultValue: 'System default' })}
+                        {device.label || device.value}
                     </ContextMenu.Item>
-                    {audioDevices.length > 0 && <ContextMenu.Divider />}
-                    {audioDevices.map((device) => (
-                        <ContextMenu.Item
-                            isSelected={device.value === currentAudioDeviceId}
-                            key={device.value}
-                            onSelect={() => handleSelectAudioDevice(device.value)}
-                        >
-                            {device.label || device.value}
-                        </ContextMenu.Item>
-                    ))}
-                </ContextMenu.Content>
-            </ContextMenu>
-            {!isMinWidth ? (
-                <CustomPlayerbarSlider
-                    max={100}
-                    min={0}
-                    onChange={handleVolumeSlider}
-                    onChangeEnd={handleVolumeSliderEnd}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                    }}
-                    onWheel={handleVolumeWheel}
-                    size={6}
-                    value={sliderValue}
-                    w={volumeWidth}
-                />
-            ) : null}
-        </>
+                ))}
+            </ContextMenu.Content>
+        </ContextMenu>
+    );
+
+    if (!isFolded) {
+        return (
+            <>
+                {icon}
+                {slider}
+            </>
+        );
+    }
+
+    return (
+        <Popover onChange={setSliderOpen} opened={sliderOpen && isFolded} position="top">
+            <Popover.Target>
+                <div>{icon}</div>
+            </Popover.Target>
+            <Popover.Dropdown onClick={(e) => e.stopPropagation()} p="sm">
+                {slider}
+            </Popover.Dropdown>
+        </Popover>
     );
 };

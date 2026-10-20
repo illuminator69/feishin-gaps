@@ -158,7 +158,7 @@ const useSleepTimer = () => {
 
     // End-of-song mode: set the pauseOnNextSongEnd flag so that
     // mediaAutoNext returns PAUSED status when the current song ends.
-    // This is a generic player mechanism — the web player handles it
+    // This is a generic player mechanism - the web player handles it
     // without needing to know about the sleep timer.
     // End-of-album mode: set the same flag conditionally, here we run
     // the intial evaluation in case the timer was started while already
