@@ -19,6 +19,7 @@ import { PlayerConfig } from '/@/renderer/features/player/components/player-conf
 import { CustomPlayerbarSlider } from '/@/renderer/features/player/components/playerbar-slider';
 import { SleepTimerButton } from '/@/renderer/features/player/components/sleep-timer-button';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import { toggleLyrics } from '/@/renderer/features/player/utils/toggle-lyrics';
 import { useAudioDevices } from '/@/renderer/features/settings/components/playback/audio-settings';
 import {
     ListConfigBooleanControl,
@@ -43,7 +44,6 @@ import {
     usePlaybackType,
     usePlayerData,
     usePlayerMuted,
-    useSetFullScreenPlayerStore,
     useSettingsStoreActions,
     useShowFavorites,
     useShowRatings,
@@ -52,7 +52,6 @@ import {
     useVolumeWheelStep,
     useVolumeWidth,
 } from '/@/renderer/store';
-import { useFullScreenPlayerStoreActions } from '/@/renderer/store/full-screen-player.store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Button } from '/@/shared/components/button/button';
 import { ContextMenu } from '/@/shared/components/context-menu/context-menu';
@@ -372,9 +371,7 @@ const QueueButton = () => {
 };
 
 const LyricsButton = () => {
-    const setFullScreenPlayerStore = useSetFullScreenPlayerStore();
     const activeTab = useFullScreenPlayerStore((state) => state.activeTab);
-    const { setStore } = useFullScreenPlayerStoreActions();
     const { expanded: isFullScreenPlayerExpanded } = useFullScreenPlayerStore();
 
     return (
@@ -386,12 +383,7 @@ const LyricsButton = () => {
             }}
             onClick={(e) => {
                 e.stopPropagation();
-                if (!isFullScreenPlayerExpanded) {
-                    setStore({ activeTab: 'lyrics' });
-                    setFullScreenPlayerStore({ expanded: true });
-                } else {
-                    setStore({ activeTab: activeTab === 'lyrics' ? '' : 'lyrics' });
-                }
+                toggleLyrics();
             }}
             role="button"
             size="sm"
