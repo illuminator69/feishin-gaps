@@ -273,7 +273,6 @@ export const LeftControls = () => {
                                             </Text>
                                         )}
                                     </Text>
-                                    {isSongDefined && showFavorites && <FavoriteButton />}
                                     {isSongDefined && (
                                         <ActionIcon
                                             className={styles.kebab}
@@ -374,6 +373,16 @@ export const LeftControls = () => {
                         </>
                     )}
                 </motion.div>
+                {/* After the song's text, centred on it, where Spotify puts its add button. */}
+                {isSongDefined && showFavorites && (
+                    <motion.div
+                        className={styles.favorite}
+                        layout="position"
+                        onClick={stopPropagation}
+                    >
+                        <FavoriteButton />
+                    </motion.div>
+                )}
             </LayoutGroup>
         </div>
     );
