@@ -128,14 +128,12 @@ export const FavoriteButton = () => {
     return (
         <ActionIcon
             icon="favorite"
-            iconProps={{ fill: currentSong?.userFavorite ? 'primary' : undefined, size: 'md' }}
+            iconProps={{ fill: currentSong?.userFavorite ? 'primary' : undefined, size: 'lg' }}
             onClick={(e) => {
                 e.stopPropagation();
                 handleToggleFavorite(currentSong);
             }}
-            // Beside the title (left-controls.tsx), inside one text line's height.
-            size="xs"
-            styles={{ root: { '--ai-size-xs': '1.25rem' } }}
+            size="sm"
             tooltip={{
                 label: currentSong?.userFavorite ? t('player.unfavorite') : t('player.favorite'),
                 openDelay: 0,

@@ -64,11 +64,19 @@ export const MoreControl = () => {
     const isRadioActive = useIsRadioActive();
     const { stop: stopRadio } = useRadioControls();
     const [opened, setOpened] = useState(false);
-    const [view, setView] = useState<View>('list');
+    const [view, setViewState] = useState<View>('list');
+    // Which way the last move between the list and a panel went, so the new view slides in from
+    // that side. Null when More has just opened: the popover's own transition covers that.
+    const [direction, setDirection] = useState<'back' | 'forward' | null>(null);
+    const setView = useCallback((next: View) => {
+        setDirection(next === 'list' ? 'back' : 'forward');
+        setViewState(next);
+    }, []);
 
     const close = useCallback(() => {
         setOpened(false);
-        setView('list');
+        setViewState('list');
+        setDirection(null);
     }, []);
 
     // Mounted whether or not More is open: DLNA discovery and group events keep arriving.
@@ -98,7 +106,7 @@ export const MoreControl = () => {
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [opened, view]);
+    }, [opened, setView, view]);
 
     const labels: Record<MoreItemId, string> = {
         autoDj: t('setting.autoDJ'),
@@ -166,49 +174,58 @@ export const MoreControl = () => {
                 />
             </Popover.Target>
             <Popover.Dropdown maw={WIDTHS[view].maw} miw={WIDTHS[view].miw} onClick={stop} p="xs">
-                {view === 'list' ? (
-                    <div className={styles.list} role="menu">
-                        {items.map((item) => (
-                            <div key={item.id}>
-                                {item.separatorBefore && <div className={styles.separator} />}
-                                <button
-                                    className={styles.row}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (item.kind === 'panel') openPanel(item.id as PanelId);
-                                        else act(item.id);
-                                    }}
-                                    role="menuitem"
-                                    type="button"
-                                >
-                                    <Icon icon={ICONS[item.id]} />
-                                    <span className={styles.label}>{labels[item.id]}</span>
-                                    {values[item.id] && (
-                                        <span className={styles.value}>{values[item.id]}</span>
-                                    )}
-                                    {item.kind === 'panel' && (
-                                        <Icon className={styles.chevron} icon="arrowRightS" />
-                                    )}
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <>
-                        <button
-                            className={clsx(styles.row, styles.back)}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setView('list');
-                            }}
-                            type="button"
-                        >
-                            <Icon icon="arrowLeftS" />
-                            <span>{t('common.back')}</span>
-                        </button>
-                        {renderPanel(view)}
-                    </>
-                )}
+                <div
+                    className={clsx(
+                        direction === 'forward' && styles.enterForward,
+                        direction === 'back' && styles.enterBack,
+                    )}
+                    key={view}
+                >
+                    {view === 'list' ? (
+                        <div className={styles.list} role="menu">
+                            {items.map((item) => (
+                                <div key={item.id}>
+                                    {item.separatorBefore && <div className={styles.separator} />}
+                                    <button
+                                        className={styles.row}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (item.kind === 'panel')
+                                                openPanel(item.id as PanelId);
+                                            else act(item.id);
+                                        }}
+                                        role="menuitem"
+                                        type="button"
+                                    >
+                                        <Icon icon={ICONS[item.id]} />
+                                        <span className={styles.label}>{labels[item.id]}</span>
+                                        {values[item.id] && (
+                                            <span className={styles.value}>{values[item.id]}</span>
+                                        )}
+                                        {item.kind === 'panel' && (
+                                            <Icon className={styles.chevron} icon="arrowRightS" />
+                                        )}
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <>
+                            <button
+                                className={clsx(styles.row, styles.back)}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setView('list');
+                                }}
+                                type="button"
+                            >
+                                <Icon icon="arrowLeftS" />
+                                <span>{t('common.back')}</span>
+                            </button>
+                            {renderPanel(view)}
+                        </>
+                    )}
+                </div>
             </Popover.Dropdown>
         </Popover>
     );
