@@ -112,8 +112,9 @@ export const useCoverWash = (): void => {
             roles,
             seed: shown.seed,
         });
-        // The last window seed, for the next cold start; neutral ("nothing playing") is not kept.
-        if (shown.artSrc) writeLastSeed(shown.seed);
+        // The last window seed, for the next cold start: a cover's, or neutral once nothing is known
+        // to play (so a launch with an empty queue does not open on the last cover's colours).
+        if (shown.artSrc || shown.seed === NEUTRAL_SEED) writeLastSeed(shown.seed);
         logger.debug('cover wash: applied', {
             cover: Boolean(shown.artSrc),
             hue: Math.round(shown.seed.hue),

@@ -19,12 +19,16 @@ export const LibraryBackgroundOverlay = ({
     opacity = 0.7,
 }: LibraryBackgroundOverlayProps) => {
     const height = useHeaderHeight(headerRef);
+    const isGradient = background?.includes('gradient(');
 
     return (
         <div
             className={styles.overlay}
             style={{
-                background: background
+                // A colour stays a background colour under the class's subheader image, as before; a
+                // gradient (the cover header wash) joins the image list under the subheader shade.
+                backgroundColor: isGradient ? undefined : background,
+                backgroundImage: isGradient
                     ? `var(--theme-overlay-subheader), ${background}`
                     : undefined,
                 height: height ? `${height + 64}px` : undefined,
