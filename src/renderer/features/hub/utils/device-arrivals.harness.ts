@@ -136,6 +136,14 @@ test('theProposalExpiresAfterThirtySeconds', () => {
     assert.equal(proposedId(tracker, 1_000 + ARRIVAL_PROPOSAL_MS + 1), null);
 });
 
+test('expiresAtIsThirtySecondsAfterTheArrival', () => {
+    const tracker = createArrivalTracker();
+    tracker.observe([device(ME)], 0);
+    tracker.observe([device(ME), device('pixel')], 1_000);
+    assert.equal(tracker.expiresAt('pixel'), 1_000 + ARRIVAL_PROPOSAL_MS);
+    assert.equal(tracker.expiresAt(ME), null);
+});
+
 test('dismissRemovesTheProposal', () => {
     const tracker = createArrivalTracker();
     tracker.observe([device(ME)], 0);

@@ -35,6 +35,8 @@ export interface ArrivalDevice {
 export interface ArrivalTracker {
     /** Stop proposing this device until it connects again. */
     dismiss(id: string): void;
+    /** When the proposal of this device ends, or null if it is not an arrival. */
+    expiresAt(id: string): null | number;
     /** Feed one `devices` snapshot, taken at `now`. */
     observe(devices: readonly ArrivalDevice[], now: number): void;
     /** The device to propose at `now`, or null. */
@@ -63,6 +65,11 @@ export function createArrivalTracker(): ArrivalTracker {
     return {
         dismiss(id) {
             arrivals = arrivals.filter((a) => a.id !== id);
+        },
+
+        expiresAt(id) {
+            const arrival = arrivals.find((a) => a.id === id);
+            return arrival ? arrival.at + ARRIVAL_PROPOSAL_MS : null;
         },
 
         observe(devices, now) {
