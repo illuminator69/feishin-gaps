@@ -164,3 +164,11 @@
         display: none;
     }
 }
+
+/* Mantine's own thumb slide and label colour fade ignore reduced motion; in this header they stop. */
+@media (prefers-reduced-motion: reduce) {
+    .switch-thumb,
+    .segment-label {
+        transition: none;
+    }
+}
