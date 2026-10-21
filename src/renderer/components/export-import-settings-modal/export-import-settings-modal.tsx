@@ -32,9 +32,10 @@ export const ExportImportSettingsModal = () => {
 
     const onItemSelected = useCallback((itemContents: string) => {
         const settingsFile = JSON.parse(itemContents) as VersionedSettings;
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Version needs to be omitted from the settings object
         const { version, ...settings } = settingsFile;
-        const parsedResult = settings as SettingsState;
+        // Apply the migrated copy, the one validateItemSelected checked: an old export must
+        // land with every later migration (Home's four rows, F5) and not as it was written.
+        const parsedResult = migrateSettings(settings as SettingsState, version || 0);
         setSettingsFile(parsedResult);
         setCurrentScreen(SCREENS.DIFF_VISUALS);
     }, []);

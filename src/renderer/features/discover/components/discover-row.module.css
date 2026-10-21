@@ -84,6 +84,45 @@
     pointer-events: none;
 }
 
+/* A chip at the cover's top-left corner (Fresh's Owned / Not owned), above the cover's image. */
+.badge-top {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.owned-badge {
+    display: block;
+    padding: 2px 7px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.3;
+    border-radius: 5px;
+}
+
+/* Owned: the accent container with the cover wash, else the primary fill. */
+.owned-badge.owned {
+    color: var(--theme-colors-primary-contrast);
+    background: var(--theme-colors-primary-filled);
+
+    :root[data-cover-wash='true'] & {
+        color: var(--wash-accct);
+        background: var(--wash-accc);
+    }
+}
+
+/* Not owned: a dark translucent chip that reads on any cover. */
+.owned-badge.not-owned {
+    color: var(--theme-colors-foreground);
+    background: alpha(var(--theme-colors-background), 0.74);
+
+    :root[data-cover-wash='true'] & {
+        background: color-mix(in srgb, var(--wash-bar) 78%, transparent);
+    }
+}
+
 .image {
     width: 100%;
     height: 100%;

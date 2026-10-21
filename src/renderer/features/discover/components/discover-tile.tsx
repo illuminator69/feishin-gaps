@@ -38,6 +38,8 @@ interface DiscoverTileProps {
      * progress), the way a library card carries its rating badge.
      */
     badge?: ReactNode;
+    /** Where the badge sits: the bottom stack (default), or a chip at the cover's top-left corner. */
+    badgePlacement?: 'bottom' | 'top-start';
     /** A third, smaller line under the subtitle (a date and a release type). */
     caption?: string;
     /**
@@ -80,6 +82,7 @@ interface DiscoverTileProps {
 export const DiscoverTile = ({
     action,
     badge,
+    badgePlacement = 'bottom',
     caption,
     cover,
     imageId,
@@ -112,7 +115,11 @@ export const DiscoverTile = ({
             {badge ? (
                 <div className={styles.badged}>
                     {image}
-                    <div className={styles.badge}>{badge}</div>
+                    <div
+                        className={badgePlacement === 'top-start' ? styles.badgeTop : styles.badge}
+                    >
+                        {badge}
+                    </div>
                 </div>
             ) : (
                 image

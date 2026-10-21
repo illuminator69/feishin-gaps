@@ -3,6 +3,7 @@
 // directly, without a real library.
 import { api } from '/@/renderer/api';
 import { useStationStore } from '/@/renderer/features/player/station/station-store';
+import { queryClient } from '/@/renderer/lib/react-query';
 import {
     useAppStore,
     useAuthStore,
@@ -10,6 +11,7 @@ import {
     usePlayerStore,
     useSettingsStore,
 } from '/@/renderer/store';
+import { useMixesStore } from '/@/renderer/store/mixes.store';
 import { useSavedQueuesStore } from '/@/renderer/store/saved-queues.store';
 import { applyWashVars, washVars } from '/@/renderer/themes/cover/apply-wash-vars';
 import { type CoverSeed, rolesFor } from '/@/renderer/themes/cover/cover-roles';
@@ -26,13 +28,15 @@ Object.assign(window, {
         },
     },
     // F4 adds the app, hub, station and saved-queue stores, to set the side queue's states and
-    // the panel's width with no hub.
+    // the panel's width with no hub; F5 the query client and the mixes store, to seed Home's rows.
     __f2: {
         api,
         coverSeeds,
+        queryClient,
         useAppStore,
         useAuthStore,
         useHubStore,
+        useMixesStore,
         usePlayerStore,
         useSavedQueuesStore,
         useSettingsStore,

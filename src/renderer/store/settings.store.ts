@@ -26,6 +26,11 @@ import { AppRoute } from '/@/renderer/router/routes';
 import { migrateAutoplayToStations } from '/@/renderer/store/autoplay-migration';
 import { getEnvSettingsOverrides } from '/@/renderer/store/env-settings-overrides';
 import { migrateBuiltInFont } from '/@/renderer/store/font-migration';
+import {
+    homeFeatureShouldTurnOff,
+    migrateHomeItems,
+    NEW_DEFAULT_HOME_ORDER,
+} from '/@/renderer/store/home-items-migration';
 import { mergeOverridingColumns } from '/@/renderer/store/utils';
 import { FontValueSchema } from '/@/renderer/types/fonts';
 import { randomString } from '/@/renderer/utils';
@@ -71,13 +76,17 @@ const deepMergeIntoState = <T extends Record<string, any>>(
 };
 
 const HomeItemSchema = z.enum([
+    'fresh',
     'genres',
+    'mixes',
     'mostPlayed',
     'playlists',
     'random',
     'recentlyAdded',
     'recentlyPlayed',
     'recentlyReleased',
+    'rediscovery',
+    'similarArtists',
 ]);
 
 const AlbumGroupItemSchema = z.enum([
@@ -1028,13 +1037,17 @@ export enum GenreTarget {
 }
 
 export enum HomeItem {
+    FRESH = 'fresh',
     GENRES = 'genres',
+    MIXES = 'mixes',
     MOST_PLAYED = 'mostPlayed',
     PLAYLISTS = 'playlists',
     RANDOM = 'random',
     RECENTLY_ADDED = 'recentlyAdded',
     RECENTLY_PLAYED = 'recentlyPlayed',
     RECENTLY_RELEASED = 'recentlyReleased',
+    REDISCOVERY = 'rediscovery',
+    SIMILAR_ARTISTS = 'similarArtists',
 }
 
 export enum PlayerbarSliderType {
@@ -1297,19 +1310,10 @@ export const sidebarItems: SidebarItemType[] = [
     },
 ];
 
-const defaultHomeItemOrder: HomeItem[] = [
-    HomeItem.GENRES,
-    HomeItem.RANDOM,
-    HomeItem.RECENTLY_ADDED,
-    HomeItem.RECENTLY_RELEASED,
-    HomeItem.RECENTLY_PLAYED,
-    HomeItem.MOST_PLAYED,
-    HomeItem.PLAYLISTS,
-];
-
-const homeItems = defaultHomeItemOrder.map((id) => ({
+// F5: the redesign's order (home-items-migration.ts moves the old default here).
+const homeItems = NEW_DEFAULT_HOME_ORDER.map((id) => ({
     disabled: false,
-    id,
+    id: id as HomeItem,
 }));
 
 const artistItems = Object.values(ArtistItem).map((item) => ({
@@ -1417,7 +1421,7 @@ const initialState: SettingsState = {
         followSystemTheme: false,
         fullscreenAutoOpenTimeout: 0,
         genreTarget: GenreTarget.TRACK,
-        homeFeature: true,
+        homeFeature: false,
         homeFeatureStyle: HomeFeatureStyle.SINGLE,
         homeItems,
         imagePlaceholderPriority: 'thumbhash',
@@ -3028,10 +3032,21 @@ export const useSettingsStore = createWithEqualityFn<SettingsSlice>()(
                     state.font = migrateBuiltInFont(state.font) as typeof state.font;
                 }
 
+                // F5: Home's rows take the redesign's order and its four new rows, and the
+                // feature carousel goes off for the old default pair (home-items-migration.ts).
+                if (version < 38 && state.general) {
+                    state.general.homeItems = migrateHomeItems(
+                        state.general.homeItems?.map((row) => ({ ...row, id: String(row.id) })),
+                    ) as typeof state.general.homeItems;
+                    if (homeFeatureShouldTurnOff(state.general)) {
+                        state.general.homeFeature = false;
+                    }
+                }
+
                 return persistedState;
             },
             name: 'store_settings',
-            version: 37,
+            version: 38,
         },
     ),
 );

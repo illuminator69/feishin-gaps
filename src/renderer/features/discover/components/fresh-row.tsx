@@ -1,4 +1,6 @@
+import clsx from 'clsx';
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { generatePath, useNavigate } from 'react-router';
 
 import { DiscoverRow } from './discover-row';
@@ -23,6 +25,7 @@ import { LibraryItem } from '/@/shared/types/domain-types';
  *  scopes are never conflated — that rule is lb-bot's, enforced in its own
  *  route docstring. */
 export const FreshRow = ({ title }: { title: string }) => {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const openMenu = useLibraryContextMenu();
     const { data, isLoading } = useLbBotFreshReleases(30);
@@ -51,6 +54,18 @@ export const FreshRow = ({ title }: { title: string }) => {
                                 />
                             )
                         }
+                        badge={
+                            <span
+                                className={clsx(
+                                    styles.ownedBadge,
+                                    release.releaseOwned ? styles.owned : styles.notOwned,
+                                )}
+                                data-owned-badge={release.releaseOwned ? 'owned' : 'not-owned'}
+                            >
+                                {release.releaseOwned ? t('common.owned') : t('common.notOwned')}
+                            </span>
+                        }
+                        badgePlacement="top-start"
                         imageUrl={release.coverUrl}
                         isUnowned={!release.releaseOwned}
                         itemType={LibraryItem.ALBUM}
@@ -82,7 +97,7 @@ export const FreshRow = ({ title }: { title: string }) => {
                 ),
                 id: `${release.releaseGroupMbid || release.releaseMbid}-${release.artist}`,
             })),
-        [navigate, openMenu, releases],
+        [navigate, openMenu, releases, t],
     );
 
     return (
