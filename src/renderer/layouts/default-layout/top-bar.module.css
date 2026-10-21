@@ -5,7 +5,7 @@
     align-items: center;
     min-width: 0;
     height: var(--top-bar-height);
-    padding: 0 4px;
+    padding: 0 calc(var(--panel-gap, 0px) + 4px);
     overflow: hidden;
     background: var(--theme-colors-background);
     -webkit-app-region: drag;

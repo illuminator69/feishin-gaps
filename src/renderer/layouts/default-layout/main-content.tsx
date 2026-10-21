@@ -135,7 +135,12 @@ export const MainContent = ({ shell }: { shell?: boolean }) => {
             if (!mainContentRef.current) return;
 
             if (isResizing) {
-                const width = mouseMoveEvent.clientX;
+                // The card's width, not the cursor's x: the card starts after the window margin.
+                const container = mainContentRef.current;
+                const gap =
+                    parseFloat(getComputedStyle(container).getPropertyValue('--panel-gap')) || 0;
+                const width =
+                    mouseMoveEvent.clientX - (container.getBoundingClientRect().left + gap);
                 const constrainedWidthValue = constrainSidebarWidth(width);
                 const constrainedWidth = `${constrainedWidthValue}px`;
 

@@ -5,6 +5,9 @@
     grid-template-areas: 'sidebar . right-sidebar';
     grid-template-rows: 1fr;
     gap: 0;
+
+    /* The cards' window margins; each column track carries its own gap, so an empty track costs nothing. */
+    padding: 0 var(--panel-gap) var(--panel-gap);
     background: var(--theme-colors-background);
 
     /* The cover wash shows through; the sidebars keep their translucent surface. */
@@ -39,11 +42,11 @@
      * queue; the base template already declares the 3 grid areas so the empty track is valid.
      */
     :root[data-motion='true'] &.sidebar-expanded:not(.right-expanded, .vertical-layout) {
-        grid-template-columns: var(--sidebar-width) 1fr 0;
+        grid-template-columns: calc(var(--sidebar-width) + var(--panel-gap)) 1fr 0;
     }
 
     :root[data-motion='true'] &.sidebar-collapsed:not(.right-expanded, .vertical-layout) {
-        grid-template-columns: 80px 1fr 0;
+        grid-template-columns: calc(80px + var(--panel-gap)) 1fr 0;
     }
 }
 
@@ -52,36 +55,36 @@
 }
 
 .main-content-container.sidebar-collapsed {
-    grid-template-columns: 80px 1fr;
+    grid-template-columns: calc(80px + var(--panel-gap)) 1fr;
 }
 
 .main-content-container.sidebar-expanded {
-    grid-template-columns: var(--sidebar-width) 1fr;
+    grid-template-columns: calc(var(--sidebar-width) + var(--panel-gap)) 1fr;
 }
 
 .main-content-container.sidebar-expanded.queue-rail {
-    grid-template-columns: var(--sidebar-width) 1fr 44px;
+    grid-template-columns: calc(var(--sidebar-width) + var(--panel-gap)) 1fr calc(44px + var(--panel-gap));
 }
 
 .main-content-container.sidebar-collapsed.queue-rail {
-    grid-template-columns: 80px 1fr 44px;
+    grid-template-columns: calc(80px + var(--panel-gap)) 1fr calc(44px + var(--panel-gap));
 }
 
 /* Under motion the closed panel's track is the rail's 44px, so opening it eases 44px to the panel's width. */
 :root[data-motion='true'] .main-content-container.sidebar-expanded.queue-rail:not(.right-expanded, .vertical-layout) {
-    grid-template-columns: var(--sidebar-width) 1fr 44px;
+    grid-template-columns: calc(var(--sidebar-width) + var(--panel-gap)) 1fr calc(44px + var(--panel-gap));
 }
 
 :root[data-motion='true'] .main-content-container.sidebar-collapsed.queue-rail:not(.right-expanded, .vertical-layout) {
-    grid-template-columns: 80px 1fr 44px;
+    grid-template-columns: calc(80px + var(--panel-gap)) 1fr calc(44px + var(--panel-gap));
 }
 
 .main-content-container.right-expanded {
-    grid-template-columns: var(--sidebar-width) 1fr var(--right-sidebar-width);
+    grid-template-columns: calc(var(--sidebar-width) + var(--panel-gap)) 1fr calc(var(--right-sidebar-width) + var(--panel-gap));
 }
 
 .main-content-container.sidebar-collapsed.right-expanded {
-    grid-template-columns: 80px 1fr var(--right-sidebar-width);
+    grid-template-columns: calc(80px + var(--panel-gap)) 1fr calc(var(--right-sidebar-width) + var(--panel-gap));
 }
 
 .main-content-container.vertical-layout {
@@ -89,17 +92,14 @@
         'sidebar .'
         'sidebar right-sidebar';
     grid-template-rows: minmax(0, 1fr) var(--right-sidebar-height);
-    grid-template-columns: var(--sidebar-width) 1fr;
+    grid-template-columns: calc(var(--sidebar-width) + var(--panel-gap)) 1fr;
+    row-gap: var(--panel-gap);
 }
 
 .main-content-container.sidebar-collapsed.vertical-layout {
-    grid-template-columns: 80px 1fr;
+    grid-template-columns: calc(80px + var(--panel-gap)) 1fr;
 }
 
-.main-content-container.vertical-layout #sidebar-queue {
-    border-top: 1px solid alpha(var(--theme-colors-border), 0.5);
-    border-left: 0;
-}
 
 .main-content-body {
     display: flex;
@@ -107,6 +107,12 @@
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
+    border-radius: var(--panel-radius, 0);
+
+    /* The page is a card on the wash, the same translucent surface as the sidebar and the queue panel. */
+    :root[data-cover-wash='true'] & {
+        background: var(--theme-colors-background-alternate);
+    }
 }
 
 .main-content-body-scroll {

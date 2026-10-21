@@ -9,6 +9,11 @@
     /* A column too short for the group stack scrolls as a whole, so the lower groups stay reachable. */
     overflow-y: auto;
     background: var(--theme-colors-background-alternate);
+
+    /* The #sidebar card already paints the translucent surface: one layer, as the queue panel has. */
+    :root[data-cover-wash='true'] & {
+        background: transparent;
+    }
 }
 
 .container.custom-bar {
@@ -97,6 +102,10 @@
 .accordion-content {
     padding: 0;
     background: var(--theme-colors-background-alternate);
+
+    :root[data-cover-wash='true'] & {
+        background: transparent;
+    }
 }
 
 .accordion-content:last-child {

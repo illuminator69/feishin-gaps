@@ -3,9 +3,16 @@
     --window-bar-height: 0px;
     --top-bar-height: 52px;
     --player-bar-height: 90px;
-    --content-height: calc(
+
+    /* The sidebar, the page and the queue panel are cards this far apart, with this radius. */
+    --panel-gap: 8px;
+    --panel-radius: 10px;
+
+    /* The main row, and the height of a card in it (the gap stays free under the cards). */
+    --main-row-height: calc(
         100dvh - var(--window-bar-height) - var(--top-bar-height) - var(--player-bar-height)
     );
+    --content-height: calc(var(--main-row-height) - var(--panel-gap));
 
     display: grid;
     grid-template-areas:
@@ -14,7 +21,7 @@
         'main-content'
         'player';
     grid-template-rows:
-        var(--window-bar-height) var(--top-bar-height) var(--content-height)
+        var(--window-bar-height) var(--top-bar-height) var(--main-row-height)
         var(--player-bar-height);
     grid-template-columns: 1fr;
     gap: 0;
@@ -33,7 +40,9 @@
     --window-bar-height: 30px;
 }
 
-/* Login and action-required: no top bar. */
+/* Login and action-required: no top bar, no cards. */
 .shell {
     --top-bar-height: 0px;
+    --panel-gap: 0px;
+    --panel-radius: 0px;
 }
