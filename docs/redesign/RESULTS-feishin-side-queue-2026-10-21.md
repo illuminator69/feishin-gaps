@@ -154,7 +154,7 @@ primary on the tint measured 3.27 (3.64 on the plain row before F4), so the row'
 
 ## Rulings I made
 
-See the appended section after the review: the ledger's `Ruling:` lines, in order, each with its cost if wrong.
+In the section appended after the review, in order, each with its cost if wrong.
 
 ## Open for the owner
 
@@ -170,7 +170,9 @@ See the appended section after the review: the ledger's `Ruling:` lines, in orde
 7. **Looks to overrule**: the playing row with `Cover colours` off (primary tint, foreground text); the dimmed characters at 2.09 to 2.45; the
    switch's track against the card at 1.00 to 1.29 (the board's roles); the status line under the title, which the board does not draw; the header's
    height (236 px) leaving about two rows at 800 x 600 and **one row in the vertical layout**; the Up next / Related tab resetting when the panel is
-   hidden and shown; the `SearchInput` width animation under reduced motion.
+   hidden and shown; the `SearchInput` width animation under reduced motion; with follow-current off, a track change that adds or removes a caption
+   above the view (the first skip adds "Earlier") moves the list by one caption; Table settings' row size and header switch do nothing in the grouped
+   panel (rows are 48 px, no column header).
 8. **Not verifiable here**: a real hub's station edits, a real mouse drag, a real remote session.
 
 ## Try this
@@ -182,3 +184,53 @@ See the appended section after the review: the ledger's `Ruling:` lines, in orde
 - Type in the queue's search: the captions go, and come back when cleared.
 - Turn `Cover colours` off: the playing row becomes a primary tint with plain text.
 - The vertical side-queue layout and an 800 x 600 window: how much queue is left under the header.
+
+## The review (appended after the branch's last task)
+
+One fresh reviewer (a separate agent on the most capable model, not the author) read the whole branch `a2094cf..639749e` with the plan, the addendum,
+the plan's Review Focus and the ledger's rulings. It re-ran the web type-check, eslint on the 25 files and the four new or changed harnesses. Verdict:
+ready to merge with fixes. No Critical finding; two Important; eight Minor.
+
+| Finding | Graded | Outcome |
+|---|---|---|
+| The Ctrl+L show-playing hotkey found the row by the local player's song id (a song queued twice, or another device playing, lands elsewhere) | Important | **Fixed** (`fe629c3`): the active row's own id first, the song id as the fallback. Check: the playing song duplicated at row 5, ctrl+l: before scrollTop 32 with the playing row out of view, after 1744 with it centred (offset 0); a remote session after the fix: offset 0 |
+| With the wash on, the playing row's opaque container hid its selection and hover (Delete could act on a selection you cannot see) | Important | **Fixed** (`dd18426`): selection and hover are mixed into the container, toward the window's `mid`. Pixel inside the row: plain (128, 64, 54), before the fix the same for selected and hovered, after (106, 50, 41) and (117, 57, 48). Text on the selected container 7.99 to 9.46 at hues 40, 120, 250 dark and light (a first attempt mixing toward the foreground measured 3.97 to 4.08 in dark and was replaced) |
+| "Large" row size clipping two-line titles in the 48 px rows | Minor, regraded Important | **Did not reproduce**: 12 long titles, one line each (19 px), none past its row. Ruling below; the size and header options have no effect in the grouped panel |
+| Nothing playing with Autoplay on shows the switch on | Minor | Ruling below (kept) |
+| The other six | Minor | Deferred, listed below |
+
+After the fixes: both type-checks clean, eslint and stylelint clean on the touched files, 47 harness files, 783 pass, 0 fail.
+
+### Rulings I made (from the ledger, in order)
+
+- Task 2: a blank or whitespace-only name, station name or source name counts as no title - a record can carry an empty string and the header must not draw an empty bold line - cost if wrong: a queue named with spaces shows no Playing from block
+- Task 3: the selected-already guard lives inside toggleStationAutoplay (it recomputes selectedChip from the stores) rather than in the header component - one entry point, so any future caller gets the guard - cost if wrong: none visible; a caller that wanted a forced re-tap cannot get one through it
+- Task 4: the dev handle (src/renderer/dev-handle.ts, dev-only, kept) also exposes useHubStore, useStationStore, useSavedQueuesStore (add. 25) and useAppStore (to set the panel width without a reload) - the states cannot be set otherwise without importing by URL - cost if wrong: four more dev-only entries on window.__f2
+- Task 4: the count line drops the length below a 280 px header content width (a panel of about 308 px or less) with a CSS container query instead of a ResizeObserver tier; search stays the expanding icon, everything else is in the ... menu - no JS for a pure layout decision; measured nothing sticking out at 250, 300, 360, 520, 960 - cost if wrong: at 300 px the length is hidden though it might just fit
+- Task 4: go to current in the header finds the playing row by id in the table's own rows (internalState.findItemIndex(playingRowId)) and scrolls to it; Task 5 makes the table's scrollToIndex group-aware so this stays correct with headers, and PlayQueue's own scrollToPlaying is added there for follow-current - cost if wrong: two call paths to the same scroll
+- Task 4: the sentence under the title joins with " · " (the app's convention, as the status line) where the board writes " - ", and with Autoplay off and no station it shows only the kind word (the status line already says "Autoplay is off") - cost if wrong: a wording change in one function
+- Task 4: the count line (search, ..., Clear) is shown only on the Up next tab, as the old toolbar was; on Related the header ends at the switch - cost if wrong: none for the queue; Related never had those controls
+- Task 4: with Cover colours off the selected segment and the switch's on-track use the theme's primary-filled / primary-contrast pair (as the existing Switch does); with it on F2's accc / accct - cost if wrong: a colour pair in one CSS file
+- Task 4: the Autoplay switch is Mantine's sm (its size vars are inline styles, so the board's 36 x 20 is not forced); its label is the board's small-caps "Autoplay" - cost if wrong: a 2 px difference in the switch width
+- Task 5: onShowPlayingSong is not converted itself: it calls the handle's scrollToIndex, which now converts data to row index once (converting there too would add the headers twice); the plan's "three places" are the handle, the keyboard and scrollCellProps - cost if wrong: none found, the hotkey landed with offset 0
+- Task 5: PlayQueue gets no scrollToPlaying() on its handle; the header's go to current (Task 4) already finds the playing row by id in the table's rows, and follow-current is an effect inside PlayQueue - one implementation instead of two - cost if wrong: a future caller wanting scrollToPlaying adds three lines
+- Task 5: in grouped mode the store-driven scrolls (subscribeCurrentTrack, the initial setTimeout scroll and the AUTODJ_QUEUE_ADDED re-centre) are off; the effect keyed on the playing row id (and the grouping signature) scrolls only when the playing row changes, so a regroup alone (chip tap, top-up, reorder) never scrolls - plan 5.14 and 5.17 - cost if wrong: with follow-current on, a top-up no longer re-centres the playing row in the side panel (it still does on the other surfaces)
+- Task 5: nothing playing (no playing row among the shown rows) draws no group header at all, not a lone "Up next" (add. 6.5 "no headers"); queueGroups itself keeps the plan's all-next rule - cost if wrong: a queue with no current song shows no caption
+- Task 5: the served-id rule moved into station-store.ts servedIdsOf(state), used by readSnapshot and useQueueRows; remote rows never carry _stationId, so one expression (Boolean(_stationId) || served.has(id)) serves both - cost if wrong: none, readSnapshot's behaviour is unchanged
+- Task 5: no scroll anchoring for a header appearing above the viewport; the three regroups the plan names (chip tap, top-up at the end, reorder below) were measured not to move the row under a fixed point; a regroup that inserts a header above the viewport (served ids arriving for rows above) would shift the view by one caption - cost if wrong: a one-caption jump in that rare case
+- Task 6: the playing row's container is painted by a ::before layer on each cell of the active row (data-queue-active, data-queue-edge first/last/both for the 4 px insets and radius 8), behind a new table prop markActiveRow that only the side queue sets; the hover delegate is untouched - no row element exists - cost if wrong: a cell type that clips its own ::before would show a gap in the container
+- Task 6: with Cover colours off the container is a 16 percent primary tint (color-mix over primary-filled) and the whole row's text takes the foreground colour; the title's primary on the tint measured 3.27:1 (3.64 on the plain row before F4), the foreground 13.74:1 (default dark theme) - cost if wrong: the side queue's playing title is no longer the primary colour with the wash off
+- Task 6: the artist line in the playing row is accct at full strength, not the board's .85 opacity (the column's own classes are not reachable from the cell's CSS without coupling the two modules) - cost if wrong: the artist line reads as strong as the title
+- Task 6: Mantine's dividers between unselected segments are turned off (withItemsBorders false) on both segmented controls; the board draws none - cost if wrong: none
+- Task 7: the sweep found Mantine's switch thumb slide (150 ms) and segment label colour fade (250 ms) running under reduced motion; turned off in the header's own CSS in a separate fix commit; the existing SearchInput width transition (0.3 s) is left as it is (shared component, other surfaces) - cost if wrong: one CSS block
+- Final: reviewer minor 6 regraded Important (side queue size large in 48 px rows) - large.js check did not fail: 12 two-line-capable long titles render one line, 19 px, none overflowing a 48 px row; the size and header options in Table settings simply have no effect in the grouped panel - cost if wrong: a setting that silently does nothing there (owner note)
+- Final: reviewer minor 9 (nothing playing with autoDJ on shows the switch on and characters undimmed, where add. 6.5 says off and dimmed) - the switch shows this device's preference, which is what a tap would act on; forcing it off would show a state that is not stored - cost if wrong: an empty queue shows Autoplay on
+
+### Deferred minors
+
+- a track change with follow-current off can shift the list by one caption height (the first skip adds "Earlier" above; the last Queued-by-you row playing removes its caption), not only when served ids arrive (ruling 29 understates it)
+- the dimming tween and the equaliser are gated on prefers-reduced-motion only, not on the app's Expressive motion switch (:root[data-motion='true'])
+- the separators ", " and " · " in the count line and the Playing from sentence are outside t()
+- arrow keys inside the character control send one chip tap per step (last one wins)
+- useQueueRows runs (and subscribes to the station store) in the drawer, popover and Now Playing queues too, where grouping is off
+- the playing row's "color: inherit" on every descendant gives a favourited heart an accct stroke over its primary fill
