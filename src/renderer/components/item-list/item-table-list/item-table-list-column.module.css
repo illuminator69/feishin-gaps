@@ -133,6 +133,15 @@
     }
 }
 
+/*
+ * With the cover wash the highlight is translucent, so the 1px side shadows (which hide sub-pixel seams
+ * between opaque cells) overlap the next cell and draw a brighter line at every cell edge.
+ */
+:root[data-cover-wash='true'] .container.data-row.row-hover-highlight-enabled[data-row-hovered='true'],
+:root[data-cover-wash='true'] .container.data-row.row-selected {
+    box-shadow: none;
+}
+
 .container.data-row.row-selected.with-vertical-border,
 .container.data-row.row-hover-highlight-enabled[data-row-hovered='true'].with-vertical-border {
     border-right-color: transparent;
