@@ -1,12 +1,14 @@
 import type { Variants } from 'motion/react';
 import type { ReactNode } from 'react';
 
+import clsx from 'clsx';
 import { AnimatePresence, motion } from 'motion/react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import styles from './grid-carousel.module.css';
 
 import { DataRow, MemoizedItemCard } from '/@/renderer/components/item-card/item-card';
+import { type ArrivalProps, useArrival } from '/@/renderer/features/motion/use-arrival';
 import { useContainerQuery } from '/@/renderer/hooks';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Group } from '/@/shared/components/group/group';
@@ -31,6 +33,8 @@ interface Card {
 }
 
 interface GridCarouselProps {
+    /** The first tiles rise in once, when the carousel first has cards (default true). */
+    arrive?: boolean;
     cards: Card[];
     containerQuery?: ReturnType<typeof useGridCarouselContainerQuery>;
     enableRefresh?: boolean;
@@ -46,9 +50,17 @@ interface GridCarouselProps {
     title?: ReactNode | string;
 }
 
-const MemoizedCard = memo(({ content }: { content: ReactNode }) => (
-    <div className={styles.card}>{content}</div>
-));
+const MemoizedCard = memo(
+    ({ arrival, content }: { arrival?: ArrivalProps; content: ReactNode }) => (
+        <div
+            className={clsx(styles.card, arrival?.className)}
+            data-arrive={arrival?.['data-arrive']}
+            style={arrival?.style}
+        >
+            {content}
+        </div>
+    ),
+);
 
 MemoizedCard.displayName = 'MemoizedCard';
 
@@ -64,6 +76,7 @@ const pageVariants: Variants = {
 
 function BaseGridCarousel(props: GridCarouselProps) {
     const {
+        arrive = true,
         cards,
         containerQuery: providedContainerQuery,
         enableRefresh = false,
@@ -155,6 +168,14 @@ function BaseGridCarousel(props: GridCarouselProps) {
         placeholderItemType,
         placeholderRows,
     ]);
+
+    // Computed once per change of the page's cards: after the window closes (a page flip, a later
+    // refetch) every card gets none.
+    const { propsFor } = useArrival(arrive && visibleCards.length > 0);
+    const arrivals = useMemo(
+        () => visibleCards.map((_, index) => propsFor(index)),
+        [visibleCards, propsFor],
+    );
 
     const shouldLoadNextPage = visibleCards.length < cardsToShow * rowCount;
 
@@ -346,8 +367,12 @@ function BaseGridCarousel(props: GridCarouselProps) {
                             }
                             variants={pageVariants}
                         >
-                            {visibleCards.map((card) => (
-                                <MemoizedCard content={card.content} key={card.id} />
+                            {visibleCards.map((card, index) => (
+                                <MemoizedCard
+                                    arrival={arrivals[index]}
+                                    content={card.content}
+                                    key={card.id}
+                                />
                             ))}
                         </motion.div>
                     </AnimatePresence>
@@ -415,6 +440,7 @@ const GridCarouselSkeleton = (props: GridCarouselSkeletonProps) => {
 
     return (
         <GridCarousel
+            arrive={false}
             cards={placeholderCards}
             containerQuery={containerQuery}
             enableRefresh={enableRefresh}
