@@ -5,6 +5,9 @@ import type { ChipState, QueueEntry } from './station-chips.ts';
 import type { StationBinding } from './station-logic.ts';
 
 import {
+    autoplayIsOn,
+    autoplayToggleChip,
+    characterChips,
     chipLine,
     chipsFor,
     KEEP_NEXT_UNDER_MS,
@@ -455,4 +458,55 @@ test('the line is the origin then the status, either alone, or nothing', () => {
     );
     assert.equal(chipLine(null, null), null);
     assert.equal(chipLine('  ', ''), null);
+});
+
+// F4: the side queue's Autoplay toggle is the chip Off or the preferred character, over the
+// same tap plan, and its character row is the three characters only.
+
+test('offToggleIsTheOffChip', () => {
+    assert.equal(autoplayToggleChip(false, true, 'balanced'), 'off');
+    assert.equal(autoplayToggleChip(false, false, 'explore'), 'off');
+    const state: ChipState = {
+        autoplay: true,
+        bound: bound(),
+        mode: 'stations',
+        preferred: 'balanced',
+    };
+    const queue = { keepNext: false, playOrder: [], position: 0 };
+    assert.deepEqual(
+        planChipTap(autoplayToggleChip(false, true, 'balanced'), state, queue),
+        planChipTap('off', state, queue),
+    );
+});
+
+test('onToggleIsThePreferredCharacterWithTheEngine', () => {
+    assert.equal(autoplayToggleChip(true, true, 'explore'), 'explore');
+    assert.equal(autoplayToggleChip(true, true, 'close'), 'close');
+});
+
+test('onToggleIsAutoDjWithoutIt', () => {
+    assert.equal(autoplayToggleChip(true, false, 'explore'), 'autoDj');
+});
+
+test('characterChipsAreTheThreeCharacters', () => {
+    assert.deepEqual(characterChips(['off', 'close', 'balanced', 'explore']), [
+        'close',
+        'balanced',
+        'explore',
+    ]);
+    assert.deepEqual(characterChips(chipsFor('stations')), ['close', 'balanced', 'explore']);
+    assert.deepEqual(characterChips(chipsFor('pending')), ['close', 'balanced', 'explore']);
+});
+
+test('characterChipsOfTheFallbackAreEmpty', () => {
+    assert.deepEqual(characterChips(['off', 'autoDj']), []);
+    assert.deepEqual(characterChips(chipsFor('fallback')), []);
+});
+
+test('theToggleIsOnIffTheSelectedChipIsNotOff', () => {
+    assert.equal(autoplayIsOn('off'), false);
+    assert.equal(autoplayIsOn('autoDj'), true);
+    assert.equal(autoplayIsOn('close'), true);
+    assert.equal(autoplayIsOn('balanced'), true);
+    assert.equal(autoplayIsOn('explore'), true);
 });

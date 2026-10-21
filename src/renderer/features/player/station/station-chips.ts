@@ -25,6 +25,24 @@ export const FALLBACK_CHIPS: readonly ChipId[] = ['off', 'autoDj'];
 export const chipsFor = (mode: StationMode): readonly ChipId[] =>
     mode === 'fallback' ? FALLBACK_CHIPS : STATION_CHIPS;
 
+/**
+ * The side queue's Autoplay toggle (F4) is a tap on one chip, so the tap plan, the hub edit and
+ * the signals have one code path: off is Off; on is the preferred character with the station
+ * engine and Auto DJ without it.
+ */
+export const autoplayToggleChip = (
+    turnOn: boolean,
+    stationsAvailable: boolean,
+    preferred: StationCharacterId,
+): ChipId => (!turnOn ? 'off' : stationsAvailable ? preferred : 'autoDj');
+
+/** The character chips only (no Off, no Auto DJ): empty without the station engine. */
+export const characterChips = (chips: readonly ChipId[]): StationCharacterId[] =>
+    chips.filter((chip): chip is StationCharacterId => chip !== 'off' && chip !== 'autoDj');
+
+/** The toggle shows on iff the selected chip is not Off. */
+export const autoplayIsOn = (selected: ChipId): boolean => selected !== 'off';
+
 export interface ChipState {
     /** This device's preference: `autoDJ.enabled`. */
     autoplay: boolean;
