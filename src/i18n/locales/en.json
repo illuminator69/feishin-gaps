@@ -1713,6 +1713,23 @@
             "yourMix": "Your mix",
             "yourMix_failed": "Your mix could not be started just now."
         },
+        "moods": {
+            "aboutSongs": "About {{count}} songs",
+            "building": "Choosing songs for {{title}}...",
+            "clearMood": "Clear mood",
+            "empty": "None of this mix is in your library yet.",
+            "label": "Moods",
+            "ownedOnly": "Owned music only. Songs are chosen when a mix opens.",
+            "play": "Play {{title}}",
+            "playFailed": "Could not play {{title}}",
+            "playThese": "Play these",
+            "previewHeader": "{{mood}} mix, {{count}} songs, {{length}}, from your library",
+            "retry": "Retry",
+            "savedFrom": "Saved from these mixes",
+            "short": "Only {{count}} songs of this mix are in your library yet.",
+            "unavailable": "Mood search is not available right now",
+            "unavailableBody": "Your library and everything else still work."
+        },
         "queue": {
             "autoplay": "Autoplay",
             "autoplayContinues": "autoplay continues after it",

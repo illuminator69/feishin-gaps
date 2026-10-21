@@ -120,21 +120,24 @@ const contrast = (a: number[], b: number[]) => {
 };
 const WHITE = [255, 255, 255];
 
-/** The tile's worst case at one end: white and white at .88 over the end, plain or under the board's stripe. */
-const worstAt = (end: Hsl, otherHue: number): number => {
+/**
+ * The tile's worst case at one end: white and white at .88 over the end, plain or under the stripe
+ * overlay. The tile paints one stripe, in its second hue, over both ends; both hues are checked.
+ */
+const worstAt = (end: Hsl, stripeHues: number[]): number => {
     const base = hslToRgb(end);
-    const striped = blend(hslToRgb({ h: otherHue, l: 70, s: 80 }), 0.14, base);
+    const backgrounds = [
+        base,
+        ...stripeHues.map((h) => blend(hslToRgb({ h, l: 70, s: 80 }), 0.14, base)),
+    ];
     return Math.min(
-        ...[base, striped].flatMap((bg) => [
-            contrast(WHITE, bg),
-            contrast(blend(WHITE, 0.88, bg), bg),
-        ]),
+        ...backgrounds.flatMap((bg) => [contrast(WHITE, bg), contrast(blend(WHITE, 0.88, bg), bg)]),
     );
 };
 
-const settle = (end: Hsl, otherHue: number): Hsl => {
+const settle = (end: Hsl, stripeHues: number[]): Hsl => {
     let l = end.l;
-    while (l > 5 && worstAt({ ...end, l }, otherHue) < 4.5) l -= 1;
+    while (l > 5 && worstAt({ ...end, l }, stripeHues) < 4.5) l -= 1;
     return { ...end, l };
 };
 
@@ -145,5 +148,8 @@ const settle = (end: Hsl, otherHue: number): Hsl => {
  */
 export const tileColors = (variant: MoodVariant): { from: Hsl; to: Hsl } => {
     const [a, b] = variant.hue.length === 2 ? variant.hue : tintHues(variant.id);
-    return { from: settle({ h: a, l: 44, s: 58 }, b), to: settle({ h: b, l: 24, s: 60 }, a) };
+    return {
+        from: settle({ h: a, l: 44, s: 58 }, [a, b]),
+        to: settle({ h: b, l: 24, s: 60 }, [a, b]),
+    };
 };

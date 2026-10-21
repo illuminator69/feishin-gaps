@@ -1,3 +1,5 @@
+import { useCallback } from 'react';
+
 import { api } from '/@/renderer/api';
 import { fetchMoodList } from '/@/renderer/features/moods/mood-client';
 import {
@@ -11,7 +13,10 @@ import {
     MOOD_MIX_SIZE,
     withinLength,
 } from '/@/renderer/features/moods/mood-mix';
+import { usePlayer } from '/@/renderer/features/player/context/player-context';
+import { beginQueueSession } from '/@/renderer/features/player/utils/saved-queue-source';
 import { Song } from '/@/shared/types/domain-types';
+import { Play } from '/@/shared/types/types';
 
 /** At most this many song lookups in flight. */
 const IN_FLIGHT = 8;
@@ -98,4 +103,21 @@ export const drawMoodMix = async (args: {
         songs: arranged.map((entry) => entry.song),
         state: state === 'loading' ? 'empty' : state,
     };
+};
+
+/**
+ * Play a drawn mix: a radio-kind session named after the tile, so the saved queue it becomes is
+ * found again under "Saved from these mixes". The tile's play button and the preview's "Play
+ * these" both come here, with the list they hold (never a second draw).
+ */
+export const usePlayDrawn = () => {
+    const player = usePlayer();
+    return useCallback(
+        (songs: Song[], title: string) => {
+            if (songs.length === 0) return;
+            beginQueueSession('radio', title);
+            player.addToQueueByData(songs, Play.NOW);
+        },
+        [player],
+    );
 };

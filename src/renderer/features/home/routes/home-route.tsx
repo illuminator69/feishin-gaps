@@ -19,6 +19,7 @@ import {
     useLbBotAvailable,
     useLbBotRouteSupport,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { MoodSection } from '/@/renderer/features/moods/components/mood-section';
 import { AnimatedPage } from '/@/renderer/features/shared/components/animated-page';
 import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
 import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
@@ -38,9 +39,6 @@ import { Stack } from '/@/shared/components/stack/stack';
 import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { AlbumListSort, ServerType, SongListSort, SortOrder } from '/@/shared/types/domain-types';
 import { Platform } from '/@/shared/types/types';
-
-/** Task 8 fills this with the mood chips and the mixes body; for now it renders the shelves as they are. */
-const HomeMoodSlot = ({ children }: { children: ReactNode }) => <>{children}</>;
 
 /** Discover's rows that Home can show, by Home id. */
 const HOME_DISCOVER_ROWS: Partial<
@@ -206,27 +204,29 @@ const HomeRoute = () => {
                         <TextTitle className={styles.title} data-home-title order={1}>
                             {t('page.home.title')}
                         </TextTitle>
-                        <HomeMoodSlot>
-                            {homeFeature && (
-                                <div data-home-shelf="feature">
-                                    {homeFeatureStyle === HomeFeatureStyle.MULTIPLE ? (
-                                        <AlbumInfiniteFeatureCarousel />
-                                    ) : (
-                                        <AlbumInfiniteSingleFeatureCarousel />
-                                    )}
-                                </div>
-                            )}
-                            <div data-home-shelf="continue">
-                                <ContinueListeningRow />
-                            </div>
-                            {homeItems
-                                .filter((item) => !item.disabled)
-                                .map((item) => (
-                                    <div data-home-shelf={item.id} key={item.id}>
-                                        {shelf(item.id as HomeItem)}
+                        <MoodSection>
+                            <Stack gap="2xl">
+                                {homeFeature && (
+                                    <div data-home-shelf="feature">
+                                        {homeFeatureStyle === HomeFeatureStyle.MULTIPLE ? (
+                                            <AlbumInfiniteFeatureCarousel />
+                                        ) : (
+                                            <AlbumInfiniteSingleFeatureCarousel />
+                                        )}
                                     </div>
-                                ))}
-                        </HomeMoodSlot>
+                                )}
+                                <div data-home-shelf="continue">
+                                    <ContinueListeningRow />
+                                </div>
+                                {homeItems
+                                    .filter((item) => !item.disabled)
+                                    .map((item) => (
+                                        <div data-home-shelf={item.id} key={item.id}>
+                                            {shelf(item.id as HomeItem)}
+                                        </div>
+                                    ))}
+                            </Stack>
+                        </MoodSection>
                     </Stack>
                 </LibraryContainer>
             </NativeScrollArea>

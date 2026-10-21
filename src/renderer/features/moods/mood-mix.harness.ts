@@ -210,19 +210,20 @@ test('tileColorsGiveWhiteTextAtLeast4.5OnBothEnds', () => {
             const { from, to } = tileColors({ hue: [a, b], id: 'x', title: 'X' });
             if (from.l < 35) lightEndBelow35.add(from.h);
             if (to.l < 24) darkEndBelow24.add(to.h);
-            for (const [end, otherHue] of [
-                [from, to.h],
-                [to, from.h],
-            ] as const) {
+            // The tile paints one stripe (hsl(B 80% 70%) at .14) over both ends; the plan's wording
+            // blends each end with the other end's hue: both hues are checked on both ends.
+            for (const end of [from, to]) {
                 const base = hslToRgb(end.h, end.s, end.l);
-                for (const bg of [base, blend(hslToRgb(otherHue, 80, 70), 0.14, base)]) {
-                    for (const text of [WHITE, blend(WHITE, 0.88, bg)]) {
-                        const r = contrast(text, bg);
-                        if (r < worst.ratio)
-                            worst = {
-                                at: `hue ${a} -> ${b}, end h${end.h} s${end.s} l${end.l}`,
-                                ratio: r,
-                            };
+                for (const stripe of [from.h, to.h]) {
+                    for (const bg of [base, blend(hslToRgb(stripe, 80, 70), 0.14, base)]) {
+                        for (const text of [WHITE, blend(WHITE, 0.88, bg)]) {
+                            const r = contrast(text, bg);
+                            if (r < worst.ratio)
+                                worst = {
+                                    at: `hue ${a} -> ${b}, end h${end.h} s${end.s} l${end.l}`,
+                                    ratio: r,
+                                };
+                        }
                     }
                 }
             }
