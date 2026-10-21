@@ -11,7 +11,7 @@ import { SimilarArtistsRow } from '/@/renderer/features/discover/components/simi
 import { DISCOVER_ROWS, DiscoverRowId } from '/@/renderer/features/discover/discover-rows';
 import { AlbumInfiniteFeatureCarousel } from '/@/renderer/features/home/components/album-infinite-feature-carousel';
 import { AlbumInfiniteSingleFeatureCarousel } from '/@/renderer/features/home/components/album-infinite-single-feature-carousel';
-import { ContinueListeningCarousel } from '/@/renderer/features/home/components/continue-listening-carousel';
+import { ContinueListeningRow } from '/@/renderer/features/home/components/continue-listening-row';
 import { FeaturedGenres } from '/@/renderer/features/home/components/featured-genres';
 import { PlaylistInfiniteCarousel } from '/@/renderer/features/home/components/playlist-infinite-carousel';
 import styles from '/@/renderer/features/home/routes/home-route.module.css';
@@ -217,7 +217,7 @@ const HomeRoute = () => {
                                 </div>
                             )}
                             <div data-home-shelf="continue">
-                                <ContinueListeningCarousel containerQuery={containerQuery} />
+                                <ContinueListeningRow />
                             </div>
                             {homeItems
                                 .filter((item) => !item.disabled)
