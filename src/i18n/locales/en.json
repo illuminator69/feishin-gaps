@@ -1709,6 +1709,32 @@
             "yourMix": "Your mix",
             "yourMix_failed": "Your mix could not be started just now."
         },
+        "queue": {
+            "autoplay": "Autoplay",
+            "autoplayContinues": "autoplay continues after it",
+            "group": {
+                "autoplay": "Autoplay",
+                "earlier": "Earlier",
+                "nowPlaying": "Now playing",
+                "queuedByYou": "Queued by you",
+                "upNext": "Up next"
+            },
+            "kind": {
+                "album": "Album",
+                "journey": "Journey",
+                "moodFlow": "Mood mix",
+                "playlist": "Playlist",
+                "radio": "Station"
+            },
+            "lengthHours": "{{hours}}h {{minutes}}m",
+            "lengthMinutes": "{{minutes}} min",
+            "playingFrom": "Playing from",
+            "playingOn": "Playing on {{device}}",
+            "songs_one": "{{count}} song",
+            "songs_other": "{{count}} songs",
+            "stopped": "stopped",
+            "tableSettings": "Table settings"
+        },
         "savedQueuePreview": {
             "resume": "Resume",
             "resumesHere": "{{name}} (resumes here)"

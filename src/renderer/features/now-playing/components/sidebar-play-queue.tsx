@@ -13,11 +13,8 @@ import { lyricsQueries } from '/@/renderer/features/lyrics/api/lyrics-api';
 import { Lyrics } from '/@/renderer/features/lyrics/lyrics';
 import { DockedSimilarSongs } from '/@/renderer/features/now-playing/components/docked-similar-songs';
 import { PlayQueue } from '/@/renderer/features/now-playing/components/play-queue';
-import { PlayQueueListControls } from '/@/renderer/features/now-playing/components/play-queue-list-controls';
-import {
-    QueueSheetTab,
-    QueueSheetTabs,
-} from '/@/renderer/features/now-playing/components/queue-sheet-tabs';
+import { QueuePanelHeader } from '/@/renderer/features/now-playing/components/queue-panel-header';
+import { QueueSheetTab } from '/@/renderer/features/now-playing/components/queue-sheet-tabs';
 import { AppRoute } from '/@/renderer/router/routes';
 import {
     useCombinedLyricsAndVisualizer,
@@ -137,19 +134,25 @@ export const SidebarPlayQueue = () => {
         storage: localStorage,
     });
 
+    // F4: one header for both queue branches, in place of the icon tabs, the toolbar and the chips.
+    const header = (
+        <QueuePanelHeader
+            activeTab={activeTab}
+            listKey={ItemListKey.SIDE_QUEUE}
+            onSearch={setSearch}
+            onTabChange={setActiveTab}
+            searchTerm={search}
+            tableRef={tableRef}
+        />
+    );
+
     const renderPanel = (panelType: SidebarPanelType) => {
         if (panelType === 'queue') {
             return (
                 <Stack gap={0} h="100%" w="100%">
-                    <QueueSheetTabs activeTab={activeTab} onChange={setActiveTab} />
+                    {header}
                     {activeTab === 'queue' ? (
                         <>
-                            <PlayQueueListControls
-                                handleSearch={setSearch}
-                                searchTerm={search}
-                                tableRef={tableRef}
-                                type={ItemListKey.SIDE_QUEUE}
-                            />
                             <div className={styles.playQueueSection}>
                                 <PlayQueue
                                     listKey={ItemListKey.SIDE_QUEUE}
@@ -272,15 +275,9 @@ export const SidebarPlayQueue = () => {
             ) : (
                 showQueue && (
                     <Stack className={styles.queueOnly} gap={0} w="100%">
-                        <QueueSheetTabs activeTab={activeTab} onChange={setActiveTab} />
+                        {header}
                         {activeTab === 'queue' ? (
                             <>
-                                <PlayQueueListControls
-                                    handleSearch={setSearch}
-                                    searchTerm={search}
-                                    tableRef={tableRef}
-                                    type={ItemListKey.SIDE_QUEUE}
-                                />
                                 <Flex className={styles.queueOnlyContent} direction="column">
                                     <div className={styles.playQueueSection}>
                                         <PlayQueue
