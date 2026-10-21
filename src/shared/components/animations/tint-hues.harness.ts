@@ -44,3 +44,16 @@ test('shortSeedsAreValid', () => {
         assert.ok(a >= 0 && a <= 359 && b >= 0 && b <= 359);
     }
 });
+
+// Neighbouring ids sit side by side in a grid (al-15, al-16): their tints must not look alike.
+// Random hues would put about 5.6% of pairs within 10 degrees; allow up to 10%.
+test('neighbouringIdsGetDifferentTints', () => {
+    const dist = (x: number, y: number) => Math.min((x - y + 360) % 360, (y - x + 360) % 360);
+    let close = 0;
+    const n = 1000;
+    for (let i = 1; i <= n; i++) {
+        if (dist(tintHues(`al-${i}`)[0], tintHues(`al-${i + 1}`)[0]) < 10) close += 1;
+    }
+    console.log('neighbours within 10 degrees', close, 'of', n);
+    assert.ok(close <= n * 0.1, `${close} of ${n} neighbouring pairs within 10 degrees`);
+});
