@@ -1795,6 +1795,13 @@ const BaseItemTableList = ({
     );
 
     const onShowPlayingSong = useCallback(() => {
+        // The active row by its own id first: a song queued twice, or a session another device
+        // plays, has no single row for the local player's song id.
+        const activeIndex = activeRowId ? internalState.findItemIndex(activeRowId) : -1;
+        if (activeIndex >= 0) {
+            handleRef.current?.scrollToIndex(activeIndex, { align: 'center', behavior: 'auto' });
+            return;
+        }
         const targetId = usePlayerStore.getState().getCurrentSong()?.id;
         if (!targetId) return;
         const index =
@@ -1802,7 +1809,7 @@ const BaseItemTableList = ({
             data.findIndex((item) => (item as null | { id?: string })?.id === targetId);
         if (index === undefined || index < 0) return;
         handleRef.current?.scrollToIndex(index, { align: 'center', behavior: 'auto' });
-    }, [data, getItemIndex]);
+    }, [activeRowId, data, getItemIndex, internalState]);
 
     useListHotkeys({
         controls,
