@@ -235,21 +235,10 @@ const VirtualizedTableGrid = ({
         [columnWidth, pinnedLeftColumnCount],
     );
 
-    const groupHeaderInfoByRowIndex = useMemo(() => {
-        if (!groups || groups.length === 0) return undefined;
-
-        const map = new Map<number, { groupIndex: number; startDataIndex: number }>();
-        const headerOffset = enableHeader ? 1 : 0;
-        let cumulativeDataIndex = 0;
-
-        for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
-            const groupHeaderIndex = headerOffset + cumulativeDataIndex + groupIndex;
-            map.set(groupHeaderIndex, { groupIndex, startDataIndex: cumulativeDataIndex });
-            cumulativeDataIndex += groups[groupIndex].itemCount;
-        }
-
-        return map;
-    }, [groups, enableHeader]);
+    const groupHeaderInfoByRowIndex = useMemo(
+        () => buildGroupHeaderInfo(groups, enableHeader),
+        [groups, enableHeader],
+    );
 
     const rowHeightMemoized = useCallback(
         (index: number, cellProps: TableItemProps) => {
@@ -741,6 +730,26 @@ const MemoizedVirtualizedTableGrid = memo(VirtualizedTableGrid, (prevProps, next
 });
 
 MemoizedVirtualizedTableGrid.displayName = 'MemoizedVirtualizedTableGrid';
+
+/** The group header rows by row index (the column header, when enabled, is row 0). */
+const buildGroupHeaderInfo = (
+    groups: TableGroupHeader[] | undefined,
+    enableHeader: boolean | undefined,
+): Map<number, { groupIndex: number; startDataIndex: number }> | undefined => {
+    if (!groups || groups.length === 0) return undefined;
+
+    const map = new Map<number, { groupIndex: number; startDataIndex: number }>();
+    const headerOffset = enableHeader ? 1 : 0;
+    let cumulativeDataIndex = 0;
+
+    for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+        const groupHeaderIndex = headerOffset + cumulativeDataIndex + groupIndex;
+        map.set(groupHeaderIndex, { groupIndex, startDataIndex: cumulativeDataIndex });
+        cumulativeDataIndex += groups[groupIndex].itemCount;
+    }
+
+    return map;
+};
 
 export interface TableGroupHeader {
     itemCount: number;
@@ -1496,6 +1505,13 @@ const BaseItemTableList = ({
         ],
     );
 
+    const scrollGroupHeaderInfo = useMemo(
+        () => buildGroupHeaderInfo(groups, enableHeader),
+        [groups, enableHeader],
+    );
+    // Callers pass data indexes; the handle and the keyboard convert them to row indexes once.
+    const groupCounts = useMemo(() => groups?.map((group) => group.itemCount) ?? [], [groups]);
+
     const scrollCellProps = useMemo<TableItemProps>(
         () => ({
             albumGroupContentHeights,
@@ -1526,6 +1542,10 @@ const BaseItemTableList = ({
 
                 return dataWithGroups[rowIndex];
             },
+            // The scroll maths sizes rows with these props: a rowHeight function that sizes group
+            // headers differently must see them here as it does in the grid.
+            groupHeaderInfoByRowIndex: scrollGroupHeaderInfo,
+            groups,
             hasAlbumGroupColumn,
             internalState: {} as ItemListStateActions,
             itemType,
@@ -1549,10 +1569,12 @@ const BaseItemTableList = ({
             estimatedAlbumGroupContentHeight,
             getItem,
             getRowHeight,
+            groups,
             hasAlbumGroupColumn,
             itemType,
             parsedColumns,
             playerContext,
+            scrollGroupHeaderInfo,
             shouldUseAccessor,
             size,
             tableId,
@@ -1671,6 +1693,7 @@ const BaseItemTableList = ({
         getItemIndex,
         getRowHeightAtIndex,
         getStateItem,
+        groupCounts,
         hasRequiredStateItemProperties,
         internalState,
         itemCount: baseItemCount,
@@ -1690,6 +1713,7 @@ const BaseItemTableList = ({
     useTableImperativeHandle({
         autoScrollToActiveRow,
         enableHeader,
+        groupCounts,
         handleRef,
         internalState,
         ref,
