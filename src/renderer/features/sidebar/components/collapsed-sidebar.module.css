@@ -18,3 +18,41 @@
     object-fit: cover;
     border-radius: var(--theme-radius-md);
 }
+
+/* One hairline between the groups; the rail has no room for their labels. */
+.group {
+    padding-top: var(--theme-spacing-xs);
+    margin: var(--theme-spacing-xs) var(--theme-spacing-sm) 0;
+    border-top: 1px solid var(--theme-colors-border);
+}
+
+.icon-wrap {
+    position: relative;
+    display: inline-flex;
+}
+
+/* The Needs attention count, as a dot on the icon. */
+.badge-dot {
+    position: absolute;
+    top: -6px;
+    right: -10px;
+    display: grid;
+    place-items: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--theme-colors-background);
+    background: var(--theme-colors-state-warning);
+    border-radius: 8px;
+
+    :root[data-cover-wash='true'] & {
+        color: #1b1304;
+    }
+
+    :root[data-cover-wash='true'][data-mantine-color-scheme='light'] & {
+        color: #fff;
+    }
+}
