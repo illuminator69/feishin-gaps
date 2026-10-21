@@ -155,6 +155,7 @@ export const SidebarPlayQueue = () => {
                         <>
                             <div className={styles.playQueueSection}>
                                 <PlayQueue
+                                    grouped
                                     listKey={ItemListKey.SIDE_QUEUE}
                                     ref={tableRef}
                                     searchTerm={search}
@@ -281,6 +282,7 @@ export const SidebarPlayQueue = () => {
                                 <Flex className={styles.queueOnlyContent} direction="column">
                                     <div className={styles.playQueueSection}>
                                         <PlayQueue
+                                            grouped
                                             listKey={ItemListKey.SIDE_QUEUE}
                                             ref={tableRef}
                                             searchTerm={search}

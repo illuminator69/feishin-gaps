@@ -50,6 +50,7 @@ import {
 } from '/@/renderer/features/player/station/station-logic';
 import {
     getStationMode,
+    servedIdsOf,
     useStationMode,
     useStationStore,
 } from '/@/renderer/features/player/station/station-store';
@@ -105,12 +106,7 @@ const readSnapshot = (): Snapshot => {
     const deviceId = hub.myDeviceId ?? undefined;
     // What the bound station served this client: how a remote session's rows, which carry ids
     // only, are told apart from the user's (and a local row a controller added).
-    const served = useStationStore.getState().served;
-    const servedIds = new Set(
-        served.stationId && served.stationId === useStationStore.getState().bound?.stationId
-            ? served.ids
-            : [],
-    );
+    const servedIds = servedIdsOf(useStationStore.getState());
     if (isRemoteSessionActive()) {
         const ids = hub.remoteQueue.map((track) => track.id);
         const order = hub.remoteOrder;
