@@ -741,7 +741,19 @@
             "search": "Search",
             "settings": "Settings",
             "shared": "Shared Playlists",
-            "tracks": "Tracks"
+            "tracks": "Tracks",
+            "library": "Library",
+            "fresh": "Fresh",
+            "needsAttention": "Needs attention",
+            "activity": "Activity",
+            "statistics": "Statistics",
+            "savedQueues": "Saved queues",
+            "libraryMatches": "Library Matches",
+            "you": "You",
+            "listening": "Listening",
+            "libraryTools": "Library tools",
+            "app": "App",
+            "more": "More"
         },
         "trackList": {
             "artistTracks": "Tracks by {{artist}}",

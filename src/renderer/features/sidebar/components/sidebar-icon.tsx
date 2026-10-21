@@ -1,8 +1,12 @@
 import {
     RiAlbumFill,
     RiAlbumLine,
+    RiAlertFill,
+    RiAlertLine,
     RiBarChart2Fill,
     RiBarChart2Line,
+    RiBookShelfFill,
+    RiBookShelfLine,
     RiCompassDiscoverFill,
     RiCompassDiscoverLine,
     RiDownloadCloud2Fill,
@@ -35,6 +39,8 @@ import {
     RiSettings2Line,
     RiSparkling2Fill,
     RiSparkling2Line,
+    RiTimeFill,
+    RiTimeLine,
     RiUserVoiceFill,
     RiUserVoiceLine,
 } from 'react-icons/ri';
@@ -47,14 +53,27 @@ import { LibraryItem } from '/@/shared/types/domain-types';
 
 interface SidebarIconProps {
     active?: boolean;
+    /** Picks the glyph by name for rows whose route is shared or empty. */
+    name?: 'activity' | 'attention' | 'library';
     route: string;
     size?: string;
 }
 
-export const SidebarIcon = ({ active, route, size }: SidebarIconProps) => {
+export const SidebarIcon = ({ active, name, route, size }: SidebarIconProps) => {
     const location = useLocation();
     const isActive = active !== undefined ? active : location.pathname === route;
     const renderIcon = () => {
+        switch (name) {
+            case 'activity':
+                if (isActive) return <RiTimeFill size={size} />;
+                return <RiTimeLine size={size} />;
+            case 'attention':
+                if (isActive) return <RiAlertFill size={size} />;
+                return <RiAlertLine size={size} />;
+            case 'library':
+                if (isActive) return <RiBookShelfFill size={size} />;
+                return <RiBookShelfLine size={size} />;
+        }
         switch (route) {
             // navi-connect: lb-bot acquisitions. A cloud, not the plain download arrow —
             // this is fetching a record the library never had, not caching one it has.
