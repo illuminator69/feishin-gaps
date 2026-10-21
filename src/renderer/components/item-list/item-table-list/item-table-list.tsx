@@ -394,6 +394,7 @@ const VirtualizedTableGrid = ({
             hasAlbumGroupColumn: parsedColumns.some((col) => col.id === TableColumn.ALBUM_GROUP),
             internalState: tableConfig.internalState,
             itemType: tableConfig.itemType,
+            markActiveRow: tableConfig.markActiveRow,
             pinnedLeftColumnCount,
             pinnedLeftColumnWidths,
             pinnedRightColumnCount,
@@ -793,6 +794,7 @@ export interface TableItemProps {
     hasAlbumGroupColumn?: boolean;
     internalState: ItemListStateActions;
     itemType: ItemTableListProps['itemType'];
+    markActiveRow?: boolean;
     onRowClick?: (item: any, event: React.MouseEvent<HTMLDivElement>) => void;
     pinnedLeftColumnCount?: number;
     pinnedLeftColumnWidths?: number[];
@@ -841,6 +843,8 @@ interface ItemTableListProps {
     };
     itemCount?: number;
     itemType: LibraryItem;
+    /** Paint the active row's cells as one container (`data-queue-active`): the side queue (F4). */
+    markActiveRow?: boolean;
     onColumnReordered?: (
         columnIdFrom: TableColumn,
         columnIdTo: TableColumn,
@@ -1276,6 +1280,7 @@ const BaseItemTableList = ({
     initialTop,
     itemCount,
     itemType,
+    markActiveRow = false,
     onColumnReordered,
     onColumnResized,
     onRangeChanged,
@@ -1827,6 +1832,7 @@ const BaseItemTableList = ({
             groups,
             internalState,
             itemType,
+            markActiveRow,
             playerContext,
             playlistId: routePlaylistId,
             size,
@@ -1851,6 +1857,7 @@ const BaseItemTableList = ({
             groups,
             internalState,
             itemType,
+            markActiveRow,
             playerContext,
             routePlaylistId,
             size,

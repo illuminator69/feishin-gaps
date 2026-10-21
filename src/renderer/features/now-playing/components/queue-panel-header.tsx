@@ -196,6 +196,7 @@ export const QueuePanelHeader = ({
                         if (chip !== selected) tapStationChip(chip as StationCharacterId);
                     }}
                     value={autoplayOn ? selected : ''}
+                    withItemsBorders={false}
                 />
             )}
             <SegmentedControl
@@ -208,6 +209,7 @@ export const QueuePanelHeader = ({
                 fullWidth
                 onChange={(tab) => onTabChange(tab as QueueSheetTab)}
                 value={activeTab}
+                withItemsBorders={false}
             />
             {activeTab === 'queue' && (
                 <div className={styles.countLine}>

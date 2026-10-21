@@ -9,6 +9,7 @@ import { useItemListColumnResize } from '/@/renderer/components/item-list/helper
 import {
     ItemTableList,
     TableGroupHeader,
+    TableItemProps,
 } from '/@/renderer/components/item-list/item-table-list/item-table-list';
 import { ItemTableListColumn } from '/@/renderer/components/item-list/item-table-list/item-table-list-column';
 import { ItemListHandle } from '/@/renderer/components/item-list/types';
@@ -41,6 +42,11 @@ import { useMergedRef } from '/@/shared/hooks/use-merged-ref';
 import { Folder, LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { DragTarget } from '/@/shared/types/drag-and-drop';
 import { ItemListKey, Play } from '/@/shared/types/types';
+
+// The side queue's rows (F4): 48 px songs and 32 px group captions. At module scope so the table
+// sees one function; it sizes captions in the scroll maths too (scrollCellProps carries the map).
+const groupedRowHeight = (index: number, cellProps: TableItemProps) =>
+    cellProps.groupHeaderInfoByRowIndex?.has(index) ? 32 : 48;
 
 type QueueProps = {
     enableScrollShadow?: boolean;
@@ -261,9 +267,11 @@ export const PlayQueue = forwardRef<ItemListHandle, QueueProps>(
                         type: 'offset',
                     }}
                     itemType={LibraryItem.QUEUE_SONG}
+                    markActiveRow={grouped}
                     onColumnReordered={handleColumnReordered}
                     onColumnResized={handleColumnResized}
                     ref={mergedRef}
+                    rowHeight={grouped ? groupedRowHeight : undefined}
                     size={table.size}
                 />
                 {isEmpty && <EmptyQueueDropZone />}

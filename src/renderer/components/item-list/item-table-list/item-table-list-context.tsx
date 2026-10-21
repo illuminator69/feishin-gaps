@@ -36,6 +36,7 @@ export type ItemTableListConfig = {
     groups?: ItemTableListGroupHeader[];
     internalState: ItemListStateActions;
     itemType: LibraryItem;
+    markActiveRow?: boolean;
     playerContext: PlayerContext;
     playlistId?: string;
     size: 'compact' | 'default' | 'large';
