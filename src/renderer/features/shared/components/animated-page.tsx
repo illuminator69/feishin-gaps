@@ -1,38 +1,27 @@
-import type { MotionProps } from 'motion/react';
 import type { ReactNode, Ref } from 'react';
 
-import { motion } from 'motion/react';
 import { forwardRef } from 'react';
 
 import styles from './animated-page.module.css';
 
-import { useExpressiveMotion } from '/@/renderer/store/settings.store';
-import { animationProps } from '/@/shared/components/animations/animation-props';
-import { pageTransition, pageVariants } from '/@/shared/components/animations/motion-tokens';
+import { useNavDirection } from '/@/renderer/features/motion/use-nav-direction';
 
 interface AnimatedPageProps {
     children: ReactNode;
 }
 
+/**
+ * A route's page. It arrives with the grammar's push or pop (design brief 8): 18 px from the right on a
+ * push, from the left on a back, a fade otherwise, 220 ms, and no exit (the old page leaves at once).
+ */
 export const AnimatedPage = forwardRef(
     ({ children }: AnimatedPageProps, ref: Ref<HTMLDivElement>) => {
-        const expressiveMotion = useExpressiveMotion();
-
-        // Expressive motion: Navic-style shared-axis page change (fade + small slide).
-        // Off: the prior plain fade, unchanged.
-        const motionProps: MotionProps = expressiveMotion
-            ? {
-                  animate: 'show',
-                  initial: 'hidden',
-                  transition: pageTransition,
-                  variants: pageVariants,
-              }
-            : { ...animationProps.fadeIn, transition: { duration: 0.5, ease: 'anticipate' } };
+        const direction = useNavDirection();
 
         return (
-            <motion.main className={styles.animatedPage} ref={ref} {...motionProps}>
+            <main className={styles.animatedPage} data-nav={direction} ref={ref}>
                 {children}
-            </motion.main>
+            </main>
         );
     },
 );

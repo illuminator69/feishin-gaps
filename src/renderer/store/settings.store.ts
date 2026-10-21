@@ -536,7 +536,6 @@ export const GeneralSettingsSchema = z.object({
     coverColours: z.boolean(),
     disabledContextMenu: z.record(z.string(), z.boolean()),
     enableGridMultiSelect: z.boolean(),
-    expressiveMotion: z.boolean(),
     externalLinks: z.boolean(),
     followCurrentSong: z.boolean(),
     followSystemTheme: z.boolean(),
@@ -1413,7 +1412,6 @@ const initialState: SettingsState = {
         coverColours: true,
         disabledContextMenu: {},
         enableGridMultiSelect: false,
-        expressiveMotion: false,
         externalLinks: true,
         followCurrentSong: true,
         followSystemTheme: false,
@@ -3046,9 +3044,6 @@ export const useTableSettings = (type: ItemListKey) =>
     useSettingsStore((state) => state.lists[type as keyof typeof state.lists]);
 
 export const useGeneralSettings = () => useSettingsStore((state) => state.general, shallow);
-
-export const useExpressiveMotion = () =>
-    useSettingsStore((state) => state.general.expressiveMotion, shallow);
 
 export const useCoverColours = () => useSettingsStore((state) => state.general.coverColours);
 

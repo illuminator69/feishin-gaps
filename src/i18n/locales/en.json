@@ -886,8 +886,6 @@
         "useThemeAccentColor_description": "Use the primary color defined in the selected theme instead of the custom accent color",
         "useThemePrimaryShade": "Use theme primary shade",
         "useThemePrimaryShade_description": "Use the primary shade defined in the selected theme for primary color variants",
-        "expressiveMotion": "Expressive motion",
-        "expressiveMotion_description": "Use smoother, emphasized transitions for modals, menus, and page changes. Turn off for instant transitions.",
         "coverColours": "Cover colours",
         "coverColours_description": "The playing cover sets the colours of the whole window. Themes are ignored while this is on.",
         "primaryShade": "Primary shade",

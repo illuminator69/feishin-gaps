@@ -35,8 +35,6 @@ import {
     useSidebarImageEnabled,
 } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
-import { DURATION, EASING } from '/@/shared/components/animations/motion-tokens';
-import { useExpressiveMotion } from '/@/shared/components/animations/use-expressive-motion';
 import { Center } from '/@/shared/components/center/center';
 import { Group } from '/@/shared/components/group/group';
 import { Icon } from '/@/shared/components/icon/icon';
@@ -64,7 +62,6 @@ export const LeftControls = () => {
     );
 
     const currentSong = useRemoteAwarePlayerSong();
-    const motionEnabled = useExpressiveMotion();
     const isRemote = useHubIsRemoteActive();
     const remoteDeviceName = useHubActiveDeviceName();
     // navi-connect: the play state the play button shows. A paused device still holds the
@@ -91,11 +88,6 @@ export const LeftControls = () => {
     const isSongDefined = Boolean(currentSong?.id) && !isRadioMode;
     const title = currentSong?.name;
     const artists = currentSong?.artists;
-
-    // With Expressive motion on, key the artwork by the current track (or radio station) so a
-    // song switch crossfades/slides the cover in the player bar instead of swapping instantly.
-    // Off: a constant key keeps the prior behaviour (no per-song animation).
-    const artworkKey = currentSong?.id ?? currentStationArt?.imageId ?? 'none';
 
     const handleToggleFullScreenPlayer = (e?: KeyboardEvent | MouseEvent<HTMLDivElement>) => {
         // don't toggle if right click
@@ -159,22 +151,11 @@ export const LeftControls = () => {
                                 className={styles.image}
                                 exit={{ opacity: 0, x: -50 }}
                                 initial={{ opacity: 0, x: -50 }}
-                                key={
-                                    motionEnabled
-                                        ? `playerbar-image-${artworkKey}`
-                                        : 'playerbar-image'
-                                }
+                                key="playerbar-image"
                                 onClick={handleToggleFullScreenPlayer}
                                 onContextMenu={handleToggleContextMenu}
                                 role="button"
-                                transition={
-                                    motionEnabled
-                                        ? {
-                                              duration: DURATION.medium2 / 1000,
-                                              ease: EASING.emphasized,
-                                          }
-                                        : { duration: 0.2, ease: 'easeOut' }
-                                }
+                                transition={{ duration: 0.2, ease: 'easeOut' }}
                             >
                                 <Tooltip label={t('player.toggleFullscreenPlayer')}>
                                     {isRadioMode && hasRadioStationImage ? (

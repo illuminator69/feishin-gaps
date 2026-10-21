@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useCustomThemes } from '/@/renderer/store/custom-themes.store';
 import {
     useAccent,
-    useExpressiveMotion,
     useFontSettings,
     useNativeAspectRatio,
     useThemeSettings,
@@ -56,7 +55,6 @@ export const THEME_DATA = [
 export const useAppTheme = (overrideTheme?: AppTheme) => {
     const accent = useAccent();
     const nativeImageAspect = useNativeAspectRatio();
-    const expressiveMotion = useExpressiveMotion();
     // Only the renderer's `useCoverWash` turns this on; the remote SPA never does.
     const coverWash = useCoverWashOn();
     const coverWashLight = useCoverWashStore((state) => state.light);
@@ -245,13 +243,6 @@ export const useAppTheme = (overrideTheme?: AppTheme) => {
         const root = document.documentElement;
         root.style.setProperty('--theme-image-fit', nativeImageAspect ? 'contain' : 'cover');
     }, [nativeImageAspect]);
-
-    // Gate the "expressive" Material-motion chrome via a root data attribute, so CSS modules
-    // can opt in with `:root[data-motion='true']` and JS transitions can read the flag.
-    // Defaults off (safe kill switch).
-    useEffect(() => {
-        document.documentElement.setAttribute('data-motion', expressiveMotion ? 'true' : 'false');
-    }, [expressiveMotion]);
 
     useEffect(() => {
         applyInlineStylesheets(appTheme?.stylesheets ?? []);

@@ -402,25 +402,6 @@ export const ThemeSettings = memo(() => {
         {
             control: (
                 <Switch
-                    checked={settings.expressiveMotion}
-                    onChange={(e) => {
-                        setSettings({
-                            general: {
-                                expressiveMotion: e.currentTarget.checked,
-                            },
-                        });
-                    }}
-                />
-            ),
-            description: t('setting.expressiveMotion', {
-                context: 'description',
-            }),
-            isHidden: false,
-            title: t('setting.expressiveMotion'),
-        },
-        {
-            control: (
-                <Switch
                     checked={settings.coverColours}
                     onChange={(e) => {
                         setSettings({

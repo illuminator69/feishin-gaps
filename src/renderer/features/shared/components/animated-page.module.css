@@ -7,3 +7,51 @@
     container-type: inline-size;
     overflow: hidden;
 }
+
+@keyframes page-push {
+    from {
+        opacity: 0;
+        transform: translateX(18px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes page-pop {
+    from {
+        opacity: 0;
+        transform: translateX(-18px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes page-fade {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .animated-page[data-nav='forward'] {
+        animation: page-push 220ms var(--arrive-ease) both;
+    }
+
+    .animated-page[data-nav='back'] {
+        animation: page-pop 220ms var(--arrive-ease) both;
+    }
+
+    .animated-page[data-nav='none'] {
+        animation: page-fade 220ms var(--arrive-ease) both;
+    }
+}
