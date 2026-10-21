@@ -122,12 +122,14 @@ export const CollapsedSidebar = () => {
                         </DropdownMenu.Dropdown>
                     </DropdownMenu>
                 ) : null}
-                {/* The rail has no playlist list of its own; this is its way to the Playlists page. */}
-                {entryItem({
-                    id: 'Playlists',
-                    label: t('page.sidebar.playlists'),
-                    route: AppRoute.PLAYLISTS,
-                })}
+                {/* The rail has no playlist list of its own; this is its way to the Playlists page
+                    (unless the model already lists it, when the sidebar's playlist section is off). */}
+                {!mainItems.some((entry) => entry.id === 'Playlists') &&
+                    entryItem({
+                        id: 'Playlists',
+                        label: t('page.sidebar.playlists'),
+                        route: AppRoute.PLAYLISTS,
+                    })}
                 {lowerGroups.map((group) => (
                     <div className={styles.group} key={group.id}>
                         {group.entries.map(entryItem)}

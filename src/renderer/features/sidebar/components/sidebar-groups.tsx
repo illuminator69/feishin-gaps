@@ -23,7 +23,7 @@ import {
 } from '/@/renderer/features/sidebar/utils/sidebar-groups';
 import { AppRoute } from '/@/renderer/router/routes';
 import { useHubConnected } from '/@/renderer/store/hub.store';
-import { useSidebarItems } from '/@/renderer/store/settings.store';
+import { useSidebarItems, useSidebarPlaylistList } from '/@/renderer/store/settings.store';
 import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
 import { Icon } from '/@/shared/components/icon/icon';
 import { useMediaQuery } from '/@/shared/hooks/use-media-query';
@@ -58,6 +58,7 @@ const LABEL_KEYS: Record<string, string> = {
     listening: 'page.sidebar.listening',
     needsAttention: 'page.sidebar.needsAttention',
     'Now Playing': 'page.sidebar.nowPlaying',
+    Playlists: 'page.sidebar.playlists',
     Radio: 'page.sidebar.radio',
     savedQueues: 'page.sidebar.savedQueues',
     Search: 'page.sidebar.search',
@@ -92,6 +93,7 @@ export const useSidebarModel = (options?: {
     const { hasSources } = useDiscoverCapabilities();
     const ledger = useFillLedger();
     const sidebarItems = useSidebarItems();
+    const playlistSectionShown = useSidebarPlaylistList();
     const count = useMemo(() => attentionCount(ledger), [ledger]);
 
     return useMemo(() => {
@@ -111,6 +113,7 @@ export const useSidebarModel = (options?: {
             listeningSupported,
             narrow,
             overridesSupported,
+            playlistSectionShown,
             routes: ROUTES,
         });
         return {
@@ -129,6 +132,7 @@ export const useSidebarModel = (options?: {
         listeningSupported,
         narrow,
         overridesSupported,
+        playlistSectionShown,
         sidebarItems,
         t,
     ]);

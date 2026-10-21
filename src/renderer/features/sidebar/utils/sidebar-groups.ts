@@ -14,6 +14,8 @@ export interface SidebarContext {
     listeningSupported: boolean;
     narrow: boolean;
     overridesSupported: boolean;
+    /** Whether the sidebar shows its Playlists section, whose header links to the Playlists page. */
+    playlistSectionShown: boolean;
     routes: SidebarRoutes;
 }
 
@@ -50,6 +52,9 @@ export interface SidebarRoutes {
 // Reached elsewhere: Home and Settings have their own rows, Playlists and Collections their sections.
 const NOT_LIBRARY_CHILDREN = new Set(['Collections', 'Home', 'Playlists', 'Settings']);
 
+const isLibraryChild = (id: string, ctx: SidebarContext) =>
+    !NOT_LIBRARY_CHILDREN.has(id) || (id === 'Playlists' && !ctx.playlistSectionShown);
+
 const libraryChildren = (ctx: SidebarContext): SidebarEntry[] => {
     const children: SidebarEntry[] = [];
     const seen = new Set<string>();
@@ -59,7 +64,12 @@ const libraryChildren = (ctx: SidebarContext): SidebarEntry[] => {
         children.push(entry);
     };
     for (const item of ctx.libraryItems) {
-        if (item.disabled || !item.route || NOT_LIBRARY_CHILDREN.has(item.id)) continue;
+        // The first occurrence of an id decides, disabled or not: a later duplicate is the index merge's tail.
+        if (seen.has(item.id)) continue;
+        if (item.disabled || !item.route || !isLibraryChild(item.id, ctx)) {
+            seen.add(item.id);
+            continue;
+        }
         add({ id: item.id, label: item.label, route: item.route });
     }
     if (ctx.hasDiscoverSources)

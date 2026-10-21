@@ -101,14 +101,11 @@ button.row:hover {
     font-size: 11.5px;
     font-weight: 800;
     line-height: 1;
-    color: var(--theme-colors-background);
+
+    /* The board's dark label: it reads on every theme's warning colour; the wash's light scheme takes white. */
+    color: #1b1304;
     background: var(--theme-colors-state-warning);
     border-radius: 10px;
-
-    /* The board's two label colours over the warning role, dark and light (the one allowed literal pair). */
-    :root[data-cover-wash='true'] & {
-        color: #1b1304;
-    }
 
     :root[data-cover-wash='true'][data-mantine-color-scheme='light'] & {
         color: #fff;

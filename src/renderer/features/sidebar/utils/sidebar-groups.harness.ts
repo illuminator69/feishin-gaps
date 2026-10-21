@@ -52,6 +52,7 @@ const ctx = (patch: Partial<SidebarContext> = {}): SidebarContext => ({
     listeningSupported: false,
     narrow: false,
     overridesSupported: false,
+    playlistSectionShown: true,
     routes,
     ...patch,
 });
@@ -291,6 +292,43 @@ test('nothingIsDroppedFromTheOldList', () => {
         assert.equal(children.filter((c) => c === id).length, 1, id);
     }
     assert.equal(children.length, expected.length);
+});
+
+test('aDisabledStoredItemStaysHiddenWhenTheMergedTailRepeatsIt', () => {
+    // The user's own entry (first) wins over a default-tail duplicate the index merge re-appended.
+    const items = [
+        { disabled: true, id: 'Albums', label: 'Albums', route: '/library/albums' },
+        { disabled: false, id: 'Tracks', label: 'Tracks', route: '/library/songs' },
+        { disabled: false, id: 'Albums', label: 'Albums', route: '/library/albums' },
+    ];
+    assert.deepEqual(libraryChildren(sidebarGroups(ctx({ libraryItems: items })).groups), [
+        'Tracks',
+    ]);
+});
+
+test('playlistsIsAChildOnlyWhenItsSectionIsHidden', () => {
+    const items = storedItems().map((i) => (i.id === 'Playlists' ? { ...i, disabled: false } : i));
+    // Shown section: the page is reached through its header, so no child.
+    assert.equal(
+        libraryChildren(sidebarGroups(ctx({ libraryItems: items })).groups).includes('Playlists'),
+        false,
+    );
+    // Hidden section: the enabled entry is the only way to the page.
+    const hidden = group(
+        sidebarGroups(ctx({ libraryItems: items, playlistSectionShown: false })).groups,
+        'main',
+    )!.entries[1].children!;
+    assert.deepEqual(
+        hidden.filter((c) => c.id === 'Playlists').map((c) => c.route),
+        ['/playlists'],
+    );
+    // A disabled entry stays hidden either way.
+    assert.equal(
+        libraryChildren(sidebarGroups(ctx({ playlistSectionShown: false })).groups).includes(
+            'Playlists',
+        ),
+        false,
+    );
 });
 
 test('attentionCountIgnoresGaveUpCancelledAndRunning', () => {
