@@ -2,28 +2,23 @@ import clsx from 'clsx';
 import { motion } from 'motion/react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, NavLink, useNavigate } from 'react-router';
+import { Link, NavLink } from 'react-router';
 
 import styles from './collapsed-sidebar.module.css';
 
-import { useScanStatus } from '/@/renderer/features/shared/hooks/use-scan-status';
-import { CollapsedSidebarButton } from '/@/renderer/features/sidebar/components/collapsed-sidebar-button';
 import { CollapsedSidebarItem } from '/@/renderer/features/sidebar/components/collapsed-sidebar-item';
 import { useNaviConnectSidebarItems } from '/@/renderer/features/sidebar/components/navi-connect-items';
 import { getCollectionTo } from '/@/renderer/features/sidebar/components/sidebar-collection-list';
 import { SidebarIcon } from '/@/renderer/features/sidebar/components/sidebar-icon';
-import { AppMenu } from '/@/renderer/features/titlebar/components/app-menu';
 import { AppRoute } from '/@/renderer/router/routes';
 import {
     SidebarItemType,
     useCollections,
-    useSidebarCollapsedNavigation,
     useSidebarItems,
     useWindowSettings,
 } from '/@/renderer/store';
 import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
 import { Flex } from '/@/shared/components/flex/flex';
-import { Group } from '/@/shared/components/group/group';
 import { Icon } from '/@/shared/components/icon/icon';
 import { ScrollArea } from '/@/shared/components/scroll-area/scroll-area';
 import { Stack } from '/@/shared/components/stack/stack';
@@ -32,12 +27,9 @@ import { Platform } from '/@/shared/types/types';
 
 export const CollapsedSidebar = () => {
     const { t } = useTranslation();
-    const navigate = useNavigate();
     const collections = useCollections();
     const { windowBarStyle } = useWindowSettings();
-    const sidebarCollapsedNavigation = useSidebarCollapsedNavigation();
     const sidebarItems = useSidebarItems();
-    const { isScanning } = useScanStatus();
 
     const translatedSidebarItemMap = useMemo(
         () => ({
@@ -88,40 +80,6 @@ export const CollapsedSidebar = () => {
             })}
         >
             <ScrollArea>
-                {sidebarCollapsedNavigation && (
-                    <Group gap={0} grow>
-                        <CollapsedSidebarButton onClick={() => navigate(-1)}>
-                            <Icon icon="arrowLeftS" size="xl" />
-                        </CollapsedSidebarButton>
-                        <CollapsedSidebarButton onClick={() => navigate(1)}>
-                            <Icon icon="arrowRightS" size="xl" />
-                        </CollapsedSidebarButton>
-                    </Group>
-                )}
-                <DropdownMenu position="right-start">
-                    <DropdownMenu.Target>
-                        <CollapsedSidebarItem
-                            activeIcon={null}
-                            component={Flex}
-                            icon={
-                                <Icon
-                                    animate={isScanning ? 'spin' : undefined}
-                                    fill="muted"
-                                    icon={isScanning ? 'spinner' : 'menu'}
-                                    size="3xl"
-                                />
-                            }
-                            label={t('common.menu')}
-                            style={{
-                                cursor: 'pointer',
-                                padding: 'var(--theme-spacing-md) 0',
-                            }}
-                        />
-                    </DropdownMenu.Target>
-                    <DropdownMenu.Dropdown>
-                        <AppMenu />
-                    </DropdownMenu.Dropdown>
-                </DropdownMenu>
                 {sidebarItemsWithRoute.map((item) =>
                     item.id === 'Collections' ? (
                         collections && collections.length > 0 ? (

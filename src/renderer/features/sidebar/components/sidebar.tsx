@@ -12,7 +12,6 @@ import {
     useIsRadioActive,
     useRadioPlayer,
 } from '/@/renderer/features/radio/hooks/use-radio-player';
-import { ActionBar } from '/@/renderer/features/sidebar/components/action-bar';
 import { useNaviConnectSidebarItems } from '/@/renderer/features/sidebar/components/navi-connect-items';
 import { SidebarCollectionList } from '/@/renderer/features/sidebar/components/sidebar-collection-list';
 import { SidebarIcon } from '/@/renderer/features/sidebar/components/sidebar-icon';
@@ -126,9 +125,6 @@ export const Sidebar = () => {
             })}
             id="left-sidebar"
         >
-            <Group grow id="global-search-container" style={{ flexShrink: 0 }}>
-                <ActionBar />
-            </Group>
             <ScrollArea allowDragScroll className={styles.scrollArea}>
                 <Accordion
                     classNames={{

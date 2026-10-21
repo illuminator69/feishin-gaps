@@ -1,11 +1,21 @@
 .layout {
+    /* The shell's three heights, named once; the stylesheets that size themselves against them read these. */
+    --window-bar-height: 0px;
+    --top-bar-height: 52px;
+    --player-bar-height: 90px;
+    --content-height: calc(
+        100dvh - var(--window-bar-height) - var(--top-bar-height) - var(--player-bar-height)
+    );
+
     display: grid;
     grid-template-areas:
         'window-bar'
+        'top-bar'
         'main-content'
         'player';
-    grid-template-rows: 0 calc(100vh - 90px) 90px;
-    grid-template-rows: 0 calc(100dvh - 90px) 90px;
+    grid-template-rows:
+        var(--window-bar-height) var(--top-bar-height) var(--content-height)
+        var(--player-bar-height);
     grid-template-columns: 1fr;
     gap: 0;
     height: 100%;
@@ -18,12 +28,12 @@
     }
 }
 
-.windows {
-    grid-template-rows: 30px calc(100vh - 120px) 90px;
-    grid-template-rows: 30px calc(100dvh - 120px) 90px;
+.windows,
+.macos {
+    --window-bar-height: 30px;
 }
 
-.macos {
-    grid-template-rows: 30px calc(100vh - 120px) 90px;
-    grid-template-rows: 30px calc(100dvh - 120px) 90px;
+/* Login and action-required: no top bar. */
+.shell {
+    --top-bar-height: 0px;
 }

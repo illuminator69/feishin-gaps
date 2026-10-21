@@ -6,6 +6,7 @@ import styles from './default-layout.module.css';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
 import { MainContent } from '/@/renderer/layouts/default-layout/main-content';
 import { PlayerBar } from '/@/renderer/layouts/default-layout/player-bar';
+import { TopBar } from '/@/renderer/layouts/default-layout/top-bar';
 import { WindowWash } from '/@/renderer/layouts/default-layout/window-wash';
 import { WindowBar } from '/@/renderer/layouts/window-bar';
 import { useSettingsStore, useWindowBarStyle } from '/@/renderer/store/settings.store';
@@ -31,12 +32,14 @@ export const DefaultLayout = ({ shell }: DefaultLayoutProps) => {
             <div
                 className={clsx(styles.layout, {
                     [styles.macos]: windowBarStyle === Platform.MACOS,
+                    [styles.shell]: shell,
                     [styles.windows]: windowBarStyle === Platform.WINDOWS,
                 })}
                 id="default-layout"
             >
                 <WindowWash />
                 <WindowBar />
+                {!shell && <TopBar />}
                 <MainContent shell={shell} />
                 <PlayerBar />
             </div>
