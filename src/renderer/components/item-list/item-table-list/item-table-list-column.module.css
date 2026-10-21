@@ -401,3 +401,61 @@
 .resize-handle:hover {
     opacity: 1;
 }
+
+/*
+ * The side queue's playing row (F4, `markActiveRow`): one container under all of its cells, 4 px in
+ * from each side with radius 8 on the outer cells. With the cover wash it is F2's accent container
+ * pair; without it a primary tint under the foreground colour.
+ */
+.container.data-row[data-queue-active='true'] {
+    /* One label colour for the whole row, as the board draws it (the title's primary on the tint
+       measured 3.27:1 with the wash off). */
+    color: var(--theme-colors-foreground);
+    isolation: isolate;
+
+    &::before {
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        content: '';
+        background: color-mix(in srgb, var(--theme-colors-primary-filled) 16%, transparent);
+
+        :root[data-cover-wash='true'] & {
+            background: var(--wash-accc);
+        }
+    }
+
+    :root[data-cover-wash='true'] & {
+        color: var(--wash-accct);
+    }
+
+    & * {
+        color: inherit;
+    }
+}
+
+/* The container is opaque with the wash, so the row's own selection and hover colours are drawn
+   into it (it would otherwise hide them: a playing row would look unselected under Delete). */
+:root[data-cover-wash='true']
+    .container.data-row.row-hover-highlight-enabled[data-row-hovered='true'][data-queue-active='true']::before {
+    background: color-mix(in oklch, var(--wash-accc) 82%, var(--wash-mid));
+}
+
+:root[data-cover-wash='true'] .container.data-row.row-selected[data-queue-active='true']::before {
+    background: color-mix(in oklch, var(--wash-accc) 62%, var(--wash-mid));
+}
+
+.container.data-row[data-queue-edge='first']::before,
+.container.data-row[data-queue-edge='both']::before {
+    left: 4px;
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
+}
+
+.container.data-row[data-queue-edge='last']::before,
+.container.data-row[data-queue-edge='both']::before {
+    right: 4px;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+}

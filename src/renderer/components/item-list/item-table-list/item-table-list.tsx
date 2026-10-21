@@ -235,21 +235,10 @@ const VirtualizedTableGrid = ({
         [columnWidth, pinnedLeftColumnCount],
     );
 
-    const groupHeaderInfoByRowIndex = useMemo(() => {
-        if (!groups || groups.length === 0) return undefined;
-
-        const map = new Map<number, { groupIndex: number; startDataIndex: number }>();
-        const headerOffset = enableHeader ? 1 : 0;
-        let cumulativeDataIndex = 0;
-
-        for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
-            const groupHeaderIndex = headerOffset + cumulativeDataIndex + groupIndex;
-            map.set(groupHeaderIndex, { groupIndex, startDataIndex: cumulativeDataIndex });
-            cumulativeDataIndex += groups[groupIndex].itemCount;
-        }
-
-        return map;
-    }, [groups, enableHeader]);
+    const groupHeaderInfoByRowIndex = useMemo(
+        () => buildGroupHeaderInfo(groups, enableHeader),
+        [groups, enableHeader],
+    );
 
     const rowHeightMemoized = useCallback(
         (index: number, cellProps: TableItemProps) => {
@@ -405,6 +394,7 @@ const VirtualizedTableGrid = ({
             hasAlbumGroupColumn: parsedColumns.some((col) => col.id === TableColumn.ALBUM_GROUP),
             internalState: tableConfig.internalState,
             itemType: tableConfig.itemType,
+            markActiveRow: tableConfig.markActiveRow,
             pinnedLeftColumnCount,
             pinnedLeftColumnWidths,
             pinnedRightColumnCount,
@@ -742,6 +732,26 @@ const MemoizedVirtualizedTableGrid = memo(VirtualizedTableGrid, (prevProps, next
 
 MemoizedVirtualizedTableGrid.displayName = 'MemoizedVirtualizedTableGrid';
 
+/** The group header rows by row index (the column header, when enabled, is row 0). */
+const buildGroupHeaderInfo = (
+    groups: TableGroupHeader[] | undefined,
+    enableHeader: boolean | undefined,
+): Map<number, { groupIndex: number; startDataIndex: number }> | undefined => {
+    if (!groups || groups.length === 0) return undefined;
+
+    const map = new Map<number, { groupIndex: number; startDataIndex: number }>();
+    const headerOffset = enableHeader ? 1 : 0;
+    let cumulativeDataIndex = 0;
+
+    for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+        const groupHeaderIndex = headerOffset + cumulativeDataIndex + groupIndex;
+        map.set(groupHeaderIndex, { groupIndex, startDataIndex: cumulativeDataIndex });
+        cumulativeDataIndex += groups[groupIndex].itemCount;
+    }
+
+    return map;
+};
+
 export interface TableGroupHeader {
     itemCount: number;
     render: (props: {
@@ -784,6 +794,7 @@ export interface TableItemProps {
     hasAlbumGroupColumn?: boolean;
     internalState: ItemListStateActions;
     itemType: ItemTableListProps['itemType'];
+    markActiveRow?: boolean;
     onRowClick?: (item: any, event: React.MouseEvent<HTMLDivElement>) => void;
     pinnedLeftColumnCount?: number;
     pinnedLeftColumnWidths?: number[];
@@ -832,6 +843,8 @@ interface ItemTableListProps {
     };
     itemCount?: number;
     itemType: LibraryItem;
+    /** Paint the active row's cells as one container (`data-queue-active`): the side queue (F4). */
+    markActiveRow?: boolean;
     onColumnReordered?: (
         columnIdFrom: TableColumn,
         columnIdTo: TableColumn,
@@ -1267,6 +1280,7 @@ const BaseItemTableList = ({
     initialTop,
     itemCount,
     itemType,
+    markActiveRow = false,
     onColumnReordered,
     onColumnResized,
     onRangeChanged,
@@ -1496,6 +1510,13 @@ const BaseItemTableList = ({
         ],
     );
 
+    const scrollGroupHeaderInfo = useMemo(
+        () => buildGroupHeaderInfo(groups, enableHeader),
+        [groups, enableHeader],
+    );
+    // Callers pass data indexes; the handle and the keyboard convert them to row indexes once.
+    const groupCounts = useMemo(() => groups?.map((group) => group.itemCount) ?? [], [groups]);
+
     const scrollCellProps = useMemo<TableItemProps>(
         () => ({
             albumGroupContentHeights,
@@ -1526,6 +1547,10 @@ const BaseItemTableList = ({
 
                 return dataWithGroups[rowIndex];
             },
+            // The scroll maths sizes rows with these props: a rowHeight function that sizes group
+            // headers differently must see them here as it does in the grid.
+            groupHeaderInfoByRowIndex: scrollGroupHeaderInfo,
+            groups,
             hasAlbumGroupColumn,
             internalState: {} as ItemListStateActions,
             itemType,
@@ -1549,10 +1574,12 @@ const BaseItemTableList = ({
             estimatedAlbumGroupContentHeight,
             getItem,
             getRowHeight,
+            groups,
             hasAlbumGroupColumn,
             itemType,
             parsedColumns,
             playerContext,
+            scrollGroupHeaderInfo,
             shouldUseAccessor,
             size,
             tableId,
@@ -1671,6 +1698,7 @@ const BaseItemTableList = ({
         getItemIndex,
         getRowHeightAtIndex,
         getStateItem,
+        groupCounts,
         hasRequiredStateItemProperties,
         internalState,
         itemCount: baseItemCount,
@@ -1690,6 +1718,7 @@ const BaseItemTableList = ({
     useTableImperativeHandle({
         autoScrollToActiveRow,
         enableHeader,
+        groupCounts,
         handleRef,
         internalState,
         ref,
@@ -1766,6 +1795,13 @@ const BaseItemTableList = ({
     );
 
     const onShowPlayingSong = useCallback(() => {
+        // The active row by its own id first: a song queued twice, or a session another device
+        // plays, has no single row for the local player's song id.
+        const activeIndex = activeRowId ? internalState.findItemIndex(activeRowId) : -1;
+        if (activeIndex >= 0) {
+            handleRef.current?.scrollToIndex(activeIndex, { align: 'center', behavior: 'auto' });
+            return;
+        }
         const targetId = usePlayerStore.getState().getCurrentSong()?.id;
         if (!targetId) return;
         const index =
@@ -1773,7 +1809,7 @@ const BaseItemTableList = ({
             data.findIndex((item) => (item as null | { id?: string })?.id === targetId);
         if (index === undefined || index < 0) return;
         handleRef.current?.scrollToIndex(index, { align: 'center', behavior: 'auto' });
-    }, [data, getItemIndex]);
+    }, [activeRowId, data, getItemIndex, internalState]);
 
     useListHotkeys({
         controls,
@@ -1803,6 +1839,7 @@ const BaseItemTableList = ({
             groups,
             internalState,
             itemType,
+            markActiveRow,
             playerContext,
             playlistId: routePlaylistId,
             size,
@@ -1827,6 +1864,7 @@ const BaseItemTableList = ({
             groups,
             internalState,
             itemType,
+            markActiveRow,
             playerContext,
             routePlaylistId,
             size,

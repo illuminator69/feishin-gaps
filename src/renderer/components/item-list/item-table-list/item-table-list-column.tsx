@@ -63,7 +63,10 @@ import {
     TableItemProps,
     TableItemSize,
 } from '/@/renderer/components/item-list/item-table-list/item-table-list';
-import { useItemTableListColumnResizeLive } from '/@/renderer/components/item-list/item-table-list/item-table-list-context';
+import {
+    useIsActiveRow,
+    useItemTableListColumnResizeLive,
+} from '/@/renderer/components/item-list/item-table-list/item-table-list-context';
 import { ItemControls, ItemListItem } from '/@/renderer/components/item-list/types';
 import { Flex } from '/@/shared/components/flex/flex';
 import { Icon } from '/@/shared/components/icon/icon';
@@ -74,6 +77,16 @@ import { useMergedRef } from '/@/shared/hooks/use-merged-ref';
 import { LibraryItem } from '/@/shared/types/domain-types';
 import { dndUtils, DragData, DragOperation, DragTarget } from '/@/shared/types/drag-and-drop';
 import { TableColumn } from '/@/shared/types/types';
+
+/** Which rounded ends of the playing row's container a cell carries. */
+const queueActiveEdge = (columnIndex: number, isLastColumn: boolean): string | undefined =>
+    columnIndex === 0 && isLastColumn
+        ? 'both'
+        : columnIndex === 0
+          ? 'first'
+          : isLastColumn
+            ? 'last'
+            : undefined;
 
 export interface ItemTableListColumn extends CellComponentProps<TableItemProps> {
     columnType?: TableColumn;
@@ -683,6 +696,8 @@ export const TableColumnTextContainer = (
             ? props.internalState.extractRowId(item)
             : undefined;
     const isSelected = useItemSelectionState(props.internalState, itemRowId || undefined);
+    // The side queue's playing row (F4) wears a container painted on each of its cells.
+    const isQueueActive = useIsActiveRow(props.markActiveRow ? itemRowId || undefined : undefined);
     const clampHeight = getAlbumGroupClampHeight(props);
 
     const isDragging = props.isDragging ?? false;
@@ -797,6 +812,10 @@ export const TableColumnTextContainer = (
                 [styles.withHorizontalBorder]: showHorizontalBorder && clampHeight === null,
                 [styles.withVerticalBorder]: showVerticalBorder,
             })}
+            data-queue-active={isQueueActive || undefined}
+            data-queue-edge={
+                isQueueActive ? queueActiveEdge(props.columnIndex, isLastColumn) : undefined
+            }
             data-row-index={isDataRow ? `${props.tableId}-${props.rowIndex}` : undefined}
             onClick={handleClick}
             onContextMenu={handleContextMenu}
@@ -850,6 +869,8 @@ export const TableColumnContainer = (
             ? props.internalState.extractRowId(item)
             : undefined;
     const isSelected = useItemSelectionState(props.internalState, itemRowId || undefined);
+    // The side queue's playing row (F4) wears a container painted on each of its cells.
+    const isQueueActive = useIsActiveRow(props.markActiveRow ? itemRowId || undefined : undefined);
     const clampHeight = getAlbumGroupClampHeight(props);
 
     const isDragging = props.isDragging ?? false;
@@ -970,6 +991,10 @@ export const TableColumnContainer = (
                 [styles.withVerticalBorder]: showVerticalBorder,
             })}
             data-exclude-row-drag-border={props.type === TableColumn.ALBUM_GROUP ? true : undefined}
+            data-queue-active={isQueueActive || undefined}
+            data-queue-edge={
+                isQueueActive ? queueActiveEdge(props.columnIndex, isLastColumn) : undefined
+            }
             data-row-index={isDataRow ? `${props.tableId}-${props.rowIndex}` : undefined}
             onClick={handleClick}
             onContextMenu={handleContextMenu}

@@ -2,7 +2,15 @@
 // headless check over CDP add a server, set the playing song, read cover seeds and set a cover seed
 // directly, without a real library.
 import { api } from '/@/renderer/api';
-import { useAuthStore, usePlayerStore, useSettingsStore } from '/@/renderer/store';
+import { useStationStore } from '/@/renderer/features/player/station/station-store';
+import {
+    useAppStore,
+    useAuthStore,
+    useHubStore,
+    usePlayerStore,
+    useSettingsStore,
+} from '/@/renderer/store';
+import { useSavedQueuesStore } from '/@/renderer/store/saved-queues.store';
 import { applyWashVars, washVars } from '/@/renderer/themes/cover/apply-wash-vars';
 import { type CoverSeed, rolesFor } from '/@/renderer/themes/cover/cover-roles';
 import * as coverSeeds from '/@/renderer/themes/cover/cover-seed-store';
@@ -17,5 +25,17 @@ Object.assign(window, {
             useCoverWashStore.setState({ light, roles, seed });
         },
     },
-    __f2: { api, coverSeeds, useAuthStore, usePlayerStore, useSettingsStore },
+    // F4 adds the app, hub, station and saved-queue stores, to set the side queue's states and
+    // the panel's width with no hub.
+    __f2: {
+        api,
+        coverSeeds,
+        useAppStore,
+        useAuthStore,
+        useHubStore,
+        usePlayerStore,
+        useSavedQueuesStore,
+        useSettingsStore,
+        useStationStore,
+    },
 });
