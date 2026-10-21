@@ -16,13 +16,13 @@ findings, the fixes, the rulings and the deferred minors are appended at the end
 | eslint `--max-warnings=0`, every changed TS/TSX file (25) | - | clean |
 | stylelint, every changed CSS file (15) | - | clean |
 | The 41 existing harnesses (F1's `device-rows` 21, F2's five, and the rest) | 717 pass, 0 fail | 717 pass, 0 fail |
-| `sidebar-groups.harness.ts` (new) | - | 15 pass |
+| `sidebar-groups.harness.ts` (new) | - | 17 pass (15 at Task 2, two added by the review's fixes) |
 | `sidebar-widths.harness.ts` (new) | - | 3 pass |
 | `font-migration.harness.ts` (new) | - | 4 pass |
 | `pnpm build:remote` | - | exit 0, emits the four new woff2 |
 | `pnpm build:web` | - | exit 0, emits the four new woff2 |
 
-44 harness files, 739 pass, 0 fail, run by hand (`node --test --test-reporter=tap <file>`); CI does not run them. Node here was 22.22. Every new harness
+44 harness files, 741 pass, 0 fail after the review's fixes (739 before them), run by hand (`node --test --test-reporter=tap <file>`); CI does not run them. Node here was 22.22. Every new harness
 was seen to fail (`ERR_MODULE_NOT_FOUND`) before its module existed; `sidebar-groups` was also mutated (dedupe off, `gaveUp` counted) and went red in
 3 cases before the code was restored.
 
@@ -106,7 +106,9 @@ You, Saved Queues, Fresh, Downloads, Library Matches, My Listening, Settings, th
 | listening unsupported | expanded 1280 / fold / rail / drawer | 18 each | none | fold: Saved queues, Library Matches, Settings |
 
 The rail reaches the collection through its kept Collections dropdown and `/playlists` through its new Playlists entry; the drawer reaches the
-collection through the Collections section it gained (its old Collections row linked to nothing).
+collection through the Collections section it gained (its old Collections row linked to nothing). After the review: with the sidebar's playlist
+section turned off and the Playlists entry enabled, `/playlists` is reached once on each of the expanded sidebar, the rail and the drawer (before the
+fix only the rail reached it).
 
 ### The rail and the drawer (Task 4)
 
@@ -178,8 +180,10 @@ Each new surface's text colour through a canvas, its background from the screens
 | Rail count pill (accct on accc) | 6.17 (black, h120) | 8.01 (black, h40) |
 | Rail "Up next" (on2 on the window) | 9.30 (grey25, h120) | 6.53 (black, h120) |
 
-Every pair is 4.5 or more. With `Cover colours` off the badge is the theme's background colour on its warning colour (default dark theme:
-`rgb(12, 12, 12)` on `rgb(255, 120, 120)`); the other off-wash surfaces use the roles the shell used before.
+Every pair is 4.5 or more. **With `Cover colours` off** the badge was first the theme's background colour on its warning colour, which the
+review found unreadable on light themes; measured 1.18 (Default Light), 2.10 (Ayu Light), 3.12 (GitHub Light, VS Code Light+), 3.41 (Gruvbox
+Light). After the fix (the board's dark label in both schemes off the wash) it measures 4.76 to 17.13 across all 32 built-in themes (Gruvbox Light
+lowest, Default Light 13.03, Default Dark 7.19). The other off-wash surfaces use the roles the shell used before.
 
 ### `Cover colours` on and off
 
@@ -198,7 +202,8 @@ theme's background); on, the three cards paint the translucent surface once and 
 - **The WEB window style** (plan call 11): its 65 px titlebar over the top bar's right edge was not seen; the web build was built, not run.
 - **The remote SPA with a connected server** (only its disconnected screen rendered).
 - **Custom CSS themes**: `custom-themes/catppuccin-glassy.css` has its own height literals and styles `.fs-action-bar-module-container`; not checked.
-  The built-in Glassy Dark theme's `.fs-action-bar` input rule no longer reaches the top bar's search field.
+  The built-in Glassy Dark theme's `.fs-action-bar` input rule no longer reaches the top bar's search field. Glassy Dark's own height override was
+  measured (8 px under the cards after the review's fix, 16 before); the rest of that theme was not looked at.
 - `prefers-color-scheme` changing while the app runs; user-installed fonts.
 
 ## Calls made beyond the plan
@@ -224,13 +229,14 @@ theme's background); on, the three cards paint the translucent surface once and 
    (`sidebar-settings.tsx`, `sidebar-reorder.tsx`) no longer change the sidebar beyond enabling or disabling a Library child; `sidebarCollapsedNavigation`
    does nothing (back and forward live in the top bar). No UI was built for either.
 5. **Settings is always visible** in the App group, though its stored entry is disabled by default. Playlists stays reachable through its section's
-   list icon (expanded sidebar and drawer) and the rail's new Playlists entry.
+   list icon (expanded sidebar and drawer), the rail's new Playlists entry, and, when the playlist section is turned off, a Library child.
 6. **Indistinguishable choices moved**: a deliberately chosen 400 px sidebar or 600 px panel moved to 232 / 360, and a deliberately chosen Inter moved
    to Figtree.
 7. **Fonts**: Cyrillic and Greek are drawn in Inter beside Figtree, Japanese in Noto Sans JP; the remote SPA's fonts changed with the renderer's.
    The alternatives (keep Inter as the default, or add a face with those scripts) are yours.
-8. **The badge's label colours** are the board's two literals (`#1b1304` dark, `#fff` light) inside the badge's own CSS module, over F2's warning role:
-   7.95 to 11.04 measured. Off the wash it is the theme's background colour on its warning colour.
+8. **The badge's label colours** are the board's two literals over the warning role: `#1b1304` everywhere except the wash's light scheme, which takes
+   `#fff`. Wash on: 7.95 to 11.04 measured; wash off: 4.76 to 17.13 across the 32 built-in themes. They are written in the sidebar's and the rail's
+   modules (a deferred minor).
 9. **The command palette's "go to" list** still uses the old navi-connect names (Downloads, My Listening) from `navi-connect-items.ts`.
 10. **The stack is tall**: with every group at 1280 x 800 the bottom stack takes 377 px and the scroll area above it 239 px. At 1100 px and under
     the fold applies; above it the column scrolls as a whole only when it must.
@@ -248,3 +254,83 @@ theme's background); on, the three cards paint the translucent surface once and 
    the OS and the grid snaps.
 6. Put a Polish, a Russian and a Japanese title side by side (a playlist name works): Figtree, Inter and Noto Sans JP.
 7. Turn `Cover colours` off: the shell is the theme's own colours, the cards keep their shape.
+
+## Final review
+
+One fresh reviewer (a separate agent on the most capable model available) read the whole branch, `c58c0b5..2860e3c`, against the plan, the addendum,
+the plan's Review Focus and the ledger's rulings, and ran the three new harnesses, both type-checks and the push gate. Verdict: **with fixes**;
+0 Critical, 3 Important, 8 Minor.
+
+Fixed in one pass (`fix(ui): address the branch review`), each seen failing first:
+
+1. **The badge was unreadable on light themes with `Cover colours` off** (Important). Measured 1.18 to 3.41 on four light themes, then 4.76 to 17.13
+   on all 32 after the fix.
+2. **The Playlists page was unreachable from the expanded sidebar and the drawer when the playlist section is off** (Important). Harness case
+   `playlistsIsAChildOnlyWhenItsSectionIsHidden` red, then green; watched on all three surfaces.
+3. **A disabled stored entry could come back through a duplicate the settings merge appended** (Important; the old sidebar behaved the same).
+   Harness case `aDisabledStoredItemStaysHiddenWhenTheMergedTailRepeatsIt` red, then green.
+4. **Glassy Dark left 16 px under the cards** (graded Minor by the reviewer, re-graded Important: a regression this branch made in a built-in theme).
+   Measured 16, then 8.
+
+Suite after the pass: both type-checks clean, eslint and stylelint clean, 44 harnesses, 741 pass, 0 fail.
+
+## Rulings I made
+
+In the order they were made; each says what it costs if wrong.
+
+1. Install: `pnpm install --frozen-lockfile` fails here (proxy 403 on `codeload.github.com`); the two git-hosted packages were installed through a
+   temporary override and the three package files restored. Cost: local `node_modules` differs from CI in two main-process packages.
+2. `pnpm` commands ran with `--config.verify-deps-before-run=false` (otherwise they re-install and hit the same 403). Cost: none.
+3. Task 1: the main row was sized by `--content-height`, not `minmax(0, 1fr)` (the `1fr` row grew to its content). Superseded by ruling 33.
+4. Task 1: the literal sweep's dispositions (six stylesheets and Glassy's override follow the variables; the mobile layout, the dead
+   `side-drawer-queue.tsx`, a modal's height and user themes left alone). Cost: one surface keeps a stale literal.
+5. Task 1: F2's `position` and `isolation` stay where F2 put them; the variants only set the bar height. Cost: none.
+6. Task 1: `ActionBar` kept for the mobile drawer; `TopBar` written new. Cost: one more file to delete in F6.
+7. Task 1: the top bar is a window-drag region with its controls excluded, as the action bar was. Cost: a stray drag on the empty bar.
+8. Task 1: the hint reads `⌘ K` on macOS and `Ctrl K` elsewhere, only for the default binding. Cost: a wrong glyph on an unusual platform string.
+9. Task 1: the full-screen player and visualizer cover the page area below the top bar, as they covered the page area before. Cost: you may want them
+   over the top bar too.
+10. Task 2: groups come in the board's order and an empty group is dropped; More holds the lower entries even without lb-bot. Cost: one test.
+11. Task 3: dropped `.accordion-root { height: 100% }` (it added a viewport of blank scroll under the sections). Cost: none seen.
+12. Task 3: `SidebarItem` gained `selectedTo` and `SidebarIcon` gained `name`. Cost: two optional props.
+13. Task 3: `SidebarGroups` takes the groups and renders twice (main rows in the scroll area, the stack below). Cost: none.
+14. Task 3: the badge is a styled span with the board's numbers, not Mantine's Badge. Cost: one class.
+15. Task 3: the off-wash badge label was the theme's background colour. Wrong on light themes; replaced in the review's fix 1.
+16. Task 3: a short column scrolls as a whole and the scroll area keeps 136 px. Cost: two scrollbars at once in that edge case.
+17. Task 3: the Library group starts expanded, its state is not persisted, its children are indented. Cost: it re-opens on each launch.
+18. Task 3: Discover and Mixed for You keep their English labels. Cost: two keys to add.
+19. Task 3: on the wash the rows are on2 and the selected row accct on accc; off, today's colours. Cost: re-measure if the roles move.
+20. Task 4: the rail keeps its Collections dropdown and gains a Playlists entry, after the main block. Cost: order.
+21. Task 4: the rail flattens the Library group, draws hairlines and a count dot, and selects shared-route rows by the model. Cost: none.
+22. Task 4: the drawer gained the Collections section. Cost: one section in the drawer.
+23. Task 4: the rail and drawer ask the model for no fold; `navi-connect-items.ts` stays for the command palette. Cost: none.
+24. Task 5: one hook for the rail beside the panel's, and the 44 px track only under the rail's class. Cost: none.
+25. Task 5: the queue button's icon reads the shared hook, its click keeps the raw flag. Cost: on Now Playing a click flips a flag with nothing to show.
+26. Task 5: the rail first painted the panel's roles; superseded by ruling 34 (not a card, transparent).
+27. Task 5: the grid tween obeys reduced motion. Cost: none.
+28. Task 6: the width step is guarded on a persisted `sidebar`. Cost: none; a deliberate 400 / 600 moves too.
+29. Task 7: four font files (latin and latin-ext) under the packages' lower-case names, licences beside them. Cost: renames.
+30. Task 7: the Figtree stack falls back to Inter; other fonts unchanged. Cost: Cyrillic and Greek in Inter.
+31. Task 7: the album and artist header's `<h1>` reads the title font. Cost: one line.
+32. Task 7: `docs/ENV_SETTINGS.md` lists Figtree as the default. Cost: none.
+33. Task 9: the main row is `--main-row-height` and `--content-height` is a card's height. Cost: none.
+34. Task 9: the queue rail is not a card. Cost: one rule if you want a card there.
+35. Task 9: the page card paints the surface only on the wash; off, it matches the gaps. Cost: you may want a visible page card off the wash.
+36. Task 9: the left drag measures the card. Cost: a drag starting in the gap does nothing.
+37. Final: re-graded Glassy Dark's 16 px gap from Minor to Important and fixed it. Cost: one line.
+38. Final: the reviewer's "declined to judge" items stand as decided earlier (WEB titlebar, user themes, the palette's names, the full-screen player
+    under the top bar, the dead settings controls, the moved defaults, the board's sizes, the Now Playing button, the rail counting the whole queue,
+    the hidden rail's subscription, a partial persisted font, the top bar's drag region, the drag's style read, the `Ctrl K` colours, the short-column
+    scrollbars, an unused i18n key). Cost: each visible one is in "Open for the owner".
+
+## Deferred minors
+
+- The sidebar re-renders on every fills-ledger write (`useFillLedger` rebuilds the rows); a plain count selector would avoid it.
+- The badge's two literal colours are written in two modules; hoist them into one place.
+- At 1100 px and under, the first frame shows the unfolded stack (Mantine's `useMediaQuery` reads in an effect).
+- The queue rail shows "Up next" and a count when the only panel is lyrics (the plan's predicate).
+- The rail marks both `/downloads` rows `aria-current` (`NavLink`), though only Activity looks selected.
+- Discover and Mixed for You have no i18n keys.
+- The More menu marks the current page only with a filled icon.
+- Commits carry the container's git author identity (`Claude <noreply@anthropic.com>`), as F1's and F2's did; the messages carry no attribution.
+
