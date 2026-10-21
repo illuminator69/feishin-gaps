@@ -435,6 +435,17 @@
     }
 }
 
+/* The container is opaque with the wash, so the row's own selection and hover colours are drawn
+   into it (it would otherwise hide them: a playing row would look unselected under Delete). */
+:root[data-cover-wash='true']
+    .container.data-row.row-hover-highlight-enabled[data-row-hovered='true'][data-queue-active='true']::before {
+    background: color-mix(in oklch, var(--wash-accc) 82%, var(--wash-mid));
+}
+
+:root[data-cover-wash='true'] .container.data-row.row-selected[data-queue-active='true']::before {
+    background: color-mix(in oklch, var(--wash-accc) 62%, var(--wash-mid));
+}
+
 .container.data-row[data-queue-edge='first']::before,
 .container.data-row[data-queue-edge='both']::before {
     left: 4px;
