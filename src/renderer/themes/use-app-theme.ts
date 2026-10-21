@@ -157,10 +157,12 @@ export const useAppTheme = (overrideTheme?: AppTheme) => {
             }`;
         } else {
             const root = document.documentElement;
-            root.style.setProperty(
-                '--theme-content-font-family',
-                `${builtIn}, "Noto Sans JP", "Noto Sans Hebrew", sans-serif`,
-            );
+            // Figtree has no Cyrillic or Greek: Inter, already bundled, draws those in a matching face.
+            const stack =
+                builtIn === 'Figtree'
+                    ? `Figtree, Inter, "Noto Sans JP", "Noto Sans Hebrew", sans-serif`
+                    : `${builtIn}, "Noto Sans JP", "Noto Sans Hebrew", sans-serif`;
+            root.style.setProperty('--theme-content-font-family', stack);
         }
     }, [builtIn, custom, system, type]);
 

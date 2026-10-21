@@ -120,6 +120,8 @@
         top: calc(var(--theme-spacing-lg) + 4rem);
         align-self: start;
         width: 300px;
-        max-height: calc(100vh - 90px - var(--theme-spacing-lg) - 4rem);
+        max-height: calc(
+            var(--content-height, calc(100vh - 90px)) - var(--theme-spacing-lg) - 4rem
+        );
     }
 }

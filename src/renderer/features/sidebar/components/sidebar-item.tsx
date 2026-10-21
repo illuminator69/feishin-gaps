@@ -7,13 +7,21 @@ import styles from './sidebar-item.module.css';
 import { Button, ButtonProps } from '/@/shared/components/button/button';
 
 interface SidebarItemProps extends Omit<ButtonProps, 'component' | 'ref'> {
+    /** The path that marks this row selected when it is not `to`; `''` means never selected. */
+    selectedTo?: string;
     to: LinkProps['to'];
 }
 
-export const SidebarItem = ({ children, className, to, ...props }: SidebarItemProps) => {
+export const SidebarItem = ({
+    children,
+    className,
+    selectedTo,
+    to,
+    ...props
+}: SidebarItemProps) => {
     const location = useLocation();
-    const toPath = typeof to === 'string' ? to : to.pathname || '';
-    const isActive = location.pathname === toPath;
+    const toPath = selectedTo ?? (typeof to === 'string' ? to : to.pathname || '');
+    const isActive = toPath !== '' && location.pathname === toPath;
 
     const handleLinkDragStart = (e: React.DragEvent<HTMLButtonElement>) => {
         e.preventDefault();
