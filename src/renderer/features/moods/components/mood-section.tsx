@@ -44,7 +44,15 @@ export const MoodSection = ({ children }: { children: ReactNode }) => {
             )}
             <Fold name="mood" open={!!mood}>
                 <div className={styles.space}>
-                    {shown && <MoodBody mood={shown} onRetry={refetch} unavailable={isError} />}
+                    {/* Keyed by mood: each mood's tiles arrive once when it opens. */}
+                    {shown && (
+                        <MoodBody
+                            key={shown.id}
+                            mood={shown}
+                            onRetry={refetch}
+                            unavailable={isError}
+                        />
+                    )}
                 </div>
             </Fold>
             <Fold name="shelves" open={!mood} tall>

@@ -113,13 +113,17 @@
     }
 }
 
-/* Not owned: a dark translucent chip that reads on any cover. */
+/*
+ * Not owned: a translucent chip that reads on any cover. At 90% opaque the light text stays above 4.5:1
+ * even over a white cover (the board's 74% measured 4.0:1 on a bright one); --wash-bar is itself 94%
+ * opaque, so 96% of it is 90%.
+ */
 .owned-badge.not-owned {
     color: var(--theme-colors-foreground);
-    background: alpha(var(--theme-colors-background), 0.74);
+    background: alpha(var(--theme-colors-background), 0.9);
 
     :root[data-cover-wash='true'] & {
-        background: color-mix(in srgb, var(--wash-bar) 78%, transparent);
+        background: color-mix(in srgb, var(--wash-bar) 96%, transparent);
     }
 }
 
