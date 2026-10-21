@@ -15,6 +15,7 @@ import {
 } from 'react';
 
 import styles from './image.module.css';
+import { dropUnder, markLoaded, type ShownEntry, showNext } from './shown-stack';
 import { useNativeImage } from './use-native-image';
 
 import { tintHues } from '/@/shared/components/animations/tint-hues';
@@ -135,20 +136,23 @@ export function BaseImage({
     const fade = enableAnimation || Boolean(hashUrl) || fadeDecision.current.fade;
 
     // The images on screen, the newest last, each with its own fade decision. A changed request
-    // keeps the old <img> element mounted underneath (its blob URL is already revoked, so only the
-    // loaded element can still show it) until the new one has faded in over it.
-    const [shown, setShown] = useState<{ fade: boolean; src: string }[]>([]);
+    // keeps the last image that loaded mounted underneath (its blob URL is already revoked, so only
+    // the loaded element can still show it) until the new one has loaded and faded in over it.
+    const [shown, setShown] = useState<ShownEntry[]>([]);
     const displaySrc = nativeImage.displaySrc;
     const gone = !src || nativeImage.isError;
     if (displaySrc && shown[shown.length - 1]?.src !== displaySrc) {
-        const under = shown.filter((entry) => entry.src !== displaySrc).slice(-1);
-        setShown([...under, { fade, src: displaySrc }]);
+        setShown(showNext(shown, displaySrc, fade));
     } else if (gone && shown.length) {
         setShown([]);
     }
-    const dropUnder = () => setShown((list) => (list.length > 1 ? list.slice(-1) : list));
-    const handleLoad = (event: SyntheticEvent<HTMLImageElement>) => {
-        if (!event.currentTarget.getAnimations().length) dropUnder();
+    const settle = () => setShown(dropUnder);
+    const handleLoad = (event: SyntheticEvent<HTMLImageElement>, loadedSrc: string) => {
+        const animating = event.currentTarget.getAnimations().length > 0;
+        setShown((list) => {
+            const marked = markLoaded(list, loadedSrc);
+            return animating ? marked : dropUnder(marked);
+        });
         onLoad?.(event);
     };
 
@@ -185,9 +189,9 @@ export function BaseImage({
                             decoding="async"
                             fetchPriority={fetchPriority}
                             key={entry.src}
-                            onAnimationEnd={top ? dropUnder : undefined}
+                            onAnimationEnd={top ? settle : undefined}
                             onError={onError}
-                            onLoad={top ? handleLoad : undefined}
+                            onLoad={top ? (event) => handleLoad(event, entry.src) : undefined}
                             src={entry.src}
                             {...props}
                             id={top ? props.id : undefined}
