@@ -25,6 +25,7 @@ import { audiomotionanalyzerPresets } from '/@/renderer/features/visualizer/comp
 import { AppRoute } from '/@/renderer/router/routes';
 import { migrateAutoplayToStations } from '/@/renderer/store/autoplay-migration';
 import { getEnvSettingsOverrides } from '/@/renderer/store/env-settings-overrides';
+import { migrateBuiltInFont } from '/@/renderer/store/font-migration';
 import { mergeOverridingColumns } from '/@/renderer/store/utils';
 import { FontValueSchema } from '/@/renderer/types/fonts';
 import { randomString } from '/@/renderer/utils';
@@ -1382,7 +1383,7 @@ const initialState: SettingsState = {
         showStateIcon: true,
     },
     font: {
-        builtIn: 'Inter',
+        builtIn: 'Figtree',
         custom: null,
         system: null,
         type: FontType.BUILT_IN,
@@ -3024,10 +3025,15 @@ export const useSettingsStore = createWithEqualityFn<SettingsSlice>()(
                     );
                 }
 
+                // F3: Figtree replaces Inter as the built-in font, for people still on Inter.
+                if (version < 37 && state.font) {
+                    state.font = migrateBuiltInFont(state.font) as typeof state.font;
+                }
+
                 return persistedState;
             },
             name: 'store_settings',
-            version: 36,
+            version: 37,
         },
     ),
 );
