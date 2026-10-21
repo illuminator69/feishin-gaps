@@ -1,10 +1,11 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import isElectron from 'is-electron';
 
+import { moodsShown } from '/@/renderer/features/moods/mood-mix';
 import { useCurrentServer, useHubSettings } from '/@/renderer/store';
 import { logger } from '/@/renderer/utils/logger';
-import { ServerType } from '/@/shared/types/domain-types';
 import { MoodCatalogue, MoodListData, MoodResult } from '/@/shared/types/mood-types';
+import { parseStoredMoodCatalogue } from '/@/shared/utils/mood-parse';
 
 /**
  * The hub's mood routes, through the main process (`window.api.mood`), which holds the hub's
@@ -53,8 +54,7 @@ const STORAGE_KEY = 'mood-catalogue';
 
 const readPersisted = (): MoodCatalogue | undefined => {
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        return raw ? (JSON.parse(raw) as MoodCatalogue) : undefined;
+        return parseStoredMoodCatalogue(localStorage.getItem(STORAGE_KEY));
     } catch {
         return undefined;
     }
@@ -79,8 +79,8 @@ class MoodCatalogueError extends Error {
 }
 
 /**
- * Home's mood catalogue. Null while the hub is switched off or the server is not Navidrome (the
- * hub's ids are Navidrome's), and the persisted copy is not shown then (it is kept). An older hub
+ * Home's mood catalogue. Null while the hub is switched off or not configured, or the server is
+ * not Navidrome (the hub's ids are Navidrome's), and the persisted copy is not shown then (it is kept). An older hub
  * (absent) clears the copy; a hub that does not answer keeps it. A status-0 answer (no answer, or
  * the main process has not learned the hub settings yet on a cold start) is retried.
  */
@@ -91,7 +91,7 @@ export const useMoodCatalogue = (): {
 } => {
     const hub = useHubSettings();
     const server = useCurrentServer();
-    const on = isElectron() && hub.enabled && server?.type === ServerType.NAVIDROME;
+    const on = moodsShown({ electron: isElectron(), hub, serverType: server?.type });
 
     const query = useQuery<MoodCatalogue | null>({
         enabled: on,

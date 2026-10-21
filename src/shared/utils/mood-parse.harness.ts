@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { moodOutcome, parseMoodCatalogue, parseMoodList } from './mood-parse.ts';
+import {
+    moodOutcome,
+    parseMoodCatalogue,
+    parseMoodList,
+    parseStoredMoodCatalogue,
+} from './mood-parse.ts';
 
 /**
  * F5:  node --test src/shared/utils/mood-parse.harness.ts
@@ -173,4 +178,13 @@ test('outcomes', () => {
     assert.equal(moodOutcome(503), 'unavailable');
     assert.equal(moodOutcome(0), 'unavailable');
     assert.equal(moodOutcome(500), 'unavailable');
+});
+
+// Review fix: the stored copy is read through the same parse, so a bad value can never break Home.
+test('aStoredCopyIsParsed', () => {
+    assert.equal(parseStoredMoodCatalogue(null), undefined);
+    assert.equal(parseStoredMoodCatalogue('not json'), undefined);
+    assert.equal(parseStoredMoodCatalogue('[1, 2]'), undefined);
+    assert.deepEqual(parseStoredMoodCatalogue('{"available": true}')?.moods, []);
+    assert.deepEqual(parseStoredMoodCatalogue(JSON.stringify(full)), parseMoodCatalogue(full));
 });

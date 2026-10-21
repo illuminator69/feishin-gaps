@@ -12,8 +12,10 @@ import {
     homeMoods,
     mixState,
     MOOD_ARTIST_GAP,
+    moodsShown,
     queuesFromMood,
     tileColors,
+    tilePlayResult,
     toggleMood,
     withinLength,
 } from './mood-mix.ts';
@@ -244,4 +246,33 @@ test('tileColorsAreStable', () => {
     const a = tileColors({ hue: [], id: 'acoustic', title: 'Acoustic evenings' });
     assert.deepEqual(tileColors({ hue: [], id: 'acoustic', title: 'Acoustic evenings' }), a);
     assert.notDeepEqual(tileColors({ hue: [], id: 'indie', title: 'Laid-back indie' }), a);
+});
+
+// Review fix: the tile's play button never plays a short mix silently under "About 50 songs".
+test('tilePlayResult', () => {
+    assert.deepEqual(tilePlayResult('ready'), { notice: 'none', play: true });
+    assert.deepEqual(tilePlayResult('short'), { notice: 'short', play: true });
+    assert.deepEqual(tilePlayResult('empty'), { notice: 'empty', play: false });
+    assert.deepEqual(tilePlayResult('unavailable'), { notice: 'unavailable', play: false });
+});
+
+// Review fix: a hub switched off or never configured shows no moods, stored copy or not.
+test('moodsShown', () => {
+    const hub = { enabled: true, token: 'tok', url: 'ws://hub:4790' };
+    assert.equal(moodsShown({ electron: true, hub, serverType: 'navidrome' }), true);
+    assert.equal(
+        moodsShown({ electron: true, hub: { ...hub, token: '' }, serverType: 'navidrome' }),
+        false,
+    );
+    assert.equal(
+        moodsShown({ electron: true, hub: { ...hub, url: '' }, serverType: 'navidrome' }),
+        false,
+    );
+    assert.equal(
+        moodsShown({ electron: true, hub: { ...hub, enabled: false }, serverType: 'navidrome' }),
+        false,
+    );
+    assert.equal(moodsShown({ electron: true, hub, serverType: 'jellyfin' }), false);
+    assert.equal(moodsShown({ electron: false, hub, serverType: 'navidrome' }), false);
+    assert.equal(moodsShown({ electron: true, hub, serverType: undefined }), false);
 });

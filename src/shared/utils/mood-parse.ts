@@ -87,3 +87,13 @@ export const moodOutcome = (status: number, code?: string): MoodOutcome => {
     if (status === 404) return code ? 'unknown' : 'absent';
     return 'unavailable';
 };
+
+/** The stored copy of the catalogue, read through the same parse (a bad or old value is none, never a crash). */
+export const parseStoredMoodCatalogue = (raw: null | string): MoodCatalogue | undefined => {
+    if (!raw) return undefined;
+    try {
+        return parseMoodCatalogue(JSON.parse(raw)) ?? undefined;
+    } catch {
+        return undefined;
+    }
+};

@@ -153,3 +153,31 @@ export const tileColors = (variant: MoodVariant): { from: Hsl; to: Hsl } => {
         to: settle({ h: b, l: 24, s: 60 }, [a, b]),
     };
 };
+
+/**
+ * What the tile's play button does with a draw: play a full or a short mix (a short one says so,
+ * so it is never presented as "About 50 songs"), or play nothing and say why.
+ */
+export const tilePlayResult = (
+    state: 'empty' | 'ready' | 'short' | 'unavailable',
+): { notice: 'empty' | 'none' | 'short' | 'unavailable'; play: boolean } => {
+    if (state === 'ready') return { notice: 'none', play: true };
+    if (state === 'short') return { notice: 'short', play: true };
+    return { notice: state, play: false };
+};
+
+/**
+ * Moods show only in the desktop app, for a Navidrome server (the hub's ids are Navidrome's), with
+ * the hub switched on and configured (a url and a token): a hub the user disabled or never set up
+ * renders nothing, a stored copy included.
+ */
+export const moodsShown = (input: {
+    electron: boolean;
+    hub: { enabled: boolean; token: string; url: string };
+    serverType: string | undefined;
+}): boolean =>
+    input.electron &&
+    input.hub.enabled &&
+    !!input.hub.url &&
+    !!input.hub.token &&
+    input.serverType === 'navidrome';

@@ -6,7 +6,7 @@ import styles from './mood-tile.module.css';
 
 import { lbModalSettings } from '/@/renderer/features/lbbot/components/lb-modal-layout';
 import { MoodMixPreview } from '/@/renderer/features/moods/components/mood-mix-preview';
-import { MOOD_MIX_SIZE, tileColors } from '/@/renderer/features/moods/mood-mix';
+import { MOOD_MIX_SIZE, tileColors, tilePlayResult } from '/@/renderer/features/moods/mood-mix';
 import { drawMoodMix, usePlayDrawn } from '/@/renderer/features/moods/use-mood-mix';
 import { ArrivalProps } from '/@/renderer/features/motion/use-arrival';
 import { useCurrentServerId } from '/@/renderer/store';
@@ -70,10 +70,11 @@ export const MoodTile = ({
                 serverId,
                 variant: variant.id,
             });
-            if (drawn.songs.length === 0) {
+            const result = tilePlayResult(drawn.state);
+            if (!result.play) {
                 toast.error({
                     message:
-                        drawn.state === 'unavailable'
+                        result.notice === 'unavailable'
                             ? t('naviConnect.moods.unavailable')
                             : t('naviConnect.moods.empty'),
                     title: t('naviConnect.moods.playFailed', { title: variant.title }),
@@ -81,6 +82,13 @@ export const MoodTile = ({
                 return;
             }
             playDrawn(drawn.songs, variant.title);
+            // A short mix plays, but never as "About 50 songs" without a word.
+            if (result.notice === 'short') {
+                toast.info({
+                    message: t('naviConnect.moods.short', { count: drawn.songs.length }),
+                    title: variant.title,
+                });
+            }
         } finally {
             setBusy(false);
         }
