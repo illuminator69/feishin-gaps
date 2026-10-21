@@ -6,6 +6,7 @@ import styles from './right-controls.module.css';
 
 import { useRemoteAwarePlayerSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { PopoverPlayQueue } from '/@/renderer/features/now-playing/components/popover-play-queue';
+import { useRightSidebarVisible } from '/@/renderer/features/now-playing/hooks/use-right-sidebar-visible';
 import { DeviceControl } from '/@/renderer/features/player/components/device-control';
 import { MoreControl } from '/@/renderer/features/player/components/more-control';
 import { VolumeGroup } from '/@/renderer/features/player/components/volume-group';
@@ -42,6 +43,9 @@ export const RightControls = () => (
 const QueueButton = () => {
     const { t } = useTranslation();
     const isSidebarRightExpanded = useSidebarRightExpanded();
+    // The icon says whether the panel is on screen; the toggle keeps the raw flag (on Now Playing
+    // there is no panel, and the flag is what a click must flip).
+    const isPanelShown = useRightSidebarVisible();
     const { setSideBar } = useAppStoreActions();
     const sideQueueType = useSideQueueType();
     const { bindings } = useHotkeySettings();
@@ -56,7 +60,7 @@ const QueueButton = () => {
     if (sideQueueType === 'sideQueue') {
         return (
             <ActionIcon
-                icon={isSidebarRightExpanded ? 'panelRightClose' : 'panelRightOpen'}
+                icon={isPanelShown ? 'panelRightClose' : 'panelRightOpen'}
                 iconProps={{ size: 'lg' }}
                 onClick={(e) => {
                     e.stopPropagation();

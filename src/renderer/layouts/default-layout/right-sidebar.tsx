@@ -3,12 +3,10 @@ import { forwardRef, Ref } from 'react';
 
 import styles from './right-sidebar.module.css';
 
-import {
-    SidebarPlayQueue,
-    useSidebarPanels,
-} from '/@/renderer/features/now-playing/components/sidebar-play-queue';
+import { SidebarPlayQueue } from '/@/renderer/features/now-playing/components/sidebar-play-queue';
+import { useRightSidebarVisible } from '/@/renderer/features/now-playing/hooks/use-right-sidebar-visible';
 import { ResizeHandle } from '/@/renderer/features/shared/components/resize-handle';
-import { useAppStore, useSideQueueLayout, useSideQueueType } from '/@/renderer/store';
+import { useSideQueueLayout } from '/@/renderer/store';
 
 // const queueDrawerVariants: Variants = {
 //     closed: (windowBarStyle) => ({
@@ -58,14 +56,9 @@ export const RightSidebar = forwardRef(
         { isResizing: isResizingRight, startResizing }: RightSidebarProps,
         ref: Ref<HTMLDivElement>,
     ) => {
-        const rightExpanded = useAppStore((state) => state.sidebar.rightExpanded);
-        const sideQueueType = useSideQueueType();
         const sideQueueLayout = useSideQueueLayout();
-        const sidebarPanels = useSidebarPanels();
         const isVerticalLayout = sideQueueLayout === 'vertical';
-
-        const showRightSidebar =
-            rightExpanded && sideQueueType === 'sideQueue' && sidebarPanels.length > 0;
+        const showRightSidebar = useRightSidebarVisible();
 
         return (
             <>

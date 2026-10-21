@@ -24,6 +24,10 @@
         transition:
             grid-template-columns var(--motion-duration) var(--motion-ease),
             grid-template-rows var(--motion-duration) var(--motion-ease);
+
+        @media (prefers-reduced-motion: reduce) {
+            transition: none;
+        }
     }
 
     /*
@@ -53,6 +57,23 @@
 
 .main-content-container.sidebar-expanded {
     grid-template-columns: var(--sidebar-width) 1fr;
+}
+
+.main-content-container.sidebar-expanded.queue-rail {
+    grid-template-columns: var(--sidebar-width) 1fr 44px;
+}
+
+.main-content-container.sidebar-collapsed.queue-rail {
+    grid-template-columns: 80px 1fr 44px;
+}
+
+/* Under motion the closed panel's track is the rail's 44px, so opening it eases 44px to the panel's width. */
+:root[data-motion='true'] .main-content-container.sidebar-expanded.queue-rail:not(.right-expanded, .vertical-layout) {
+    grid-template-columns: var(--sidebar-width) 1fr 44px;
+}
+
+:root[data-motion='true'] .main-content-container.sidebar-collapsed.queue-rail:not(.right-expanded, .vertical-layout) {
+    grid-template-columns: 80px 1fr 44px;
 }
 
 .main-content-container.right-expanded {
