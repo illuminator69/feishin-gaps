@@ -91,6 +91,10 @@ export const SidebarIcon = ({ active, name, route, size }: SidebarIconProps) => 
             case AppRoute.HOME:
                 if (isActive) return <RiHome6Fill size={size} />;
                 return <RiHome6Line size={size} />;
+            // F6: Library as one place.
+            case AppRoute.LIBRARY:
+                if (isActive) return <RiBookShelfFill size={size} />;
+                return <RiBookShelfLine size={size} />;
             case AppRoute.LIBRARY_ALBUM_ARTISTS:
                 if (isActive) return <RiUserVoiceFill size={size} />;
                 return <RiUserVoiceLine size={size} />;

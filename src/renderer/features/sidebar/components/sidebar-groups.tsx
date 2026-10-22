@@ -5,13 +5,13 @@ import { Link, useLocation } from 'react-router';
 
 import styles from './sidebar-groups.module.css';
 
-import { useDiscoverCapabilities } from '/@/renderer/features/discover/use-discover-capabilities';
 import {
     useLbBotAvailable,
     useListeningSupported,
     useOverridesSupported,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { useFillLedger } from '/@/renderer/features/lbbot/stores/active-fills.store';
+import { LIBRARY_FRAME_ROUTES } from '/@/renderer/features/library/library-routes';
 import { SidebarIcon } from '/@/renderer/features/sidebar/components/sidebar-icon';
 import { SidebarItem } from '/@/renderer/features/sidebar/components/sidebar-item';
 import {
@@ -22,25 +22,23 @@ import {
     type SidebarRoutes,
 } from '/@/renderer/features/sidebar/utils/sidebar-groups';
 import { AppRoute } from '/@/renderer/router/routes';
-import { useHubConnected } from '/@/renderer/store/hub.store';
-import { useSidebarItems, useSidebarPlaylistList } from '/@/renderer/store/settings.store';
+import { useSidebarItems } from '/@/renderer/store/settings.store';
 import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
 import { Icon } from '/@/shared/components/icon/icon';
 import { useMediaQuery } from '/@/shared/hooks/use-media-query';
 
 const ROUTES: SidebarRoutes = {
     activity: AppRoute.DOWNLOADS,
-    discover: AppRoute.EXPLORE,
     fresh: AppRoute.FRESH,
     home: AppRoute.HOME,
+    library: AppRoute.LIBRARY,
     libraryMatches: AppRoute.LIBRARY_MATCHES,
     listening: AppRoute.LISTENING,
-    mixes: AppRoute.MIXES,
     savedQueues: AppRoute.SAVED_QUEUES,
     settings: AppRoute.SETTINGS,
 };
 
-// Entry and group ids to their keys. Discover and Mixed for You keep the model's label (they never had a key).
+// Entry and group ids to their keys.
 const LABEL_KEYS: Record<string, string> = {
     activity: 'page.sidebar.activity',
     Albums: 'page.sidebar.albums',
@@ -87,13 +85,10 @@ export const useSidebarModel = (options?: {
     const narrowQuery = useMediaQuery('(max-width: 1100px)');
     const narrow = options?.fold ?? narrowQuery;
     const lbBotAvailable = useLbBotAvailable();
-    const hubConnected = useHubConnected();
     const listeningSupported = useListeningSupported();
     const overridesSupported = useOverridesSupported();
-    const { hasSources } = useDiscoverCapabilities();
     const ledger = useFillLedger();
     const sidebarItems = useSidebarItems();
-    const playlistSectionShown = useSidebarPlaylistList();
     const count = useMemo(() => attentionCount(ledger), [ledger]);
 
     return useMemo(() => {
@@ -106,14 +101,12 @@ export const useSidebarModel = (options?: {
         });
         const model = sidebarGroups({
             attentionCount: count,
-            hasDiscoverSources: hasSources,
-            hubConnected,
             lbBotAvailable,
             libraryItems: sidebarItems ?? [],
+            librarySelectedRoutes: LIBRARY_FRAME_ROUTES,
             listeningSupported,
             narrow,
             overridesSupported,
-            playlistSectionShown,
             routes: ROUTES,
         });
         return {
@@ -124,26 +117,20 @@ export const useSidebarModel = (options?: {
             })),
             more: model.more.map(relabel),
         };
-    }, [
-        count,
-        hasSources,
-        hubConnected,
-        lbBotAvailable,
-        listeningSupported,
-        narrow,
-        overridesSupported,
-        playlistSectionShown,
-        sidebarItems,
-        t,
-    ]);
+    }, [count, lbBotAvailable, listeningSupported, narrow, overridesSupported, sidebarItems, t]);
+};
+
+/** Whether a path selects an entry: one of its `selectedRoutes` (the Library row), or its one route. */
+export const entrySelected = (entry: SidebarEntry, pathname: string): boolean => {
+    const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+    if (entry.selectedRoutes) return entry.selectedRoutes.includes(path);
+    const selected = entry.selectedRoute ?? entry.route;
+    return selected !== '' && path === selected;
 };
 
 const useIsSelected = () => {
     const { pathname } = useLocation();
-    return (entry: SidebarEntry) => {
-        const selected = entry.selectedRoute ?? entry.route;
-        return selected !== '' && pathname === selected;
-    };
+    return (entry: SidebarEntry) => entrySelected(entry, pathname);
 };
 
 const EntryRow = ({ entry, nested }: { entry: SidebarEntry; nested?: boolean }) => {
@@ -154,6 +141,7 @@ const EntryRow = ({ entry, nested }: { entry: SidebarEntry; nested?: boolean }) 
         <SidebarItem
             aria-label={entry.badge ? `${entry.label}, ${entry.badge}` : undefined}
             className={clsx(styles.row, { [styles.nested]: nested, [styles.selected]: active })}
+            selectedRoutes={entry.selectedRoutes}
             selectedTo={entry.selectedRoute}
             to={entry.route}
         >

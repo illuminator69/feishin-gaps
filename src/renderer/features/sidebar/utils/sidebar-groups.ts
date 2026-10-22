@@ -7,15 +7,14 @@
 
 export interface SidebarContext {
     attentionCount: number;
-    hasDiscoverSources: boolean;
-    hubConnected: boolean;
     lbBotAvailable: boolean;
+    /** The persisted `sidebarItems`: only their opt-in Now Playing and Search entries are rows now. */
     libraryItems: { disabled: boolean; id: string; label: string; route: string }[];
+    /** Every list page the Library frame wraps: the Library row is selected on each. */
+    librarySelectedRoutes: readonly string[];
     listeningSupported: boolean;
     narrow: boolean;
     overridesSupported: boolean;
-    /** Whether the sidebar shows its Playlists section, whose header links to the Playlists page. */
-    playlistSectionShown: boolean;
     routes: SidebarRoutes;
 }
 
@@ -27,6 +26,8 @@ export interface SidebarEntry {
     route: string;
     /** What marks the entry selected when it differs from `route`; `''` means never. */
     selectedRoute?: string;
+    /** Every path that marks the entry selected (the Library row's chip pages); wins over `selectedRoute`. */
+    selectedRoutes?: string[];
 }
 
 export interface SidebarGroup {
@@ -39,43 +40,30 @@ export type SidebarGroupId = 'app' | 'libraryTools' | 'listening' | 'main' | 'yo
 
 export interface SidebarRoutes {
     activity: string;
-    discover: string;
     fresh: string;
     home: string;
+    library: string;
     libraryMatches: string;
     listening: string;
-    mixes: string;
     savedQueues: string;
     settings: string;
 }
 
-// Reached elsewhere: Home and Settings have their own rows, Playlists and Collections their sections.
-const NOT_LIBRARY_CHILDREN = new Set(['Collections', 'Home', 'Playlists', 'Settings']);
+// F6: the Library items are the Library frame's chips; these two opt-in pages are not, and stay rows.
+const EXTRA_ROWS = new Set(['Now Playing', 'Search']);
 
-const isLibraryChild = (id: string, ctx: SidebarContext) =>
-    !NOT_LIBRARY_CHILDREN.has(id) || (id === 'Playlists' && !ctx.playlistSectionShown);
-
-const libraryChildren = (ctx: SidebarContext): SidebarEntry[] => {
-    const children: SidebarEntry[] = [];
+/** The enabled, routed Now Playing and Search items, in the stored order; the first occurrence decides. */
+const extraRows = (ctx: SidebarContext): SidebarEntry[] => {
+    const rows: SidebarEntry[] = [];
     const seen = new Set<string>();
-    const add = (entry: SidebarEntry) => {
-        if (seen.has(entry.id)) return;
-        seen.add(entry.id);
-        children.push(entry);
-    };
     for (const item of ctx.libraryItems) {
-        // The first occurrence of an id decides, disabled or not: a later duplicate is the index merge's tail.
+        // A later duplicate is the index merge's tail: the user's own entry, first, decides.
         if (seen.has(item.id)) continue;
-        if (item.disabled || !item.route || !isLibraryChild(item.id, ctx)) {
-            seen.add(item.id);
-            continue;
-        }
-        add({ id: item.id, label: item.label, route: item.route });
+        seen.add(item.id);
+        if (!EXTRA_ROWS.has(item.id) || item.disabled || !item.route) continue;
+        rows.push({ id: item.id, label: item.label, route: item.route });
     }
-    if (ctx.hasDiscoverSources)
-        add({ id: 'Discover', label: 'Discover', route: ctx.routes.discover });
-    if (ctx.hubConnected) add({ id: 'Mixes', label: 'Mixed for You', route: ctx.routes.mixes });
-    return children;
+    return rows;
 };
 
 export const sidebarGroups = (
@@ -86,7 +74,13 @@ export const sidebarGroups = (
 
     const main: SidebarEntry[] = [
         { id: 'home', label: 'Home', route: routes.home },
-        { children: libraryChildren(ctx), id: 'library', label: 'Library', route: '' },
+        {
+            id: 'library',
+            label: 'Library',
+            route: routes.library,
+            selectedRoutes: [...ctx.librarySelectedRoutes],
+        },
+        ...extraRows(ctx),
     ];
     if (lb) main.push({ id: 'fresh', label: 'Fresh', route: routes.fresh });
 

@@ -669,6 +669,25 @@
             "title": "$t(common.home)",
             "playlists": "Playlists"
         },
+        "library": {
+            "title": "Library",
+            "sections": "Library sections",
+            "more": "More",
+            "tab": {
+                "artists": "Artists",
+                "albums": "Albums",
+                "tracks": "Tracks",
+                "mixes": "Mixes",
+                "playlists": "Playlists",
+                "genres": "Genres",
+                "folders": "Folders",
+                "radio": "Radio stations",
+                "albumArtists": "Album artists",
+                "allArtists": "All artists",
+                "favorites": "Favorites",
+                "discover": "Discover"
+            }
+        },
         "itemDetail": {
             "tagConfiguration": "Tag configuration",
             "addTagConfig": "Add tag…",

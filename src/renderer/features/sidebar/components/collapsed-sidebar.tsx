@@ -20,8 +20,9 @@ import { Stack } from '/@/shared/components/stack/stack';
 import { LibraryItem } from '/@/shared/types/domain-types';
 import { Platform } from '/@/shared/types/types';
 
-const RAIL_ICON_NAMES: Record<string, 'activity' | 'attention'> = {
+const RAIL_ICON_NAMES: Record<string, 'activity' | 'attention' | 'library'> = {
     activity: 'activity',
+    library: 'library',
     needsAttention: 'attention',
 };
 
@@ -58,6 +59,7 @@ export const CollapsedSidebar = () => {
                 key={entry.id}
                 label={entry.label}
                 route={selected || undefined}
+                selectedRoutes={entry.selectedRoutes}
                 to={entry.route}
             />
         );

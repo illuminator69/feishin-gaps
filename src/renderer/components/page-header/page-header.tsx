@@ -2,9 +2,11 @@ import clsx from 'clsx';
 import { useInView } from 'motion/react';
 import { AnimatePresence, motion, Variants } from 'motion/react';
 import { CSSProperties, memo, ReactNode, RefObject, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 import styles from './page-header.module.css';
 
+import { useLibraryFrame } from '/@/renderer/features/library/hooks/use-library-frame';
 import { LibraryBackgroundOverlay } from '/@/renderer/features/shared/components/library-background-overlay';
 import { useShouldPadTitlebar } from '/@/renderer/hooks';
 import { useWindowSettings } from '/@/renderer/store/settings.store';
@@ -133,6 +135,16 @@ const BasePageHeader = ({
     );
 };
 
-export const PageHeader = memo(BasePageHeader);
+/**
+ * Inside the Library frame a page's header row is the frame's title row: its children (play button,
+ * count, list search, the page's own buttons) are drawn in the frame's slot and nothing else is.
+ */
+const FramedPageHeader = (props: PageHeaderProps) => {
+    const { inFrame, slot } = useLibraryFrame();
+    if (inFrame) return slot ? createPortal(props.children, slot) : null;
+    return <BasePageHeader {...props} />;
+};
+
+export const PageHeader = memo(FramedPageHeader);
 
 PageHeader.displayName = 'PageHeader';

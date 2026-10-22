@@ -44,6 +44,8 @@ const NoNetworkRoute = lazy(
 
 const HomeRoute = lazy(() => import('/@/renderer/features/home/routes/home-route'));
 
+const LibraryFrame = lazy(() => import('/@/renderer/features/library/components/library-frame'));
+
 const ArtistListRoute = lazy(() => import('/@/renderer/features/artists/routes/artist-list-route'));
 
 const AlbumArtistListRoute = lazy(
@@ -273,24 +275,54 @@ export const AppRouter = () => {
                                             element={<NowPlayingRoute />}
                                             path={AppRoute.NOW_PLAYING}
                                         />
-                                        <Route path={AppRoute.LIBRARY_GENRES}>
-                                            <Route element={<GenreListRoute />} index />
+                                        {/* F6: the Library frame around the list pages; no path moves,
+                                            and every detail page stays outside it. */}
+                                        <Route element={<LibraryFrame />}>
                                             <Route
-                                                element={<GenreDetailRoute />}
-                                                path={AppRoute.LIBRARY_GENRES_DETAIL}
+                                                element={<AlbumArtistListRoute />}
+                                                path={AppRoute.LIBRARY}
+                                            />
+                                            <Route
+                                                element={<AlbumListRoute />}
+                                                path={AppRoute.LIBRARY_ALBUMS}
+                                            />
+                                            <Route
+                                                element={<SongListRoute />}
+                                                path={AppRoute.LIBRARY_SONGS}
+                                            />
+                                            <Route
+                                                element={<GenreListRoute />}
+                                                path={AppRoute.LIBRARY_GENRES}
+                                            />
+                                            <Route
+                                                element={<FolderListRoute />}
+                                                path={AppRoute.LIBRARY_FOLDERS}
+                                            />
+                                            <Route
+                                                element={<PlaylistListRoute />}
+                                                path={AppRoute.PLAYLISTS}
+                                            />
+                                            <Route
+                                                element={<RadioListRoute />}
+                                                path={AppRoute.RADIO}
+                                            />
+                                            <Route element={<MixesRoute />} path={AppRoute.MIXES} />
+                                            <Route
+                                                element={<AlbumArtistListRoute />}
+                                                path={AppRoute.LIBRARY_ALBUM_ARTISTS}
+                                            />
+                                            <Route
+                                                element={<ArtistListRoute />}
+                                                path={AppRoute.LIBRARY_ARTISTS}
                                             />
                                         </Route>
                                         <Route
-                                            element={<AlbumListRoute />}
-                                            path={AppRoute.LIBRARY_ALBUMS}
+                                            element={<GenreDetailRoute />}
+                                            path={AppRoute.LIBRARY_GENRES_DETAIL}
                                         />
                                         <Route
                                             element={<AlbumDetailRoute />}
                                             path={AppRoute.LIBRARY_ALBUMS_DETAIL}
-                                        />
-                                        <Route
-                                            element={<ArtistListRoute />}
-                                            path={AppRoute.LIBRARY_ARTISTS}
                                         />
                                         <Route path={AppRoute.LIBRARY_ARTISTS_DETAIL}>
                                             <Route element={<AlbumArtistDetailRoute />} index />
@@ -320,19 +352,6 @@ export const AppRouter = () => {
                                             path={AppRoute.FAKE_LIBRARY_ALBUM_DETAILS}
                                         />
                                         <Route
-                                            element={<SongListRoute />}
-                                            path={AppRoute.LIBRARY_SONGS}
-                                        />
-                                        <Route
-                                            element={<FolderListRoute />}
-                                            path={AppRoute.LIBRARY_FOLDERS}
-                                        />
-                                        <Route
-                                            element={<PlaylistListRoute />}
-                                            path={AppRoute.PLAYLISTS}
-                                        />
-                                        <Route element={<RadioListRoute />} path={AppRoute.RADIO} />
-                                        <Route
                                             element={<SavedQueuesRoute />}
                                             path={AppRoute.SAVED_QUEUES}
                                         />
@@ -340,7 +359,6 @@ export const AppRouter = () => {
                                             element={<LbBotDownloadsRoute />}
                                             path={AppRoute.DOWNLOADS}
                                         />
-                                        <Route element={<MixesRoute />} path={AppRoute.MIXES} />
                                         <Route
                                             element={<LbBotWishlistRoute />}
                                             path={AppRoute.WISHLIST}
@@ -373,37 +391,32 @@ export const AppRouter = () => {
                                             element={<PlaylistDetailSongListRoute />}
                                             path={AppRoute.PLAYLISTS_DETAIL_SONGS}
                                         />
-                                        <Route path={AppRoute.LIBRARY_ALBUM_ARTISTS}>
-                                            <Route element={<AlbumArtistListRoute />} index />
-                                            <Route path={AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL}>
-                                                <Route element={<AlbumArtistDetailRoute />} index />
-                                                <Route
-                                                    element={<AlbumListRoute />}
-                                                    path={
-                                                        AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_DISCOGRAPHY
-                                                    }
-                                                />
-                                                <Route
-                                                    element={<SongListRoute />}
-                                                    path={
-                                                        AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_SONGS
-                                                    }
-                                                />
-                                                <Route
-                                                    element={<AlbumArtistDetailTopSongsListRoute />}
-                                                    path={
-                                                        AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_TOP_SONGS
-                                                    }
-                                                />
-                                                <Route
-                                                    element={
-                                                        <AlbumArtistDetailFavoriteSongsListRoute />
-                                                    }
-                                                    path={
-                                                        AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_FAVORITE_SONGS
-                                                    }
-                                                />
-                                            </Route>
+                                        <Route path={AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL}>
+                                            <Route element={<AlbumArtistDetailRoute />} index />
+                                            <Route
+                                                element={<AlbumListRoute />}
+                                                path={
+                                                    AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_DISCOGRAPHY
+                                                }
+                                            />
+                                            <Route
+                                                element={<SongListRoute />}
+                                                path={AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_SONGS}
+                                            />
+                                            <Route
+                                                element={<AlbumArtistDetailTopSongsListRoute />}
+                                                path={
+                                                    AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_TOP_SONGS
+                                                }
+                                            />
+                                            <Route
+                                                element={
+                                                    <AlbumArtistDetailFavoriteSongsListRoute />
+                                                }
+                                                path={
+                                                    AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_FAVORITE_SONGS
+                                                }
+                                            />
                                         </Route>
                                         <Route element={<InvalidRoute />} path="*" />
                                     </Route>

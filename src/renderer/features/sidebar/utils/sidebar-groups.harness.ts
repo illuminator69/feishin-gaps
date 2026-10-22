@@ -15,12 +15,11 @@ import { attentionCount, sidebarGroups } from './sidebar-groups.ts';
 
 const routes = {
     activity: '/downloads',
-    discover: '/explore',
     fresh: '/fresh',
     home: '/',
+    library: '/library',
     libraryMatches: '/library-matches',
     listening: '/listening',
-    mixes: '/mixes',
     savedQueues: '/saved-queues',
     settings: '/settings',
 };
@@ -43,16 +42,17 @@ const storedItems = () => [
     { disabled: true, id: 'Settings', label: 'Settings', route: '/settings' },
 ];
 
+// The Library frame's list pages: the Library row is selected on every one of them.
+const librarySelectedRoutes = ['/library', '/library/albums', '/library/songs', '/playlists'];
+
 const ctx = (patch: Partial<SidebarContext> = {}): SidebarContext => ({
     attentionCount: 0,
-    hasDiscoverSources: false,
-    hubConnected: false,
     lbBotAvailable: false,
     libraryItems: storedItems(),
+    librarySelectedRoutes,
     listeningSupported: false,
     narrow: false,
     overridesSupported: false,
-    playlistSectionShown: true,
     routes,
     ...patch,
 });
@@ -61,13 +61,10 @@ const ids = (entries: SidebarEntry[]) => entries.map((e) => e.id);
 const group = (groups: SidebarGroup[], id: string) => groups.find((g) => g.id === id);
 const shape = (groups: SidebarGroup[]) =>
     groups.map((g) => `${g.id}: ${ids(g.entries).join(', ')}`);
-const libraryChildren = (groups: SidebarGroup[]) =>
-    ids(group(groups, 'main')!.entries.find((e) => e.id === 'library')!.children!);
+const mainIds = (groups: SidebarGroup[]) => ids(group(groups, 'main')!.entries);
 
 const everyGate = (patch: Partial<SidebarContext> = {}) =>
     ctx({
-        hasDiscoverSources: true,
-        hubConnected: true,
         lbBotAvailable: true,
         listeningSupported: true,
         overridesSupported: true,
@@ -84,7 +81,7 @@ test('noLbBotLeavesHomeLibrarySavedQueuesAndSettings', () => {
     assert.deepEqual(more, []);
     const main = group(groups, 'main')!.entries;
     assert.equal(main[0].route, '/');
-    assert.equal(main[1].route, '');
+    assert.equal(main[1].route, '/library');
     assert.equal(group(groups, 'listening')!.entries[0].route, '/saved-queues');
     assert.equal(group(groups, 'app')!.entries[0].route, '/settings');
 });
@@ -154,97 +151,79 @@ test('groupsComeInTheBoardOrder', () => {
     );
 });
 
-test('libraryChildrenFollowTheEnabledItemsInOrder', () => {
-    assert.deepEqual(libraryChildren(sidebarGroups(ctx()).groups), [
-        'Favorites',
-        'Albums',
-        'Tracks',
-        'Artists',
-        'Artists-all',
-        'Genres',
-        'Folders',
-        'Radio',
-    ]);
-    const reordered = storedItems().reverse();
-    reordered.find((i) => i.id === 'Search')!.disabled = false;
-    const children = group(sidebarGroups(ctx({ libraryItems: reordered })).groups, 'main')!
-        .entries[1].children!;
-    assert.deepEqual(ids(children), [
-        'Radio',
-        'Folders',
-        'Genres',
-        'Artists-all',
-        'Artists',
-        'Tracks',
-        'Albums',
-        'Favorites',
+test('libraryIsOneRowSelectedOnEveryChipRoute', () => {
+    const library = group(sidebarGroups(everyGate()).groups, 'main')!.entries[1];
+    assert.equal(library.id, 'library');
+    assert.equal(library.route, '/library');
+    assert.equal(library.children, undefined);
+    assert.equal('children' in library, false);
+    assert.deepEqual(library.selectedRoutes, librarySelectedRoutes);
+    // Not a shared array: a caller cannot change the context through it.
+    assert.notEqual(library.selectedRoutes, librarySelectedRoutes);
+});
+
+test('theLibraryItemsNoLongerFeedTheSidebar', () => {
+    // Albums, Tracks, the artists, Genres, Folders, Radio and Favorites are the frame's chips now.
+    const allEnabled = storedItems().map((i) => ({ ...i, disabled: false }));
+    assert.deepEqual(mainIds(sidebarGroups(ctx({ libraryItems: allEnabled })).groups), [
+        'home',
+        'library',
+        'Now Playing',
         'Search',
     ]);
-    assert.equal(children[0].route, '/library/radio');
+    assert.deepEqual(mainIds(sidebarGroups(ctx()).groups), ['home', 'library']);
 });
 
-test('libraryChildrenSkipHomeSettingsPlaylistsCollections', () => {
-    const allEnabled = storedItems().map((i) => ({ ...i, disabled: false }));
-    const children = libraryChildren(sidebarGroups(ctx({ libraryItems: allEnabled })).groups);
-    for (const id of ['Home', 'Settings', 'Playlists', 'Collections']) {
-        assert.equal(children.includes(id), false, id);
-    }
-    assert.deepEqual(children.slice(0, 2), ['Now Playing', 'Search']);
-});
-
-test('aRoutelessItemIsNotAChild', () => {
-    const items = [
-        ...storedItems(),
-        { disabled: false, id: 'SomethingNew', label: 'Something new', route: '' },
-    ];
-    assert.equal(
-        libraryChildren(sidebarGroups(ctx({ libraryItems: items })).groups).includes(
-            'SomethingNew',
-        ),
-        false,
-    );
-});
-
-test('libraryChildrenDedupeById', () => {
-    // Arrays merge by index, so a stored list shorter than the defaults can repeat a tail item.
-    const items = [
-        ...storedItems(),
-        { disabled: false, id: 'Albums', label: 'Albums again', route: '/library/albums?dup' },
-    ];
-    const children = group(sidebarGroups(ctx({ libraryItems: items })).groups, 'main')!.entries[1]
-        .children!;
-    assert.equal(ids(children).filter((id) => id === 'Albums').length, 1);
-    assert.equal(children.find((c) => c.id === 'Albums')!.route, '/library/albums');
-});
-
-test('discoverAndMixesAreAppended', () => {
-    const both = libraryChildren(
-        sidebarGroups(ctx({ hasDiscoverSources: true, hubConnected: true })).groups,
-    );
-    assert.deepEqual(both.slice(-2), ['Discover', 'Mixes']);
-    assert.equal(both.length, 10);
-    const children = group(
-        sidebarGroups(ctx({ hasDiscoverSources: true, hubConnected: true })).groups,
+test('nowPlayingAndSearchFollowLibraryAsPlainRows', () => {
+    const items = storedItems().reverse();
+    items.find((i) => i.id === 'Search')!.disabled = false;
+    items.find((i) => i.id === 'Now Playing')!.disabled = false;
+    const main = group(
+        sidebarGroups(ctx({ lbBotAvailable: true, libraryItems: items })).groups,
         'main',
-    )!.entries[1].children!;
-    assert.equal(children.at(-2)!.route, '/explore');
-    assert.equal(children.at(-1)!.route, '/mixes');
-    assert.deepEqual(libraryChildren(sidebarGroups(ctx({ hubConnected: true })).groups).slice(-1), [
-        'Mixes',
+    )!.entries;
+    // In the stored order, after Library and before Fresh.
+    assert.deepEqual(ids(main), ['home', 'library', 'Search', 'Now Playing', 'fresh']);
+    assert.equal(main[2].route, '/search/songs');
+    assert.equal(main[2].children, undefined);
+    assert.equal(main[3].route, '/now-playing');
+});
+
+test('aRoutelessExtraIsNotARow', () => {
+    const items = storedItems().map((i) =>
+        i.id === 'Search' ? { ...i, disabled: false, route: '' } : i,
+    );
+    assert.deepEqual(mainIds(sidebarGroups(ctx({ libraryItems: items })).groups), [
+        'home',
+        'library',
     ]);
-    assert.deepEqual(
-        libraryChildren(sidebarGroups(ctx({ hasDiscoverSources: true })).groups).slice(-1),
-        ['Discover'],
-    );
-    // A stored item that happens to carry the same id is not shown twice.
-    const stored = [
+});
+
+test('extrasDedupeByIdTheFirstOccurrenceDeciding', () => {
+    const items = [
         ...storedItems(),
-        { disabled: false, id: 'Discover', label: 'Discover', route: '/explore' },
+        { disabled: false, id: 'Search', label: 'Search again', route: '/search/albums' },
     ];
-    const deduped = libraryChildren(
-        sidebarGroups(ctx({ hasDiscoverSources: true, libraryItems: stored })).groups,
-    );
-    assert.equal(deduped.filter((id) => id === 'Discover').length, 1);
+    // The stored Search is disabled and comes first: the tail duplicate does not show it.
+    assert.deepEqual(mainIds(sidebarGroups(ctx({ libraryItems: items })).groups), [
+        'home',
+        'library',
+    ]);
+    const enabled = [
+        { disabled: false, id: 'Search', label: 'Search', route: '/search/songs' },
+        { disabled: false, id: 'Search', label: 'Search again', route: '/search/albums' },
+    ];
+    const main = group(sidebarGroups(ctx({ libraryItems: enabled })).groups, 'main')!.entries;
+    assert.deepEqual(ids(main), ['home', 'library', 'Search']);
+    assert.equal(main[2].route, '/search/songs');
+});
+
+test('discoverAndMixesAreNotSidebarRows', () => {
+    // The chips and More carry them.
+    const { groups, more } = sidebarGroups(everyGate());
+    const all = [...groups.flatMap((g) => ids(g.entries)), ...ids(more)];
+    assert.equal(all.includes('Discover'), false);
+    assert.equal(all.includes('Mixes'), false);
 });
 
 test('narrowFoldsTheLowerGroupsIntoMore', () => {
@@ -275,60 +254,6 @@ test('settingsIsInTheAppGroupEvenIfTheStoredItemIsDisabled', () => {
     assert.deepEqual(ids(group(sidebarGroups(ctx({ libraryItems: [] })).groups, 'app')!.entries), [
         'settings',
     ]);
-});
-
-test('nothingIsDroppedFromTheOldList', () => {
-    const items = storedItems().map((i, n) => ({ ...i, disabled: n % 3 === 0 }));
-    const expected = items
-        .filter(
-            (i) =>
-                !i.disabled &&
-                i.route &&
-                !['Collections', 'Home', 'Playlists', 'Settings'].includes(i.id),
-        )
-        .map((i) => i.id);
-    const children = libraryChildren(sidebarGroups(ctx({ libraryItems: items })).groups);
-    for (const id of expected) {
-        assert.equal(children.filter((c) => c === id).length, 1, id);
-    }
-    assert.equal(children.length, expected.length);
-});
-
-test('aDisabledStoredItemStaysHiddenWhenTheMergedTailRepeatsIt', () => {
-    // The user's own entry (first) wins over a default-tail duplicate the index merge re-appended.
-    const items = [
-        { disabled: true, id: 'Albums', label: 'Albums', route: '/library/albums' },
-        { disabled: false, id: 'Tracks', label: 'Tracks', route: '/library/songs' },
-        { disabled: false, id: 'Albums', label: 'Albums', route: '/library/albums' },
-    ];
-    assert.deepEqual(libraryChildren(sidebarGroups(ctx({ libraryItems: items })).groups), [
-        'Tracks',
-    ]);
-});
-
-test('playlistsIsAChildOnlyWhenItsSectionIsHidden', () => {
-    const items = storedItems().map((i) => (i.id === 'Playlists' ? { ...i, disabled: false } : i));
-    // Shown section: the page is reached through its header, so no child.
-    assert.equal(
-        libraryChildren(sidebarGroups(ctx({ libraryItems: items })).groups).includes('Playlists'),
-        false,
-    );
-    // Hidden section: the enabled entry is the only way to the page.
-    const hidden = group(
-        sidebarGroups(ctx({ libraryItems: items, playlistSectionShown: false })).groups,
-        'main',
-    )!.entries[1].children!;
-    assert.deepEqual(
-        hidden.filter((c) => c.id === 'Playlists').map((c) => c.route),
-        ['/playlists'],
-    );
-    // A disabled entry stays hidden either way.
-    assert.equal(
-        libraryChildren(sidebarGroups(ctx({ playlistSectionShown: false })).groups).includes(
-            'Playlists',
-        ),
-        false,
-    );
 });
 
 test('attentionCountIgnoresGaveUpCancelledAndRunning', () => {
