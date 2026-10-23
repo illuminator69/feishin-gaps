@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation } from 'react-router';
 
@@ -96,7 +96,6 @@ export const useSidebarModel = (options?: {
             LABEL_KEYS[id] ? t(LABEL_KEYS[id]) : fallback;
         const relabel = (entry: SidebarEntry): SidebarEntry => ({
             ...entry,
-            children: entry.children?.map(relabel),
             label: label(entry.id, entry.label) as string,
         });
         const model = sidebarGroups({
@@ -133,14 +132,14 @@ const useIsSelected = () => {
     return (entry: SidebarEntry) => entrySelected(entry, pathname);
 };
 
-const EntryRow = ({ entry, nested }: { entry: SidebarEntry; nested?: boolean }) => {
+const EntryRow = ({ entry }: { entry: SidebarEntry }) => {
     const isSelected = useIsSelected();
     const active = isSelected(entry);
 
     return (
         <SidebarItem
             aria-label={entry.badge ? `${entry.label}, ${entry.badge}` : undefined}
-            className={clsx(styles.row, { [styles.nested]: nested, [styles.selected]: active })}
+            className={clsx(styles.row, { [styles.selected]: active })}
             selectedRoutes={entry.selectedRoutes}
             selectedTo={entry.selectedRoute}
             to={entry.route}
@@ -163,46 +162,15 @@ const EntryRow = ({ entry, nested }: { entry: SidebarEntry; nested?: boolean }) 
     );
 };
 
-const LibraryRow = ({ entry }: { entry: SidebarEntry }) => {
-    const [open, setOpen] = useState(true);
-    const children = entry.children ?? [];
-
-    return (
-        <>
-            <button
-                aria-expanded={open}
-                className={clsx(styles.row, styles.groupRow)}
-                onClick={() => setOpen((o) => !o)}
-                type="button"
-            >
-                <span className={styles.rowInner}>
-                    <SidebarIcon active={false} name="library" route="" size="20" />
-                    <span className={styles.rowLabel}>{entry.label}</span>
-                    <Icon
-                        className={clsx(styles.chevron, { [styles.chevronOpen]: open })}
-                        icon="arrowDownS"
-                        size="md"
-                    />
-                </span>
-            </button>
-            {open && children.map((child) => <EntryRow entry={child} key={child.id} nested />)}
-        </>
-    );
-};
-
-/** The rows of the given groups: a small-caps label per labelled group, the Library group's children. */
+/** The rows of the given groups, with a small-caps label per labelled group. */
 export const SidebarGroups = ({ groups }: { groups: SidebarGroup[] }) => (
     <>
         {groups.map((group) => (
             <div className={styles.group} key={group.id}>
                 {group.label && <div className={styles.groupLabel}>{group.label}</div>}
-                {group.entries.map((entry) =>
-                    entry.children ? (
-                        <LibraryRow entry={entry} key={entry.id} />
-                    ) : (
-                        <EntryRow entry={entry} key={entry.id} />
-                    ),
-                )}
+                {group.entries.map((entry) => (
+                    <EntryRow entry={entry} key={entry.id} />
+                ))}
             </div>
         ))}
     </>

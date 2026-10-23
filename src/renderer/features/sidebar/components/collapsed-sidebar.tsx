@@ -66,9 +66,7 @@ export const CollapsedSidebar = () => {
     };
 
     const main = groups.find((group) => group.id === 'main');
-    const mainItems = (main?.entries ?? []).flatMap((entry) =>
-        entry.children ? entry.children : [entry],
-    );
+    const mainItems = main?.entries ?? [];
     const lowerGroups = groups.filter((group) => group.id !== 'main');
 
     return (

@@ -54,10 +54,6 @@ button.row:hover {
     }
 }
 
-.nested {
-    padding-left: 20px;
-}
-
 .row-inner {
     display: flex;
     gap: 10px;
@@ -73,17 +69,6 @@ button.row:hover {
     text-overflow: ellipsis;
     text-align: left;
     white-space: nowrap;
-}
-
-.chevron {
-    flex-shrink: 0;
-    opacity: 0.8;
-    transform: rotate(-90deg);
-    transition: transform 0.15s ease;
-}
-
-.chevron-open {
-    transform: none;
 }
 
 .more-chevron {
@@ -109,11 +94,5 @@ button.row:hover {
 
     :root[data-cover-wash='true'][data-mantine-color-scheme='light'] & {
         color: #fff;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .chevron {
-        transition: none;
     }
 }

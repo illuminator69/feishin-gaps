@@ -155,7 +155,6 @@ test('libraryIsOneRowSelectedOnEveryChipRoute', () => {
     const library = group(sidebarGroups(everyGate()).groups, 'main')!.entries[1];
     assert.equal(library.id, 'library');
     assert.equal(library.route, '/library');
-    assert.equal(library.children, undefined);
     assert.equal('children' in library, false);
     assert.deepEqual(library.selectedRoutes, librarySelectedRoutes);
     // Not a shared array: a caller cannot change the context through it.
@@ -185,7 +184,7 @@ test('nowPlayingAndSearchFollowLibraryAsPlainRows', () => {
     // In the stored order, after Library and before Fresh.
     assert.deepEqual(ids(main), ['home', 'library', 'Search', 'Now Playing', 'fresh']);
     assert.equal(main[2].route, '/search/songs');
-    assert.equal(main[2].children, undefined);
+    assert.equal('children' in main[2], false);
     assert.equal(main[3].route, '/now-playing');
 });
 

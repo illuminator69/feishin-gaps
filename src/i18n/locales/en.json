@@ -672,6 +672,7 @@
         "library": {
             "title": "Library",
             "sections": "Library sections",
+            "alwaysInLibrary": "Always in Library",
             "more": "More",
             "fieldLabel": "Find an artist",
             "fieldPlaceholder": "Find an artist",

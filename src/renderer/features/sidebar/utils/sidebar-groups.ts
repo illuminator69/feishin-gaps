@@ -20,7 +20,6 @@ export interface SidebarContext {
 
 export interface SidebarEntry {
     badge?: number;
-    children?: SidebarEntry[];
     id: string;
     label: string;
     route: string;
