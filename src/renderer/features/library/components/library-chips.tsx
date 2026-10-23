@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { type KeyboardEvent, useMemo } from 'react';
+import { type KeyboardEvent, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation } from 'react-router';
 
@@ -75,6 +75,17 @@ export const LibraryChips = () => {
     const tabs = useLibraryTabs();
     const selected = libraryTabForPath(pathname, tabs);
     const moreSelected = tabs.more.some((tab) => tab.id === selected);
+    const [moreOpen, setMoreOpen] = useState(false);
+    const moreRef = useRef<HTMLButtonElement>(null);
+    // Tab leaves the open menu (the menu button pattern) instead of cycling inside it. Caught before
+    // the menu's focus trap (which cancels every Tab): focus goes back to More, and the browser's own
+    // Tab then moves on from there.
+    const leaveOnTab = (event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== 'Tab') return;
+        event.stopPropagation();
+        setMoreOpen(false);
+        moreRef.current?.focus();
+    };
 
     return (
         <nav aria-label={t('page.library.sections')} className={styles.row} data-library-chips>
@@ -86,13 +97,14 @@ export const LibraryChips = () => {
                 <Chip key={tab.id} selected={selected === tab.id} tab={tab} />
             ))}
             {tabs.more.length > 0 && (
-                <DropdownMenu position="bottom-start">
+                <DropdownMenu onChange={setMoreOpen} opened={moreOpen} position="bottom-start">
                     <DropdownMenu.Target>
                         <button
                             aria-current={moreSelected ? 'page' : undefined}
                             className={clsx(styles.chip, styles.more)}
                             data-library-more
                             onKeyDown={keepEnterAndSpace}
+                            ref={moreRef}
                             type="button"
                         >
                             {moreSelected
@@ -102,18 +114,21 @@ export const LibraryChips = () => {
                         </button>
                     </DropdownMenu.Target>
                     <DropdownMenu.Dropdown>
-                        {tabs.more.map((tab) => (
-                            <DropdownMenu.Item
-                                component={Link}
-                                data-library-chip={tab.id}
-                                isSelected={selected === tab.id}
-                                key={tab.id}
-                                onKeyDown={keepEnter}
-                                to={tab.route}
-                            >
-                                {tab.label}
-                            </DropdownMenu.Item>
-                        ))}
+                        {/* The dropdown's own capture handler is Mantine's (Escape); this one is ours. */}
+                        <div onKeyDownCapture={leaveOnTab} role="none">
+                            {tabs.more.map((tab) => (
+                                <DropdownMenu.Item
+                                    component={Link}
+                                    data-library-chip={tab.id}
+                                    isSelected={selected === tab.id}
+                                    key={tab.id}
+                                    onKeyDown={keepEnter}
+                                    to={tab.route}
+                                >
+                                    {tab.label}
+                                </DropdownMenu.Item>
+                            ))}
+                        </div>
                     </DropdownMenu.Dropdown>
                 </DropdownMenu>
             )}
