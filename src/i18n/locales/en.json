@@ -709,6 +709,9 @@
             "onMusicBrainz": "Artist on MusicBrainz",
             "openLink": "Open this link",
             "open": "Open",
+            "topRated": "Top rated",
+            "songCount_one": "{{n}} song",
+            "songCount_other": "{{n}} songs",
             "tab": {
                 "artists": "Artists",
                 "albums": "Albums",

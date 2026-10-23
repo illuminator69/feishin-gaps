@@ -40,6 +40,8 @@ export type ItemTableListConfig = {
     playerContext: PlayerContext;
     playlistId?: string;
     size: 'compact' | 'default' | 'large';
+    /** F6: the columns that show what the list is sorted by, and which way (their header is marked). */
+    sortedColumns?: SortedColumns;
     startRowIndex?: number;
     tableId: string;
 };
@@ -54,6 +56,8 @@ export type ItemTableListGroupHeader = {
         startDataIndex: number;
     }) => ReactElement;
 };
+
+export type SortedColumns = { columns: string[]; order: 'asc' | 'desc' };
 
 const ItemTableListConfigContext = createContext<ItemTableListConfig | null>(null);
 

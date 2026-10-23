@@ -31,6 +31,7 @@ import { AlbumArtistsColumn } from '/@/renderer/components/item-list/item-table-
 import { AlbumColumn } from '/@/renderer/components/item-list/item-table-list/columns/album-column';
 import { AlbumGroupColumn } from '/@/renderer/components/item-list/item-table-list/columns/album-group-column';
 import { ArtistsColumn } from '/@/renderer/components/item-list/item-table-list/columns/artists-column';
+import { BitRateColumn } from '/@/renderer/components/item-list/item-table-list/columns/bit-rate-column';
 import { ComposerColumn } from '/@/renderer/components/item-list/item-table-list/columns/composer-column';
 import { CountColumn } from '/@/renderer/components/item-list/item-table-list/columns/count-column';
 import {
@@ -253,12 +254,13 @@ const ItemTableListColumnBase = (props: ItemTableListColumn) => {
                 return <TextColumn {...props} {...dragProps} controls={controls} type={type} />;
 
             case TableColumn.BIT_DEPTH:
-            case TableColumn.BIT_RATE:
             case TableColumn.BPM:
             case TableColumn.CHANNELS:
             case TableColumn.DISC_NUMBER:
             case TableColumn.SAMPLE_RATE:
                 return <NumericColumn {...props} {...dragProps} controls={controls} type={type} />;
+            case TableColumn.BIT_RATE:
+                return <BitRateColumn {...props} {...dragProps} controls={controls} type={type} />;
 
             case TableColumn.COMPOSER:
                 return <ComposerColumn {...props} {...dragProps} controls={controls} type={type} />;
@@ -1236,12 +1238,18 @@ export const TableColumnHeaderContainer = (
         );
     }, [props.type, props.enableColumnReorder, props.controls, props.tableId]);
 
+    // F6: the column the list is sorted by is marked (headers are not click-to-sort).
+    const sorted = props.sortedColumns?.columns.includes(props.type)
+        ? props.sortedColumns.order
+        : undefined;
+
     return (
         <Flex
             className={clsx(styles.container, styles.headerContainer, props.containerClassName, {
                 [styles.headerDraggedOverLeft]: isDraggedOver === 'left',
                 [styles.headerDraggedOverRight]: isDraggedOver === 'right',
                 [styles.headerDragging]: isDragging,
+                [styles.headerSorted]: !!sorted,
                 [styles.noHorizontalPadding]: isNoHorizontalPaddingColumn(props.type),
                 [styles.paddingLg]: props.cellPadding === 'lg',
                 [styles.paddingMd]: props.cellPadding === 'md',
@@ -1249,6 +1257,7 @@ export const TableColumnHeaderContainer = (
                 [styles.paddingXl]: props.cellPadding === 'xl',
                 [styles.paddingXs]: props.cellPadding === 'xs',
             })}
+            data-sorted={sorted}
             ref={containerRef}
             style={props.style}
         >

@@ -31,6 +31,7 @@ import {
     migrateHomeItems,
     NEW_DEFAULT_HOME_ORDER,
 } from '/@/renderer/store/home-items-migration';
+import { migrateSongColumns } from '/@/renderer/store/song-columns-migration';
 import { mergeOverridingColumns } from '/@/renderer/store/utils';
 import { FontValueSchema } from '/@/renderer/types/fonts';
 import { randomString } from '/@/renderer/utils';
@@ -2064,11 +2065,16 @@ const initialState: SettingsState = {
             pagination: ListPaginationType.PAGINATED,
             table: {
                 autoFitColumns: true,
+                // F6: Rating and Bitrate are on in the Tracks table (not in SONG_TABLE_COLUMNS, which
+                // other song lists share).
                 columns: SONG_TABLE_COLUMNS.map((column) => ({
                     align: column.align,
                     autoSize: column.autoSize,
                     id: column.value,
-                    isEnabled: column.isEnabled,
+                    isEnabled:
+                        column.isEnabled ||
+                        column.value === TableColumn.BIT_RATE ||
+                        column.value === TableColumn.USER_RATING,
                     pinned: column.pinned,
                     width: column.width,
                 })),
@@ -3043,10 +3049,18 @@ export const useSettingsStore = createWithEqualityFn<SettingsSlice>()(
                     }
                 }
 
+                // F6: the Tracks table shows Rating and Bitrate (song-columns-migration.ts): switched on
+                // where they exist, appended where they do not; only the song list's table.
+                if (version < 39 && state.lists?.[ItemListKey.SONG]?.table?.columns) {
+                    state.lists[ItemListKey.SONG].table.columns = migrateSongColumns(
+                        state.lists[ItemListKey.SONG].table.columns,
+                    )!;
+                }
+
                 return persistedState;
             },
             name: 'store_settings',
-            version: 38,
+            version: 39,
         },
     ),
 );

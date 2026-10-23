@@ -58,6 +58,7 @@ import {
     type ItemTableListConfig,
     ItemTableListConfigProvider,
     ItemTableListStoreProvider,
+    type SortedColumns,
     useItemTableListColumnResizeLiveState,
 } from '/@/renderer/components/item-list/item-table-list/item-table-list-context';
 import {
@@ -403,6 +404,7 @@ const VirtualizedTableGrid = ({
             playlistId: tableConfig.playlistId,
             setAlbumGroupContentHeight,
             size: tableConfig.size,
+            sortedColumns: tableConfig.sortedColumns,
             startRowIndex: tableConfig.startRowIndex,
             tableId: tableConfig.tableId,
         }),
@@ -804,6 +806,7 @@ export interface TableItemProps {
     playlistId?: string;
     setAlbumGroupContentHeight?: (groupKey: string, height: number) => void;
     size?: ItemTableListProps['size'];
+    sortedColumns?: SortedColumns;
     startRowIndex?: number;
     tableId: string;
 }
@@ -857,6 +860,8 @@ interface ItemTableListProps {
     ref?: Ref<ItemListHandle>;
     rowHeight?: ((index: number, cellProps: TableItemProps) => number) | number;
     size?: 'compact' | 'default' | 'large';
+    /** The columns that carry the list's sort, marked in the header (not click-to-sort). */
+    sortedColumns?: SortedColumns;
     startRowIndex?: number;
 }
 
@@ -1289,6 +1294,7 @@ const BaseItemTableList = ({
     ref,
     rowHeight,
     size = 'default',
+    sortedColumns,
     startRowIndex,
 }: ItemTableListProps) => {
     const { playlistId: routePlaylistId } = useParams() as { playlistId?: string };
@@ -1843,6 +1849,7 @@ const BaseItemTableList = ({
             playerContext,
             playlistId: routePlaylistId,
             size,
+            sortedColumns,
             startRowIndex,
             tableId,
         }),
@@ -1868,6 +1875,7 @@ const BaseItemTableList = ({
             playerContext,
             routePlaylistId,
             size,
+            sortedColumns,
             startRowIndex,
             tableId,
         ],

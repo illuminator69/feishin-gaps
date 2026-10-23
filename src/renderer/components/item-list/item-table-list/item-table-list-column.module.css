@@ -239,6 +239,11 @@
     padding-left: 0;
 }
 
+/* F6: the column the list is sorted by: its header in the accent (the Library board). */
+.header-sorted .header-content {
+    color: var(--theme-colors-primary);
+}
+
 .header-dragging {
     cursor: grabbing;
     opacity: 0.5;
