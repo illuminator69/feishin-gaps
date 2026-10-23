@@ -16,11 +16,17 @@ export type ArrivalProps = { className: string; 'data-arrive': string; style: CS
  * 900 ms later, so items that mount afterwards (a page flip, a scroll, a refetch) never animate.
  * `propsFor(index)` answers for the moment it is called (it is itself stable): a list of memoised
  * children computes it once per change of the list (useMemo), not on every render. Nothing under
- * reduced motion.
+ * reduced motion. A new `key` (F6: the Library's settled search term) starts a new window, so each
+ * answer arrives once.
  */
-export const useArrival = (ready: boolean) => {
+export const useArrival = (ready: boolean, key?: string) => {
     const reduced = useReducedMotion();
     const windowRef = useRef<ArrivalWindow>({ openedAt: null });
+    const keyRef = useRef(key);
+    if (keyRef.current !== key) {
+        keyRef.current = key;
+        windowRef.current = { openedAt: null };
+    }
     // The window is the time the list first rendered with content: reading the clock here is the point,
     // and openArrival never moves a window once it is open, so a re-render gives the same answer.
     // eslint-disable-next-line react-hooks/purity

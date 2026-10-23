@@ -130,17 +130,18 @@ interface ExternalRowProps {
     mbid: string;
     name: string;
     onKeys: RowKeys;
+    style?: CSSProperties;
     tabbable: boolean;
     to: string;
 }
 
 /** An artist from MusicBrainz you do not own: a tinted placeholder (no cover exists), "Not owned". */
 export const ExternalArtistRow = memo(
-    ({ arrival, index, line, mbid, name, onKeys, tabbable, to }: ExternalRowProps) => {
+    ({ arrival, index, line, mbid, name, onKeys, style, tabbable, to }: ExternalRowProps) => {
         const { t } = useTranslation();
         const [a, b] = tintHues(mbid);
         return (
-            <Arriving arrival={arrival}>
+            <Arriving arrival={arrival} style={style}>
                 <Link
                     className={styles.row}
                     data-artist-row={mbid}

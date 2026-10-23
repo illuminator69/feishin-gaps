@@ -33,7 +33,7 @@ export type LibraryArtist = {
  */
 export type Lookup<T> =
     | { items: T[]; kind: 'done' }
-    | { kind: 'failed' }
+    | { kind: 'failed'; message?: string }
     | { kind: 'idle' }
     | { kind: 'looking' }
     | { kind: 'older' };

@@ -702,6 +702,13 @@
             "checkedLibrary": "Checked: your library.",
             "checkedBoth": "Checked: your library and MusicBrainz.",
             "pasteLink": "Paste a Spotify, Deezer, Apple Music, TIDAL, Qobuz, YouTube Music or MusicBrainz link to open that album or artist.",
+            "fromMusicBrainz": "from MusicBrainz",
+            "fromMusicBrainzArriving": "from MusicBrainz, arriving",
+            "lookingUp": "Looking up artists on MusicBrainz",
+            "lookupFailed": "Couldn't reach lb-bot.",
+            "onMusicBrainz": "Artist on MusicBrainz",
+            "openLink": "Open this link",
+            "open": "Open",
             "tab": {
                 "artists": "Artists",
                 "albums": "Albums",

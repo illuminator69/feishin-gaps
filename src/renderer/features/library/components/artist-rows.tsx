@@ -1,5 +1,5 @@
 import type { FuzzyTier } from '/@/shared/utils/fuzzy-match';
-import type { CSSProperties, KeyboardEvent, ReactElement, ReactNode, UIEvent } from 'react';
+import type { CSSProperties, KeyboardEvent, ReactElement, UIEvent } from 'react';
 
 import {
     forwardRef,
@@ -17,23 +17,41 @@ import styles from './artist-rows.module.css';
 
 import {
     ARTIST_ROW_HEIGHT,
+    ExternalArtistRow,
     GhostRow,
     OwnedArtistRow,
     type RowKeys,
 } from '/@/renderer/features/library/components/artist-row';
+import { LinkRow } from '/@/renderer/features/library/components/link-row';
 import { useArrival } from '/@/renderer/features/motion/use-arrival';
 import { Button } from '/@/shared/components/button/button';
 import { AlbumArtist } from '/@/shared/types/domain-types';
 
 export type ArtistRowsHandle = { focusFirst: () => void };
 
-/** What a custom item (the unowned section) needs to take part in the list's keyboard focus. */
-export type CustomFocus = { index: number; onKeys: RowKeys; tabbable: boolean };
-
-/** One line of the Artists page's list, in order: headings, rows, states and the note are all items. */
+/**
+ * One line of the Artists page's list, in order: headings, rows, states and the note are all items.
+ * A row's `arrive` is its place in its own section, for the arrival's stagger.
+ */
 export type PageItem =
-    | { artist: AlbumArtist; key: string; kind: 'owned'; tier: FuzzyTier }
-    | { height: number; key: string; kind: 'custom'; render: (focus: CustomFocus) => ReactNode }
+    | { arrive: number; artist: AlbumArtist; key: string; kind: 'owned'; tier: FuzzyTier }
+    | {
+          arrive: number;
+          key: string;
+          kind: 'external';
+          line: string;
+          mbid: string;
+          name: string;
+          to: string;
+      }
+    | {
+          host: string;
+          key: string;
+          kind: 'link';
+          message: string;
+          onOpen: () => void;
+          pending: boolean;
+      }
     | { key: string; kind: 'ghost'; label?: string }
     | { key: string; kind: 'heading'; note: string; section: 'owned' | 'unowned'; title: string }
     | { key: string; kind: 'message'; retry?: () => void; retryLabel?: string; text: string }
@@ -43,7 +61,10 @@ const HEADING_HEIGHT = 48;
 const MESSAGE_HEIGHT = 52;
 const NOTE_LINE_HEIGHT = 18;
 
-const isFocusable = (item: PageItem) => item.kind === 'owned' || item.kind === 'custom';
+const isFocusable = (item: PageItem) =>
+    item.kind === 'owned' || item.kind === 'external' || item.kind === 'link';
+
+type ArrivalFor = ReturnType<typeof useArrival>['propsFor'];
 
 interface ArtistRowsProps {
     initialOffset?: number;
@@ -52,32 +73,44 @@ interface ArtistRowsProps {
     onScroll: (offset: number) => void;
     /** The text as typed: a typo row says it was found by fuzzy match. */
     query: string;
+    /** The settled lookup term: each MusicBrainz answer arrives once. */
+    term: string;
 }
 
 type RowProps = {
     active: number;
+    externalArrival: ArrivalFor;
     items: PageItem[];
     onKeys: RowKeys;
-    propsFor: ReturnType<typeof useArrival>['propsFor'];
+    ownedArrival: ArrivalFor;
     query: string;
 };
 
 const Row = ({
     active,
+    externalArrival,
     index,
     items,
     onKeys,
-    propsFor,
+    ownedArrival,
     query,
     style,
 }: RowComponentProps<RowProps>) => {
     const item = items[index];
     switch (item.kind) {
-        case 'custom':
+        case 'external':
             return (
-                <div style={style}>
-                    {item.render({ index, onKeys, tabbable: active === index })}
-                </div>
+                <ExternalArtistRow
+                    arrival={externalArrival(item.arrive)}
+                    index={index}
+                    line={item.line}
+                    mbid={item.mbid}
+                    name={item.name}
+                    onKeys={onKeys}
+                    style={{ ...style, padding: '0 12px' }}
+                    tabbable={active === index}
+                    to={item.to}
+                />
             );
         case 'ghost':
             return <GhostRow label={item.label} style={{ ...style, padding: '0 28px' }} />;
@@ -87,6 +120,19 @@ const Row = ({
                     <h2 className={styles.headingTitle}>{item.title}</h2>
                     {item.note && <small className={styles.headingNote}>{item.note}</small>}
                 </div>
+            );
+        case 'link':
+            return (
+                <LinkRow
+                    host={item.host}
+                    index={index}
+                    message={item.message}
+                    onKeys={onKeys}
+                    onOpen={item.onOpen}
+                    pending={item.pending}
+                    style={{ ...style, padding: '0 12px' }}
+                    tabbable={active === index}
+                />
             );
         case 'message':
             return (
@@ -108,7 +154,7 @@ const Row = ({
         case 'owned':
             return (
                 <OwnedArtistRow
-                    arrival={propsFor(ownedPosition(items, index))}
+                    arrival={ownedArrival(item.arrive)}
                     artist={item.artist}
                     index={index}
                     onKeys={onKeys}
@@ -120,20 +166,13 @@ const Row = ({
     }
 };
 
-// The arrival's stagger counts rows, not headings: the first owned row is 0.
-const ownedPosition = (items: PageItem[], index: number) => {
-    let first = 0;
-    while (first < items.length && items[first].kind !== 'owned') first++;
-    return Math.max(0, index - first);
-};
-
 /**
  * F6: the Artists page's list, windowed (react-window-v2, 68 px rows), so 20,000 artists draw only
  * what is on screen. One scrollbar for the page; Up and Down move from row to row, Enter opens.
  */
 export const ArtistRows = memo(
     forwardRef<ArtistRowsHandle, ArtistRowsProps>(
-        ({ initialOffset, items, onLeaveTop, onScroll, query }, ref) => {
+        ({ initialOffset, items, onLeaveTop, onScroll, query, term }, ref) => {
             const listRef = useListRef(null);
             const [width, setWidth] = useState(800);
             const firstFocusable = items.findIndex(isFocusable);
@@ -142,7 +181,11 @@ export const ArtistRows = memo(
                 const at = activeKey ? items.findIndex((i) => i.key === activeKey) : -1;
                 return at >= 0 ? at : firstFocusable;
             })();
-            const { propsFor } = useArrival(items.some((i) => i.kind === 'owned'));
+            const { propsFor: ownedArrival } = useArrival(items.some((i) => i.kind === 'owned'));
+            const { propsFor: externalArrival } = useArrival(
+                items.some((i) => i.kind === 'external'),
+                term,
+            );
 
             const focusIndex = useCallback(
                 (index: number) => {
@@ -216,9 +259,9 @@ export const ArtistRows = memo(
                 (index: number, props: RowProps): number => {
                     const item = props.items[index];
                     switch (item.kind) {
-                        case 'custom':
-                            return item.height;
+                        case 'external':
                         case 'ghost':
+                        case 'link':
                         case 'owned':
                             return ARTIST_ROW_HEIGHT;
                         case 'heading':
@@ -235,8 +278,15 @@ export const ArtistRows = memo(
             // Stable while nothing it shows changes: the list places every row from these, so a render
             // that only moved the field's text must not touch 20,000 positions.
             const rowProps = useMemo(
-                () => ({ active: activeIndex, items, onKeys, propsFor, query }),
-                [activeIndex, items, onKeys, propsFor, query],
+                () => ({
+                    active: activeIndex,
+                    externalArrival,
+                    items,
+                    onKeys,
+                    ownedArrival,
+                    query,
+                }),
+                [activeIndex, externalArrival, items, onKeys, ownedArrival, query],
             );
             const handleScroll = useCallback(
                 (event: UIEvent<HTMLDivElement>) => onScroll(event.currentTarget.scrollTop),

@@ -3,7 +3,7 @@ import type { LbBotDiscography, LbBotIndexArtist, LbBotStatus } from '/@/shared/
 
 import { clear, createStore, entries, promisifyRequest, UseStore } from 'idb-keyval';
 import isElectron from 'is-electron';
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import {
     EMPTY_MIRROR_META,
@@ -754,6 +754,32 @@ export const getMirrorArtistByNdId = (
 export const mirrorArtistGaps = (ndId: string, mbid?: null | string): null | number => {
     const artist = getMirrorArtistByNdId(ndId, mbid);
     return artist ? gapCount(artist.rows) : null;
+};
+
+/**
+ * F6: every mirrored artist with an MBID that names a Navidrome artist, for the Library's ownership
+ * by MBID (an artist Navidrome holds without its own MBID tag can still own a MusicBrainz candidate).
+ * Empty while the hub is not configured.
+ */
+export const mirrorLibraryArtists = (): { mbid: string; ndArtistId: string }[] => {
+    if (!mirrorShown()) return [];
+    const out: { mbid: string; ndArtistId: string }[] = [];
+    for (const artist of byKey.values()) {
+        if (artist.mbid && artist.ndArtistId) {
+            out.push({ mbid: artist.mbid, ndArtistId: artist.ndArtistId });
+        }
+    }
+    return out;
+};
+
+/** {@link mirrorLibraryArtists}, read again only when the mirror changes. */
+export const useMirrorLibraryArtists = (): { mbid: string; ndArtistId: string }[] => {
+    const version = useSyncExternalStore(
+        subscribeIndexMirror,
+        () => getIndexMirrorSnapshot().version,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return useMemo(() => mirrorLibraryArtists(), [version]);
 };
 
 /** {@link mirrorArtistGaps} for one row, re-rendering only when its number changes. */
