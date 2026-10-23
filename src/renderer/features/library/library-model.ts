@@ -60,24 +60,26 @@ export const sortArtists = <T extends LibraryArtist>(list: readonly T[], sort: A
     return keyed.map((k) => k.artist);
 };
 
-// The sorted order of an index's values, per sort: built once per list, read on every keystroke.
-const sortedOrders = new WeakMap<object, Map<ArtistSort, Map<unknown, number>>>();
+// An index's values sorted, and each value's place in that order, per sort: built once per list
+// (the browse view builds it), read on every keystroke to break ties.
+const sortedCache = new WeakMap<
+    object,
+    Map<ArtistSort, { order: Map<unknown, number>; sorted: readonly unknown[] }>
+>();
 
-const sortOrderOf = <T extends LibraryArtist>(
-    index: FuzzyIndex<T>,
-    sort: ArtistSort,
-): Map<unknown, number> => {
-    let bySort = sortedOrders.get(index);
+const sortedOf = <T extends LibraryArtist>(index: FuzzyIndex<T>, sort: ArtistSort) => {
+    let bySort = sortedCache.get(index);
     if (!bySort) {
         bySort = new Map();
-        sortedOrders.set(index, bySort);
+        sortedCache.set(index, bySort);
     }
-    let order = bySort.get(sort);
-    if (!order) {
-        order = new Map(sortArtists(index.values, sort).map((artist, n) => [artist, n]));
-        bySort.set(sort, order);
+    let entry = bySort.get(sort);
+    if (!entry) {
+        const sorted = sortArtists(index.values, sort);
+        entry = { order: new Map(sorted.map((artist, n) => [artist, n])), sorted };
+        bySort.set(sort, entry);
     }
-    return order;
+    return entry as { order: Map<T, number>; sorted: readonly T[] };
 };
 
 /**
@@ -90,14 +92,13 @@ export const rankArtists = <T extends LibraryArtist>(
     sort: ArtistSort,
     limit = Infinity,
 ): { artist: T; tier: FuzzyTier }[] => {
+    const { order, sorted } = sortedOf(index, sort);
     if (query.trim() === '') {
-        const sorted = sortArtists(index.values, sort);
         return (Number.isFinite(limit) ? sorted.slice(0, limit) : sorted).map((artist) => ({
             artist,
             tier: 'exact' as const,
         }));
     }
-    const order = sortOrderOf(index, sort);
     const hits = index.search(query, Infinity);
     hits.sort((a, b) => b.score - a.score || order.get(a.value)! - order.get(b.value)!);
     const cut = Number.isFinite(limit) ? hits.slice(0, limit) : hits;

@@ -46,6 +46,10 @@ const HomeRoute = lazy(() => import('/@/renderer/features/home/routes/home-route
 
 const LibraryFrame = lazy(() => import('/@/renderer/features/library/components/library-frame'));
 
+const LibraryArtistsRoute = lazy(
+    () => import('/@/renderer/features/library/routes/library-artists-route'),
+);
+
 const ArtistListRoute = lazy(() => import('/@/renderer/features/artists/routes/artist-list-route'));
 
 const AlbumArtistListRoute = lazy(
@@ -279,7 +283,7 @@ export const AppRouter = () => {
                                             and every detail page stays outside it. */}
                                         <Route element={<LibraryFrame />}>
                                             <Route
-                                                element={<AlbumArtistListRoute />}
+                                                element={<LibraryArtistsRoute />}
                                                 path={AppRoute.LIBRARY}
                                             />
                                             <Route

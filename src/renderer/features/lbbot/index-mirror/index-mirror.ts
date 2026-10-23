@@ -17,6 +17,7 @@ import {
     planPage,
     toDiscography,
 } from '/@/renderer/features/lbbot/index-mirror/mirror-logic';
+import { gapCount } from '/@/renderer/features/library/library-model';
 import { queryClient } from '/@/renderer/lib/react-query';
 import { useHubStore } from '/@/renderer/store/hub.store';
 import { useSettingsStore } from '/@/renderer/store/settings.store';
@@ -744,6 +745,20 @@ export const getMirrorArtistByNdId = (
     mbid?: null | string,
 ): LbBotIndexArtist | undefined =>
     mirrorShown() ? lookupByNdId(byKey, keysByNdId, ndId, mbid) : undefined;
+
+/**
+ * F6: the Library's "N with gaps" pill: how many of a library artist's indexed releases are
+ * `incomplete`. Null when lb-bot has not indexed the artist or the hub is not configured
+ * ({@link mirrorShown}): no pill, never "0 with gaps".
+ */
+export const mirrorArtistGaps = (ndId: string, mbid?: null | string): null | number => {
+    const artist = getMirrorArtistByNdId(ndId, mbid);
+    return artist ? gapCount(artist.rows) : null;
+};
+
+/** {@link mirrorArtistGaps} for one row, re-rendering only when its number changes. */
+export const useMirrorGaps = (ndId: string, mbid?: null | string): null | number =>
+    useSyncExternalStore(subscribeIndexMirror, () => mirrorArtistGaps(ndId, mbid));
 
 /** A mirrored artist in the network discography read's shape (`scan: null`),
  *  with `stale` computed against the envelope the mirror last saw. */

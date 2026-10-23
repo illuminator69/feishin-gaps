@@ -2,6 +2,8 @@
 // headless check over CDP add a server, set the playing song, read cover seeds and set a cover seed
 // directly, without a real library.
 import { api } from '/@/renderer/api';
+import * as indexMirror from '/@/renderer/features/lbbot/index-mirror/index-mirror';
+import * as libraryModel from '/@/renderer/features/library/library-model';
 import { useStationStore } from '/@/renderer/features/player/station/station-store';
 import { queryClient } from '/@/renderer/lib/react-query';
 import {
@@ -17,6 +19,7 @@ import { applyWashVars, washVars } from '/@/renderer/themes/cover/apply-wash-var
 import { type CoverSeed, rolesFor } from '/@/renderer/themes/cover/cover-roles';
 import * as coverSeeds from '/@/renderer/themes/cover/cover-seed-store';
 import { useCoverWashStore } from '/@/renderer/themes/cover/cover-wash.store';
+import * as fuzzyMatch from '/@/shared/utils/fuzzy-match';
 
 Object.assign(window, {
     __coverWash: {
@@ -28,10 +31,14 @@ Object.assign(window, {
         },
     },
     // F4 adds the app, hub, station and saved-queue stores, to set the side queue's states and
-    // the panel's width with no hub; F5 the query client and the mixes store, to seed Home's rows.
+    // the panel's width with no hub; F5 the query client and the mixes store, to seed Home's rows;
+    // F6 the Library's matching and model and the index mirror, to time a keystroke's ranking alone.
     __f2: {
         api,
         coverSeeds,
+        fuzzyMatch,
+        indexMirror,
+        libraryModel,
         queryClient,
         useAppStore,
         useAuthStore,
