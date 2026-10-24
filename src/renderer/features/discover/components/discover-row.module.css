@@ -90,6 +90,7 @@
     top: 8px;
     left: 8px;
     z-index: 2;
+    max-width: calc(100% - 16px);
     pointer-events: none;
 }
 

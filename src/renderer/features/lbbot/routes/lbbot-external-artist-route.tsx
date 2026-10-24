@@ -1,18 +1,14 @@
 import { Suspense } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 
-import styles from './lbbot-fresh-route.module.css';
-
-import { useArtistAlbumsGrouped } from '/@/renderer/features/artists/hooks/use-artist-albums-grouped';
+import { Discography } from '/@/renderer/features/discography/components/discography';
 import { LbBotIndexButton } from '/@/renderer/features/lbbot/components/lbbot-index-button';
 import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
-import { MissingAlbumTile } from '/@/renderer/features/lbbot/components/missing-album-tile';
 import {
     useLbBotArtistMeta,
     useLbBotAvailable,
     useLbBotDiscography,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
-import { ForkCardGrid } from '/@/renderer/features/shared/components/fork-card-grid';
 import { ForkDetailPage } from '/@/renderer/features/shared/components/fork-detail-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
 import { AppRoute } from '/@/renderer/router/routes';
@@ -20,9 +16,8 @@ import { Badge } from '/@/shared/components/badge/badge';
 import { Group } from '/@/shared/components/group/group';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
-import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { Text } from '/@/shared/components/text/text';
-import { Album, LibraryItem } from '/@/shared/types/domain-types';
+import { LibraryItem } from '/@/shared/types/domain-types';
 
 /**
  * navi-connect: an artist page for someone the library has nothing by.
@@ -31,13 +26,9 @@ import { Album, LibraryItem } from '/@/shared/types/domain-types';
  * understands — `api_artist_discography` treats an `mb:`-prefixed `nd_id` as
  * external, skips the library match, and classifies everything `missing`.
  *
- * Grouped by release type through the **same** hook the owned artist page uses, so
- * the two groupings cannot drift apart: an unowned artist's Albums section is
- * built by the rule that builds an owned one's.
+ * The discography is the **same** component the owned artist page renders (F7),
+ * over the same model, so the two pages' kinds cannot drift apart.
  */
-
-// Module-level so the grouping memo isn't invalidated by a fresh [] every render.
-const NO_ALBUMS: Album[] = [];
 
 const LbBotExternalArtistRoute = () => {
     const { artistMbid } = useParams() as { artistMbid: string };
@@ -66,12 +57,6 @@ const LbBotExternalArtistRoute = () => {
     // Nothing here can flash: there is no competing text to arrive first.
     const meta = useLbBotArtistMeta(artistMbid, artistName).data;
 
-    const { releaseTypeEntries } = useArtistAlbumsGrouped(
-        NO_ALBUMS,
-        ndId,
-        discography.data?.releases ?? [],
-    );
-
     const indexed = discography.data?.indexed === true;
     const releaseCount = discography.data?.releases.length ?? 0;
 
@@ -84,12 +69,6 @@ const LbBotExternalArtistRoute = () => {
                     </Text>
                     <Group gap="sm">
                         <Badge>Not in your library</Badge>
-                        <LbBotIndexButton
-                            artistMbid={artistMbid}
-                            artistName={artistName}
-                            discography={discography.data}
-                            ndId={ndId}
-                        />
                     </Group>
                 </Stack>
             }
@@ -125,32 +104,22 @@ const LbBotExternalArtistRoute = () => {
                 </Text>
             )}
 
-            {releaseTypeEntries.map((entry) =>
-                entry.missing.length === 0 ? null : (
-                    <Stack gap="md" key={entry.releaseType}>
-                        {/* The artist page's section heading: a title, its count, a rule. */}
-                        <div className={styles.bucket}>
-                            <Group>
-                                <TextTitle fw={700} order={3}>
-                                    {entry.displayName}
-                                </TextTitle>
-                                <Badge>{entry.missing.length}</Badge>
-                            </Group>
-                            <div className={styles.bucketRule} />
-                        </div>
-                        <ForkCardGrid>
-                            {entry.missing.map((release) => (
-                                <MissingAlbumTile
-                                    artistName={artistName}
-                                    key={release.rgid}
-                                    ndArtistId={ndId}
-                                    release={release}
-                                />
-                            ))}
-                        </ForkCardGrid>
-                    </Stack>
-                ),
-            )}
+            {available || discography.data ? (
+                <Discography
+                    artistMbid={artistMbid}
+                    artistName={artistName}
+                    ndId={ndId}
+                    owned={null}
+                    rescan={
+                        <LbBotIndexButton
+                            artistMbid={artistMbid}
+                            artistName={artistName}
+                            discography={discography.data}
+                            ndId={ndId}
+                        />
+                    }
+                />
+            ) : null}
         </ForkDetailPage>
     );
 };

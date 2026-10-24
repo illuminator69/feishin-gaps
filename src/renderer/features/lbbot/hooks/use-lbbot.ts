@@ -151,26 +151,6 @@ const lbBot = isElectron() ? window.api.lbBot : null;
 export const caaCoverUrl = (rgid: string, size: 250 | 500 = 250): string =>
     rgid ? `https://coverartarchive.org/release-group/${rgid}/front-${size}` : '';
 
-/**
- * Discography rows with no album of their own on this page.
- *
- * **Not a `status === 'missing'` filter, and it must never become one again.**
- * A completed fill flips lb-bot's index row to `present` while Navidrome still
- * has no album for it, so filtering on `missing` drops the tile out of *both*
- * lists — the album vanishes from the page *because the download succeeded*.
- *
- * The honest question is whether lb-bot matched the row to a Navidrome album, so
- * that is what is asked. `incomplete` rows fall out here for free: they are
- * albums the library owns, they carry their Navidrome ids, and they belong on
- * the owned side with a `9/12` badge rather than as a ghost tile.
- */
-export const unownedReleases = (data: LbBotDiscography | null | undefined): LbBotRelease[] =>
-    (data?.releases ?? []).filter((release) => release.navidromeAlbumIds.length === 0);
-
-/** An unmatched row lb-bot no longer calls `missing` is a fill that has landed
- *  and is waiting on a Navidrome scan — not something to download again. */
-export const isAwaitingLibrary = (release: LbBotRelease): boolean => release.status !== 'missing';
-
 /** Albums the library holds part of, keyed by the Navidrome album ids lb-bot
  *  matched them to — which is how a page or a context menu finds the gap for an
  *  album it already has. Only rows carrying a live review group qualify: without
@@ -184,50 +164,6 @@ export const gapsByAlbumId = (
         for (const albumId of release.navidromeAlbumIds) map.set(albumId, release);
     }
     return map;
-};
-
-/**
- * Album titles compared the way a person would: case, accents, punctuation and
- * parenthesised edition suffixes all discarded. "Kid A" and "Kid A (Remastered)"
- * are the same record for this purpose.
- *
- * Deliberately stops there. A dash suffix would be the obvious next rule, but
- * "Hail to the Thief - Live" is a different record from "Hail to the Thief", and
- * the cost of the two mistakes is not symmetric: leaving a duplicate on screen is
- * untidy, while collapsing two real releases hides an album the user cannot then
- * download at all.
- */
-const titleKey = (title: string): string =>
-    title
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .toLowerCase()
-        .replace(/[[({].*?[\])}]/g, '')
-        .replace(/[^a-z0-9]+/g, '')
-        .trim();
-
-/**
- * Drop missing releases the library demonstrably already has.
- *
- * lb-bot's index only learns a release-group is present when something writes
- * that row — a full MusicBrainz rescan, or a fill completing. Anything else that
- * puts an album in the library (a manual copy, a Fill-gaps run against a
- * different release of the same group, a title lb-bot's matcher didn't
- * recognize) leaves the row saying `missing` while Navidrome plainly has it, and
- * the artist page then shows the same album twice — once real, once greyed out.
- *
- * The index is the wrong place to fix that from here: correcting it means a
- * MusicBrainz walk at one request a second. Navidrome is the authority on what
- * the library holds, and it is already loaded on this page, so reconcile against
- * it at render time and let the next rescan tidy the row.
- */
-export const withoutOwned = (releases: LbBotRelease[], ownedTitles: string[]): LbBotRelease[] => {
-    if (releases.length === 0 || ownedTitles.length === 0) return releases;
-    const owned = new Set(ownedTitles.map(titleKey).filter(Boolean));
-    return releases.filter((release) => {
-        const key = titleKey(release.title);
-        return !key || !owned.has(key);
-    });
 };
 
 /**

@@ -36,7 +36,7 @@ export const RELEASE_KINDS: readonly ReleaseKind[] = [
  * copied because this file cannot import it; `use-discography-items.ts` checks them against the
  * enum at compile time.
  */
-export const KIND_SETTING_ID: Record<ReleaseKind, string> = {
+export const KIND_SETTING_ID = {
     album: 'releaseTypeAlbum',
     'appears-on': 'appearsOn',
     compilation: 'releaseTypeCompilation',
@@ -46,7 +46,7 @@ export const KIND_SETTING_ID: Record<ReleaseKind, string> = {
     remix: 'releaseTypeRemix',
     single: 'releaseTypeSingle',
     soundtrack: 'releaseTypeSoundtrack',
-};
+} as const satisfies Record<ReleaseKind, string>;
 
 /** MusicBrainz secondary types that make a release Other whatever its primary type. */
 const OTHER_SECONDARY = new Set([

@@ -7,10 +7,13 @@ import styles from './album-artist-detail-header.module.css';
 
 import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
-import { getArtistAlbumsGrouped } from '/@/renderer/features/artists/hooks/use-artist-albums-grouped';
 import { useDeleteArtistImage } from '/@/renderer/features/artists/mutations/delete-artist-image-mutation';
 import { useUploadArtistImage } from '/@/renderer/features/artists/mutations/upload-artist-image-mutation';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
+import { filterItems, sortItems } from '/@/renderer/features/discography/discography-model';
+import { useDiscographyItems } from '/@/renderer/features/discography/hooks/use-discography-items';
+import { useDiscographyView } from '/@/renderer/features/discography/hooks/use-discography-view';
+import { useEffectiveArtistMbid } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
     LibraryHeader,
@@ -19,10 +22,10 @@ import {
 import { useSetFavorite } from '/@/renderer/features/shared/hooks/use-set-favorite';
 import { useSetRating } from '/@/renderer/features/shared/hooks/use-set-rating';
 import { AppRoute } from '/@/renderer/router/routes';
-import { useAppStore, useCurrentServer, useShowFavorites, useShowRatings } from '/@/renderer/store';
-import { useArtistReleaseTypeItems, usePlayButtonBehavior } from '/@/renderer/store/settings.store';
+import { useCurrentServer, useShowFavorites, useShowRatings } from '/@/renderer/store';
+import { usePlayButtonBehavior } from '/@/renderer/store/settings.store';
 import { formatDurationString } from '/@/renderer/utils';
-import { hasFeature, SEPARATOR_STRING, sortAlbumList } from '/@/shared/api/utils';
+import { hasFeature, SEPARATOR_STRING } from '/@/shared/api/utils';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { FileButton } from '/@/shared/components/file-button/file-button';
 import { Group } from '/@/shared/components/group/group';
@@ -147,28 +150,25 @@ export const AlbumArtistDetailHeader = forwardRef<HTMLDivElement, AlbumArtistDet
         const setRating = useSetRating();
         const uploadArtistImageMutation = useUploadArtistImage({});
 
-        const albumArtistDetailSort = useAppStore((state) => state.albumArtistDetailSort);
-        const sortBy = albumArtistDetailSort.sortBy;
-        const sortOrder = albumArtistDetailSort.sortOrder;
-        const groupingType = albumArtistDetailSort.groupingType;
-        const artistReleaseTypeItems = useArtistReleaseTypeItems();
+        // Call 4: Play and Shuffle play what the discography shows - its kind chip, ownership filter
+        // and sort, owned albums only - read from the same model and the same URL view.
+        const mbzId = useEffectiveArtistMbid(routeId, detailQuery.data?.mbz);
+        const { items } = useDiscographyItems({
+            artistMbid: mbzId,
+            ndId: routeId,
+            owned: albumsQuery.data?.items ?? null,
+        });
+        const { view } = useDiscographyView();
 
         const handlePlay = useCallback(
             (type?: Play) => {
                 if (!server?.id || !routeId) return;
 
-                const albums = albumsQuery.data?.items || [];
-                const sortedAlbums = sortAlbumList(albums, sortBy, sortOrder);
-
-                const { flatSortedAlbums } = getArtistAlbumsGrouped(
-                    sortedAlbums,
-                    routeId,
-                    groupingType,
-                    artistReleaseTypeItems,
-                    t,
+                const albumIds = sortItems(filterItems(items, view), view).flatMap((item) =>
+                    item.albumId && (item.ownership === 'owned' || item.ownership === 'partly')
+                        ? [item.albumId]
+                        : [],
                 );
-
-                const albumIds = flatSortedAlbums.map((album) => album.id);
                 if (albumIds.length === 0) return;
 
                 const filter = (song: Song) => {
@@ -187,19 +187,7 @@ export const AlbumArtistDetailHeader = forwardRef<HTMLDivElement, AlbumArtistDet
                     { filter },
                 );
             },
-            [
-                addToQueueByFetch,
-                playButtonBehavior,
-                routeId,
-                server.id,
-                albumsQuery.data?.items,
-                sortBy,
-                sortOrder,
-                groupingType,
-                artistReleaseTypeItems,
-                t,
-                albumArtistId,
-            ],
+            [addToQueueByFetch, playButtonBehavior, routeId, server.id, items, view, albumArtistId],
         );
 
         const handleFavorite = useCallback(() => {

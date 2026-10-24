@@ -975,7 +975,7 @@
         "artistConfiguration": "Album artist page configuration",
         "artistConfiguration_description": "Configure what items are shown, and in what order, on the album artist page",
         "artistReleaseTypeConfiguration": "Artist release type configuration",
-        "artistReleaseTypeConfiguration_description": "Configure what release types are shown, and in what order, on the album artist page",
+        "artistReleaseTypeConfiguration_description": "Choose the order of release types on an artist page. A type switched off starts collapsed.",
         "audioDeviceDefault": "System default",
         "audioDevice_description": "Select the audio device to use for playback",
         "audioDevice": "Audio device",
@@ -1751,6 +1751,48 @@
             "token_description": "Only for reaching AudioMuse-AI with no hub. Leave blank when your navi-connect hub holds it.",
             "url": "AudioMuse URL (direct)",
             "url_description": "Only for reaching AudioMuse-AI with no hub, for mood search and mixes. Radio and autoplay always go through the hub. Leave blank when the hub is set up."
+        },
+        "discography": {
+            "collapsedSummary_one": "{{count}} release, collapsed",
+            "collapsedSummary_other": "{{count}} releases, collapsed",
+            "dirAsc": "Ascending",
+            "dirDesc": "Descending",
+            "kind": {
+                "album": "Albums",
+                "all": "All",
+                "appears-on": "Appears on",
+                "compilation": "Compilations",
+                "ep": "EPs",
+                "live": "Live",
+                "other": "Other",
+                "remix": "Remixes",
+                "single": "Singles",
+                "soundtrack": "Soundtracks"
+            },
+            "nothingMatches": "Nothing matches {{filter}}.",
+            "own": {
+                "all": "All",
+                "missing": "Missing",
+                "owned": "Owned",
+                "partly": "Partly owned",
+                "syncing": "Added, syncing"
+            },
+            "ownershipChip": "Ownership: {{value}}",
+            "pill": {
+                "filling": "{{done}}/{{wanted}} filling",
+                "missing": "Missing",
+                "owned": "Owned",
+                "partly": "{{present}} of {{total}}",
+                "syncing": "Added, syncing"
+            },
+            "showAll": "Show all",
+            "sort": {
+                "added": "Recently added",
+                "plays": "Your plays",
+                "title": "Title",
+                "year": "Year"
+            },
+            "sortChip": "Sort: {{value}}"
         },
         "libraryMatches": {
             "intro": "What lb-bot holds on your behalf: the MusicBrainz matches you chose, the ones worth a look, and the tag changes it can undo.",
