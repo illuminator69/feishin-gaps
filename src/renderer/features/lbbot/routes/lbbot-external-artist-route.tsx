@@ -57,9 +57,6 @@ const LbBotExternalArtistRoute = () => {
     // Nothing here can flash: there is no competing text to arrive first.
     const meta = useLbBotArtistMeta(artistMbid, artistName).data;
 
-    const indexed = discography.data?.indexed === true;
-    const releaseCount = discography.data?.releases.length ?? 0;
-
     return (
         <ForkDetailPage
             headerChildren={
@@ -90,27 +87,11 @@ const LbBotExternalArtistRoute = () => {
 
             {loading && <Spinner container />}
 
-            {!loading && discography.data && !indexed && (
-                <Text isMuted>
-                    lb-bot hasn&apos;t scanned this artist yet. &quot;Find missing albums&quot;
-                    walks MusicBrainz at one request a second, so a long discography takes a minute.
-                </Text>
-            )}
-
-            {!loading && indexed && releaseCount === 0 && (
-                <Text isMuted>
-                    lb-bot scanned this artist and found no releases. A rescan is idempotent if that
-                    looks wrong.
-                </Text>
-            )}
-
             {available || discography.data ? (
                 <Discography
                     artistMbid={artistMbid}
                     artistName={artistName}
-                    ndId={ndId}
-                    owned={null}
-                    rescan={
+                    menu={
                         <LbBotIndexButton
                             artistMbid={artistMbid}
                             artistName={artistName}
@@ -118,6 +99,8 @@ const LbBotExternalArtistRoute = () => {
                             ndId={ndId}
                         />
                     }
+                    ndId={ndId}
+                    owned={null}
                 />
             ) : null}
         </ForkDetailPage>

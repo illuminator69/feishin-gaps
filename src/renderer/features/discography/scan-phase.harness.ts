@@ -15,6 +15,7 @@ const base = {
     indexed: true,
     nowMs: NOW,
     pending: false,
+    readAtMs: null,
     releaseCount: 9,
     scan: null,
     scannable: true,
@@ -43,6 +44,38 @@ test('the cached-read cases: a scan this session started is running until a reco
     );
     assert.equal(scanPhase({ ...base, scan: rec('done', 't1'), started }), 'idle');
     assert.equal(scanPhase({ ...base, scan: rec('failed', 't1', 'MB down'), started }), 'failed');
+});
+
+test('a read made after the hub cache can hold a pre-scan answer, with no record of the task, means lb-bot lost it', () => {
+    const started = { atMs: NOW - 90_000, taskId: 't1' };
+    // Read 70 s after the press: not the pre-scan cache, and no record of t1 (lb-bot restarted).
+    assert.equal(scanPhase({ ...base, readAtMs: started.atMs + 70_000, started }), 'idle');
+    assert.equal(
+        scanPhase({
+            ...base,
+            readAtMs: started.atMs + 70_000,
+            scan: rec('done', 'older'),
+            started,
+        }),
+        'idle',
+    );
+    assert.equal(
+        scanPhase({
+            ...base,
+            indexed: false,
+            readAtMs: started.atMs + 70_000,
+            releaseCount: 0,
+            started,
+        }),
+        'never',
+    );
+    // Read 30 s after the press: may be the cached pre-scan answer, so still running.
+    assert.equal(scanPhase({ ...base, readAtMs: started.atMs + 30_000, started }), 'running');
+    // A record of t1 still running keeps it running whenever it was read.
+    assert.equal(
+        scanPhase({ ...base, readAtMs: started.atMs + 70_000, scan: rec('running'), started }),
+        'running',
+    );
 });
 
 test('a started scan stops waiting after five minutes', () => {

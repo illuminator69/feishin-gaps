@@ -6,7 +6,10 @@ import styles from './discography.module.css';
 import { useDefaultItemListControls } from '/@/renderer/components/item-list/helpers/item-list-controls';
 import { useGridRows } from '/@/renderer/components/item-list/helpers/use-grid-rows';
 import { FilterBar } from '/@/renderer/features/discography/components/filter-bar';
+import { GhostSections } from '/@/renderer/features/discography/components/ghost-sections';
 import { ReleaseSection } from '/@/renderer/features/discography/components/release-section';
+import { RescanControl } from '/@/renderer/features/discography/components/rescan-control';
+import { ScanBar } from '/@/renderer/features/discography/components/scan-bar';
 import {
     type DiscographyItem,
     filterItems,
@@ -14,6 +17,7 @@ import {
     sortItems,
 } from '/@/renderer/features/discography/discography-model';
 import { DEFAULT_VIEW, viewIsDefault } from '/@/renderer/features/discography/discography-view';
+import { useArtistScan } from '/@/renderer/features/discography/hooks/use-artist-scan';
 import { useDiscographyItems } from '/@/renderer/features/discography/hooks/use-discography-items';
 import { useDiscographyView } from '/@/renderer/features/discography/hooks/use-discography-view';
 import { type ReleaseKind } from '/@/renderer/features/discography/release-kind';
@@ -56,15 +60,11 @@ const scrollParentOf = (el: HTMLElement | null): HTMLElement | null => {
 interface DiscographyProps {
     artistMbid?: null | string;
     artistName: string;
-    /** Under the bar, above the sections: the scan's line and its ghosts (Task 4). */
-    banner?: ReactNode;
-    /** Shown instead of the sections while a first scan runs (Task 4). */
-    ghosts?: ReactNode;
+    /** The MusicBrainz menu (Wrong artist, Refresh About), after the Rescan control. */
+    menu?: ReactNode;
     ndId: string;
     /** Navidrome's albums for the artist; null on the not-owned page. */
     owned: Album[] | null;
-    /** The Rescan control, at the filter bar's right end (Task 4). */
-    rescan?: ReactNode;
 }
 
 /**
@@ -72,18 +72,15 @@ interface DiscographyProps {
  * filters, ownership and sort the page keeps in its URL. Both artist pages render this one component
  * over the one model, so their kinds cannot drift.
  */
-export const Discography = ({
-    artistMbid,
-    artistName,
-    banner,
-    ghosts,
-    ndId,
-    owned,
-    rescan,
-}: DiscographyProps) => {
+export const Discography = ({ artistMbid, artistName, menu, ndId, owned }: DiscographyProps) => {
     const { t } = useTranslation();
     const { setView, view } = useDiscographyView();
-    const { albumsById, items, known } = useDiscographyItems({ artistMbid, ndId, owned });
+    const { albumsById, discography, items, known } = useDiscographyItems({
+        artistMbid,
+        ndId,
+        owned,
+    });
+    const scan = useArtistScan({ artistMbid, artistName, discography, ndId });
     const releaseTypeItems = useArtistReleaseTypeItems();
     const [search, setSearch] = useState('');
     const [debounced] = useDebouncedValue(search, 300);
@@ -163,56 +160,64 @@ export const Discography = ({
             <FilterBar
                 items={items}
                 known={known}
-                rescan={rescan}
+                rescan={
+                    <>
+                        <RescanControl scan={scan} />
+                        {menu}
+                    </>
+                }
                 search={search}
                 searchRef={searchRef}
                 setSearch={setSearch}
                 setView={setView}
                 view={view}
             />
-            {banner}
+            <ScanBar scan={scan} />
             <div className={styles.sections} ref={cq.ref}>
-                {ghosts ??
-                    (items.length > 0 && shown.length === 0 ? (
-                        <div className={styles.empty} data-discography-empty="">
-                            <Text isMuted>
-                                {t('naviConnect.discography.nothingMatches', {
-                                    filter: filterName,
-                                })}
-                            </Text>
-                            <Button
-                                onClick={() => {
-                                    setSearch('');
-                                    if (!viewIsDefault(view)) setView(DEFAULT_VIEW);
-                                }}
-                                size="compact-sm"
-                                variant="default"
-                            >
-                                {t('naviConnect.discography.showAll')}
-                            </Button>
-                        </div>
-                    ) : (
-                        cq.isCalculated &&
-                        sections.map((section) => {
-                            const collapsed = isCollapsed(section.kind, section.collapsed);
-                            return (
-                                <ReleaseSection
-                                    albumsById={albumsById}
-                                    arrivalFor={propsFor}
-                                    artistName={artistName}
-                                    collapsed={collapsed}
-                                    controls={controls}
-                                    itemsPerRow={itemsPerRow}
-                                    key={section.kind}
-                                    known={known}
-                                    ndArtistId={ndId}
-                                    onToggle={(header) => toggle(section.kind, collapsed, header)}
-                                    rows={rows}
-                                    section={section}
-                                />
-                            );
-                        })
-                    ))}
+                {items.length > 0 && shown.length === 0 ? (
+                    <div className={styles.empty} data-discography-empty="">
+                        <Text isMuted>
+                            {t('naviConnect.discography.nothingMatches', {
+                                filter: filterName,
+                            })}
+                        </Text>
+                        <Button
+                            onClick={() => {
+                                setSearch('');
+                                if (!viewIsDefault(view)) setView(DEFAULT_VIEW);
+                            }}
+                            size="compact-sm"
+                            variant="default"
+                        >
+                            {t('naviConnect.discography.showAll')}
+                        </Button>
+                    </div>
+                ) : (
+                    cq.isCalculated &&
+                    sections.map((section) => {
+                        const collapsed = isCollapsed(section.kind, section.collapsed);
+                        return (
+                            <ReleaseSection
+                                albumsById={albumsById}
+                                arrivalFor={propsFor}
+                                artistName={artistName}
+                                collapsed={collapsed}
+                                controls={controls}
+                                itemsPerRow={itemsPerRow}
+                                key={section.kind}
+                                known={known}
+                                ndArtistId={ndId}
+                                onToggle={(header) => toggle(section.kind, collapsed, header)}
+                                rows={rows}
+                                section={section}
+                            />
+                        );
+                    })
+                )}
+                {/* A first scan: the missing releases' place, shaped like the answer. */}
+                {scan.phase === 'running' && !known && cq.isCalculated && (
+                    <GhostSections itemsPerRow={itemsPerRow} />
+                )}
             </div>
         </div>
     );

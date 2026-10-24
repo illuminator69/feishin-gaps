@@ -1461,8 +1461,8 @@ interface ArtistAlbumsProps {
 }
 
 /**
- * The discography (F7): every release, owned or missing, by kind, with the page's own filters. The
- * MusicBrainz menu sits at the bar's right end until the Rescan control replaces it.
+ * The discography (F7): every release, owned or missing, by kind, with the page's own filters, the
+ * Rescan control and the MusicBrainz menu at the bar's right end.
  */
 const ArtistAlbums = ({
     albumsQuery,
@@ -1484,9 +1484,7 @@ const ArtistAlbums = ({
             <Discography
                 artistMbid={artistMbid}
                 artistName={artistName}
-                ndId={routeId}
-                owned={albumsQuery.data?.items ?? []}
-                rescan={
+                menu={
                     <LbBotIndexButton
                         artistMbid={artistMbid}
                         artistName={artistName}
@@ -1495,6 +1493,8 @@ const ArtistAlbums = ({
                         tagMbid={tagMbid}
                     />
                 }
+                ndId={routeId}
+                owned={albumsQuery.data?.items ?? []}
             />
         </Grid.Col>
     );

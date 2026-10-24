@@ -12,6 +12,9 @@ export type ScanPhase = 'empty' | 'failed' | 'idle' | 'never' | 'running' | 'una
 /** How long a scan this session started counts as running without a record that ends it. */
 export const SCAN_WAIT_MS = 5 * 60 * 1000;
 
+/** The hub's cache of the discography read (`PROXY_CACHE_TTL`), and a margin for the clocks. */
+export const HUB_CACHE_MS = 60_000 + 5_000;
+
 export interface ScanInput {
     /** lb-bot reachable through the hub. */
     available: boolean;
@@ -19,6 +22,8 @@ export interface ScanInput {
     nowMs: number;
     /** The start request is in flight. */
     pending: boolean;
+    /** When the network read carrying `scan` answered (ms), or null before one has. */
+    readAtMs: null | number;
     releaseCount: number;
     /** From the network read only: the index mirror carries no scan record. */
     scan: null | ScanRecord;
@@ -38,8 +43,13 @@ export const scanPhase = (input: ScanInput): ScanPhase => {
     if (input.pending || scan?.state === 'running') return 'running';
     if (started && input.nowMs - started.atMs < SCAN_WAIT_MS) {
         const ours = scan && scan.taskId === started.taskId ? scan : null;
-        if (!ours) return 'running';
-        if (ours.state === 'failed') return 'failed';
+        // No record of our task yet: a read the hub may still be serving from before the press says
+        // nothing; one made later than its cache can hold means lb-bot no longer has the scan (a
+        // restart keeps scan records in memory only), so the page rests instead of spinning on.
+        const lost =
+            !ours && input.readAtMs !== null && input.readAtMs - started.atMs > HUB_CACHE_MS;
+        if (!ours && !lost) return 'running';
+        if (ours?.state === 'failed') return 'failed';
     } else if (scan?.state === 'failed') {
         return 'failed';
     }

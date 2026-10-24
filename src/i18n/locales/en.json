@@ -1785,6 +1785,19 @@
                 "partly": "{{present}} of {{total}}",
                 "syncing": "Added, syncing"
             },
+            "scan": {
+                "barLabel": "Scanning MusicBrainz, length unknown",
+                "control": {
+                    "empty": "Rescan discography",
+                    "failed": "Retry scan",
+                    "idle": "Rescan discography",
+                    "never": "Find missing albums",
+                    "running": "Scanning discography"
+                },
+                "ghostLabel": "Discography loading",
+                "lbbotDown": "lb-bot cannot be reached right now.",
+                "unscannable": "lb-bot needs this artist's MusicBrainz id and name to scan."
+            },
             "showAll": "Show all",
             "sort": {
                 "added": "Recently added",

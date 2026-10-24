@@ -63,6 +63,7 @@ import {
 import { useNavigate } from 'react-router';
 
 import { api } from '/@/renderer/api';
+import { noteScanStarted } from '/@/renderer/features/discography/hooks/scan-session';
 import { isSourceVerified } from '/@/renderer/features/lbbot/components/source-list';
 import {
     gapFailReason,
@@ -624,6 +625,8 @@ export const useIndexArtist = (ndId: string) => {
                 return false;
             }
             const { taskId } = plan;
+            // F7: the page's scan state follows this task id, wherever the scan was started from.
+            noteScanStarted(ndId, taskId);
             // A big discography takes 10-60s at MusicBrainz's one-request-a-second.
             // Rather than polling a task, re-read the index a few times and let the
             // shelf appear when it appears — a miss just means "not yet".
@@ -667,6 +670,33 @@ export const useIndexArtist = (ndId: string) => {
     );
 
     return { error, indexArtist, note, pending };
+};
+
+/**
+ * F7 (Call 13): lb-bot's scan record for an artist, which only the network read carries (the index
+ * mirror has none). Read once when the page opens and every `pollMs` while a scan runs. Shares the
+ * discography fallback's cache entry, so it costs no second request.
+ */
+export const useLbBotScanRead = (
+    ndId: string,
+    mbid: null | string | undefined,
+    pollMs: null | number,
+) => {
+    const available = useLbBotAvailable();
+    const shown = useMirrorShown();
+    const query = useQuery({
+        enabled: !!lbBot && available && !!ndId,
+        gcTime: 5 * 60 * 1000,
+        queryFn: () => lbBot!.discography(ndId, mbid ?? undefined),
+        queryKey: ['lbbot', 'discography', ndId],
+        refetchInterval: pollMs ?? false,
+        refetchOnWindowFocus: false,
+        staleTime: 0,
+    });
+    return {
+        data: shown ? query.data : undefined,
+        readAtMs: query.dataUpdatedAt > 0 ? query.dataUpdatedAt : null,
+    };
 };
 
 /** The route whose advert says this hub proxies the override writes (I-019). */
