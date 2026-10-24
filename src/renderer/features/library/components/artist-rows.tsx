@@ -73,6 +73,8 @@ interface ArtistRowsProps {
     onScroll: (offset: number) => void;
     /** The text as typed: a typo row says it was found by fuzzy match. */
     query: string;
+    /** The text and sort the list was ranked for: a new one starts at the top. */
+    resetKey: string;
     /** The settled lookup term: each MusicBrainz answer arrives once. */
     term: string;
 }
@@ -172,7 +174,7 @@ const Row = ({
  */
 export const ArtistRows = memo(
     forwardRef<ArtistRowsHandle, ArtistRowsProps>(
-        ({ initialOffset, items, onLeaveTop, onScroll, query, term }, ref) => {
+        ({ initialOffset, items, onLeaveTop, onScroll, query, resetKey, term }, ref) => {
             const listRef = useListRef(null);
             const [width, setWidth] = useState(800);
             const firstFocusable = items.findIndex(isFocusable);
@@ -254,6 +256,16 @@ export const ArtistRows = memo(
                 tryRestore();
                 return () => cancelAnimationFrame(id);
             }, [initialOffset, items.length, listRef]);
+
+            // A new text or sort is a new ranking, best first, so it starts at the top; left where it was,
+            // a shorter list would show its bottom. Back's restore above is for an unchanged list only.
+            const lastReset = useRef(resetKey);
+            useEffect(() => {
+                if (lastReset.current === resetKey) return;
+                lastReset.current = resetKey;
+                restored.current = true;
+                if (items.length > 0) listRef.current?.scrollToRow({ align: 'start', index: 0 });
+            }, [items.length, listRef, resetKey]);
 
             const rowHeight = useCallback(
                 (index: number, props: RowProps): number => {

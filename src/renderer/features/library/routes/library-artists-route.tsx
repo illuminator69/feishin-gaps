@@ -60,7 +60,7 @@ const LibraryArtistsRoute = () => {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const place = useLibraryPlace();
-    const { artists, error, loadedAll, loading, refetch } = useLibraryArtists();
+    const { artists, capped, error, loadedAll, loading, refetch, total } = useLibraryArtists();
     const rowsRef = useRef<ArtistRowsHandle>(null);
     const fieldRef = useRef<HTMLInputElement>(null);
     const focusRows = useCallback(() => rowsRef.current?.focusFirst(), []);
@@ -176,8 +176,18 @@ const LibraryArtistsRoute = () => {
                 pending: linkPending,
             });
         }
-        // A partial list is never called complete; after a failed page the error line says so instead.
-        const reading = loadedAll || error ? '' : `, ${t('page.library.stillReading')}`;
+        // A partial list is never called complete: while reading, every line drawn from it says so (after a
+        // failed page the error line does instead), and a list stopped at the row limit says how much it holds.
+        const stillReading = !loadedAll && !error;
+        const cappedParams = {
+            n: artists.length.toLocaleString(),
+            total: (total ?? artists.length).toLocaleString(),
+        };
+        const reading = stillReading
+            ? `, ${t('page.library.stillReading')}`
+            : capped
+              ? `, ${t('page.library.cappedNote', cappedParams)}`
+              : '';
         if (owned.length > 0) {
             out.push({
                 key: 'heading-owned',
@@ -204,10 +214,10 @@ const LibraryArtistsRoute = () => {
             title: t('page.library.notInLibrary'),
         });
         if (lookup.kind === 'looking') {
-            out.push(unownedHeading(t('page.library.fromMusicBrainzArriving')));
+            out.push(unownedHeading(t('page.library.fromMusicBrainzArriving') + reading));
             out.push({ key: 'ghost-unowned', kind: 'ghost', label: t('page.library.lookingUp') });
         } else if (lookup.kind === 'failed') {
-            out.push(unownedHeading(t('page.library.fromMusicBrainz')));
+            out.push(unownedHeading(t('page.library.fromMusicBrainz') + reading));
             out.push({
                 key: 'lookup-failed',
                 kind: 'message',
@@ -216,7 +226,8 @@ const LibraryArtistsRoute = () => {
                 text: lookup.message || t('page.library.lookupFailed'),
             });
         } else if (unowned.length > 0) {
-            out.push(unownedHeading(t('page.library.fromMusicBrainz')));
+            // Which candidates you own can change until the whole list is read.
+            out.push(unownedHeading(t('page.library.fromMusicBrainz') + reading));
             unowned.forEach((c, n) => {
                 out.push({
                     arrive: n,
@@ -233,10 +244,15 @@ const LibraryArtistsRoute = () => {
         }
 
         if (phase === 'none' && !link) {
+            const caveat = stillReading
+                ? ` ${t('page.library.stillReadingSentence')}`
+                : capped
+                  ? ` ${t('page.library.cappedSentence', cappedParams)}`
+                  : '';
             out.push({
                 key: 'none',
                 kind: 'message',
-                text: t('page.library.noneMatch', { text: query }),
+                text: t('page.library.noneMatch', { text: query }) + caveat,
             });
         }
         if (query) {
@@ -254,6 +270,7 @@ const LibraryArtistsRoute = () => {
     }, [
         artists.length,
         byId,
+        capped,
         error,
         link,
         linkMessage,
@@ -270,6 +287,7 @@ const LibraryArtistsRoute = () => {
         retry,
         split,
         t,
+        total,
     ]);
 
     return (
@@ -302,6 +320,7 @@ const LibraryArtistsRoute = () => {
                 onScroll={place.onScroll}
                 query={query}
                 ref={rowsRef}
+                resetKey={`${place.sort}\n${query}`}
                 term={term}
             />
         </AnimatedPage>

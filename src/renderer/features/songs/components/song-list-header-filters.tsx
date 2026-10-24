@@ -6,6 +6,7 @@ import styles from './song-list-header-filters.module.css';
 import { SONG_TABLE_COLUMNS } from '/@/renderer/components/item-list/item-table-list/default-columns';
 import { useListContext } from '/@/renderer/context/list-context';
 import { useAlbumListFilters } from '/@/renderer/features/albums/hooks/use-album-list-filters';
+import { useLibraryFrame } from '/@/renderer/features/library/hooks/use-library-frame';
 import {
     ListConfigMenu,
     SONG_DISPLAY_TYPES,
@@ -47,9 +48,12 @@ export const SongListHeaderFilters = ({ toggleGenreTarget }: { toggleGenreTarget
 
     const { itemCount, pageKey } = useListContext();
     const server = useCurrentServer();
-    // F6: Top rated needs Navidrome's yes/no rating filter (0.60.4 or later), and only the Tracks page.
+    // F6: Top rated needs Navidrome's yes/no rating filter (0.60.4 or later), and only the Library's
+    // Tracks page (Favorites' Songs tab shares the page key, outside the frame, with its own badge).
+    const { inFrame } = useLibraryFrame();
+    const tracksInFrame = inFrame && pageKey === ItemListKey.SONG;
     const topRated =
-        pageKey === ItemListKey.SONG &&
+        tracksInFrame &&
         server?.type === ServerType.NAVIDROME &&
         hasFeature(server, ServerFeature.TRACK_YES_NO_RATING_FILTER);
 
@@ -112,7 +116,7 @@ export const SongListHeaderFilters = ({ toggleGenreTarget }: { toggleGenreTarget
                 <ListRefreshButton listKey={pageKey as ItemListKey} />
             </Group>
             <Group gap="sm" wrap="nowrap">
-                {pageKey === ItemListKey.SONG && itemCount !== undefined && (
+                {tracksInFrame && itemCount !== undefined && (
                     <Text className={styles.count} isMuted>
                         {t('page.library.songCount', {
                             count: itemCount,

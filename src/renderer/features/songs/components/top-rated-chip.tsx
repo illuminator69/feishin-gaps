@@ -4,12 +4,10 @@ import { useSearchParams } from 'react-router';
 
 import styles from './top-rated-chip.module.css';
 
-import { useListFilterPersistence } from '/@/renderer/features/shared/hooks/use-list-filter-persistence';
 import { useSortByFilter } from '/@/renderer/features/shared/hooks/use-sort-by-filter';
 import { useSortOrderFilter } from '/@/renderer/features/shared/hooks/use-sort-order-filter';
 import { FILTER_KEYS } from '/@/renderer/features/shared/utils';
 import { useSongListFilters } from '/@/renderer/features/songs/hooks/use-song-list-filters';
-import { useCurrentServer } from '/@/renderer/store';
 import { setMultipleSearchParams } from '/@/renderer/utils/query-params';
 import { runInUrlTransition } from '/@/renderer/utils/url-transition';
 import { Icon } from '/@/shared/components/icon/icon';
@@ -24,8 +22,6 @@ import { ItemListKey } from '/@/shared/types/types';
 export const TopRatedChip = () => {
     const { t } = useTranslation();
     const pageKey = ItemListKey.SONG;
-    const server = useCurrentServer();
-    const { setFilter } = useListFilterPersistence(server.id, pageKey);
     const [, setSearchParams] = useSearchParams();
     const { query } = useSongListFilters(pageKey);
     const { sortBy } = useSortByFilter<SongListSort>(SongListSort.NAME, pageKey);
@@ -35,7 +31,9 @@ export const TopRatedChip = () => {
     const selected =
         query.hasRating === true && sortBy === SongListSort.RATING && sortOrder === SortOrder.DESC;
 
-    // One URL update for all three keys: separate setters in the same tick overwrite each other.
+    // One URL update for all three keys: separate setters in the same tick overwrite each other. Only the
+    // URL: the saved sort stays the one you chose, so leaving Tracks and coming back drops Top rated and
+    // its sort together (`hasRating` is never saved).
     const apply = (
         hasRating: null | true,
         next: { sortBy: SongListSort; sortOrder: SortOrder },
@@ -50,8 +48,6 @@ export const TopRatedChip = () => {
                     }),
                 { replace: true },
             );
-            setFilter(FILTER_KEYS.SHARED.SORT_BY, next.sortBy);
-            setFilter(FILTER_KEYS.SHARED.SORT_ORDER, next.sortOrder);
         });
     };
 

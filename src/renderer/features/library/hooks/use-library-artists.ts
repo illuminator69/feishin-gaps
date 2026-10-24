@@ -2,23 +2,15 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 
 import { api } from '/@/renderer/api';
-import { useCurrentServer } from '/@/renderer/store';
 import {
-    AlbumArtist,
-    AlbumArtistListResponse,
-    AlbumArtistListSort,
-    SortOrder,
-} from '/@/shared/types/domain-types';
+    type LibraryArtistsData,
+    libraryArtistsStaleTime,
+    readLibraryArtists,
+} from '/@/renderer/features/library/library-artists-read';
+import { useCurrentServer } from '/@/renderer/store';
+import { AlbumArtist, AlbumArtistListSort, SortOrder } from '/@/shared/types/domain-types';
 
-const PAGE = 500;
-const MAX_ARTISTS = 20_000;
-
-/**
- * The cached value has the shape every other album-artist list entry has: the rating and favourite
- * optimistic updaters walk every `[serverId, 'albumArtists', 'list', ...]` entry and map its `items`.
- * `partial` marks the pages written while a first read is still going.
- */
-type LibraryArtistsData = AlbumArtistListResponse & { partial?: boolean };
+type LibraryArtists = LibraryArtistsData<AlbumArtist>;
 
 export const libraryArtistsKey = (serverId: string, musicFolderId: null | string | string[]) =>
     [serverId, 'albumArtists', 'list', 'library-all', musicFolderId] as const;
@@ -32,6 +24,8 @@ export const libraryArtistsKey = (serverId: string, musicFolderId: null | string
  */
 export const useLibraryArtists = (): {
     artists: AlbumArtist[];
+    /** The list stopped at the row limit before the server's total. */
+    capped: boolean;
     error: boolean;
     loadedAll: boolean;
     loading: boolean;
@@ -47,46 +41,32 @@ export const useLibraryArtists = (): {
         [serverId, musicFolderId],
     );
 
-    const query = useQuery<LibraryArtistsData>({
+    const query = useQuery<LibraryArtists>({
         enabled: !!serverId,
         gcTime: 30 * 60 * 1000,
         queryFn: async ({ signal }) => {
             const firstRead = queryClient.getQueryData(queryKey) === undefined;
-            const items: AlbumArtist[] = [];
-            let total: null | number = null;
-            for (;;) {
-                const page = await api.controller.getAlbumArtistList({
-                    apiClientProps: { serverId, signal },
-                    query: {
-                        limit: PAGE,
-                        sortBy: AlbumArtistListSort.NAME,
-                        sortOrder: SortOrder.ASC,
-                        startIndex: items.length,
-                    },
-                });
-                const rows = page?.items ?? [];
-                items.push(...rows);
-                total = page?.totalRecordCount ?? total;
-                const done =
-                    rows.length === 0 ||
-                    (total !== null && items.length >= total) ||
-                    items.length >= MAX_ARTISTS;
-                if (done) break;
-                if (firstRead) {
-                    queryClient.setQueryData<LibraryArtistsData>(queryKey, {
-                        items: [...items],
-                        partial: true,
-                        startIndex: 0,
-                        totalRecordCount: total,
-                    });
-                }
-            }
-            return { items, startIndex: 0, totalRecordCount: total };
+            return readLibraryArtists<AlbumArtist>({
+                fetchPage: async (startIndex, limit) =>
+                    api.controller.getAlbumArtistList({
+                        apiClientProps: { serverId, signal },
+                        query: {
+                            limit,
+                            sortBy: AlbumArtistListSort.NAME,
+                            sortOrder: SortOrder.ASC,
+                            startIndex,
+                        },
+                    }),
+                onPage: firstRead
+                    ? (soFar) => queryClient.setQueryData<LibraryArtists>(queryKey, soFar)
+                    : undefined,
+            });
         },
         queryKey,
         refetchOnWindowFocus: false,
         retry: false,
-        staleTime: 10 * 60 * 1000,
+        // A partial list (a first read abandoned when the page was left) is read again on the next visit.
+        staleTime: (q) => libraryArtistsStaleTime(q.state.data),
         throwOnError: false,
     });
 
@@ -96,6 +76,7 @@ export const useLibraryArtists = (): {
 
     return {
         artists: data?.items ?? EMPTY,
+        capped: !!data?.capped,
         error: query.isError,
         loadedAll: !!data && !data.partial,
         loading: !data && query.isFetching,
