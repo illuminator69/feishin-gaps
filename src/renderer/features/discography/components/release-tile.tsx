@@ -44,6 +44,7 @@ interface ReleaseTileProps {
     /** Navidrome's album, when the page lists it: the library's own card. */
     album: Album | undefined;
     arrival: ArrivalProps | undefined;
+    artistMbid?: null | string;
     artistName: string;
     controls: ItemControls;
     item: DiscographyItem;
@@ -60,6 +61,7 @@ interface ReleaseTileProps {
 export const ReleaseTile = memo(function ReleaseTile({
     album,
     arrival,
+    artistMbid,
     artistName,
     controls,
     item,
@@ -101,6 +103,7 @@ export const ReleaseTile = memo(function ReleaseTile({
             ) : (
                 <MissingAlbumTile
                     albumId={item.albumId}
+                    artistMbid={artistMbid}
                     artistName={artistName}
                     ndArtistId={ndArtistId}
                     ownership={item.ownership}

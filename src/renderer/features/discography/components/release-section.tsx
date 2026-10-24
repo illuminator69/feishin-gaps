@@ -21,6 +21,7 @@ interface ReleaseSectionProps {
     albumsById: Map<string, Album>;
     /** The tile's arrival, fixed when the tile mounts (a filter change never replays it). */
     arrivalFor: (index: number) => ArrivalProps | undefined;
+    artistMbid?: null | string;
     artistName: string;
     collapsed: boolean;
     controls: ItemControls;
@@ -35,6 +36,7 @@ interface ReleaseSectionProps {
 export const ReleaseSection = ({
     albumsById,
     arrivalFor,
+    artistMbid,
     artistName,
     collapsed,
     controls,
@@ -82,6 +84,7 @@ export const ReleaseSection = ({
                 <TileSlot
                     album={item.albumId ? albumsById.get(item.albumId) : undefined}
                     arrivalFor={arrivalFor}
+                    artistMbid={artistMbid}
                     artistName={artistName}
                     controls={controls}
                     index={index}
@@ -92,7 +95,7 @@ export const ReleaseSection = ({
                     rows={rows}
                 />
             )),
-        [albumsById, arrivalFor, artistName, controls, known, ndArtistId, rows, shown],
+        [albumsById, arrivalFor, artistMbid, artistName, controls, known, ndArtistId, rows, shown],
     );
 
     return (

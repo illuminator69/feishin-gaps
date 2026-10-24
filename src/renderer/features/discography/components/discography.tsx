@@ -200,6 +200,7 @@ export const Discography = ({ artistMbid, artistName, menu, ndId, owned }: Disco
                             <ReleaseSection
                                 albumsById={albumsById}
                                 arrivalFor={propsFor}
+                                artistMbid={artistMbid}
                                 artistName={artistName}
                                 collapsed={collapsed}
                                 controls={controls}

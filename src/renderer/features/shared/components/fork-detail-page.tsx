@@ -34,7 +34,7 @@ export const ForkDetailPage = ({
     headerChildren?: ReactNode;
     imageUrl?: null | string;
     itemType: LibraryItem.ALBUM | LibraryItem.ALBUM_ARTIST;
-    /** The small caps line above a plain hero's name ("Artist · not in your library"). */
+    /** The small caps line above the name ("Artist · not in your library"), in either hero. */
     kicker?: string;
     /**
      * F7 (board ArtistUnowned `.hero.plain`): no portrait and no wash band, the large name under a
@@ -81,7 +81,14 @@ export const ForkDetailPage = ({
                     ) : (
                         <LibraryHeader
                             imageUrl={imageUrl}
-                            item={{ imageUrl, route, type: itemType }}
+                            item={{
+                                children: kicker ? (
+                                    <span className={styles.kicker}>{kicker}</span>
+                                ) : undefined,
+                                imageUrl,
+                                route,
+                                type: itemType,
+                            }}
                             ref={headerRef}
                             title={title}
                         >

@@ -2538,6 +2538,9 @@ export const useLbBotAlbumSources = (
     rgid: null | string,
     enabled: boolean,
     edition?: LbBotResolvedEdition,
+    /** F7: the album page keeps an answer for the whole 5 minutes it is cached, so coming back to
+     *  the page shows it instead of starting a second live search. */
+    options: { staleTime?: number } = {},
 ) => {
     const query = useQuery<LbBotResult<LbBotGapSource[]>>({
         enabled: !!lbBot && !!rgid && enabled,
@@ -2548,11 +2551,12 @@ export const useLbBotAlbumSources = (
         // the wrong-record mistake this screen exists to prevent.
         queryKey: ['lbbot', 'album-sources', rgid, edition?.releaseMbid ?? ''],
         retry: false,
-        staleTime: 60 * 1000,
+        staleTime: options.staleTime ?? 60 * 1000,
     });
     return {
         error: query.data && !query.data.ok ? query.data.error : '',
         isLoading: query.isFetching,
+        queryKey: ['lbbot', 'album-sources', rgid, edition?.releaseMbid ?? ''],
         refetch: query.refetch,
         sources: query.data?.ok ? (query.data.data ?? []) : null,
     };

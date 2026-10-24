@@ -191,9 +191,12 @@ export const SourceList = ({
                         className={clsx(styles.source, {
                             [styles.selected]: selectedId === source.id,
                         })}
+                        data-source-row={source.peer}
+                        data-source-selected={selectedId === source.id ? 'true' : undefined}
                         key={`${source.peer}-${source.folder}-${source.id}`}
                     >
                         <button
+                            aria-pressed={selectedId === source.id}
                             className={styles.head}
                             onClick={() => onSelect(source)}
                             type="button"

@@ -8,17 +8,19 @@ import { type Ownership } from '/@/renderer/features/discography/discography-mod
 import discoverStyles from '/@/renderer/features/discover/components/discover-row.module.css';
 import { DiscoverTile } from '/@/renderer/features/discover/components/discover-tile';
 import { AcquireButton } from '/@/renderer/features/lbbot/components/acquire-button';
-import { openMissingAlbumModal } from '/@/renderer/features/lbbot/components/missing-album-modal';
 import { SHORT_STATE } from '/@/renderer/features/lbbot/fill-vocabulary';
 import { caaCoverUrl, useWatchedFill } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { externalAlbumPathFor } from '/@/renderer/features/lbbot/utils/external-paths';
 import { AppRoute } from '/@/renderer/router/routes';
 import { Progress } from '/@/shared/components/progress/progress';
 import { LibraryItem } from '/@/shared/types/domain-types';
-import { LbBotFillState, LbBotRelease } from '/@/shared/types/lbbot-types';
+import { LbBotFillState } from '/@/shared/types/lbbot-types';
 
 interface MissingAlbumTileProps {
     /** A Navidrome album lb-bot's row names that the page's list has not caught up with. */
     albumId: null | string;
+    /** The artist's MusicBrainz id, a hint for the album page (it re-reads the real values). */
+    artistMbid?: null | string;
     artistName: string;
     ndArtistId: string;
     ownership: Ownership;
@@ -35,6 +37,7 @@ interface MissingAlbumTileProps {
  */
 export const MissingAlbumTile = ({
     albumId,
+    artistMbid,
     artistName,
     ndArtistId,
     ownership,
@@ -50,16 +53,15 @@ export const MissingAlbumTile = ({
     const fillState = fill ? ((fill.state || 'searching') as LbBotFillState) : null;
     const fillWord = fillState ? SHORT_STATE[fillState] : undefined;
     const percent = fill?.percent ?? 0;
-    const release: LbBotRelease = {
-        effectiveType: '',
-        navidromeAlbumIds: albumId ? [albumId] : [],
-        primaryType: '',
+    // B-169: the album's own page (About first, Find sources), with the hints this tile has.
+    const albumPage = externalAlbumPathFor({
+        artist: artistName,
+        artistId: ndArtistId.startsWith('mb:') ? undefined : ndArtistId,
+        artistMbid: artistMbid || (ndArtistId.startsWith('mb:') ? ndArtistId.slice(3) : undefined),
         rgid,
-        secondaryTypes: [],
-        status: ownership === 'missing' ? 'missing' : 'complete',
         title,
-        year: year ? String(year) : '',
-    };
+        year: year ? String(year) : undefined,
+    });
 
     const pill = fillWord ? (
         <ReleasePill tone={fillState === 'failed' ? 'failed' : 'active'}>{fillWord}</ReleasePill>
@@ -76,7 +78,7 @@ export const MissingAlbumTile = ({
                     <AcquireButton
                         artist={artistName}
                         className={discoverStyles.action}
-                        onReview={() => openMissingAlbumModal(artistName, release)}
+                        onReview={() => navigate(albumPage)}
                         rgid={rgid}
                         title={title}
                     />
@@ -97,7 +99,7 @@ export const MissingAlbumTile = ({
             onClick={() =>
                 albumId
                     ? navigate(generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, { albumId }))
-                    : openMissingAlbumModal(artistName, release)
+                    : navigate(albumPage)
             }
             subtitle={year ? String(year) : undefined}
             title={title}

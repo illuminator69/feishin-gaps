@@ -1,11 +1,15 @@
 import { Fragment, Suspense, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { generatePath, Link, Navigate, useParams, useSearchParams } from 'react-router';
 
-import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
-import { MissingAlbumPanel } from '/@/renderer/features/lbbot/components/missing-album-modal';
+import { albumPageState } from '/@/renderer/features/discography/album-page-state';
+import { NotOwnedAlbum } from '/@/renderer/features/lbbot/components/not-owned-album';
+import ghostStyles from '/@/renderer/features/lbbot/components/not-owned-album.module.css';
+import { useAlbumRequest } from '/@/renderer/features/lbbot/hooks/use-album-request';
 import {
     caaCoverUrl,
     useArtistTarget,
+    useHubSupports,
     useIndexRelease,
     useLbBotAlbumMeta,
     useLbBotAlbumReleases,
@@ -15,13 +19,13 @@ import {
 import { ForkDetailPage } from '/@/renderer/features/shared/components/fork-detail-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
 import { AppRoute } from '/@/renderer/router/routes';
-import { Badge } from '/@/shared/components/badge/badge';
+import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
+import { Icon } from '/@/shared/components/icon/icon';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
 import { LibraryItem } from '/@/shared/types/domain-types';
-import { LbBotRelease } from '/@/shared/types/lbbot-types';
 
 /**
  * navi-connect: an album page for a release the library does not have.
@@ -42,6 +46,7 @@ import { LbBotRelease } from '/@/shared/types/lbbot-types';
  * redirect needs the artist's discography, and is simply skipped without one.
  */
 const LbBotExternalAlbumRoute = () => {
+    const { t } = useTranslation();
     const { rgid } = useParams() as { rgid: string };
     const [search] = useSearchParams();
 
@@ -107,28 +112,30 @@ const LbBotExternalAlbumRoute = () => {
         });
     }, [available, discography.data, indexedRow, indexRelease, rgid, artist, search]);
 
-    // A synthetic index row: the panel reads only these four fields off it, and
-    // everything real about the release comes from lb-bot inside the panel.
-    const release: LbBotRelease = useMemo(
-        () => ({
-            effectiveType: search.get('type') ?? '',
-            navidromeAlbumIds: [],
-            primaryType: (search.get('type') ?? '').toLowerCase(),
-            rgid,
-            secondaryTypes: [],
-            status: 'missing',
-            title: search.get('title') ?? '',
-            year: search.get('year') ?? '',
-        }),
-        [rgid, search],
-    );
+    const title = search.get('title') || releases?.title || '';
+    const artistName = artist || releases?.artist || '';
+    const year = search.get('year') ?? '';
+    const request = useAlbumRequest({ artist: artistName, rgid, title });
+    const releasesRead = request.releasesQuery.data
+        ? 'data'
+        : request.releasesQuery.isFetching || request.releasesQuery.isPending
+          ? available
+              ? 'pending'
+              : 'null'
+          : 'null';
+    const routeOlder = !useHubSupports('GET /lb/album/releases');
+    const state = albumPageState({
+        available,
+        hasRgid: !!rgid,
+        ownedAlbumId: ownedAlbumId ?? null,
+        releasesRead,
+        routeOlder,
+    });
 
-    // `release_mbid` is not sent: it is optional on the route (it only saves
-    // lb-bot resolving the canonical release itself), and an lb-bot index row
-    // is a release-GROUP and carries no release mbid to send.
+    // `release_mbid` is not sent: it only saves lb-bot resolving the canonical release.
     const meta = useLbBotAlbumMeta(rgid).data;
 
-    if (ownedAlbumId) {
+    if (state === 'redirect' && ownedAlbumId) {
         return (
             <Navigate
                 replace
@@ -137,19 +144,26 @@ const LbBotExternalAlbumRoute = () => {
         );
     }
 
+    const trackCount = request.variant?.trackCount || 0;
     const credit = [
-        artist ? (
+        artistName ? (
             artistTo ? (
                 <Text component={Link} isLink key="artist" to={artistTo}>
-                    {artist}
+                    {artistName}
                 </Text>
             ) : (
-                <Text key="artist">{artist}</Text>
+                <Text key="artist">{artistName}</Text>
             )
         ) : null,
-        release.year ? <Text key="year">{release.year}</Text> : null,
-        release.effectiveType ? <Text key="type">{release.effectiveType}</Text> : null,
+        year || request.variant?.year ? (
+            <Text key="year">{year || request.variant?.year}</Text>
+        ) : null,
+        trackCount ? (
+            <Text key="tracks">{t('naviConnect.albumPage.tracks', { count: trackCount })}</Text>
+        ) : null,
+        releases ? <Text key="source">{t('naviConnect.albumPage.fromMusicBrainz')}</Text> : null,
     ].filter(Boolean);
+    const searching = request.sources.state === 'waiting';
 
     return (
         <ForkDetailPage
@@ -158,38 +172,63 @@ const LbBotExternalAlbumRoute = () => {
                     <Group gap="xs">
                         {credit.map((part, index) => (
                             <Fragment key={index}>
-                                {index > 0 && <Text isMuted>•</Text>}
+                                {index > 0 && <Text isMuted>·</Text>}
                                 {part}
                             </Fragment>
                         ))}
                     </Group>
-                    <Group>
-                        <Badge>Not in your library</Badge>
-                    </Group>
+                    {state === 'ready' && rgid && (
+                        <Group gap="sm">
+                            <Button
+                                data-find-sources=""
+                                disabled={searching}
+                                leftSection={<Icon icon="search" />}
+                                onClick={searching ? undefined : request.sources.start}
+                                variant="filled"
+                            >
+                                {searching
+                                    ? t('naviConnect.albumPage.searchingButton')
+                                    : t('naviConnect.albumPage.findSources')}
+                            </Button>
+                        </Group>
+                    )}
                 </Stack>
             }
             imageUrl={rgid ? caaCoverUrl(rgid) : null}
             itemType={LibraryItem.ALBUM}
+            kicker={t('naviConnect.albumPage.kicker')}
             route={AppRoute.LIBRARY_ALBUMS}
-            title={release.title || 'Album'}
+            title={title || 'Album'}
         >
-            {/* lb-bot is the only source that can describe a record nobody owns -
-                there is no Navidrome album for an agent to answer about. Nothing
-                competes for the slot, so nothing can flash. */}
-            {meta && <MetaAbout maxHeight={120} meta={meta} />}
-            {rgid ? (
-                <MissingAlbumPanel
-                    artistName={artist}
-                    artistTo={artistTo}
-                    inPage
-                    release={release}
-                />
-            ) : (
-                <Text isMuted>This link has no release-group id.</Text>
+            {!rgid && <Text isMuted>{t('naviConnect.albumPage.noRgid')}</Text>}
+            {state === 'unconfigured' && (
+                <Text isMuted>{t('naviConnect.albumPage.unconfigured')}</Text>
+            )}
+            {state === 'older' && <Text isMuted>{t('naviConnect.albumPage.older')}</Text>}
+            {state === 'loading' && <AlbumPageGhost />}
+            {state === 'ready' && rgid && (
+                <NotOwnedAlbum artist={artistName} meta={meta} request={request} rgid={rgid} />
             )}
         </ForkDetailPage>
     );
 };
+
+/** The columns' shapes while the editions are read (the hero is already real). */
+const AlbumPageGhost = () => (
+    <div aria-busy="true" className={ghostStyles.columns} data-album-ghost="">
+        <div>
+            <div className={ghostStyles.ghost} style={{ width: '40%' }} />
+            <div className={ghostStyles.ghost} />
+            <div className={ghostStyles.ghost} />
+            <div className={ghostStyles.ghost} style={{ width: '70%' }} />
+        </div>
+        <div>
+            {Array.from({ length: 8 }, (_, index) => (
+                <div className={ghostStyles.ghost} key={index} />
+            ))}
+        </div>
+    </div>
+);
 
 const LbBotExternalAlbumRouteWithBoundary = () => (
     <PageErrorBoundary>
