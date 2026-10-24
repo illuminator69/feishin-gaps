@@ -1,5 +1,5 @@
 import { useQuery, useSuspenseQuery, UseSuspenseQueryResult } from '@tanstack/react-query';
-import { Suspense, useCallback, useMemo, useState } from 'react';
+import { CSSProperties, Suspense, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createSearchParams, generatePath, Link, useLocation, useParams } from 'react-router';
 
@@ -14,6 +14,7 @@ import { ItemTableListColumn } from '/@/renderer/components/item-list/item-table
 import { ItemControls } from '/@/renderer/components/item-list/types';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
 import { AlbumArtistGridCarousel } from '/@/renderer/features/artists/components/album-artist-grid-carousel';
+import artistColumns from '/@/renderer/features/discography/components/artist-columns.module.css';
 import { Discography } from '/@/renderer/features/discography/components/discography';
 import { DiscoverRow } from '/@/renderer/features/discover/components/discover-row';
 import { DiscoverTile } from '/@/renderer/features/discover/components/discover-tile';
@@ -64,7 +65,6 @@ import { sortSongList } from '/@/shared/api/utils';
 import { ActionIcon, ActionIconGroup } from '/@/shared/components/action-icon/action-icon';
 import { Badge } from '/@/shared/components/badge/badge';
 import { Button } from '/@/shared/components/button/button';
-import { Grid } from '/@/shared/components/grid/grid';
 import { Group } from '/@/shared/components/group/group';
 import { Icon } from '/@/shared/components/icon/icon';
 import { SegmentedControl } from '/@/shared/components/segmented-control/segmented-control';
@@ -90,6 +90,10 @@ import {
 } from '/@/shared/types/domain-types';
 import { LbBotMetaRelation } from '/@/shared/types/lbbot-types';
 import { ItemListKey, ListDisplayType, Play } from '/@/shared/types/types';
+
+/** A section's place: `--order-narrow` in the one-column page, `--order-wide` in the side column. */
+const columnOrder = (order = 0, wideOrder?: number) =>
+    ({ '--order-narrow': order, '--order-wide': wideOrder ?? order }) as CSSProperties;
 
 interface AlbumArtistActionButtonsProps {
     artistDiscographyLink: string;
@@ -152,16 +156,22 @@ const AlbumArtistActionButtons = ({
 interface AlbumArtistMetadataGenresProps {
     genres?: Array<{ id: string; name: string }>;
     order?: number;
+    /** Its place in the side column (F7: last), where it differs from the one-column order. */
+    wideOrder?: number;
 }
 
-const AlbumArtistMetadataGenres = ({ genres, order }: AlbumArtistMetadataGenresProps) => {
+const AlbumArtistMetadataGenres = ({
+    genres,
+    order,
+    wideOrder,
+}: AlbumArtistMetadataGenresProps) => {
     const { t } = useTranslation();
     const genrePath = useGenreRoute();
 
     if (!genres || genres.length === 0) return null;
 
     return (
-        <Grid.Col order={order} span={12}>
+        <div className={artistColumns.item} style={columnOrder(order, wideOrder)}>
             <Stack gap="xs">
                 <Text fw={600} isNoSelect size="sm" tt="uppercase">
                     {t('entity.genre', {
@@ -195,7 +205,7 @@ const AlbumArtistMetadataGenres = ({ genres, order }: AlbumArtistMetadataGenresP
                     ))}
                 </Group>
             </Stack>
-        </Grid.Col>
+        </div>
     );
 };
 
@@ -269,7 +279,7 @@ const AlbumArtistMetadataBiography = ({
 
     if (isLoading) {
         return (
-            <Grid.Col order={order} span={12}>
+            <div className={artistColumns.item} style={columnOrder(order)}>
                 <section style={{ maxWidth: '1280px' }}>
                     <TextTitle fw={700} order={3}>
                         {t('page.albumArtistDetail.about', {
@@ -282,7 +292,7 @@ const AlbumArtistMetadataBiography = ({
                         <Skeleton enableAnimation height="1rem" width="60%" />
                     </Stack>
                 </section>
-            </Grid.Col>
+            </div>
         );
     }
 
@@ -291,7 +301,7 @@ const AlbumArtistMetadataBiography = ({
     }
 
     return (
-        <Grid.Col order={order} span={12}>
+        <div className={artistColumns.item} style={columnOrder(order)}>
             <section style={{ maxWidth: '1280px' }}>
                 <TextTitle fw={700} order={3}>
                     {t('page.albumArtistDetail.about', {
@@ -308,7 +318,7 @@ const AlbumArtistMetadataBiography = ({
                     meta && <MetaAbout meta={meta} showLinks={false} />
                 )}
             </section>
-        </Grid.Col>
+        </div>
     );
 };
 
@@ -349,7 +359,7 @@ const AlbumArtistMetadataLbBotExtras = ({
     if (groups.length === 0 && links.length === 0) return null;
 
     return (
-        <Grid.Col order={order} span={12}>
+        <div className={artistColumns.item} style={columnOrder(order)}>
             <section style={{ maxWidth: '1280px' }}>
                 <Stack gap="md">
                     {/* Rows of round artist cards, as the page's own "Related Artists"
@@ -395,7 +405,7 @@ const AlbumArtistMetadataLbBotExtras = ({
                     )}
                 </Stack>
             </section>
-        </Grid.Col>
+        </div>
     );
 };
 
@@ -552,7 +562,7 @@ const AlbumArtistMetadataTopSongsContent = ({
     const currentSongId = currentSong?.id;
 
     return (
-        <Grid.Col order={order} span={12}>
+        <div className={artistColumns.item} style={columnOrder(order)}>
             <section>
                 <Stack gap="md">
                     <div className={styles.albumSectionTitle}>
@@ -710,7 +720,7 @@ const AlbumArtistMetadataTopSongsContent = ({
                     ) : null}
                 </Stack>
             </section>
-        </Grid.Col>
+        </div>
     );
 };
 
@@ -864,7 +874,7 @@ const AlbumArtistMetadataFavoriteSongs = ({
     const currentSongId = currentSong?.id;
 
     return (
-        <Grid.Col order={order} span={12}>
+        <div className={artistColumns.item} style={columnOrder(order)}>
             <section>
                 <Stack gap="md">
                     <div className={styles.albumSectionTitle}>
@@ -1049,7 +1059,7 @@ const AlbumArtistMetadataFavoriteSongs = ({
                     ) : null}
                 </Stack>
             </section>
-        </Grid.Col>
+        </div>
     );
 };
 
@@ -1064,6 +1074,8 @@ interface AlbumArtistMetadataExternalLinksProps {
     order?: number;
     qobuz: boolean;
     spotify: boolean;
+    /** Its place in the side column (F7: last), where it differs from the one-column order. */
+    wideOrder?: number;
 }
 
 const getListenBrainzUrl = (mbzId: null | string, artistName?: string) => {
@@ -1097,6 +1109,7 @@ const AlbumArtistMetadataExternalLinks = ({
     order,
     qobuz,
     spotify,
+    wideOrder,
 }: AlbumArtistMetadataExternalLinksProps) => {
     const { t } = useTranslation();
     const listenBrainzUrl = getListenBrainzUrl(mbzId || null, artistName);
@@ -1107,7 +1120,7 @@ const AlbumArtistMetadataExternalLinks = ({
     }
 
     return (
-        <Grid.Col order={order} span={12}>
+        <div className={artistColumns.item} style={columnOrder(order, wideOrder)}>
             <Stack gap="xs">
                 <Text fw={600} isNoSelect size="sm" tt="uppercase">
                     {t('common.externalLinks')}
@@ -1199,7 +1212,7 @@ const AlbumArtistMetadataExternalLinks = ({
                     )}
                 </Group>
             </Stack>
-        </Grid.Col>
+        </div>
     );
 };
 
@@ -1280,7 +1293,7 @@ const AlbumArtistMetadataSimilarArtists = ({
     }
 
     return (
-        <Grid.Col order={order} span={12}>
+        <div className={artistColumns.item} style={columnOrder(order)}>
             <AlbumArtistGridCarousel
                 data={similarArtists}
                 excludeIds={[routeId]}
@@ -1288,7 +1301,7 @@ const AlbumArtistMetadataSimilarArtists = ({
                 rowCount={1}
                 title={carouselTitle}
             />
-        </Grid.Col>
+        </div>
     );
 };
 
@@ -1371,10 +1384,13 @@ export const AlbumArtistDetailContent = ({
         }
     }, [addToQueueByData, artistRadioCount, detailQuery.data?.name, routeId, server.id]);
 
-    // Calculate order for genres and external links (show before other sections)
-    // Use a very low order number to ensure they appear first
-    const genresOrder = 0;
-    const externalLinksOrder = 0.5;
+    // In one column the genres and the links come first, as before; in the side column they come last
+    // (F7, board ArtistOwned). CSS `order` takes integers.
+    const genresOrder = -2;
+    const externalLinksOrder = -1;
+    const sideLast = artistItems.length + 2;
+    // The discography is "Recent albums" in the owner's list; its switch hides the left column.
+    const showDiscography = enabledItem.recentAlbums !== false;
 
     return (
         <div className={styles.contentContainer}>
@@ -1384,68 +1400,81 @@ export const AlbumArtistDetailContent = ({
                     artistSongsLink={artistSongsLink}
                     onArtistRadio={handleArtistRadio}
                 />
-                <Grid gap="2xl">
-                    <AlbumArtistMetadataGenres
-                        genres={detailQuery.data?.genres}
-                        order={genresOrder}
-                    />
-                    {externalLinks &&
-                        (lastFM || listenBrainz || musicBrainz || qobuz || spotify) && (
-                            <AlbumArtistMetadataExternalLinks
+                {/* F7: two columns from a content width of 960 px, the discography on the left; one
+                    column below that, in the page's own order (artist-columns.module.css). */}
+                <div
+                    className={artistColumns.layout}
+                    data-main={showDiscography ? 'true' : 'false'}
+                >
+                    {showDiscography && (
+                        <div className={artistColumns.main}>
+                            <ArtistAlbums
+                                albumsQuery={albumsQuery}
+                                artistMbid={mbzId}
+                                artistName={detailQuery.data?.name || ''}
+                                order={itemOrder.recentAlbums}
+                                tagMbid={tagMbid}
+                            />
+                        </div>
+                    )}
+                    <div className={artistColumns.side}>
+                        <AlbumArtistMetadataGenres
+                            genres={detailQuery.data?.genres}
+                            order={genresOrder}
+                            wideOrder={sideLast}
+                        />
+                        {externalLinks &&
+                            (lastFM || listenBrainz || musicBrainz || qobuz || spotify) && (
+                                <AlbumArtistMetadataExternalLinks
+                                    artistName={detailQuery.data?.name}
+                                    externalLinks={externalLinks}
+                                    lastFM={lastFM}
+                                    listenBrainz={listenBrainz}
+                                    mbzId={mbzId}
+                                    musicBrainz={musicBrainz}
+                                    nativeSpotify={nativeSpotify}
+                                    order={externalLinksOrder}
+                                    qobuz={qobuz}
+                                    spotify={spotify}
+                                    wideOrder={sideLast + 1}
+                                />
+                            )}
+                        {enabledItem.biography && (
+                            <AlbumArtistMetadataBiography
+                                artistMbid={mbzId}
                                 artistName={detailQuery.data?.name}
-                                externalLinks={externalLinks}
-                                lastFM={lastFM}
-                                listenBrainz={listenBrainz}
-                                mbzId={mbzId}
-                                musicBrainz={musicBrainz}
-                                nativeSpotify={nativeSpotify}
-                                order={externalLinksOrder}
-                                qobuz={qobuz}
-                                spotify={spotify}
+                                order={itemOrder.biography}
+                                routeId={routeId}
                             />
                         )}
-                    {enabledItem.biography && (
-                        <AlbumArtistMetadataBiography
-                            artistMbid={mbzId}
-                            artistName={detailQuery.data?.name}
-                            order={itemOrder.biography}
-                            routeId={routeId}
-                        />
-                    )}
-                    {enabledItem.biography && (
-                        <AlbumArtistMetadataLbBotExtras
-                            artistMbid={mbzId}
-                            artistName={detailQuery.data?.name}
-                            order={itemOrder.biography}
-                        />
-                    )}
-                    <ArtistAlbums
-                        albumsQuery={albumsQuery}
-                        artistMbid={mbzId}
-                        artistName={detailQuery.data?.name || ''}
-                        order={itemOrder.recentAlbums}
-                        tagMbid={tagMbid}
-                    />
-                    {enabledItem.similarArtists && (
-                        <AlbumArtistMetadataSimilarArtists
-                            order={itemOrder.similarArtists}
-                            routeId={routeId}
-                        />
-                    )}
-                    {enabledItem.topSongs && (
-                        <AlbumArtistMetadataTopSongs
-                            detailQuery={detailQuery}
-                            order={itemOrder.topSongs}
-                            routeId={routeId}
-                        />
-                    )}
-                    {enabledItem.favoriteSongs && (
-                        <AlbumArtistMetadataFavoriteSongs
-                            order={itemOrder.favoriteSongs}
-                            routeId={routeId}
-                        />
-                    )}
-                </Grid>
+                        {enabledItem.biography && (
+                            <AlbumArtistMetadataLbBotExtras
+                                artistMbid={mbzId}
+                                artistName={detailQuery.data?.name}
+                                order={itemOrder.biography}
+                            />
+                        )}
+                        {enabledItem.similarArtists && (
+                            <AlbumArtistMetadataSimilarArtists
+                                order={itemOrder.similarArtists}
+                                routeId={routeId}
+                            />
+                        )}
+                        {enabledItem.topSongs && (
+                            <AlbumArtistMetadataTopSongs
+                                detailQuery={detailQuery}
+                                order={itemOrder.topSongs}
+                                routeId={routeId}
+                            />
+                        )}
+                        {enabledItem.favoriteSongs && (
+                            <AlbumArtistMetadataFavoriteSongs
+                                order={itemOrder.favoriteSongs}
+                                routeId={routeId}
+                            />
+                        )}
+                    </div>
+                </div>
             </div>
         </div>
     );
@@ -1480,7 +1509,7 @@ const ArtistAlbums = ({
     const discographyQuery = useLbBotDiscography(routeId, artistMbid);
 
     return (
-        <Grid.Col order={order} span={12}>
+        <div className={artistColumns.item} style={columnOrder(order)}>
             <Discography
                 artistMbid={artistMbid}
                 artistName={artistName}
@@ -1496,6 +1525,6 @@ const ArtistAlbums = ({
                 ndId={routeId}
                 owned={albumsQuery.data?.items ?? []}
             />
-        </Grid.Col>
+        </div>
     );
 };

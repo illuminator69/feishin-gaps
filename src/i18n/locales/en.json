@@ -494,9 +494,9 @@
             "viewDiscography": "View discography",
             "relatedArtists": "Related $t(entity.artist, {\"count\": 2})",
             "topSongs": "Top songs",
-            "topSongsCommunity": "Community",
+            "topSongsCommunity": "Everyone",
             "topSongsFrom": "Top songs from {{title}}",
-            "topSongsPersonal": "Personal",
+            "topSongsPersonal": "Yours",
             "favoriteSongsFrom": "Favorite songs from {{title}}",
             "viewAll": "View all",
             "viewAllTracks": "View all $t(entity.track, {\"count\": 2})"
@@ -1746,6 +1746,16 @@
         }
     },
     "naviConnect": {
+        "artistPage": {
+            "about": "About",
+            "kickerNotOwned": "Artist · not in your library",
+            "links": "Links",
+            "notOwned": "Not owned",
+            "owned": "Owned",
+            "releasesFromMusicBrainz_one": "{{count}} release, from MusicBrainz",
+            "releasesFromMusicBrainz_other": "{{count}} releases, from MusicBrainz",
+            "similar": "Similar artists"
+        },
         "audioMuse": {
             "token": "AudioMuse API token (direct)",
             "token_description": "Only for reaching AudioMuse-AI with no hub. Leave blank when your navi-connect hub holds it.",
