@@ -46,7 +46,7 @@
 }
 
 .line[data-tone='failed'] {
-    color: var(--theme-colors-state-error);
+    color: color-mix(in oklab, var(--theme-colors-state-error) 60%, var(--theme-colors-foreground));
 }
 
 .bar {
