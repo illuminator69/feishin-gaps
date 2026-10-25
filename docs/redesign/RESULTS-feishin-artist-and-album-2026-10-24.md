@@ -35,7 +35,9 @@ the branch carries F6 (settings v39, the Library frame) and merges after it; thi
 | `56c3a285` | 6. The not-owned album page with its About first and Find sources (B-169) |
 | `a0e8adc2` | 7. The request box folds with each step and becomes the recovery card |
 | `4dd89e22` | Fix from the Task 8 sweep: the failed state and the chip count readable in every theme |
-| (last) | 8. This note |
+| `6a2e8a64` | 8. This note |
+| `3893f2a0` | Fixes from the review (below) |
+| (last) | The review appended to this note |
 
 Task 1 changed nothing in the repo (stand-ins and the baseline, below).
 
@@ -49,11 +51,11 @@ Task 1 changed nothing in the repo (stand-ins and the baseline, below).
 | stylelint `--max-warnings=0`, every changed CSS file (11) | - | clean |
 | `vite build --config web.vite.config.ts` / `remote.vite.config.ts` | - | exit 0 / exit 0 (after Tasks 5, 6 and 7) |
 | `electron-vite build` (for the production timing) | - | exit 0, 62 s |
-| The harnesses | 60 files, 878 pass, 0 fail | 67 files, 932 pass, 0 fail |
+| The harnesses | 60 files, 878 pass, 0 fail | 67 files, 935 pass, 0 fail (932 before the review) |
 | `release-kind.harness.ts` (new) | - | 6 pass |
-| `discography-model.harness.ts` (new) | - | 22 pass (340 items built, filtered, sorted and cut in 1.2 ms) |
+| `discography-model.harness.ts` (new) | - | 24 pass (340 items built, filtered, sorted and cut in 1.2 ms) |
 | `discography-view.harness.ts` (new) | - | 4 pass |
-| `scan-phase.harness.ts` (new; one case added in Task 4) | - | 11 pass |
+| `scan-phase.harness.ts` (new; one case added in Task 4, one from the review) | - | 12 pass |
 | `request-stage.harness.ts` (new) | - | 5 pass |
 | `album-page-state.harness.ts` (new) | - | 4 pass |
 | `motion/grow.harness.ts` (new) | - | 2 pass |
@@ -230,3 +232,25 @@ two-press check: 2 POSTs before the guard, 1 after.
   replacement (this VM cannot edit the workstation's copy): "The artist discography (F7) filters per page in the URL; Settings'
   release-type list sets which kinds start collapsed. A missing tile opens `/external/albums/:rgid`, whose request box is the fill
   ledger's row."
+
+## The review
+
+One fresh whole-branch review ran (a separate agent, read-only, given the plan, the diff and this note, the plan's Review Focus as
+its brief). Its findings, most severe first, and what was done:
+
+| # | Finding | Ruling |
+|---|---|---|
+| 1 | A Find sources session never expired: reopening the page after its answer went stale started a live search nobody asked for, with the timer counting from the first press | **Fixed** (`3893f2a0`): a session expires with the answer's five-minute cache. Reasoned from code and the query settings, not watched (it needs five minutes of waiting per case) |
+| 2 | A dismissed request came back: with no ledger row the box adopted any state lb-bot still reported, terminal ones included | **Fixed**: only a running fill is adopted. Watched: a failed box dismissed stayed gone 6 s later |
+| 3 | A missing row whose fill had landed read Missing and offered Get again while the index caught up | **Fixed** in the pure core, with a harness case seen failing first |
+| 4 | A link with no hints (a paste, Downloads' Open album) never redirected an owned album | **Fixed**: the redirect also uses the artist MBID `/lb/album/releases` names. Watched: a hint-less link to *Lantern Season* redirected to the library album |
+| 5 | "Not scanned yet" and a filled Find missing albums showed while the discography read was still out, inviting a full walk of an indexed artist | **Fixed**: `scanPhase` takes `loading` (nothing said or offered), harness case seen failing first. The window is too short to watch here |
+| 6 | A section collapsed by hand stayed collapsed when its own chip was pressed | **Fixed**. Watched: Live collapsed, then its chip: `live:false:80` |
+| 7 | Two rows naming one Navidrome album drew it twice with one React key | **Fixed**, harness case seen failing first |
+| 8 | `useIndexArtist`'s own 5 s interval (from before this branch) outlives the page and the page's phase | **Kept**: it is what pulls the mirror once a scan ends even after the page was left (Ruling R23, a lost `index` frame). It ends after its 60 attempts. Noted for a later tidy-up |
+| 9 | Try again on a failed or empty search kept the old elapsed time | **Fixed**: the clock restarts |
+| 10 | An unreadable tracklist showed only its heading | **Fixed**: "Could not read this release's tracklist." with Try again. Watched with `tracklist=502` |
+| 11 | The owned page passed a new empty array each render while albums loaded | **Fixed**: a stable empty list |
+| 12 | The scan start had no in-flight guard (two presses, two walks) | **Fixed**: a ref guard, as Download has. Reasoned, not watched |
+
+After the fixes: both `tsc` clean, eslint clean, the harnesses 935 pass and 0 fail, both builds exit 0, no em dash added.
