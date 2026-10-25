@@ -131,6 +131,21 @@ export const AlbumTracklist = ({
                     {tracklistQuery.data && tracks.length === 0 && (
                         <p className={styles.muted}>{t('naviConnect.albumPage.noTracklist')}</p>
                     )}
+                    {tracklistQuery.data === null && (
+                        <div data-tracklist-unread="">
+                            <p className={styles.muted}>
+                                {t('naviConnect.albumPage.tracklistUnread')}
+                            </p>
+                            <Button
+                                mt={6}
+                                onClick={() => void tracklistQuery.refetch()}
+                                size="compact-sm"
+                                variant="default"
+                            >
+                                {t('naviConnect.albumPage.tryAgain')}
+                            </Button>
+                        </div>
+                    )}
                 </>
             )}
         </section>

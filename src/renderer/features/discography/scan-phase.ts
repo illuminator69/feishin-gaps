@@ -19,6 +19,8 @@ export interface ScanInput {
     /** lb-bot reachable through the hub. */
     available: boolean;
     indexed: boolean;
+    /** The discography read has not answered yet (no mirror entry, no network answer). */
+    loading: boolean;
     nowMs: number;
     /** The start request is in flight. */
     pending: boolean;
@@ -53,6 +55,8 @@ export const scanPhase = (input: ScanInput): ScanPhase => {
     } else if (scan?.state === 'failed') {
         return 'failed';
     }
+    // Not known yet is not "never scanned": nothing is said or offered until the read answers.
+    if (!input.indexed && input.loading) return 'unavailable';
     if (!input.indexed) return input.available ? 'never' : 'unavailable';
     return input.releaseCount === 0 ? 'empty' : 'idle';
 };

@@ -1772,6 +1772,7 @@
             "stopWaiting": "Stop waiting",
             "stopWaitingNote": "lb-bot's search carries on without this page. Press Find sources again within a minute of it ending and its answer is here at once.",
             "tracklist": "Tracklist · from MusicBrainz",
+            "tracklistUnread": "Could not read this release's tracklist.",
             "tracks_one": "{{count}} track",
             "tracks_other": "{{count}} tracks",
             "tryAgain": "Try again",

@@ -704,6 +704,8 @@ export const useLbBotScanRead = (
  * from `/lb/album/status` by release-group and adopted into the ledger, so the album page's box and
  * the app-root watcher follow it from there. lb-bot answering `unknown` adopts nothing.
  */
+const RUNNING_STATES = new Set(['downloading', 'placed', 'placing', 'queued', 'searching']);
+
 export const useAdoptRemoteFill = (
     rgid: string,
     names: { album: string; artist: string },
@@ -716,7 +718,9 @@ export const useAdoptRemoteFill = (
         queryFn: async () => {
             const result = await lbBot!.albumStatus(undefined, rgid);
             const status = result.ok ? result.data : null;
-            if (status && status.state !== 'unknown' && status.releaseMbid) {
+            // Only a fill still running: a finished one (failed, cancelled, verified) is either this
+            // machine's dismissed row or nothing to act on, and adopting it would bring it back.
+            if (status && RUNNING_STATES.has(status.state) && status.releaseMbid) {
                 const store = useActiveFillsStore.getState();
                 if (!store.fills[rgid]) {
                     store.actions.start(rgid, status.releaseMbid, status.quality, {

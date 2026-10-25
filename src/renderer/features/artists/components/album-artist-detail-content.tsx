@@ -78,6 +78,7 @@ import { Text } from '/@/shared/components/text/text';
 import { useDebouncedValue } from '/@/shared/hooks/use-debounced-value';
 import { useLocalStorage } from '/@/shared/hooks/use-local-storage';
 import {
+    Album,
     AlbumArtist,
     AlbumArtistDetailResponse,
     AlbumListResponse,
@@ -90,6 +91,8 @@ import {
 } from '/@/shared/types/domain-types';
 import { LbBotMetaRelation } from '/@/shared/types/lbbot-types';
 import { ItemListKey, ListDisplayType, Play } from '/@/shared/types/types';
+
+const NO_ALBUMS: Album[] = [];
 
 /** A section's place: `--order-narrow` in the one-column page, `--order-wide` in the side column. */
 const columnOrder = (order = 0, wideOrder?: number) =>
@@ -1523,7 +1526,7 @@ const ArtistAlbums = ({
                     />
                 }
                 ndId={routeId}
-                owned={albumsQuery.data?.items ?? []}
+                owned={albumsQuery.data?.items ?? NO_ALBUMS}
             />
         </div>
     );

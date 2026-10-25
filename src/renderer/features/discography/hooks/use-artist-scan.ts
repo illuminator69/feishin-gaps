@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
     clearScanStarted,
@@ -42,6 +42,8 @@ export const useArtistScan = (args: {
     // `useIndexArtist`'s own `pending` lasts its whole poll; the phase needs only the start request.
     const { error, indexArtist, note } = useIndexArtist(ndId);
     const [starting, setStarting] = useState(false);
+    // Two presses in one tick both see `starting` false; the ref makes them one scan.
+    const inFlight = useRef(false);
     const started = useStartedScan(ndId);
     const scannable = Boolean(artistMbid && artistName);
     const [now, setNow] = useState(() => Date.now());
@@ -53,6 +55,7 @@ export const useArtistScan = (args: {
     const phase = scanPhase({
         available,
         indexed: (data?.indexed ?? network?.indexed) === true,
+        loading: !data?.indexed && network === undefined && (discography.isLoading || available),
         nowMs: now,
         pending: starting,
         readAtMs,
@@ -96,10 +99,14 @@ export const useArtistScan = (args: {
         phase,
         scannable,
         start: () => {
-            if (!scannable || phase === 'running') return;
+            if (!scannable || phase === 'running' || inFlight.current) return;
+            inFlight.current = true;
             setNow(Date.now());
             setStarting(true);
-            void indexArtist(artistMbid!, artistName).finally(() => setStarting(false));
+            void indexArtist(artistMbid!, artistName).finally(() => {
+                inFlight.current = false;
+                setStarting(false);
+            });
         },
     };
 };

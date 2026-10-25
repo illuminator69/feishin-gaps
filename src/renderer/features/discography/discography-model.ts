@@ -155,19 +155,34 @@ export const buildItems = (
     }
 
     const ownedTitles = new Set(owned.map((album) => titleKey(album.name)).filter(Boolean));
+    // One tile per Navidrome album: a second row naming an album already drawn is not drawn again.
+    const drawnAlbums = new Set(owned.map((album) => album.id));
     for (const row of rows) {
         if (joined.has(row)) continue;
+        if (row.navidromeAlbumIds.some((id) => drawnAlbums.has(id))) continue;
         const albumId = row.navidromeAlbumIds[0] ?? null;
         const key = titleKey(row.title);
         if (!albumId && key && ownedTitles.has(key)) continue;
+        if (albumId) drawnAlbums.add(albumId);
+        const fill = fillOf.get(row.rgid) ?? null;
+        // A fill that landed (placed, or done) is waiting for the index and Navidrome, never Missing.
+        const landed =
+            !!fill &&
+            ((fill.settled && fill.outcome === 'done') ||
+                fill.state === 'placed' ||
+                fill.state === 'verified');
         items.push({
             addedAt: null,
             albumId,
-            fill: fillOf.get(row.rgid) ?? null,
+            fill,
             gap: null,
             key: albumId ?? row.rgid,
             kind: releaseKindOf([row.primaryType, ...row.secondaryTypes], false),
-            ownership: albumId ? 'owned' : row.status === 'missing' ? 'missing' : 'syncing',
+            ownership: albumId
+                ? 'owned'
+                : row.status === 'missing' && !landed
+                  ? 'missing'
+                  : 'syncing',
             plays: 0,
             rgid: row.rgid,
             title: row.title,

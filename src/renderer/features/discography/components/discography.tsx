@@ -105,7 +105,9 @@ export const Discography = ({ artistMbid, artistName, menu, ndId, owned }: Disco
 
     const [, bump] = useState(0);
     const overrides = collapseOverrides.get(ndId);
-    const isCollapsed = (kind: ReleaseKind, fallback: boolean) => overrides?.get(kind) ?? fallback;
+    // A section's own chip always opens it, whatever it was set to by hand.
+    const isCollapsed = (kind: ReleaseKind, fallback: boolean) =>
+        view.type === kind ? false : (overrides?.get(kind) ?? fallback);
 
     // Keep the header that was pressed where it is: whatever opens or closes, the page does not move under it.
     const anchor = useRef<null | { el: HTMLElement; top: number }>(null);

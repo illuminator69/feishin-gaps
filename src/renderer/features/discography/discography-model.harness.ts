@@ -182,6 +182,39 @@ test('a missing row with an unsettled fill stays missing and carries the fill', 
     assert.deepEqual(items[0].fill, fill);
 });
 
+test('a missing row whose fill landed is syncing, never missing (the index lags the fill)', () => {
+    const done: FillInput = { outcome: 'done', rgid: 'rg-9', settled: true, state: 'verified' };
+    const placed: FillInput = { outcome: 'running', rgid: 'rg-9', settled: false, state: 'placed' };
+    const failed: FillInput = { outcome: 'failed', rgid: 'rg-9', settled: true, state: 'failed' };
+    assert.equal(buildItems([], [row()], [done])[0].ownership, 'syncing');
+    assert.equal(buildItems([], [row()], [placed])[0].ownership, 'syncing');
+    assert.equal(buildItems([], [row()], [failed])[0].ownership, 'missing');
+});
+
+test('two rows naming one Navidrome album draw it once', () => {
+    const items = buildItems(
+        [owned({ id: 'a', name: 'Kid A', rgid: 'rg-1' })],
+        [
+            row({ navidromeAlbumIds: ['a'], rgid: 'rg-1', status: 'complete', title: 'Kid A' }),
+            row({
+                navidromeAlbumIds: ['a'],
+                rgid: 'rg-2',
+                status: 'complete',
+                title: 'Kid A Mnemonic',
+            }),
+            row({ navidromeAlbumIds: ['b'], rgid: 'rg-3', status: 'complete', title: 'Amnesiac' }),
+            row({
+                navidromeAlbumIds: ['b'],
+                rgid: 'rg-4',
+                status: 'complete',
+                title: 'Amnesiac (deluxe)',
+            }),
+        ],
+        [],
+    );
+    assert.deepEqual(keys(items), ['a', 'b']);
+});
+
 test('a row naming a Navidrome album the page has not listed yet is owned, not dropped', () => {
     const items = buildItems([], [row({ navidromeAlbumIds: ['al-new'], status: 'complete' })], []);
     assert.equal(items.length, 1);

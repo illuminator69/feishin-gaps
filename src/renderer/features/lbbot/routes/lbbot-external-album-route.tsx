@@ -78,7 +78,10 @@ const LbBotExternalAlbumRoute = () => {
     // to an owned album happen on the first render instead of after a round
     // trip; otherwise an instant SQLite read on lb-bot's side. Skipped entirely
     // without an artist MBID.
-    const discography = useLbBotDiscography(artistMbid ? `mb:${artistMbid}` : '', artistMbid);
+    // The hint, else the artist `/lb/album/releases` names: a link with no hints (a paste, Downloads'
+    // Open album) must still find an album the library owns.
+    const knownMbid = artistMbid || releases?.artistMbid || '';
+    const discography = useLbBotDiscography(knownMbid ? `mb:${knownMbid}` : '', knownMbid);
     const indexedRow = useMemo(
         () => (discography.data?.releases ?? []).find((row) => row.rgid === rgid),
         [discography.data, rgid],
@@ -93,7 +96,7 @@ const LbBotExternalAlbumRoute = () => {
     // Without it the redirect above can never fire either: only lb-bot's index
     // knows which Navidrome album a release-group resolves to, so an album the
     // library actually holds keeps rendering as a download until the next scan.
-    const indexRelease = useIndexRelease(artistMbid ? `mb:${artistMbid}` : '', artistMbid);
+    const indexRelease = useIndexRelease(knownMbid ? `mb:${knownMbid}` : '', knownMbid);
     // Only while lb-bot is up. The discography can come from the local mirror
     // with lb-bot down, and `useIndexRelease` fires once per rgid, failures
     // included — so a call made then was never made again on this page. Gated,

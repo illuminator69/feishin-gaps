@@ -91,6 +91,24 @@ export const useAlbumRequest = ({
 
     // The search: asked for once, by the press, for the edition shown then.
     const session = useSyncExternalStore(subscribe, () => sessions.get(rgid) ?? null);
+    // A session lives as long as its answer can be cached (five minutes): after that, reopening the
+    // page must not start a live search nobody asked for.
+    useEffect(() => {
+        if (!session) return undefined;
+        const left = session.startedAt + FIVE_MINUTES - Date.now();
+        const expire = () => {
+            if (sessions.get(rgid) === session) {
+                sessions.delete(rgid);
+                emit();
+            }
+        };
+        if (left <= 0) {
+            expire();
+            return undefined;
+        }
+        const timer = window.setTimeout(expire, left);
+        return () => window.clearTimeout(timer);
+    }, [rgid, session]);
     const sources = useLbBotAlbumSources(rgid || null, !!session, session?.edition, {
         staleTime: FIVE_MINUTES,
     });
@@ -114,8 +132,13 @@ export const useAlbumRequest = ({
     const startSearch = useCallback(() => {
         const current = sessions.get(rgid);
         if (current && current.edition?.releaseMbid === resolvedEdition?.releaseMbid) {
-            // The same edition again: only a failed or empty answer is asked again.
-            if (sourcesState === 'failed' || sourcesState === 'empty') void sources.refetch();
+            // The same edition again: only a failed or empty answer is asked again, on a fresh clock.
+            if (sourcesState === 'failed' || sourcesState === 'empty') {
+                sessions.set(rgid, { ...current, startedAt: Date.now() });
+                setNow(Date.now());
+                emit();
+                void sources.refetch();
+            }
             return;
         }
         sessions.set(rgid, {

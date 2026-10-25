@@ -13,6 +13,7 @@ const NOW = 1_800_000_000_000;
 const base = {
     available: true,
     indexed: true,
+    loading: false,
     nowMs: NOW,
     pending: false,
     readAtMs: null,
@@ -103,6 +104,15 @@ test('the resting phases', () => {
         scanPhase({ ...base, indexed: false, releaseCount: 0, scannable: false }),
         'never',
     );
+});
+
+test('while the discography read is still out, nothing is said and nothing is offered', () => {
+    const waiting = { ...base, indexed: false, loading: true, releaseCount: 0 };
+    assert.equal(scanPhase(waiting), 'unavailable');
+    // A scan this session started still reads as running.
+    assert.equal(scanPhase({ ...waiting, started: { atMs: NOW - 1000, taskId: 't1' } }), 'running');
+    // Once the artist is known to be indexed, loading does not hide it.
+    assert.equal(scanPhase({ ...base, loading: true }), 'idle');
 });
 
 test('the poll runs only while running', () => {
