@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { defaultSelectedSource } from '/@/renderer/features/lbbot/components/source-list';
 import {
@@ -172,6 +172,8 @@ export const useAlbumRequest = ({
     const preferredQuality = usePreferredQuality();
     const { setQuality } = useActiveFillsActions();
     const [starting, setStarting] = useState(false);
+    // Two presses in one tick both see `starting` false: the ref is what makes them one request.
+    const inFlight = useRef(false);
     const busy = starting || (!!activeFill && !activeFill.settled);
 
     const download = useCallback(
@@ -179,7 +181,8 @@ export const useAlbumRequest = ({
             options: { allFiles?: boolean; allowMp3?: boolean; source?: LbBotGapSource } = {},
         ) => {
             const source = options.source ?? selected;
-            if (busy || !source || !rgid) return;
+            if (busy || inFlight.current || !source || !rgid) return;
+            inFlight.current = true;
             setStarting(true);
             try {
                 const result = await startAlbumDownload(
@@ -210,6 +213,7 @@ export const useAlbumRequest = ({
                     toast.show({ message: confirmation.text });
                 }
             } finally {
+                inFlight.current = false;
                 setStarting(false);
             }
         },

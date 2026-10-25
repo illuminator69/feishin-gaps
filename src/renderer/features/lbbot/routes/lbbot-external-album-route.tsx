@@ -3,8 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { generatePath, Link, Navigate, useParams, useSearchParams } from 'react-router';
 
 import { albumPageState } from '/@/renderer/features/discography/album-page-state';
+import { AlbumRequestBox } from '/@/renderer/features/lbbot/components/album-request-box';
 import { NotOwnedAlbum } from '/@/renderer/features/lbbot/components/not-owned-album';
 import ghostStyles from '/@/renderer/features/lbbot/components/not-owned-album.module.css';
+import { WishlistButton } from '/@/renderer/features/lbbot/components/wishlist-button';
 import { useAlbumRequest } from '/@/renderer/features/lbbot/hooks/use-album-request';
 import {
     caaCoverUrl,
@@ -190,6 +192,7 @@ const LbBotExternalAlbumRoute = () => {
                                     ? t('naviConnect.albumPage.searchingButton')
                                     : t('naviConnect.albumPage.findSources')}
                             </Button>
+                            <WishlistButton artist={artistName} rgid={rgid} title={title} />
                         </Group>
                     )}
                 </Stack>
@@ -207,7 +210,21 @@ const LbBotExternalAlbumRoute = () => {
             {state === 'older' && <Text isMuted>{t('naviConnect.albumPage.older')}</Text>}
             {state === 'loading' && <AlbumPageGhost />}
             {state === 'ready' && rgid && (
-                <NotOwnedAlbum artist={artistName} meta={meta} request={request} rgid={rgid} />
+                <NotOwnedAlbum
+                    artist={artistName}
+                    meta={meta}
+                    request={request}
+                    requestBox={
+                        <AlbumRequestBox
+                            artist={artistName}
+                            coverUrl={caaCoverUrl(rgid)}
+                            ownedAlbumId={ownedAlbumId ?? null}
+                            rgid={rgid}
+                            title={title}
+                        />
+                    }
+                    rgid={rgid}
+                />
             )}
         </ForkDetailPage>
     );

@@ -1915,6 +1915,14 @@
             "stopped": "stopped",
             "tableSettings": "Table settings"
         },
+        "request": {
+            "addWishlist": "Add to wishlist",
+            "finishedFiles": "{{done}} of {{total}} files had finished.",
+            "folder": "Folder",
+            "onWishlist": "On the wishlist",
+            "removeWishlist": "Remove",
+            "source": "Source"
+        },
         "savedQueuePreview": {
             "resume": "Resume",
             "resumesHere": "{{name}} (resumes here)"

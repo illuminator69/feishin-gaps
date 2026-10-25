@@ -1,35 +1,22 @@
 import { Suspense, useEffect, useState } from 'react';
-import { generatePath, useNavigate } from 'react-router';
 
 import styles from './lbbot-downloads-route.module.css';
 
 import { ItemImage } from '/@/renderer/components/item-image/item-image';
 import { ResolveLinkBox } from '/@/renderer/features/lbbot/components/resolve-link-box';
 import { WishlistList } from '/@/renderer/features/lbbot/components/wishlist-list';
-import { describeFill, FillButton } from '/@/renderer/features/lbbot/fill-vocabulary';
-import {
-    allowMp3AndRetry,
-    caaCoverUrl,
-    cancelFill,
-    retryFill,
-    useLbBotWishlist,
-    useWishlistActions,
-} from '/@/renderer/features/lbbot/hooks/use-lbbot';
-import {
-    LedgerRow,
-    useActiveFillsActions,
-    useFillLedger,
-} from '/@/renderer/features/lbbot/stores/active-fills.store';
+import { describeFill } from '/@/renderer/features/lbbot/fill-vocabulary';
+import { useFillActions } from '/@/renderer/features/lbbot/hooks/use-fill-actions';
+import { caaCoverUrl, useLbBotWishlist } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { LedgerRow, useFillLedger } from '/@/renderer/features/lbbot/stores/active-fills.store';
 import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
-import { AppRoute } from '/@/renderer/router/routes';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
 import { Progress } from '/@/shared/components/progress/progress';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
-import { toast } from '/@/shared/components/toast/toast';
 import { LibraryItem } from '/@/shared/types/domain-types';
 
 /**
@@ -58,57 +45,11 @@ const useNow = (): number => {
     return now;
 };
 
-const BUTTON_LABEL: Record<FillButton, string> = {
-    allowMp3: 'Allow MP3 and retry',
-    cancel: 'Cancel',
-    dismiss: 'Dismiss',
-    openAlbum: 'Open album',
-    retry: 'Retry',
-    tryAnother: 'Try another source',
-    wishlist: 'Add to wishlist',
-};
-
 const FillRow = ({ now, row }: { now: number; row: LedgerRow }) => {
-    const { dismiss } = useActiveFillsActions();
-    const { add: addToWishlist } = useWishlistActions();
-    const navigate = useNavigate();
-    const [busy, setBusy] = useState(false);
+    // F7: the same actions as the album page's request box, so one row offers the same buttons.
+    const { busy, label, run } = useFillActions(row);
     const view = describeFill(row, now);
     const failed = row.settled && row.outcome !== 'done';
-
-    const run = async (action: () => Promise<boolean>) => {
-        setBusy(true);
-        const ok = await action();
-        setBusy(false);
-        if (!ok) toast.error({ message: 'lb-bot would not take that request.' });
-    };
-
-    const openAlbum = () => {
-        if (row.rgid) navigate(generatePath(AppRoute.EXTERNAL_ALBUM_DETAIL, { rgid: row.rgid }));
-    };
-
-    const actions: Record<FillButton, () => void> = {
-        allowMp3: () =>
-            run(() => allowMp3AndRetry({ groupId: row.groupId, isGap: row.isGap, key: row.key })),
-        cancel: () => run(() => cancelFill(row)),
-        dismiss: () => dismiss(row.key),
-        openAlbum,
-        retry: () => run(() => retryFill({ isGap: row.isGap, key: row.key })),
-        tryAnother: () => run(() => retryFill(row, { anotherSource: true })),
-        // The row is dismissed once it is on the list: the wishlist page is
-        // where it lives from here, and a live button under it was a second
-        // way to add the same thing.
-        wishlist: () =>
-            run(async () => {
-                const ok = await addToWishlist({
-                    artist: row.artist,
-                    rgid: row.rgid,
-                    title: row.album,
-                });
-                if (ok) dismiss(row.key);
-                return ok;
-            }),
-    };
 
     return (
         <div className={styles.row}>
@@ -155,10 +96,10 @@ const FillRow = ({ now, row }: { now: number; row: LedgerRow }) => {
                     <Button
                         disabled={busy && button !== 'dismiss'}
                         key={button}
-                        onClick={actions[button]}
+                        onClick={() => run(button)}
                         variant="subtle"
                     >
-                        {BUTTON_LABEL[button]}
+                        {label(button)}
                     </Button>
                 ))}
             </Group>

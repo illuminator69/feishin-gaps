@@ -699,6 +699,42 @@ export const useLbBotScanRead = (
     };
 };
 
+/**
+ * F7 (Call 8): a fill this machine's ledger does not hold (started from another device) is read once
+ * from `/lb/album/status` by release-group and adopted into the ledger, so the album page's box and
+ * the app-root watcher follow it from there. lb-bot answering `unknown` adopts nothing.
+ */
+export const useAdoptRemoteFill = (
+    rgid: string,
+    names: { album: string; artist: string },
+    enabled: boolean,
+) => {
+    const available = useLbBotAvailable();
+    useQuery({
+        enabled: !!lbBot && available && enabled && !!rgid,
+        gcTime: 60 * 1000,
+        queryFn: async () => {
+            const result = await lbBot!.albumStatus(undefined, rgid);
+            const status = result.ok ? result.data : null;
+            if (status && status.state !== 'unknown' && status.releaseMbid) {
+                const store = useActiveFillsStore.getState();
+                if (!store.fills[rgid]) {
+                    store.actions.start(rgid, status.releaseMbid, status.quality, {
+                        album: status.album || names.album,
+                        artist: status.artist || names.artist,
+                    });
+                    applyFillStatus(rgid, status);
+                }
+            }
+            return status?.state ?? 'unknown';
+        },
+        queryKey: ['lbbot', 'adopt-fill', rgid],
+        refetchOnWindowFocus: false,
+        retry: false,
+        staleTime: Infinity,
+    });
+};
+
 /** The route whose advert says this hub proxies the override writes (I-019). */
 const OVERRIDE_ROUTE = 'POST /lb/artist/override';
 
@@ -2293,7 +2329,7 @@ const LOSSLESS = /^(flac|alac|wav|aiff|ape|wv)$/i;
  * starting a second 30-90 s search.
  */
 /**
- * The edition `MissingAlbumPanel` opens on — its first variant's first edition,
+ * The edition the album page's pickers open on: its first variant's first edition,
  * else the variant's own release — as the source search wants it. The panel
  * sizes `totalTracks` off the edition's tracklist once it loads; the variant's
  * count stands in here, which changes the search's parameters but not its key.
