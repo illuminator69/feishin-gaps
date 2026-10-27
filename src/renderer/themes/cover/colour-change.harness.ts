@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -29,16 +30,39 @@ const TONE_KEYS = [
     '--tone-top',
 ];
 
-test('theNumbers', () => {
+test('theFadeIs300ms', () => {
     assert.equal(COLOUR_FADE_MS, 300);
-    assert.equal(ROLE_SWITCH_MS, 150);
+});
+
+/** Progress of a CSS `cubic-bezier(x1, y1, x2, y2)` at time fraction `t`. */
+const bezierAt = ([x1, y1, x2, y2]: number[], t: number) => {
+    const at = (p1: number, p2: number, s: number) =>
+        3 * (1 - s) ** 2 * s * p1 + 3 * (1 - s) * s ** 2 * p2 + s ** 3;
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 60; i++) {
+        const mid = (lo + hi) / 2;
+        if (at(x1, x2, mid) < t) lo = mid;
+        else hi = mid;
+    }
+    return at(y1, y2, lo);
+};
+
+// The page's roles switch when the backdrop is half-way, on the curve the backdrop actually fades with
+// (`--fold-ease` in global.css). On that curve 150 ms is already 92 % of the way.
+test('rolesSwitchWhenTheBackdropIsHalfWay', () => {
+    const css = readFileSync(new URL('../../../shared/styles/global.css', import.meta.url), 'utf8');
+    const curve = /--fold-ease:\s*cubic-bezier\(([^)]*)\)/.exec(css)?.[1].split(',').map(Number);
+    assert.equal(curve?.length, 4);
+    const progress = bezierAt(curve!, ROLE_SWITCH_MS / COLOUR_FADE_MS);
+    assert.ok(progress >= 0.45 && progress <= 0.6, `${ROLE_SWITCH_MS} ms: ${progress.toFixed(3)}`);
 });
 
 test('rolesSwitchAtTheMidpointExceptFirstAndReduced', () => {
     assert.equal(switchDelayMs({ first: true, reduced: false }), 0);
     assert.equal(switchDelayMs({ first: false, reduced: true }), 0);
     assert.equal(switchDelayMs({ first: true, reduced: true }), 0);
-    assert.equal(switchDelayMs({ first: false, reduced: false }), 150);
+    assert.equal(switchDelayMs({ first: false, reduced: false }), ROLE_SWITCH_MS);
 });
 
 test('toneVarsCarryTheBackdropAndTheVeilPerMode', () => {

@@ -12,8 +12,11 @@ import { oklchCss } from './oklch.ts';
 /** The backdrop's cross-fade, with `--fold-ease` (design brief 8: colour changes ease over 300 ms). */
 export const COLOUR_FADE_MS = 300;
 
-/** When the page's roles switch: the backdrop is half-way. */
-export const ROLE_SWITCH_MS = 150;
+/**
+ * When the page's roles switch: the backdrop is half-way (53 %) on `--fold-ease`, which is front-loaded.
+ * Half the time (150 ms) would be 92 % of the way, leaving the old text over the new backdrop.
+ */
+export const ROLE_SWITCH_MS = 60;
 
 export type WashMode = 'dark' | 'light' | 'neutral';
 
