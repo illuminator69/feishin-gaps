@@ -12,9 +12,10 @@
 
     transition: background 0.5s;
 
-    /* The role itself eases (registered on <html>); a second transition here made the bar trail the window. */
+    /* Under the cover wash the bar's colour is a band in the wash's veil (window-wash.module.css), so it
+       cross-fades with the backdrop on the compositor instead of being restyled. */
     :root[data-cover-wash='true'] & {
-        background: var(--wash-bar);
+        background: transparent;
         transition: none;
     }
 }

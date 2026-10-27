@@ -1,25 +1,12 @@
 /*
- * The cover wash: one layer behind the whole window (the layout's first child). The tone gradient is
- * this element's own background; over it the blurred artwork, then the veil that tones the artwork
- * down towards the bottom. Colours come from the `--wash-*` roles on <html> (registered, so they ease).
+ * The cover wash: one layer behind the whole window (the layout's first child). Bottom to top: the
+ * tone gradient, the blurred artwork, the veil that tones the artwork down towards the bottom and
+ * carries the player bar's band. The tone and the veil are each two layers with fixed colours of their
+ * own (`--tone-*`, inline, colour-change.ts): a change fades the front one in over the other with
+ * opacity animations (window-wash.tsx), so nothing is restyled per frame.
  */
 
-/* Registered so a change of mode or of state eases the veil instead of snapping it. */
-@property --wash-ov1 {
-    syntax: '<percentage>';
-    inherits: true;
-    initial-value: 78%;
-}
-
-@property --wash-ov2 {
-    syntax: '<percentage>';
-    inherits: true;
-    initial-value: 86%;
-}
-
 .wash {
-    --wash-ov1: 78%;
-    --wash-ov2: 86%;
     --wash-art-opacity: 0.55;
 
     position: absolute;
@@ -27,33 +14,71 @@
     z-index: -1;
     overflow: hidden;
     pointer-events: none;
-    background: linear-gradient(
-        180deg,
-        var(--wash-top) 0,
-        var(--wash-mid) 52%,
-        var(--wash-bot) 100%
-    );
-
-    /* Its own compositing layer: without it, scrolling a page re-rasterised the blurred cover every frame. */
-    will-change: transform;
 }
 
+/* The light veil percentages live in colour-change.ts with the dark and neutral ones. */
 .wash.light {
-    --wash-ov1: 50%;
-    --wash-ov2: 60%;
     --wash-art-opacity: 0.85;
 }
 
 /* Nothing playing: no artwork, the plain gradient. */
 .wash.neutral {
-    --wash-ov1: 100%;
-    --wash-ov2: 100%;
     --wash-art-opacity: 0;
+}
+
+.tone,
+.veil {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+}
+
+.tone {
+    z-index: 0;
+    background: linear-gradient(
+        180deg,
+        var(--tone-top) 0,
+        var(--tone-mid) 52%,
+        var(--tone-bot) 100%
+    );
+}
+
+.veil {
+    z-index: 3;
+    background: linear-gradient(
+        180deg,
+        color-mix(in oklch, var(--tone-top) var(--tone-ov1), transparent) 0,
+        color-mix(in oklch, var(--tone-mid) var(--tone-ov2), transparent) 46%,
+        var(--tone-bot) 100%
+    );
+}
+
+/* The player bar's colour, drawn here so it fades with the backdrop (the bar itself is transparent). */
+.veil::after {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: var(--player-bar-height);
+    content: '';
+    background: var(--tone-bar);
+}
+
+/* The front layer of each pair is on top; the other is what it fades in over. */
+.tone[data-front] {
+    z-index: 1;
+    opacity: 1;
+}
+
+.veil[data-front] {
+    z-index: 4;
+    opacity: 1;
 }
 
 .art {
     position: absolute;
     inset: -60px -60px auto;
+    z-index: 2;
     height: 560px;
     opacity: var(--wash-art-opacity);
     filter: blur(40px);
@@ -90,24 +115,7 @@
     opacity: 1;
 }
 
-.veil {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-        180deg,
-        color-mix(in oklch, var(--wash-top) var(--wash-ov1), transparent) 0,
-        color-mix(in oklch, var(--wash-mid) var(--wash-ov2), transparent) 46%,
-        var(--wash-bot) 100%
-    );
-}
-
 @media (prefers-reduced-motion: no-preference) {
-    .wash {
-        transition:
-            --wash-ov1 280ms ease,
-            --wash-ov2 280ms ease;
-    }
-
     .art,
     .art::after,
     .layer.front {

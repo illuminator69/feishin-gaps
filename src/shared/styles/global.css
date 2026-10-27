@@ -400,9 +400,10 @@ button {
 
 
 /*
- * Cover colours (src/renderer/themes/cover): the window's colour roles, registered as colours so a
- * change of cover eases instead of snapping. The initial values are the neutral dark roles (nothing
- * playing). Every built-in theme and this file set each `--theme-colors-*` here to a colour, so with
+ * Cover colours (src/renderer/themes/cover): the window's colour roles, registered as colours. They are
+ * not transitioned: easing these inherited roles restyled every element on every frame (audit A-01), so
+ * the wash cross-fades its own layers and the page switches once (colour-change.ts). The initial values
+ * are the neutral dark roles (nothing playing). Every built-in theme and this file set each `--theme-colors-*` here to a colour, so with
  * the wash off (and in the remote SPA, which never turns it on) the initial values never show.
  */
 
@@ -536,37 +537,4 @@ button {
     syntax: '<color>';
     inherits: true;
     initial-value: oklch(79% 0.126 160deg);
-}
-
-/* Only while the cover colours the window: a theme switch and the remote SPA stay instant. The
-   attribute is set a frame after the wash first applies (use-cover-wash.ts), so a cold start opens on
-   the cover's colours instead of easing in from the registered initial values. */
-@media (prefers-reduced-motion: no-preference) {
-    :root[data-cover-wash-ease='true'] {
-        transition-timing-function: cubic-bezier(0.3, 0.7, 0.2, 1);
-        transition-duration: 300ms;
-        transition-property:
-            --wash-top,
-            --wash-mid,
-            --wash-bot,
-            --wash-bar,
-            --wash-surf,
-            --wash-surf2,
-            --wash-acc,
-            --wash-accc,
-            --wash-accct,
-            --theme-colors-background,
-            --theme-colors-background-alternate,
-            --theme-colors-surface,
-            --theme-colors-surface-foreground,
-            --theme-colors-foreground,
-            --theme-colors-foreground-muted,
-            --theme-colors-primary,
-            --theme-colors-primary-filled,
-            --theme-colors-primary-contrast,
-            --theme-colors-border,
-            --theme-colors-state-error,
-            --theme-colors-state-warning,
-            --theme-colors-state-success;
-    }
 }

@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import type { CoverSeed, Role, Roles } from './cover-roles.ts';
 
+import { toneVars } from './colour-change.ts';
 import { NEUTRAL_SEED, rolesFor, surfaceOver } from './cover-roles.ts';
 import { composite, contrast, oklchToRgb } from './oklch.ts';
 
@@ -163,6 +164,7 @@ test('hueIsTheSeedsHue', () => {
 
 /**
  * F2 Task 7: the light page over the darkest possible artwork (solid black), with the wash values read
+ * (the veil percentages from colour-change.ts since R1, the rest)
  * from the CSS itself, so this pins the file. The artwork is lifted with white, drawn at its opacity
  * over the tone gradient, then veiled with the band's role (`ov1` at the top, `ov2` from 46%); over
  * black the blur changes nothing. Measured on rendered pixels with the board's values (white lift
@@ -176,8 +178,10 @@ test('lightWashOverBlackArtKeepsTextPassing', () => {
     );
     const light = /\.wash\.light\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
     const num = (re: RegExp, text: string) => Number(re.exec(text)?.[1]);
-    const ov1 = num(/--wash-ov1:\s*([\d.]+)%/, light) / 100;
-    const ov2 = num(/--wash-ov2:\s*([\d.]+)%/, light) / 100;
+    // The veil's percentages are the backdrop layers' own (colour-change.ts, R1).
+    const veil = toneVars(rolesFor(seed(0), true), 'light');
+    const ov1 = Number.parseFloat(veil['--tone-ov1']) / 100;
+    const ov2 = Number.parseFloat(veil['--tone-ov2']) / 100;
     const artOpacity = num(/--wash-art-opacity:\s*([\d.]+)/, light);
     const lift = num(/rgb\(255 255 255 \/ ([\d.]+)%\)/, css) / 100;
     for (const value of [ov1, ov2, artOpacity, lift])
