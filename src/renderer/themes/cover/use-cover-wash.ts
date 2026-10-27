@@ -1,10 +1,11 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { useRemoteAwarePlayerSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { usePlayerStoreBase } from '/@/renderer/store/player.store';
 import { useCoverColours } from '/@/renderer/store/settings.store';
 import { applyWashVars, washVars } from '/@/renderer/themes/cover/apply-wash-vars';
+import { switchDelayMs, type WashMode } from '/@/renderer/themes/cover/colour-change';
 import { type CoverSeed, NEUTRAL_SEED, rolesFor } from '/@/renderer/themes/cover/cover-roles';
 import { chooseLight } from '/@/renderer/themes/cover/cover-seed';
 import { seedKey } from '/@/renderer/themes/cover/cover-seed-cache';
@@ -20,6 +21,14 @@ interface Shown {
     light: boolean;
     seed: CoverSeed;
 }
+
+/** The backdrop's mode: neutral only for nothing playing, not for a remembered seed before a cover. */
+const modeOf = (shown: Shown): WashMode =>
+    shown.artSrc === null && shown.seed === NEUTRAL_SEED
+        ? 'neutral'
+        : shown.light
+          ? 'light'
+          : 'dark';
 
 /**
  * Nothing playing is neutral; a resolved cover is its own seed; an unresolved (or failed) cover keeps
@@ -50,8 +59,10 @@ const nextShown = (
 
 /**
  * Colours the window from the playing cover while `Cover colours` is on: the roles as variables on
- * `<html>` (before paint), `data-cover-wash="true"`, and the wash store. Mounted once, in the
- * renderer's `ThemedApp`, before `useAppTheme`.
+ * `<html>`, `data-cover-wash="true"`, and the wash store. A change writes the store's `backdrop` at
+ * once (the wash's layers cross-fade to it) and the page's roles at the fade's midpoint; the first
+ * application and reduced motion write both before paint. Mounted once, in the renderer's
+ * `ThemedApp`, before `useAppTheme`.
  */
 export const useCoverWash = (): void => {
     const on = useCoverColours();
@@ -88,10 +99,12 @@ export const useCoverWash = (): void => {
         // Seeded here, once, so `useAppTheme`'s first render already has the mode and leaves the accent
         // to the wash; afterwards only the layout effect below writes the store.
         if (on) {
+            const roles = rolesFor(first.seed, first.light);
             useCoverWashStore.setState({
                 ...first,
+                backdrop: { mode: modeOf(first), roles },
                 on: true,
-                roles: rolesFor(first.seed, first.light),
+                roles,
             });
         }
         return first;
@@ -100,47 +113,51 @@ export const useCoverWash = (): void => {
     const next = playingKnown ? nextShown(shown, Boolean(song), { ...cover, src }) : shown;
     if (next !== shown) setShown(next);
 
+    // The first application after `on` (cold start, or Cover colours turned on) is not a change.
+    const first = useRef(true);
+    const pending = useRef<number | undefined>(undefined);
+
     useLayoutEffect(() => {
         if (!on) return;
         const roles = rolesFor(shown.seed, shown.light);
-        applyWashVars(washVars(roles));
+        window.clearTimeout(pending.current);
+        pending.current = undefined;
         document.documentElement.setAttribute('data-cover-wash', 'true');
         useCoverWashStore.setState({
             artSrc: shown.artSrc,
-            light: shown.light,
+            backdrop: { mode: modeOf(shown), roles },
             on: true,
-            roles,
-            seed: shown.seed,
         });
-        // The last window seed, for the next cold start: a cover's, or neutral once nothing is known
-        // to play (so a launch with an empty queue does not open on the last cover's colours).
-        if (shown.artSrc || shown.seed === NEUTRAL_SEED) writeLastSeed(shown.seed);
-        logger.debug('cover wash: applied', {
-            cover: Boolean(shown.artSrc),
-            hue: Math.round(shown.seed.hue),
-            k: shown.seed.k,
-            light: shown.light,
-        });
-    }, [on, shown]);
-
-    // The colours ease only from the second frame on: the first frame shows the seed directly, not a
-    // fade from the registered properties' initial (neutral) values.
-    useEffect(() => {
-        if (!on) return undefined;
-        let frame = requestAnimationFrame(() => {
-            frame = requestAnimationFrame(() =>
-                document.documentElement.setAttribute('data-cover-wash-ease', 'true'),
-            );
-        });
-        return () => {
-            cancelAnimationFrame(frame);
-            document.documentElement.removeAttribute('data-cover-wash-ease');
+        const apply = () => {
+            pending.current = undefined;
+            applyWashVars(washVars(roles));
+            useCoverWashStore.setState({ light: shown.light, roles, seed: shown.seed });
+            // The last window seed, for the next cold start: a cover's, or neutral once nothing is
+            // known to play (so a launch with an empty queue does not open on the last cover's colours).
+            if (shown.artSrc || shown.seed === NEUTRAL_SEED) writeLastSeed(shown.seed);
+            logger.debug('cover wash: applied', {
+                cover: Boolean(shown.artSrc),
+                hue: Math.round(shown.seed.hue),
+                k: shown.seed.k,
+                light: shown.light,
+            });
         };
-    }, [on]);
+        const delay = switchDelayMs({
+            first: first.current,
+            reduced: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+        });
+        first.current = false;
+        if (delay === 0) apply();
+        else pending.current = window.setTimeout(apply, delay);
+    }, [on, shown]);
 
     useLayoutEffect(() => {
         if (!on) return undefined;
         return () => {
+            // No late write after off: the pending switch would put the variables back.
+            window.clearTimeout(pending.current);
+            pending.current = undefined;
+            first.current = true;
             applyWashVars(null);
             document.documentElement.removeAttribute('data-cover-wash');
             useCoverWashStore.setState({ artSrc: null, on: false });

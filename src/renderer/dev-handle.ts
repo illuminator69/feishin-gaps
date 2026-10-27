@@ -16,18 +16,33 @@ import {
 import { useMixesStore } from '/@/renderer/store/mixes.store';
 import { useSavedQueuesStore } from '/@/renderer/store/saved-queues.store';
 import { applyWashVars, washVars } from '/@/renderer/themes/cover/apply-wash-vars';
-import { type CoverSeed, rolesFor } from '/@/renderer/themes/cover/cover-roles';
+import { ROLE_SWITCH_MS } from '/@/renderer/themes/cover/colour-change';
+import { type CoverSeed, NEUTRAL_SEED, rolesFor } from '/@/renderer/themes/cover/cover-roles';
 import * as coverSeeds from '/@/renderer/themes/cover/cover-seed-store';
 import { useCoverWashStore } from '/@/renderer/themes/cover/cover-wash.store';
+import { logger } from '/@/renderer/utils/logger';
 import * as fuzzyMatch from '/@/shared/utils/fuzzy-match';
+
+let pendingWash: number | undefined;
 
 Object.assign(window, {
     __coverWash: {
-        /** Wear `seed` in the given mode until the playing cover next changes. */
+        /**
+         * Wear `seed` in the given mode until the playing cover next changes, with a real change's
+         * timing: the backdrop at once, the page's roles at the fade's midpoint.
+         */
         set: (seed: CoverSeed, light: boolean) => {
             const roles = rolesFor(seed, light);
-            applyWashVars(washVars(roles));
-            useCoverWashStore.setState({ light, roles, seed });
+            const mode = seed === NEUTRAL_SEED ? 'neutral' : light ? 'light' : 'dark';
+            window.clearTimeout(pendingWash);
+            useCoverWashStore.setState({ backdrop: { mode, roles } });
+            pendingWash = window.setTimeout(() => {
+                applyWashVars(washVars(roles));
+                useCoverWashStore.setState({ light, roles, seed });
+                logger.debug('cover wash: applied (dev handle)', {
+                    at: Math.round(performance.now()),
+                });
+            }, ROLE_SWITCH_MS);
         },
     },
     // F4 adds the app, hub, station and saved-queue stores, to set the side queue's states and
