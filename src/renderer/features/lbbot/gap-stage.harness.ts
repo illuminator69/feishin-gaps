@@ -211,6 +211,7 @@ test('filesWaitingOnLbBotsWorkspaceAreAttentionWhateverTheView', () => {
         status: 'failed',
     });
     assert.deepEqual(gapStage(input({ gap: stalled, view: 'sources' })), {
+        cause: 'stalledPlacement',
         kind: 'attention',
         reason: 'Reconcile in lb-bot',
     });
@@ -218,7 +219,13 @@ test('filesWaitingOnLbBotsWorkspaceAreAttentionWhateverTheView', () => {
         status: 'picking',
         tracks: [track(1, 'present'), track(2, 'downloaded'), track(3, 'missing')],
     });
-    assert.equal(gapStage(input({ gap: awaiting })).kind, 'attention');
+    // Review minor 12: with no sentence from lb-bot the stage says which kind, so the box can say
+    // why in its own fallback words instead of showing a pill alone.
+    assert.deepEqual(gapStage(input({ gap: awaiting })), {
+        cause: 'awaitingMatch',
+        kind: 'attention',
+        reason: '',
+    });
 });
 
 test('theSourcesViewSearchesThenChoosesPreselectingOnlyASafeSource', () => {

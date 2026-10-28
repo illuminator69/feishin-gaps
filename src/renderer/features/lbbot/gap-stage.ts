@@ -73,10 +73,10 @@ export type GapStage =
     /** Nothing missing, or the result has been shown: the box folds away. */
     | { added: number; kind: 'done'; present: number; total: number }
     /** lb-bot's record has not come yet and the box is open. */
+    | { cause: 'awaitingMatch' | 'stalledPlacement'; kind: 'attention'; reason: string }
     | { done: number; failed: number; kind: 'active'; steps: RequestStep[]; wanted: number }
-    | { kind: 'absent' }
     /** A fill that failed: why, and a way on. */
-    | { kind: 'attention'; reason: string }
+    | { kind: 'absent' }
     /** Files that arrived and need filing in lb-bot: no search or fetch from here can help. */
     | { kind: 'choosing'; preselected: null | number; sources: LbBotGapSource[] }
     | { kind: 'failed'; mp3WouldHelp: boolean; reason: string }
@@ -190,7 +190,11 @@ export const gapStage = (input: GapInput): GapStage => {
     }
     const searching = input.searchAsked || SEARCH_IN_FLIGHT.has(gap.sourceTask?.status ?? '');
     if (gap.stalledPlacement || (!searching && gapAwaitingMatch(gap))) {
-        return { kind: 'attention', reason: gapReason(gap) };
+        return {
+            cause: gap.stalledPlacement ? 'stalledPlacement' : 'awaitingMatch',
+            kind: 'attention',
+            reason: gapReason(gap),
+        };
     }
     // A fill that failed keeps the box open, saying why, until it is dismissed or tried again,
     // also over the sources it was requested from (the summary drops the source rows, and the

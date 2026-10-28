@@ -815,7 +815,15 @@ const GapBox = ({
                         ? t('naviConnect.gapBox.failed')
                         : t('naviConnect.gapBox.needsLbBot')}
                 </ReleasePill>
-                {stage.reason && <p className={styles.reason}>{stage.reason}</p>}
+                {/* lb-bot's sentence; with none, the modal's fallback for the kind (minor 12). */}
+                {(stage.reason || stage.kind === 'attention') && (
+                    <p className={styles.reason}>
+                        {stage.reason ||
+                            (stage.kind === 'attention' && stage.cause === 'stalledPlacement'
+                                ? t('naviConnect.gapBox.stalledPlacement')
+                                : t('naviConnect.gapBox.awaitingMatch'))}
+                    </p>
+                )}
                 <div className={styles.ways}>
                     {ways.map((way) => (
                         <button

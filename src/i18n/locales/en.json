@@ -1891,6 +1891,7 @@
             "added_one": "{{count}} track added",
             "added_other": "{{count}} tracks added",
             "allowMp3": "Allow MP3 for this request",
+            "awaitingMatch": "lb-bot needs a decision in its own match workspace for this album.",
             "back": "Back to the missing tracks",
             "clickToFold": "Click to fold",
             "clickToSee": "Click to see which",
@@ -1918,6 +1919,7 @@
             "requestTracks_other": "Request {{count}} tracks",
             "searchAgain": "Search again",
             "searching": "Searching for the missing tracks…",
+            "stalledPlacement": "Some tracks downloaded but were never filed into the album. Reconcile them in lb-bot's own workspace, or Re-check if they are already there.",
             "tracksFailed_one": "{{count}} track failed",
             "tracksFailed_other": "{{count}} tracks failed",
             "wrongEdition": "Wrong edition?"
