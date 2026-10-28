@@ -243,6 +243,8 @@
  * F6: the column the list is sorted by: a 2 px accent bar, and under the cover wash its label in the
  * accent (the Library board). A theme's own accent can be too dark for text here (defaultDark's blue
  * reads 3.6:1 on the header), so without the wash the label keeps the header's colour.
+ * R14 (B-249): the bar is the label's own width and sits under it, icons included (see
+ * `.header-content`).
  */
 .header-sorted .header-content {
     box-shadow: inset 0 -2px 0 var(--theme-colors-primary);
@@ -279,27 +281,44 @@
     background-color: var(--theme-colors-primary);
 }
 
+/*
+ * R14 (B-249): as wide as its label and one text line tall whatever it holds. The sorted column's bar
+ * is drawn on this box's bottom edge: it spanned the whole column, and on an icon header (the heart,
+ * the star: a box only the icon's 1em tall) it was drawn across the icon's lower part. Now every
+ * label has a text line (the zero-width space below), an icon stands on that line's baseline as the
+ * capitals of a word do, and the bar sits under it at the offset it has under a word (measured on
+ * the VM: 3 px under the star, 2.5 px under TITLE; it was 0.5 px, across the icon's tips).
+ */
 .header-content {
     display: flex;
-    align-items: center;
+    align-items: baseline;
+    width: fit-content;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     font-size: var(--theme-font-size-sm);
     white-space: nowrap;
 }
 
+.header-content::before {
+    content: '\200b';
+}
+
 .header-content.center {
     justify-content: center;
+    margin-inline: auto;
     text-align: center;
 }
 
 .header-content.left {
     justify-content: flex-start;
+    margin-inline-end: auto;
     text-align: left;
 }
 
 .header-content.right {
     justify-content: flex-end;
+    margin-inline-start: auto;
     text-align: right;
 }
 
