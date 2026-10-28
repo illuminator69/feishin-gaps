@@ -516,7 +516,9 @@
             "songMenu": "More options for {{title}}",
             "discography": "Discography",
             "showAll": "Show all",
-            "singlesAndEps": "Singles and EPs"
+            "singlesAndEps": "Singles and EPs",
+            "aboutHeading": "About",
+            "relatedArtistsHeading": "Related artists"
         },
         "albumArtistList": {
             "title": "$t(entity.albumArtist, {\"count\": 2})"
