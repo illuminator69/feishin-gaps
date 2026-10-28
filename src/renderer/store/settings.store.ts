@@ -581,6 +581,7 @@ export const GeneralSettingsSchema = z.object({
     playlistTarget: PlaylistTargetSchema,
     primaryShade: z.number().min(0).max(9),
     qobuz: z.boolean(),
+    queueLyricsOpen: z.boolean(),
     resume: z.boolean(),
     shareExpiration: ShareExpirationSchema,
     showFavorites: z.boolean(),
@@ -1461,6 +1462,8 @@ const initialState: SettingsState = {
         playlistTarget: PlaylistTarget.TRACK,
         primaryShade: 6,
         qobuz: true,
+        // R6: the queue panel's lyrics/visualiser area starts as its 40 px strip (B-207).
+        queueLyricsOpen: false,
         resume: true,
         shareExpiration: {
             amount: 1,
@@ -3059,10 +3062,16 @@ export const useSettingsStore = createWithEqualityFn<SettingsSlice>()(
                     )!;
                 }
 
+                // R6: the queue panel's lyrics/visualiser area is a strip that opens (B-207); it
+                // starts folded, so the queue keeps its rows. Settings import runs this too.
+                if (version < 40 && state.general && state.general.queueLyricsOpen === undefined) {
+                    state.general.queueLyricsOpen = false;
+                }
+
                 return persistedState;
             },
             name: 'store_settings',
-            version: 39,
+            version: 40,
         },
     ),
 );
@@ -3353,6 +3362,9 @@ export const useCombinedLyricsAndVisualizer = () =>
 
 export const useShowLyricsInSidebar = () =>
     useSettingsStore((state) => state.general.showLyricsInSidebar, shallow);
+
+export const useQueueLyricsOpen = () =>
+    useSettingsStore((state) => state.general.queueLyricsOpen, shallow);
 
 export const useShowQueueInSidebar = () =>
     useSettingsStore((state) => state.general.showQueueInSidebar, shallow);

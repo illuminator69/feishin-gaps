@@ -1,7 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
 import isElectron from 'is-electron';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    lazy,
+    ReactNode,
+    Suspense,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router';
 import { Pane, SplitPane, usePersistence } from 'react-split-pane';
@@ -11,6 +20,8 @@ import styles from './sidebar-play-queue.module.css';
 import { ItemListHandle } from '/@/renderer/components/item-list/types';
 import { lyricsQueries } from '/@/renderer/features/lyrics/api/lyrics-api';
 import { Lyrics } from '/@/renderer/features/lyrics/lyrics';
+import { Fold } from '/@/renderer/features/motion/fold';
+import { GROW_MS } from '/@/renderer/features/motion/grow';
 import { DockedSimilarSongs } from '/@/renderer/features/now-playing/components/docked-similar-songs';
 import { PlayQueue } from '/@/renderer/features/now-playing/components/play-queue';
 import { QueuePanelHeader } from '/@/renderer/features/now-playing/components/queue-panel-header';
@@ -21,6 +32,7 @@ import {
     useFullScreenPlayerStore,
     usePlaybackSettings,
     usePlayerSong,
+    useQueueLyricsOpen,
     useSettingsStore,
     useSettingsStoreActions,
     useShowLyricsInSidebar,
@@ -31,6 +43,7 @@ import {
 } from '/@/renderer/store';
 import { ActionIcon, ActionIconGroup } from '/@/shared/components/action-icon/action-icon';
 import { Flex } from '/@/shared/components/flex/flex';
+import { Icon } from '/@/shared/components/icon/icon';
 import { Stack } from '/@/shared/components/stack/stack';
 import { ItemListKey, Platform } from '/@/shared/types/types';
 
@@ -259,6 +272,31 @@ export const SidebarPlayQueue = () => {
             {showPanel ? (
                 orderedPanels.length === 1 ? (
                     <div className={styles.panelsContainer}>{renderPanel(orderedPanels[0])}</div>
+                ) : orderedPanels.includes('queue') ? (
+                    /*
+                     * R6 (B-207): with the queue, the lyrics/visualiser area is a strip across the
+                     * panel's bottom that opens (the board's QueueStates), in place of the fixed
+                     * split that left the queue a few rows. The order setting still orders lyrics
+                     * and visualiser inside the area.
+                     */
+                    <div className={clsx(styles.panelsContainer, styles.panelsWithStrip)}>
+                        <div className={styles.queueArea}>{renderPanel('queue')}</div>
+                        <QueueLyricsStrip
+                            kind={
+                                orderedPanels.includes('lyrics') && showLyricsInSidebar
+                                    ? 'lyrics'
+                                    : 'visualizer'
+                            }
+                        >
+                            {orderedPanels
+                                .filter((panel) => panel !== 'queue')
+                                .map((panel) => (
+                                    <div className={styles.stripPanel} key={panel}>
+                                        {renderPanel(panel)}
+                                    </div>
+                                ))}
+                        </QueueLyricsStrip>
+                    </div>
                 ) : (
                     <SplitPane
                         className={styles.panelsContainer}
@@ -301,6 +339,67 @@ export const SidebarPlayQueue = () => {
                 )
             )}
         </Stack>
+    );
+};
+
+/**
+ * The queue panel's lyrics/visualiser area as a 40 px strip (R6, B-207): folded, one row with the
+ * area's icon, its name and a chevron, and nothing else mounted; open, the area takes at most
+ * 320 px and at most 40 % of the panel. Open or folded is the user's, persisted
+ * (`general.queueLyricsOpen`), so it holds across songs and restarts. The area folds on the kit's
+ * clock (Fold), instant under reduced motion; it mounts before opening and unmounts once folded.
+ */
+const QueueLyricsStrip = ({
+    children,
+    kind,
+}: {
+    children: ReactNode;
+    kind: 'lyrics' | 'visualizer';
+}) => {
+    const { t } = useTranslation();
+    const open = useQueueLyricsOpen();
+    const { setSettings } = useSettingsStoreActions();
+    const [mounted, setMounted] = useState(open);
+    const [shown, setShown] = useState(open);
+
+    useEffect(() => {
+        if (open) {
+            let second = 0;
+            const first = requestAnimationFrame(() => {
+                setMounted(true);
+                second = requestAnimationFrame(() => setShown(true));
+            });
+            return () => {
+                cancelAnimationFrame(first);
+                cancelAnimationFrame(second);
+            };
+        }
+        const close = requestAnimationFrame(() => setShown(false));
+        const unmount = window.setTimeout(() => setMounted(false), GROW_MS + 50);
+        return () => {
+            cancelAnimationFrame(close);
+            window.clearTimeout(unmount);
+        };
+    }, [open]);
+
+    const label = t(`naviConnect.queue.strip.${kind}`);
+
+    return (
+        <div className={styles.lyricsStrip} data-open={open ? 'true' : 'false'}>
+            <button
+                aria-expanded={open}
+                className={styles.stripRow}
+                onClick={() => setSettings({ general: { queueLyricsOpen: !open } })}
+                type="button"
+            >
+                <Icon icon={kind === 'lyrics' ? 'microphone' : 'audioLines'} />
+                <span className={styles.stripLabel}>{label}</span>
+                <Icon className={styles.stripChevron} icon={open ? 'arrowDownS' : 'arrowUpS'} />
+            </button>
+            <Fold name="queue-lyrics" open={shown}>
+                {mounted && <div className={styles.stripArea}>{children}</div>}
+            </Fold>
+        </div>
     );
 };
 

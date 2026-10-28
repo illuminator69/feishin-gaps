@@ -1942,6 +1942,10 @@
             "songs_one": "{{count}} song",
             "songs_other": "{{count}} songs",
             "stopped": "stopped",
+            "strip": {
+                "lyrics": "Lyrics",
+                "visualizer": "Visualizer"
+            },
             "tableSettings": "Table settings"
         },
         "request": {
