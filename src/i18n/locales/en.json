@@ -1912,6 +1912,7 @@
             "missing_one": "{{count}} track missing",
             "missing_other": "{{count}} tracks missing",
             "needsLbBot": "Downloaded, but needs sorting out in lb-bot",
+            "noAnswer": "Can't reach lb-bot to read the missing tracks.",
             "noSources": "No sources found",
             "openInLbBot": "Open in lb-bot",
             "recheck": "Re-check",
@@ -1922,6 +1923,7 @@
             "stalledPlacement": "Some tracks downloaded but were never filed into the album. Reconcile them in lb-bot's own workspace, or Re-check if they are already there.",
             "tracksFailed_one": "{{count}} track failed",
             "tracksFailed_other": "{{count}} tracks failed",
+            "unreachable": "Can't reach lb-bot, so this may be out of date.",
             "wrongEdition": "Wrong edition?"
         },
         "libraryMatches": {

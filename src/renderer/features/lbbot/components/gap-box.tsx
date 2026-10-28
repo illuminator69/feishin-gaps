@@ -18,7 +18,9 @@ import {
     type GapBoxGroup,
     gapFillLanded,
     type GapFillRow,
+    gapPolls,
     gapProgress,
+    gapReadGaveUp,
     gapStage,
     gapStageFamily,
     type GapView,
@@ -210,31 +212,44 @@ const GapBox = ({
               total: active.total ?? 0,
           }
         : null;
-    // One read when the page opens, then polls only while something moves or the user is choosing
-    // (a fill started elsewhere arrives by the hub's `fill` frame, which re-reads this query). While
-    // this device has a ledger row, the app-root watcher keeps the same cache entry fresh too.
+    // One read when the page opens, then polls only while something moves or an open box has no
+    // answer yet (`gapPolls`, review minor 6); failed reads give up after PROTOCOL 15.2's bounded
+    // patience. A fill started elsewhere arrives by the hub's `fill` frame, which re-reads this
+    // query; while this device has a ledger row, the app-root watcher keeps the same entry fresh.
     const {
         error: readError,
+        failingSince,
         gap,
+        readAt,
         refetch,
-    } = useLbBotGap(
-        groupId,
-        true,
-        (current) =>
-            // An open box waiting on a first answer keeps asking: a failed read is not an answer.
-            (!current && view !== 'folded') ||
-            view === 'sources' ||
-            searchAsked ||
-            committed ||
-            (!!active && !active.settled) ||
-            gapIsBusy(current),
+    } = useLbBotGap(groupId, true, (current, since) =>
+        gapPolls({
+            answered: !!current,
+            busy: gapIsBusy(current),
+            committed,
+            failingSince: since,
+            fillRunning: !!active && !active.settled,
+            now: Date.now(),
+            searchAsked,
+            view,
+        }),
     );
+    const readGaveUp = gapReadGaveUp(failingSince, readAt);
     const sourceFiles = useGapSourceFiles(groupId);
     const webUrl = useLbBotWebUrl();
     const albumControls = useAlbumOverrideControls();
     const busy = gapIsBusy(gap);
 
-    const stage = gapStage({ committed, fill, gap, mirroredMissing, now, searchAsked, view });
+    const stage = gapStage({
+        committed,
+        fill,
+        gap,
+        mirroredMissing,
+        now,
+        readGaveUp,
+        searchAsked,
+        view,
+    });
 
     // The result row holds for a few seconds after the finish, then the box folds away.
     useEffect(() => {
@@ -538,6 +553,17 @@ const GapBox = ({
                 </p>
                 {readError && <p className={styles.error}>{readError}</p>}
             </>
+        );
+    } else if (stage.kind === 'unreachable') {
+        content = (
+            <div className={styles.recovery} data-gap-unreachable="">
+                <p className={styles.reason}>{readError || t('naviConnect.gapBox.noAnswer')}</p>
+                <div>
+                    <Button onClick={() => void refetch()} size="compact-sm" variant="default">
+                        {t('naviConnect.albumPage.tryAgain')}
+                    </Button>
+                </div>
+            </div>
         );
     } else if (
         stage.kind === 'searching' ||
@@ -862,6 +888,20 @@ const GapBox = ({
                         {error && (
                             <p className={styles.error} role="alert">
                                 {error}
+                            </p>
+                        )}
+                        {/* Reads gave up over a record already shown: it may be stale, and the
+                            box no longer asks on its own. */}
+                        {readGaveUp && stage.kind !== 'unreachable' && (
+                            <p className={styles.error} data-gap-unreachable="">
+                                {t('naviConnect.gapBox.unreachable')}{' '}
+                                <button
+                                    className={styles.link}
+                                    onClick={() => void refetch()}
+                                    type="button"
+                                >
+                                    {t('naviConnect.albumPage.tryAgain')}
+                                </button>
                             </p>
                         )}
                     </div>

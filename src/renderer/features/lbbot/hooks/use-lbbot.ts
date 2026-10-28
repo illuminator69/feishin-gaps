@@ -2644,23 +2644,32 @@ export const gapIsBusy = (gap: LbBotGap | null | undefined): boolean => {
  * only exists while the user is looking at it, and five seconds is the floor
  * lb-bot's single process and process-wide lock can afford anyway.
  */
+/** A gap read as the box's query keeps it: when failing reads began rides along (0: answered).
+ *  The app-root watcher writes the same key without it, which reads as answered or just failing. */
+type GapRead = LbBotResult<LbBotGap> & { failingSince?: number };
+
 export const useLbBotGap = (
     groupId: null | string,
     enabled: boolean,
     /** R11: poll only while this says so (the album page's gaps box reads once, then polls while
-     *  something moves); absent, it polls for as long as it is enabled. */
-    poll?: (gap: LbBotGap | null) => boolean,
+     *  something moves, `gapPolls`); absent, it polls for as long as it is enabled. It is given
+     *  the last record that answered and when reads started failing (0 while they answer). */
+    poll?: (gap: LbBotGap | null, failingSince: number) => boolean,
 ) => {
     const queryClient = useQueryClient();
     const queryKey = ['lbbot', 'gap', groupId];
     const quiet = useRef(0);
-    const query = useQuery<LbBotResult<LbBotGap>>({
+    // The last record that answered, for the poll predicate: a failed tick carries none.
+    const lastGood = useRef<LbBotGap | null>(null);
+    const query = useQuery<GapRead>({
         enabled: !!lbBot && !!groupId && enabled,
         // A failed tick must not blank the modal while the retry is pending.
         placeholderData: keepPreviousData,
         queryFn: async () => {
-            const previous = queryClient.getQueryData<LbBotResult<LbBotGap>>(queryKey)?.data;
+            const before = queryClient.getQueryData<GapRead>(queryKey);
+            const previous = before?.data;
             const next = await lbBot!.gap(groupId!);
+            if (next.ok) lastGood.current = next.data;
             // Per-track states are the whole of a gap's progress, so they are what
             // the "has anything moved?" digest is built from. Same reason as the
             // album path: most ticks re-read a body that has not changed.
@@ -2669,19 +2678,34 @@ export const useLbBotGap = (
                     ? `${gap.status}|${gap.sourceTask?.status}|${gap.tracks.map((t) => t.state).join('')}`
                     : '';
             quiet.current = digest(previous) === digest(next.data) ? quiet.current + 1 : 0;
-            return next;
+            // A failed read is not an answer (PROTOCOL 15.2): when the failing began rides with
+            // the result, so a caller can bound its patience on the clock.
+            return {
+                ...next,
+                failingSince: next.ok ? 0 : before?.failingSince || Date.now(),
+            };
         },
         queryKey,
         refetchInterval: (query) =>
-            !poll || poll(query.state.data?.data ?? null) ? pollInterval(quiet.current) : false,
+            !poll ||
+            poll(
+                query.state.data?.ok ? query.state.data.data : lastGood.current,
+                query.state.data?.failingSince ?? 0,
+            )
+                ? pollInterval(quiet.current)
+                : false,
         retry: false,
         staleTime: 0,
     });
     const tolerated = useToleratedResult(query.data);
     return {
         error: tolerated.error,
+        /** When reads started failing (0 while they answer), as of the last read. */
+        failingSince: query.data?.failingSince ?? 0,
         gap: tolerated.data,
         isLoading: query.isFetching && !tolerated.data,
+        /** When the last read landed, answered or not. */
+        readAt: query.dataUpdatedAt,
         refetch: query.refetch,
     };
 };

@@ -49,6 +49,8 @@ export interface GapInput {
     /** The index's count, for the folded line before `gap` lands. */
     mirroredMissing: number;
     now: number;
+    /** Reads have failed for longer than `GAP_READ_PATIENCE_MS` and the box stopped asking. */
+    readGaveUp: boolean;
     /** A search press whose answer, or the read that shows it running, has not come yet. */
     searchAsked: boolean;
     view: GapView;
@@ -87,7 +89,8 @@ export type GapStage =
     /** A search that ended with nothing; lb-bot's reason when it gave one. */
     | { kind: 'searching' }
     /** Unfolded to the missing songs and what they are measured against. */
-    | { kind: 'tracks'; missing: LbBotGapTrack[]; total: number };
+    | { kind: 'tracks'; missing: LbBotGapTrack[]; total: number }
+    | { kind: 'unreachable' };
 
 /** Track states that mean "nothing further is coming for this slot". B-004: `cancelled` counts
  *  toward completion without counting as a success or a failure. */
@@ -155,9 +158,8 @@ export const gapStage = (input: GapInput): GapStage => {
     const { fill, gap } = input;
     if (!gap) {
         if (input.mirroredMissing <= 0) return { kind: 'absent' };
-        return input.view === 'folded'
-            ? { kind: 'folded', missing: input.mirroredMissing }
-            : { kind: 'loading' };
+        if (input.view === 'folded') return { kind: 'folded', missing: input.mirroredMissing };
+        return input.readGaveUp ? { kind: 'unreachable' } : { kind: 'loading' };
     }
     const transferring =
         input.committed ||
@@ -229,6 +231,43 @@ export const gapStage = (input: GapInput): GapStage => {
     }
     if (input.view !== 'folded') return { kind: 'tracks', missing, total: gap.total };
     return { kind: 'folded', missing: missing.length > 0 ? missing.length : input.mirroredMissing };
+};
+
+/**
+ * How long failed reads of the gap are retried before the box stops asking: PROTOCOL 15.2's
+ * bounded patience on the clock (two minutes continuous). A failed read is not an answer, so the
+ * box keeps what it had; after this it says lb-bot cannot be reached and asks again on a press,
+ * or when the hub's `fill` frame re-reads the group.
+ */
+export const GAP_READ_PATIENCE_MS = 120_000;
+
+/** Reads have failed since `failingSince` (0: the last read answered) for the whole patience. */
+export const gapReadGaveUp = (failingSince: number, now: number): boolean =>
+    failingSince > 0 && now - failingSince >= GAP_READ_PATIENCE_MS;
+
+/**
+ * Whether the album page's box reads the gap again (review minor 6). It reads once as the page
+ * opens; then only while something moves (a search or fetch pressed here and not yet showing, a
+ * transfer or search lb-bot reports, this device's ledger row running) or an open box still has
+ * no answer. The cards on screen with nothing searching are not something moving: the hub's
+ * fast pool has two slots. Failed reads give up after the patience above, whatever else is set.
+ */
+export const gapPolls = (input: {
+    /** A record has landed. */
+    answered: boolean;
+    /** `gapIsBusy` of the record: lb-bot reports a search or a transfer. */
+    busy: boolean;
+    committed: boolean;
+    failingSince: number;
+    /** This device's ledger row for the group is not settled. */
+    fillRunning: boolean;
+    now: number;
+    searchAsked: boolean;
+    view: GapView;
+}): boolean => {
+    if (gapReadGaveUp(input.failingSince, input.now)) return false;
+    if (input.searchAsked || input.committed || input.fillRunning || input.busy) return true;
+    return !input.answered && input.view !== 'folded';
 };
 
 /** Which stages share a header, so a change between them does not cross-fade the whole box. */

@@ -4,11 +4,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    GAP_READ_PATIENCE_MS,
     GAP_RESULT_HOLD_MS,
     gapBoxGroup,
     gapFillLanded,
     type GapFillRow,
     type GapInput,
+    gapPolls,
+    gapReadGaveUp,
     type GapRecord,
     gapStage,
     heldTracks,
@@ -81,6 +84,7 @@ const input = (over: Partial<GapInput> = {}): GapInput => ({
     gap: gap(),
     mirroredMissing: 2,
     now: 100_000,
+    readGaveUp: false,
     searchAsked: false,
     view: 'folded',
     ...over,
@@ -383,4 +387,55 @@ test('a sources view restored with nothing asked and nothing found falls back to
         stage.missing.map((t) => t.position),
         [3, 4],
     );
+});
+
+const polls = (over: Partial<Parameters<typeof gapPolls>[0]> = {}) =>
+    gapPolls({
+        answered: true,
+        busy: false,
+        committed: false,
+        failingSince: 0,
+        fillRunning: false,
+        now: 1_000_000,
+        searchAsked: false,
+        view: 'folded',
+        ...over,
+    });
+
+test('the box polls only while something moves or an open box has no answer yet', () => {
+    // Review minor 6: the cards on screen with nothing searching are not something moving.
+    assert.equal(polls(), false);
+    assert.equal(polls({ view: 'sources' }), false);
+    assert.equal(polls({ view: 'tracks' }), false);
+    assert.equal(polls({ busy: true, view: 'sources' }), true);
+    assert.equal(polls({ searchAsked: true }), true);
+    assert.equal(polls({ committed: true }), true);
+    assert.equal(polls({ fillRunning: true }), true);
+    // An open box still waiting on its first answer keeps asking; a folded one reads once.
+    assert.equal(polls({ answered: false, view: 'sources' }), true);
+    assert.equal(polls({ answered: false, view: 'tracks' }), true);
+    assert.equal(polls({ answered: false }), false);
+});
+
+test('failed reads are retried for two minutes on the clock, then the box stops asking', () => {
+    // PROTOCOL 15.2: a failed poll is not an answer, and patience is bounded on the clock.
+    const since = 1_000_000 - GAP_READ_PATIENCE_MS;
+    assert.equal(polls({ answered: false, failingSince: since + 1, view: 'tracks' }), true);
+    assert.equal(polls({ answered: false, failingSince: since, view: 'tracks' }), false);
+    assert.equal(polls({ failingSince: since, fillRunning: true }), false);
+    assert.equal(gapReadGaveUp(0, 5_000_000), false);
+    assert.equal(gapReadGaveUp(1_000, 1_000 + GAP_READ_PATIENCE_MS - 1), false);
+    assert.equal(gapReadGaveUp(1_000, 1_000 + GAP_READ_PATIENCE_MS), true);
+});
+
+test('an open box whose reads gave up says lb-bot cannot be reached, instead of loading for good', () => {
+    assert.deepEqual(
+        gapStage(input({ gap: null, mirroredMissing: 3, readGaveUp: true, view: 'tracks' })),
+        { kind: 'unreachable' },
+    );
+    // Folded, the mirror's count still stands.
+    assert.deepEqual(gapStage(input({ gap: null, mirroredMissing: 3, readGaveUp: true })), {
+        kind: 'folded',
+        missing: 3,
+    });
 });
