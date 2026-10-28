@@ -5,7 +5,7 @@ import styles from './left-sidebar.module.css';
 
 import { ResizeHandle } from '/@/renderer/features/shared/components/resize-handle';
 import { useAppStore } from '/@/renderer/store';
-import { DURATION, EASING } from '/@/shared/components/animations/motion-tokens';
+import { readMotionClock } from '/@/shared/components/animations/motion-tokens';
 
 const CollapsedSidebar = lazy(() =>
     import('/@/renderer/features/sidebar/components/collapsed-sidebar').then((module) => ({
@@ -29,6 +29,8 @@ export const LeftSidebar = ({ isResizing, startResizing }: LeftSidebarProps) => 
     const collapsed = useAppStore((state) => state.sidebar.collapsed);
     // The crossfade always runs, except under reduced motion (the plain instant swap).
     const crossfade = !useReducedMotion();
+    // The crossfade runs on the grid tween's clock (--motion-duration, --motion-ease), not its own.
+    const clock = readMotionClock();
 
     /*
      * A crossfade entry must never reuse a node that is still exiting. Keying the two states by
@@ -67,7 +69,7 @@ export const LeftSidebar = ({ isResizing, startResizing }: LeftSidebarProps) => 
                         initial={{ opacity: 0 }}
                         key={`${collapsed ? 'collapsed' : 'expanded'}-${generationRef.current}`}
                         style={{ inset: 0, position: 'absolute' }}
-                        transition={{ duration: DURATION.medium1 / 1000, ease: EASING.emphasized }}
+                        transition={{ duration: clock.ms / 1000, ease: clock.ease }}
                     >
                         {content}
                     </motion.div>
