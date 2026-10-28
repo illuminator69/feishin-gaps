@@ -1,7 +1,6 @@
 // Component adapted from https://github.com/bvaughn/react-window/issues/826
 
 import clsx from 'clsx';
-import { motion } from 'motion/react';
 import React, {
     type JSXElementConstructor,
     memo,
@@ -82,7 +81,6 @@ import {
     useAlbumGroupVerticalLayout,
     usePlayerStore,
 } from '/@/renderer/store';
-import { animationProps } from '/@/shared/components/animations/animation-props';
 import { useFocusWithin } from '/@/shared/hooks/use-focus-within';
 import { useMergedRef } from '/@/shared/hooks/use-merged-ref';
 import { LibraryItem } from '/@/shared/types/domain-types';
@@ -822,7 +820,6 @@ interface ItemTableListProps {
     enableAlternateRowColors?: boolean;
     enableDrag?: boolean;
     enableDragScroll?: boolean;
-    enableEntranceAnimation?: boolean;
     enableExpansion?: boolean;
     enableHeader?: boolean;
     enableHorizontalBorders?: boolean;
@@ -1267,7 +1264,6 @@ const BaseItemTableList = ({
     enableAlternateRowColors = false,
     enableDrag = true,
     enableDragScroll = true,
-    enableEntranceAnimation = true,
     enableExpansion = true,
     enableHeader = true,
     enableHorizontalBorders = false,
@@ -1902,7 +1898,7 @@ const BaseItemTableList = ({
     }, [CellComponent, columnCellComponents]);
 
     const tableMotion = (
-        <motion.div
+        <div
             className={styles.itemTableListContainer}
             onKeyDown={handleKeyDown}
             onMouseDown={(e) => {
@@ -1914,8 +1910,6 @@ const BaseItemTableList = ({
             }}
             ref={mergedContainerRef}
             tabIndex={0}
-            {...animationProps.fadeIn}
-            transition={{ duration: enableEntranceAnimation ? 0.3 : 0, ease: 'anticipate' }}
         >
             <ItemTableListStickyUI
                 calculatedColumnWidths={displayColumnWidths}
@@ -1966,7 +1960,7 @@ const BaseItemTableList = ({
                 totalColumnCount={totalColumnCount}
                 totalRowCount={totalRowCount}
             />
-        </motion.div>
+        </div>
     );
 
     return (
