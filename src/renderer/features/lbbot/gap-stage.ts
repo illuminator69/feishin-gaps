@@ -219,10 +219,11 @@ export const gapStage = (input: GapInput): GapStage => {
                 reason: gap.noSourceReason,
             };
         }
-        // Nothing asked yet: the box asks as it opens on the sources.
-        return { kind: 'searching' };
+        // Nothing asked and nothing found: a view restored on a return (nothing fires a search
+        // then, review minor 7) shows the tracks, where Fill gaps asks. Fill gaps itself marks
+        // its search as asked, so a press never lands here.
     }
-    if (input.view === 'tracks') return { kind: 'tracks', missing, total: gap.total };
+    if (input.view !== 'folded') return { kind: 'tracks', missing, total: gap.total };
     return { kind: 'folded', missing: missing.length > 0 ? missing.length : input.mirroredMissing };
 };
 

@@ -222,7 +222,9 @@ test('filesWaitingOnLbBotsWorkspaceAreAttentionWhateverTheView', () => {
 });
 
 test('theSourcesViewSearchesThenChoosesPreselectingOnlyASafeSource', () => {
-    assert.deepEqual(gapStage(input({ view: 'sources' })), { kind: 'searching' });
+    assert.deepEqual(gapStage(input({ searchAsked: true, view: 'sources' })), {
+        kind: 'searching',
+    });
     assert.deepEqual(
         gapStage(input({ gap: gap({ sourceTask: task('running') }), view: 'sources' })),
         { kind: 'searching' },
@@ -361,5 +363,17 @@ test('the box stays for the visit once shown, when the index flips the album to 
             }),
         ).kind,
         'done',
+    );
+});
+
+test('a sources view restored with nothing asked and nothing found falls back to the tracks', () => {
+    // Review minor 7: coming back to a box left on the sources, when lb-bot holds no sources and
+    // no search, used to say "Searching" for good (nothing fires a search on a return).
+    const stage = gapStage(input({ view: 'sources' }));
+    assert.equal(stage.kind, 'tracks');
+    if (stage.kind !== 'tracks') return;
+    assert.deepEqual(
+        stage.missing.map((t) => t.position),
+        [3, 4],
     );
 });
