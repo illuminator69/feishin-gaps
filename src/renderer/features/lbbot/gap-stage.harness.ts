@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import {
     GAP_RESULT_HOLD_MS,
+    gapBoxGroup,
     gapFillLanded,
     type GapFillRow,
     type GapInput,
@@ -330,5 +331,34 @@ test('heldTracksCountWhatTheLibraryHasBeforeAndAfterTheFill', () => {
             }),
         ),
         3,
+    );
+});
+
+test('the box stays for the visit once shown, when the index flips the album to present as the fill lands', () => {
+    // Review I3: lb-bot marks the group present on a Fill-gaps completion and the mirror follows,
+    // so the page stops naming the album incomplete at the moment the box should show its result.
+    const shown = gapBoxGroup(null, 'al-1', { groupId: 'g-1', missing: 2 });
+    assert.deepEqual(shown, { albumId: 'al-1', groupId: 'g-1', mirroredMissing: 2 });
+    assert.deepEqual(gapBoxGroup(shown, 'al-1', null), {
+        albumId: 'al-1',
+        groupId: 'g-1',
+        mirroredMissing: 0,
+    });
+    // Another album on the same page component inherits nothing.
+    assert.equal(gapBoxGroup(shown, 'al-2', null), null);
+    // Never shown: nothing.
+    assert.equal(gapBoxGroup(null, 'al-1', null), null);
+    // And the stage still holds the result row once the count goes to nothing.
+    const filled = gap({ status: 'complete', tracks: [track(1, 'present'), track(2, 'done')] });
+    assert.equal(
+        gapStage(
+            input({
+                fill: fill('done', { finishedAt: 100_000 }),
+                gap: filled,
+                mirroredMissing: 0,
+                now: 101_000,
+            }),
+        ).kind,
+        'done',
     );
 });

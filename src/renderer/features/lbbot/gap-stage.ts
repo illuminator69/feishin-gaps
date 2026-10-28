@@ -246,3 +246,29 @@ export const gapFillLanded = (
     (!!fill && fill.settled && fill.outcome === 'done') ||
     gap.status === 'complete' ||
     (gap.total > 0 && missingTracks(gap).length === 0);
+
+/** The review group an album page's box is for, and the index's count of what it misses. */
+export interface GapBoxGroup {
+    albumId: string;
+    groupId: string;
+    mirroredMissing: number;
+}
+
+/**
+ * Which group the album page's box is for. Once shown for an album it stays for the visit (review
+ * I3): lb-bot flips the group's index row to `present` as a Fill-gaps completion lands, so the
+ * mirror stops naming the album incomplete exactly when the box should show its result row. The
+ * box then has nothing mirrored to count and `gapStage` decides when it goes. Another album on
+ * the same page inherits nothing.
+ */
+export const gapBoxGroup = (
+    kept: GapBoxGroup | null,
+    albumId: string,
+    release: null | { groupId: string; missing: number },
+): GapBoxGroup | null => {
+    if (release?.groupId) {
+        return { albumId, groupId: release.groupId, mirroredMissing: release.missing };
+    }
+    if (kept && kept.albumId === albumId) return { ...kept, mirroredMissing: 0 };
+    return null;
+};

@@ -14,6 +14,8 @@ import { SourceCards } from '/@/renderer/features/lbbot/components/source-cards'
 import { shownSelection } from '/@/renderer/features/lbbot/components/source-cards-model';
 import {
     GAP_RESULT_HOLD_MS,
+    gapBoxGroup,
+    type GapBoxGroup,
     gapFillLanded,
     type GapFillRow,
     gapProgress,
@@ -120,7 +122,8 @@ export interface GapBoxLocationState {
 
 /**
  * The gaps box for an album the library holds part of, above the tracklist's toolbar. Renders
- * nothing unless lb-bot knows this exact album is incomplete and the hub proxies the gap routes:
+ * nothing unless lb-bot knew this exact album incomplete during the visit and the hub proxies the
+ * gap routes:
  * not configured, unreachable, a hub too old and a complete album all look like no box at all
  * (the same decision the context menu's "Find N missing tracks" makes). It never starts a
  * discography scan: the index answers from the mirror or one read.
@@ -135,14 +138,30 @@ export const AlbumGapBox = ({ album }: { album: Album }) => {
         () => gapsByAlbumId(discography.data).get(album.id),
         [discography.data, album.id],
     );
-    if (!available || !supported || !release?.groupId) return null;
+    // Once shown, the box stays for the visit (review I3): the index flips the album to present as
+    // the fill lands, and the box has its result row to show and its re-reads to run.
+    const [kept, setKept] = useState<GapBoxGroup | null>(null);
+    const shown = gapBoxGroup(
+        kept,
+        album.id,
+        release?.groupId
+            ? {
+                  groupId: release.groupId,
+                  missing: Math.max((release.totalTracks ?? 0) - (release.presentTracks ?? 0), 0),
+              }
+            : null,
+    );
+    if (shown && (shown.groupId !== kept?.groupId || shown.albumId !== kept.albumId)) {
+        setKept(shown);
+    }
+    if (!available || !supported || !shown) return null;
     return (
         <GapBox
             albumId={album.id}
             albumName={album.name}
-            groupId={release.groupId}
-            key={release.groupId}
-            mirroredMissing={Math.max((release.totalTracks ?? 0) - (release.presentTracks ?? 0), 0)}
+            groupId={shown.groupId}
+            key={shown.groupId}
+            mirroredMissing={shown.mirroredMissing}
             songCount={album.songs?.length ?? album.songCount ?? 0}
         />
     );
