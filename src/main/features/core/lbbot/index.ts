@@ -1927,9 +1927,11 @@ ipcMain.handle(
         const data = result.data;
         const resolved = (data?.resolved ?? {}) as Json;
         const ok = result.ok && data?.ok === true;
+        const code = ok ? '' : result.code || str(data?.code);
         return {
             // B-084: the echo of `allFiles`; absent stays undefined (an older hub or lb-bot).
             ...(typeof data?.allFiles === 'boolean' ? { allFiles: data.allFiles } : {}),
+            ...(code ? { code } : {}),
             // A 200 carrying `ok: false` is lb-bot refusing for its own reason —
             // which it states in `error`, and which is the sentence worth showing.
             error: ok ? '' : result.error || str(data?.error) || 'lb-bot refused the download.',
@@ -2308,9 +2310,13 @@ ipcMain.handle(
  *  on the gap detail is how a running search is watched. */
 const gapAction = async (route: string, body: Json): Promise<LbBotResult<boolean>> => {
     const result = await request('POST', route, { body });
-    if (!result.ok) return failed(result.status, result.error);
+    // lb-bot's `code` rides along (R12, B-238): the box decides from it whether the refusal says
+    // the cards are stale, never from the sentence.
+    if (!result.ok) return failed(result.status, result.error, false, { code: result.code });
     const ok = result.data?.ok !== false;
+    const code = ok ? '' : str(result.data?.code);
     return {
+        ...(code ? { code } : {}),
         data: ok,
         error: ok ? '' : str(result.data?.error) || 'lb-bot refused the request.',
         ok,

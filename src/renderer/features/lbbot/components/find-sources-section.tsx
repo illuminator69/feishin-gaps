@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import styles from './album-request-box.module.css';
 
 import scanStyles from '/@/renderer/features/discography/components/scan.module.css';
-import { SourceCards } from '/@/renderer/features/lbbot/components/source-cards';
+import { SourceCards, SourceRefusal } from '/@/renderer/features/lbbot/components/source-cards';
 import { type AlbumRequest } from '/@/renderer/features/lbbot/hooks/use-album-request';
 import { Button } from '/@/shared/components/button/button';
 import { Select } from '/@/shared/components/select/select';
@@ -133,6 +133,13 @@ export const FindSourcesSection = ({ request }: { request: AlbumRequest }) => {
                         >
                             {t('naviConnect.albumPage.downloadFromHere')}
                         </Button>
+                        {/* B-238: a refusal says why right here, in lb-bot's words. */}
+                        {request.refusal?.sourceId === source.id && (
+                            <SourceRefusal
+                                message={request.refusal.message}
+                                onSearchAgain={request.refusal.stale ? sources.again : undefined}
+                            />
+                        )}
                         <p className={styles.line}>{t('naviConnect.albumPage.fallback')}</p>
                     </div>
                 )}

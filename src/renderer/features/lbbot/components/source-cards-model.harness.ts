@@ -7,6 +7,7 @@ import {
     initialGapSelection,
     initialSelection,
     isSafeSource,
+    refusalSaysListIsStale,
     shownSelection,
     sourceKey,
     sourceRank,
@@ -128,4 +129,17 @@ test('a listing is kept by the folder it lists, not by its place in one search',
     assert.notEqual(sourceKey(first), sourceKey(again));
     assert.equal(sourceKey(first), sourceKey(moved));
     assert.notEqual(sourceKey(first), sourceKey(source({ folder: 'A', id: 0, peer: 'q' })));
+});
+
+test('a refusal says the list is stale by its code, else by its status, never by its words', () => {
+    // lb-bot's /api/gaps/<id>/fetch: the card's index is out of the kept list, or there is none.
+    assert.equal(refusalSaysListIsStale({ code: 'bad_source', status: 400 }), true);
+    assert.equal(refusalSaysListIsStale({ code: 'no_sources', status: 400 }), true);
+    // Other reasons with a code: Search again would not help.
+    assert.equal(refusalSaysListIsStale({ code: 'nothing_to_fetch', status: 400 }), false);
+    assert.equal(refusalSaysListIsStale({ code: 'not_found', status: 410 }), false);
+    // No code: only 410 Gone says it; a 200 carrying ok false, or a plain 400, does not.
+    assert.equal(refusalSaysListIsStale({ status: 410 }), true);
+    assert.equal(refusalSaysListIsStale({ status: 200 }), false);
+    assert.equal(refusalSaysListIsStale({ status: 400 }), false);
 });

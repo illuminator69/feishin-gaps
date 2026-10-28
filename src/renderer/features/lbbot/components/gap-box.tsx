@@ -10,8 +10,11 @@ import { PillTone, ReleasePill } from '/@/renderer/features/discography/componen
 import scanStyles from '/@/renderer/features/discography/components/scan.module.css';
 import { openAlbumMatchModal } from '/@/renderer/features/lbbot/components/album-match-modal';
 import { RequestSteps } from '/@/renderer/features/lbbot/components/request-steps';
-import { SourceCards } from '/@/renderer/features/lbbot/components/source-cards';
-import { shownSelection } from '/@/renderer/features/lbbot/components/source-cards-model';
+import { SourceCards, SourceRefusal } from '/@/renderer/features/lbbot/components/source-cards';
+import {
+    refusalSaysListIsStale,
+    shownSelection,
+} from '/@/renderer/features/lbbot/components/source-cards-model';
 import {
     GAP_RESULT_HOLD_MS,
     gapBoxGroup,
@@ -215,6 +218,12 @@ const GapBox = ({
     const [committed, setCommitted] = useState(false);
     const [working, setWorking] = useState(false);
     const [error, setError] = useState('');
+    // A refused Request, shown under that card's button (B-238), not at the box's foot.
+    const [refused, setRefused] = useState<null | {
+        message: string;
+        sourceId: number;
+        stale: boolean;
+    }>(null);
     const [picked, setPicked] = useState<null | number>(null);
     const [fetched, setFetched] = useState<LbBotGapSource | null>(null);
     const [now, setNow] = useState(() => Date.now());
@@ -224,6 +233,7 @@ const GapBox = ({
         gapViews.set(groupId, next);
         setViewState(next);
         setError('');
+        setRefused(null);
     };
 
     const active = useActiveGap(groupId);
@@ -413,20 +423,34 @@ const GapBox = ({
 
     const choose = (source: LbBotGapSource) => {
         setPicked(source.id);
+        setRefused(null);
         // A gap's listing is not on the poll (the hub strips it): fetched once, on the pick.
         void sourceFiles.open(source);
     };
 
-    const request = (source: LbBotGapSource) =>
-        void act(
-            () => fetchGapSource(groupId, source.id),
-            () => {
-                startGap(groupId, { album: gap?.album, artist: gap?.artist });
-                setCommitted(true);
-                setFetched(source);
-                setView('tracks');
-            },
-        );
+    /** Request: a refusal stays with the card it was asked for, in lb-bot's words (B-238). */
+    const request = async (source: LbBotGapSource) => {
+        setWorking(true);
+        setError('');
+        setRefused(null);
+        try {
+            const result = await fetchGapSource(groupId, source.id);
+            if (!result.ok) {
+                setRefused({
+                    message: result.error || t('naviConnect.gapBox.refused'),
+                    sourceId: source.id,
+                    stale: refusalSaysListIsStale(result),
+                });
+                return;
+            }
+            startGap(groupId, { album: gap?.album, artist: gap?.artist });
+            setCommitted(true);
+            setFetched(source);
+            setView('tracks');
+        } finally {
+            setWorking(false);
+        }
+    };
 
     const auto = () =>
         void act(
@@ -714,13 +738,21 @@ const GapBox = ({
                                             data-gap-request=""
                                             disabled={working}
                                             loading={working}
-                                            onClick={() => request(source)}
+                                            onClick={() => void request(source)}
                                             variant="filled"
                                         >
                                             {t('naviConnect.gapBox.requestTracks', {
                                                 count: wanted,
                                             })}
                                         </Button>
+                                        {refused?.sourceId === source.id && (
+                                            <SourceRefusal
+                                                message={refused.message}
+                                                onSearchAgain={
+                                                    refused.stale ? () => void search() : undefined
+                                                }
+                                            />
+                                        )}
                                     </div>
                                 )}
                                 selected={selected}

@@ -39,6 +39,8 @@ export interface LbBotDownloadResult {
      *  carries none (an older hub or lb-bot): a client that asked for all files and
      *  reads this as not-true must not claim "all files". */
     allFiles?: boolean;
+    /** lb-bot's machine-readable reason for a refusal, when its body carried one. */
+    code?: string;
     /** Empty when ok. lb-bot's own sentence where it wrote one — it writes them
      *  for humans, so it is shown verbatim rather than paraphrased. */
     error: string;

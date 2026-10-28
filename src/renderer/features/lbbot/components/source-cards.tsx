@@ -89,6 +89,38 @@ export const SourceFileListing = ({ view }: { view: SourceFilesView }) => {
     );
 };
 
+/**
+ * R12 (B-238): a refused Request, right under the button that was pressed rather than at the box's
+ * foot, off screen: lb-bot's own sentence, and Search again beside it when the refusal says the cards
+ * are stale (`refusalSaysListIsStale`). The caller passes `onSearchAgain` only then.
+ */
+export const SourceRefusal = ({
+    message,
+    onSearchAgain,
+}: {
+    message: string;
+    onSearchAgain?: () => void;
+}) => {
+    const { t } = useTranslation();
+    return (
+        <div className={styles.refusal} data-source-refusal="">
+            <p className={styles.refusalText} role="alert">
+                {message}
+            </p>
+            {onSearchAgain && (
+                <Button
+                    data-source-refusal-again=""
+                    onClick={onSearchAgain}
+                    size="compact-sm"
+                    variant="default"
+                >
+                    {t('naviConnect.gapBox.searchAgain')}
+                </Button>
+            )}
+        </div>
+    );
+};
+
 interface SourceCardsProps {
     /** While a request is on its way: the cards stay, unchoosable. */
     disabled?: boolean;

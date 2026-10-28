@@ -213,6 +213,23 @@
     padding-top: 8px;
 }
 
+/* A refused Request (R12, B-238): lb-bot's sentence under the button, Search again beside it. */
+.refusal {
+    display: flex;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: center;
+    min-width: 0;
+}
+
+.refusal-text {
+    min-width: 0;
+    margin: 0;
+    font-size: 13px;
+    color: color-mix(in oklab, var(--theme-colors-state-error) 60%, var(--theme-colors-foreground));
+}
+
 @media (prefers-reduced-motion: no-preference) {
     .card,
     .radio {

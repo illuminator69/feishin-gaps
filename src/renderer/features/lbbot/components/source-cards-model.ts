@@ -103,3 +103,23 @@ export const qualityLine = (source: Pick<LbBotGapSource, 'bitrate' | 'format' | 
 /** The folder's own name, the last path segment (Soulseek paths use either slash). */
 export const folderName = (source: Pick<LbBotGapSource, 'folder' | 'peer'>): string =>
     source.folder.split(/[\\/]/).filter(Boolean).pop() || source.peer;
+
+/**
+ * lb-bot's machine-readable reasons for refusing a Request because the card's list is gone (its
+ * `/api/gaps/<id>/fetch`): `bad_source`, the card's index is no longer in the kept list, and
+ * `no_sources`, there is no kept list at all.
+ */
+const STALE_LIST_CODES = new Set(['bad_source', 'no_sources']);
+
+/**
+ * R12 (B-238): whether a refused Request says the cards on screen are stale, so Search again sits
+ * beside lb-bot's sentence. Read from the response's fields: its `code` when it has one, else the HTTP
+ * status (only 410 Gone says so). Never from the sentence, which is lb-bot's English for people.
+ */
+export const refusalSaysListIsStale = ({
+    code,
+    status,
+}: {
+    code?: string;
+    status: number;
+}): boolean => (code ? STALE_LIST_CODES.has(code) : status === 410);

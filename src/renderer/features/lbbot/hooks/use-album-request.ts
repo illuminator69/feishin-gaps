@@ -1,7 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
-import { shownSelection } from '/@/renderer/features/lbbot/components/source-cards-model';
+import {
+    refusalSaysListIsStale,
+    shownSelection,
+} from '/@/renderer/features/lbbot/components/source-cards-model';
 import {
     startAlbumDownload,
     useLbBotAlbumReleases,
@@ -91,6 +94,12 @@ export const useAlbumRequest = ({
 
     // The search: asked for once, by the press, for the edition shown then.
     const session = useSyncExternalStore(subscribe, () => sessions.get(rgid) ?? null);
+    // A refused Download, shown under that card's button (R12, B-238) instead of a toast.
+    const [refusal, setRefusal] = useState<null | {
+        message: string;
+        sourceId: number;
+        stale: boolean;
+    }>(null);
     // A session lives as long as its answer can be cached (five minutes): after that, reopening the
     // page must not start a live search nobody asked for.
     useEffect(() => {
@@ -154,6 +163,20 @@ export const useAlbumRequest = ({
         setNow(Date.now());
         emit();
     }, [editionLabel, resolvedEdition, rgid, sources, sourcesState]);
+    // After a refusal that says the cards are stale (B-238): ask lb-bot again even over cards
+    // already shown, which `startSearch` deliberately does not.
+    const searchAgain = useCallback(() => {
+        setRefusal(null);
+        const current = sessions.get(rgid);
+        if (!current) {
+            startSearch();
+            return;
+        }
+        sessions.set(rgid, { ...current, startedAt: Date.now() });
+        setNow(Date.now());
+        emit();
+        void sources.refetch();
+    }, [rgid, sources, startSearch]);
     // "Stop waiting": this page stops waiting for the answer; lb-bot's search is not cancellable from
     // here, and its answer stays in the hub's cache for a minute after it ends.
     const stopSearch = useCallback(() => {
@@ -167,6 +190,10 @@ export const useAlbumRequest = ({
     // The pick (R11): only a source lb-bot marks safe is chosen for the user; otherwise nothing is,
     // and there is no Download until a card is tapped (a tap is consent, a default is not).
     const [chosen, setChosen] = useState<LbBotGapSource | null>(null);
+    const select = useCallback((source: LbBotGapSource | null) => {
+        setChosen(source);
+        setRefusal(null);
+    }, []);
     const rows = useMemo(() => sources.sources ?? [], [sources.sources]);
     const selectedId = shownSelection(rows, chosen?.id ?? null);
     const selected = rows.find((row) => row.id === selectedId) ?? null;
@@ -214,6 +241,7 @@ export const useAlbumRequest = ({
             if (busy || inFlight.current || !source || !rgid) return;
             inFlight.current = true;
             setStarting(true);
+            setRefusal(null);
             try {
                 const result = await startAlbumDownload(
                     rgid,
@@ -226,8 +254,12 @@ export const useAlbumRequest = ({
                     options.allFiles === true,
                 );
                 if (!result.ok) {
-                    // lb-bot's own sentence, verbatim.
-                    toast.error({ message: result.error || 'lb-bot could not start the download' });
+                    // lb-bot's own sentence, verbatim, under the button that was pressed.
+                    setRefusal({
+                        message: result.error || 'lb-bot could not start the download',
+                        sourceId: source.id,
+                        stale: refusalSaysListIsStale(result),
+                    });
                     return;
                 }
                 const confirmation = allFilesConfirmation({
@@ -259,14 +291,16 @@ export const useAlbumRequest = ({
         editionLabel,
         editions,
         preferredQuality,
+        refusal,
         releasesQuery,
         resolvedEdition,
-        select: setChosen,
+        select,
         selected,
         setEditionIndex,
         setQuality,
         setVariantIndex,
         sources: {
+            again: searchAgain,
             elapsedMs: session ? Math.max(0, now - session.startedAt) : 0,
             error: sources.error,
             filesFor,
