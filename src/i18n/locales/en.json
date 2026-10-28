@@ -1921,6 +1921,7 @@
         "queue": {
             "autoplay": "Autoplay",
             "autoplayContinues": "autoplay continues after it",
+            "endOfQueue": "End of queue",
             "group": {
                 "autoplay": "Autoplay",
                 "earlier": "Earlier",
@@ -1939,6 +1940,7 @@
             "lengthMinutes": "{{minutes}} min",
             "playingFrom": "Playing from",
             "playingOn": "Playing on {{device}}",
+            "railNext": "Up next: {{title}}, {{artist}}",
             "songs_one": "{{count}} song",
             "songs_other": "{{count}} songs",
             "stopped": "stopped",
