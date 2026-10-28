@@ -16,6 +16,7 @@ export const RatingColumn = (props: ItemTableListInnerColumn) => {
         return (
             <TableColumnContainer {...props}>
                 <Rating
+                    busy={isMutatingRating}
                     className={row ? undefined : 'hover-only-flex'}
                     onChange={(rating) => {
                         const item = rowItem as ItemListItem;
@@ -30,7 +31,6 @@ export const RatingColumn = (props: ItemTableListInnerColumn) => {
                             rating,
                         });
                     }}
-                    readOnly={isMutatingRating}
                     size="xs"
                     value={row || 0}
                 />

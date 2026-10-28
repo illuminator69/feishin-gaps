@@ -312,9 +312,9 @@ const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: 
                 <div className={styles.rating} onDoubleClick={stopDoubleClick}>
                     {(song.userRating || starsDrawn) && (
                         <Rating
+                            busy={controls.ratingBusy}
                             className={song.userRating ? undefined : styles.hoverOnly}
                             onChange={(rating) => controls.onRate(song, rating)}
-                            readOnly={controls.ratingBusy}
                             size="xs"
                             value={song.userRating || 0}
                         />
@@ -323,12 +323,13 @@ const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: 
             )}
             {controls.favorite && (
                 <ActionIcon
+                    // Not `disabled` while a save is in flight, which would drop the keyboard focus.
+                    aria-disabled={controls.favoriteBusy || undefined}
                     aria-label={t(
                         song.userFavorite ? 'action.removeFromFavorites' : 'action.addToFavorites',
                     )}
                     aria-pressed={song.userFavorite}
                     className={song.userFavorite ? undefined : styles.hoverOnly}
-                    disabled={controls.favoriteBusy}
                     icon="favorite"
                     iconProps={{
                         color: song.userFavorite ? 'primary' : 'muted',
@@ -338,6 +339,7 @@ const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: 
                     onClick={(event) => {
                         event.stopPropagation();
                         event.preventDefault();
+                        if (controls.favoriteBusy) return;
                         controls.onFavorite(song, !song.userFavorite);
                     }}
                     onDoubleClick={stopDoubleClick}
