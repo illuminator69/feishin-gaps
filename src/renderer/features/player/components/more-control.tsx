@@ -9,6 +9,7 @@ import styles from './more-control.module.css';
 import { AutoDjPanel } from '/@/renderer/features/player/components/auto-dj-panel';
 import { DlnaCastPanel } from '/@/renderer/features/player/components/dlna-cast-panel';
 import { PlaybackOptionsPanel } from '/@/renderer/features/player/components/playback-options-panel';
+import { openShuffleAllModal } from '/@/renderer/features/player/components/shuffle-all-modal';
 import {
     SleepTimerPanel,
     useSleepTimerValue,
@@ -36,9 +37,14 @@ const ICONS: Record<MoreItemId, AppIconSelection> = {
     equaliser: 'audioLines',
     lyrics: 'microphone',
     playbackOptions: 'mediaSettings',
+    playRandom: 'mediaRandom',
     sleepTimer: 'sleepTimer',
     stop: 'mediaStop',
 };
+
+// Remix icons are drawn by their fill, which an Icon without one leaves transparent: Play random's
+// is one (the transport drew it with `fill="default"`), the rest are stroked.
+const FILLED: ReadonlySet<MoreItemId> = new Set(['playRandom']);
 
 // The panels keep the sizes they had in their own popovers.
 const WIDTHS: Record<View, { maw?: number; miw: number }> = {
@@ -114,6 +120,7 @@ export const MoreControl = () => {
         equaliser: t('setting.equalizer'),
         lyrics: t('player.lyrics'),
         playbackOptions: t('player.playbackOptions'),
+        playRandom: t('form.shuffleAll.title'),
         sleepTimer: t('player.sleepTimer'),
         stop: t('player.stopPlayback'),
     };
@@ -126,6 +133,9 @@ export const MoreControl = () => {
                 break;
             case 'lyrics':
                 toggleLyrics();
+                break;
+            case 'playRandom':
+                openShuffleAllModal();
                 break;
             case 'stop':
                 if (isRadioActive) stopRadio();
@@ -197,7 +207,10 @@ export const MoreControl = () => {
                                         role="menuitem"
                                         type="button"
                                     >
-                                        <Icon icon={ICONS[item.id]} />
+                                        <Icon
+                                            fill={FILLED.has(item.id) ? 'default' : undefined}
+                                            icon={ICONS[item.id]}
+                                        />
                                         <span className={styles.label}>{labels[item.id]}</span>
                                         {values[item.id] && (
                                             <span className={styles.value}>{values[item.id]}</span>

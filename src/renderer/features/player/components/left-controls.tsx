@@ -279,6 +279,12 @@ export const LeftControls = () => {
                                 PlaybackSelectors.songArtist,
                             )}
                             onClick={stopPropagation}
+                            // Cut to one line like the title and the album (B-253): the full names.
+                            title={
+                                currentSong?.artistName ||
+                                artists?.map((artist) => artist.name).join(', ') ||
+                                undefined
+                            }
                         >
                             <JoinedArtists
                                 artistName={currentSong?.artistName || ''}
