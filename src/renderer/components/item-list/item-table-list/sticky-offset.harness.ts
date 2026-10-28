@@ -154,3 +154,33 @@ test('theRowsAreNotPlacedFromTheRender', () => {
         assert.ok(!/\btop:/.test(tag), `${cls} still sets top in the render`);
     }
 });
+
+/**
+ * The fix agent's round (review M-2, M-3): B-221 at its cause, and the first frame of a pinned row.
+ * The page arrival must not hold its last frame: a held transform, even an identity one, keeps
+ * `<main>` the containing block of every fixed row for the page's life. And the rows are placed in a
+ * layout effect, so a newly pinned row never paints a frame at its static spot.
+ */
+
+test('arrivalHoldsNoTransformAfterItEnds', () => {
+    const css = read('../../../features/shared/components/animated-page.module.css');
+    const arrivals = [...css.matchAll(/animation\s*:([^;]*);/g)].map((m) => m[1]);
+    assert.ok(arrivals.length >= 4, 'the arrival rules');
+    for (const value of arrivals.flatMap((a) => a.split(','))) {
+        assert.ok(/\bpage-[a-z-]+\b/.test(value), value);
+        assert.ok(/\bbackwards\s*$/.test(value.trim()), value);
+        assert.ok(!/\b(both|forwards)\b/.test(value), value);
+    }
+});
+
+test('pinnedRowsArePlacedBeforePaint', () => {
+    const hook = read('hooks/use-pinned-row-placement.ts');
+    assert.match(hook, /useLayoutEffect\(/);
+    assert.doesNotMatch(hook, /\buseEffect\(/);
+    for (const file of [
+        'hooks/use-sticky-header-positioning.ts',
+        'hooks/use-sticky-group-row-positioning.ts',
+    ]) {
+        assert.match(read(file), /usePinnedRowPlacement\(/, file);
+    }
+});
