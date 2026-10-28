@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
+import clsx from 'clsx';
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router';
@@ -59,6 +60,7 @@ import {
 import { gapPositionLabel, gapShowsDisc } from '/@/renderer/features/lbbot/utils/gap-position';
 import { Fold } from '/@/renderer/features/motion/fold';
 import { GrowBox } from '/@/renderer/features/motion/grow-box';
+import { HoldWhile } from '/@/renderer/features/motion/hold-while';
 import { useCurrentServer } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Button } from '/@/shared/components/button/button';
@@ -282,11 +284,16 @@ const GapBox = ({
     // When the box saw a fill land during this visit: the result row holds from here (the ledger's
     // settle lags a short fill by up to its 90 s grace, walk finding R11 Task 4).
     const [landedAt, setLandedAt] = useState(0);
+    // The box saw the record not landed during this visit and has not noted its landing yet. The
+    // render between the landing and the note (a tick) counts it as landing now, so the transfer
+    // turns straight into the result row instead of the box folding away for a frame (B-244).
+    const [unlandedSeen, setUnlandedSeen] = useState(false);
+    const landed = gap ? gapFillLanded(gap, fill) : false;
     const stage = gapStage({
         committed,
         fill,
         gap,
-        landedAt,
+        landedAt: landed && unlandedSeen ? now : landedAt,
         mirroredMissing,
         now,
         readGaveUp,
@@ -338,7 +345,6 @@ const GapBox = ({
     // must not cancel them; only a new landing or leaving the page does, as Navic's job.
     const queryClient = useQueryClient();
     const server = useCurrentServer();
-    const landed = gap ? gapFillLanded(gap, fill) : false;
     const held = gap ? heldTracks(gap) : 0;
     const before = useRef<boolean | null>(null);
     const songs = useRef(songCount);
@@ -350,6 +356,7 @@ const GapBox = ({
     }, [songCount, held]);
     useEffect(() => {
         if (!gap) return;
+        if (!landed && !unlandedSeen) setUnlandedSeen(true);
         const was = before.current;
         before.current = landed;
         if (was !== false || !landed) return;
@@ -363,6 +370,7 @@ const GapBox = ({
             const at = Date.now();
             setLandedAt(at);
             setNow(at);
+            setUnlandedSeen(false);
         }, 0);
         landing.current = [
             noted,
@@ -374,7 +382,7 @@ const GapBox = ({
                 }, ms),
             ),
         ];
-    }, [albumId, gap, landed, queryClient, server.id]);
+    }, [albumId, gap, landed, queryClient, server.id, unlandedSeen]);
     useEffect(() => {
         const timers = landing;
         return () => timers.current.forEach((timer) => window.clearTimeout(timer));
@@ -964,33 +972,41 @@ const GapBox = ({
                 data-gap-stage={stage.kind}
                 ref={root}
             >
-                <GrowBox name="gaps">
-                    <div className={styles.box} data-gap-stage={stage.kind}>
-                        {/* Keyed by the stage's family: the line and its list are one, the sources'
-                            three states share their header, and a progress tick never fades. */}
-                        <div className={styles.view} key={family}>
-                            {content}
+                {/* The surface is GrowBox's own element, so its edge moves with the rows below.
+                    While the box folds away its last view stays drawn in it (B-244). */}
+                <GrowBox
+                    className={clsx(styles.box, stage.kind === 'failed' && styles.boxFailed)}
+                    name="gaps"
+                >
+                    <HoldWhile hold={stage.kind === 'absent'}>
+                        <div data-gap-stage={stage.kind}>
+                            {/* Keyed by the stage's family: the line and its list are one, the
+                                sources' three states share their header, and a progress tick never
+                                fades. */}
+                            <div className={styles.view} key={family}>
+                                {content}
+                            </div>
+                            {error && (
+                                <p className={styles.error} role="alert">
+                                    {error}
+                                </p>
+                            )}
+                            {/* Reads gave up over a record already shown: it may be stale, and
+                                the box no longer asks on its own. */}
+                            {readGaveUp && stage.kind !== 'unreachable' && (
+                                <p className={styles.error} data-gap-unreachable="">
+                                    {t('naviConnect.gapBox.unreachable')}{' '}
+                                    <button
+                                        className={styles.link}
+                                        onClick={() => void refetch()}
+                                        type="button"
+                                    >
+                                        {t('naviConnect.albumPage.tryAgain')}
+                                    </button>
+                                </p>
+                            )}
                         </div>
-                        {error && (
-                            <p className={styles.error} role="alert">
-                                {error}
-                            </p>
-                        )}
-                        {/* Reads gave up over a record already shown: it may be stale, and the
-                            box no longer asks on its own. */}
-                        {readGaveUp && stage.kind !== 'unreachable' && (
-                            <p className={styles.error} data-gap-unreachable="">
-                                {t('naviConnect.gapBox.unreachable')}{' '}
-                                <button
-                                    className={styles.link}
-                                    onClick={() => void refetch()}
-                                    type="button"
-                                >
-                                    {t('naviConnect.albumPage.tryAgain')}
-                                </button>
-                            </p>
-                        )}
-                    </div>
+                    </HoldWhile>
                 </GrowBox>
                 {/* Under the box: the fill goes on without the page. */}
                 <Fold name="gap-leave" open={stage.kind === 'active'}>

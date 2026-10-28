@@ -17,7 +17,7 @@
 }
 
 /* Failed: a 2 px ring in the error role, pulled toward the foreground so it holds 3:1 as a mark. */
-.box[data-gap-stage='failed'] {
+.box-failed {
     box-shadow: inset 0 0 0 2px
         color-mix(in oklab, var(--theme-colors-state-error) 60%, var(--theme-colors-foreground));
 }

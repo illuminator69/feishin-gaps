@@ -3,26 +3,12 @@ import { RefObject, useEffect, useLayoutEffect, useRef } from 'react';
 
 import { shellPinnedTop } from '/@/renderer/components/item-list/item-table-list/utils/shell-pinned-top';
 import { scrollToKeepTop } from '/@/renderer/features/lbbot/keep-top';
+import { afterMotion } from '/@/renderer/features/motion/after-motion';
+import { scrollParentOf, USER_INPUT } from '/@/renderer/features/motion/scroll-parent';
 import { readMotionClock } from '/@/shared/components/animations/motion-tokens';
 
 /** How far under the bar's bottom the box's top comes to rest: the shell's `--panel-gap`. */
 const KEEP_TOP_GAP_PX = 8;
-
-/** A press, a wheel, a touch or a key during the move: the user's scroll wins. */
-const USER_INPUT = ['keydown', 'pointerdown', 'touchstart', 'wheel'] as const;
-
-const scrollParentOf = (el: HTMLElement | null): HTMLElement | null => {
-    for (let node = el?.parentElement ?? null; node; node = node.parentElement) {
-        const { overflowY } = getComputedStyle(node);
-        if (
-            (overflowY === 'auto' || overflowY === 'scroll') &&
-            node.scrollHeight > node.clientHeight
-        ) {
-            return node;
-        }
-    }
-    return null;
-};
 
 /**
  * R12 (B-236): when `view` changes in a way `shrinks` names, and the box's top is then above the line
@@ -35,8 +21,9 @@ const scrollParentOf = (el: HTMLElement | null): HTMLElement | null => {
  * the bar, and a change that comes while it did not (a fill lb-bot ends minutes after the press,
  * with the user down the tracklist) moves nothing (review F1).
  *
- * A layout effect: the box's top is read after the new view is in the DOM and before it paints. The
- * box follows its content's height (`GrowBox`), which never moves its top.
+ * A layout effect: whether the box was in view is read when the new view is in the DOM, before it
+ * paints. The move itself waits for the box's motion to settle (R13, B-244: its `GrowBox` and folds),
+ * so the page scrolls once the box has its final size; an input during the wait cancels it too.
  */
 export const useKeepTopInView = (
     ref: RefObject<HTMLElement | null>,
@@ -69,36 +56,48 @@ export const useKeepTopInView = (
         if (prev === view || !box || !shrinks(prev, view)) return undefined;
         const scroller = scrollParentOf(box);
         if (!scroller) return undefined;
-        const delta = scrollToKeepTop({
-            barBottom: shellPinnedTop(getComputedStyle(box)),
-            boxTop: box.getBoundingClientRect().top,
-            gap: KEEP_TOP_GAP_PX,
-            seenBelowBar: seenBelowBar.current,
-        });
-        if (delta === null) return undefined;
-        const from = scroller.scrollTop;
-        const to = Math.max(0, from + delta);
-        // Asked at the moment of the change, so a preference changed while the page is open counts.
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-            scroller.scrollTop = to;
-            return undefined;
-        }
-        const clock = readMotionClock();
-        const controls = animate(from, to, {
-            duration: clock.ms / 1000,
-            ease: clock.ease,
-            onUpdate: (top) => {
-                scroller.scrollTop = top;
-            },
-        });
+        // Read now, before the change paints: the box was in view (or not) before the change.
+        const seen = seenBelowBar.current;
+        let controls: null | ReturnType<typeof animate> = null;
+        let cancelSettle = () => {};
         const stop = () => {
-            controls.stop();
+            cancelSettle();
+            controls?.stop();
             USER_INPUT.forEach((name) => window.removeEventListener(name, stop, true));
         };
         USER_INPUT.forEach((name) =>
             window.addEventListener(name, stop, { capture: true, passive: true }),
         );
-        void controls.then(stop);
+        // R13 (B-244): after the box's motion settles, so the scroll starts from its final size.
+        cancelSettle = afterMotion(box, () => {
+            const delta = scrollToKeepTop({
+                barBottom: shellPinnedTop(getComputedStyle(box)),
+                boxTop: box.getBoundingClientRect().top,
+                gap: KEEP_TOP_GAP_PX,
+                seenBelowBar: seen,
+            });
+            if (delta === null) {
+                stop();
+                return;
+            }
+            const from = scroller.scrollTop;
+            const to = Math.max(0, from + delta);
+            // Asked at the moment of the move, so a preference changed while the page is open counts.
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                scroller.scrollTop = to;
+                stop();
+                return;
+            }
+            const clock = readMotionClock();
+            controls = animate(from, to, {
+                duration: clock.ms / 1000,
+                ease: clock.ease,
+                onUpdate: (top) => {
+                    scroller.scrollTop = top;
+                },
+            });
+            void controls.then(stop);
+        });
         return stop;
     }, [ref, shrinks, view]);
 };
