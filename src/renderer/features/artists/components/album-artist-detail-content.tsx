@@ -1,7 +1,7 @@
 import { useQuery, useSuspenseQuery, UseSuspenseQueryResult } from '@tanstack/react-query';
 import { CSSProperties, Suspense, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { createSearchParams, generatePath, Link, useLocation, useParams } from 'react-router';
+import { generatePath, Link, useLocation, useParams } from 'react-router';
 
 import styles from './album-artist-detail-content.module.css';
 
@@ -14,20 +14,17 @@ import { ItemTableListColumn } from '/@/renderer/components/item-list/item-table
 import { ItemControls } from '/@/renderer/components/item-list/types';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
 import { AlbumArtistGridCarousel } from '/@/renderer/features/artists/components/album-artist-grid-carousel';
+import { ArtistShelves } from '/@/renderer/features/artists/components/artist-shelves';
 import artistColumns from '/@/renderer/features/discography/components/artist-columns.module.css';
-import { Discography } from '/@/renderer/features/discography/components/discography';
 import { DiscoverRow } from '/@/renderer/features/discover/components/discover-row';
 import { DiscoverTile } from '/@/renderer/features/discover/components/discover-tile';
-import { LbBotIndexButton } from '/@/renderer/features/lbbot/components/lbbot-index-button';
 import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
 import {
     useEffectiveArtistMbid,
     useLbBotArtistMeta,
-    useLbBotDiscography,
     useOpenArtist,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
-import { useIsPlayerFetching, usePlayer } from '/@/renderer/features/player/context/player-context';
-import { playArtistRadio } from '/@/renderer/features/player/station/station-client';
+import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
     ListConfigMenu,
     SONG_DISPLAY_TYPES,
@@ -56,7 +53,6 @@ import {
 } from '/@/renderer/store';
 import {
     useArtistItems,
-    useArtistRadioCount,
     useExternalLinks,
     useSettingsStore,
 } from '/@/renderer/store/settings.store';
@@ -97,64 +93,6 @@ const NO_ALBUMS: Album[] = [];
 /** A section's place: `--order-narrow` in the one-column page, `--order-wide` in the side column. */
 const columnOrder = (order = 0, wideOrder?: number) =>
     ({ '--order-narrow': order, '--order-wide': wideOrder ?? order }) as CSSProperties;
-
-interface AlbumArtistActionButtonsProps {
-    artistDiscographyLink: string;
-    artistSongsLink: string;
-    onArtistRadio?: () => void;
-}
-
-const AlbumArtistActionButtons = ({
-    artistDiscographyLink,
-    artistSongsLink,
-    onArtistRadio,
-}: AlbumArtistActionButtonsProps) => {
-    const { t } = useTranslation();
-    const isPlayerFetching = useIsPlayerFetching();
-
-    return (
-        <>
-            <Group gap="lg">
-                <Button
-                    component={Link}
-                    p={0}
-                    size="compact-md"
-                    to={artistDiscographyLink}
-                    variant="transparent"
-                >
-                    {String(t('page.albumArtistDetail.viewDiscography')).toUpperCase()}
-                </Button>
-                <Button
-                    component={Link}
-                    p={0}
-                    size="compact-md"
-                    to={artistSongsLink}
-                    variant="transparent"
-                >
-                    {String(t('page.albumArtistDetail.viewAllTracks')).toUpperCase()}
-                </Button>
-                {onArtistRadio && (
-                    <Button
-                        disabled={isPlayerFetching}
-                        leftSection={
-                            isPlayerFetching ? (
-                                <Spinner color="white" size={16} />
-                            ) : (
-                                <Icon icon="radio" size="lg" />
-                            )
-                        }
-                        onClick={onArtistRadio}
-                        p={0}
-                        size="compact-md"
-                        variant="transparent"
-                    >
-                        {String(t('player.artistRadio')).toUpperCase()}
-                    </Button>
-                )}
-            </Group>
-        </>
-    );
-};
 
 interface AlbumArtistMetadataGenresProps {
     genres?: Array<{ id: string; name: string }>;
@@ -1318,7 +1256,6 @@ export const AlbumArtistDetailContent = ({
     detailQuery,
 }: AlbumArtistDetailContentProps) => {
     const artistItems = useArtistItems();
-    const artistRadioCount = useArtistRadioCount();
     const { externalLinks, lastFM, listenBrainz, musicBrainz, nativeSpotify, qobuz, spotify } =
         useExternalLinks();
     const { albumArtistId, artistId } = useParams() as {
@@ -1326,8 +1263,6 @@ export const AlbumArtistDetailContent = ({
         artistId?: string;
     };
     const routeId = (artistId || albumArtistId) as string;
-    const server = useCurrentServer();
-    const { addToQueueByData } = usePlayer();
 
     const [enabledItem, itemOrder] = useMemo(() => {
         const enabled: { [key in ArtistItem]?: boolean } = {};
@@ -1341,69 +1276,24 @@ export const AlbumArtistDetailContent = ({
         return [enabled, order];
     }, [artistItems]);
 
-    const artistDiscographyLink = useMemo(
-        () =>
-            `${generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_DISCOGRAPHY, {
-                albumArtistId: routeId,
-            })}?${createSearchParams({
-                artistId: routeId,
-                artistName: detailQuery.data?.name || '',
-            })}`,
-        [routeId, detailQuery.data?.name],
-    );
-
-    const artistSongsLink = useMemo(
-        () =>
-            `${generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_SONGS, {
-                albumArtistId: routeId,
-            })}?${createSearchParams({
-                artistId: routeId,
-                artistName: detailQuery.data?.name || '',
-            })}`,
-        [routeId, detailQuery.data?.name],
-    );
-
     // I-019: Navidrome's tag, unless the user chose a MusicBrainz artist for this
     // one. EVERYTHING below that feeds lb-bot or a MusicBrainz / ListenBrainz
-    // link takes `mbzId`; only the override picker needs to know the tag too.
+    // link takes `mbzId`; only the override picker (on the discography page) needs the tag too.
     const tagMbid = detailQuery.data?.mbz;
     const mbzId = useEffectiveArtistMbid(routeId, tagMbid);
-
-    const handleArtistRadio = useCallback(async () => {
-        const artistName = detailQuery.data?.name;
-        if (!server?.id || !routeId || !artistName) return;
-        // navi-connect (B-149): the artist's own most played songs, then a station from them
-        // (with the engine) or Navidrome's similar songs.
-        try {
-            await playArtistRadio({
-                artist: { id: routeId, name: artistName },
-                count: artistRadioCount,
-                player: { addToQueueByData },
-                playType: Play.NOW,
-                serverId: server.id,
-            });
-        } catch (error) {
-            console.error('Failed to load artist radio:', error);
-        }
-    }, [addToQueueByData, artistRadioCount, detailQuery.data?.name, routeId, server.id]);
 
     // In one column the genres and the links come first, as before; in the side column they come last
     // (F7, board ArtistOwned). CSS `order` takes integers.
     const genresOrder = -2;
     const externalLinksOrder = -1;
     const sideLast = artistItems.length + 2;
-    // The discography is "Recent albums" in the owner's list; its switch hides the left column.
+    // The release lines are "Recent albums" in the owner's list; its switch hides the left column.
     const showDiscography = enabledItem.recentAlbums !== false;
 
     return (
         <div className={styles.contentContainer}>
             <div className={styles.detailContainer}>
-                <AlbumArtistActionButtons
-                    artistDiscographyLink={artistDiscographyLink}
-                    artistSongsLink={artistSongsLink}
-                    onArtistRadio={handleArtistRadio}
-                />
-                {/* F7: two columns from a content width of 960 px, the discography on the left; one
+                {/* F7: two columns from a content width of 960 px, the release lines on the left; one
                     column below that, in the page's own order (artist-columns.module.css). */}
                 <div
                     className={artistColumns.layout}
@@ -1411,13 +1301,17 @@ export const AlbumArtistDetailContent = ({
                 >
                     {showDiscography && (
                         <div className={artistColumns.main}>
-                            <ArtistAlbums
-                                albumsQuery={albumsQuery}
-                                artistMbid={mbzId}
-                                artistName={detailQuery.data?.name || ''}
-                                order={itemOrder.recentAlbums}
-                                tagMbid={tagMbid}
-                            />
+                            <div
+                                className={artistColumns.item}
+                                style={columnOrder(itemOrder.recentAlbums)}
+                            >
+                                <ArtistShelves
+                                    artistMbid={mbzId}
+                                    artistName={detailQuery.data?.name || ''}
+                                    ndId={routeId}
+                                    owned={albumsQuery.data?.items ?? NO_ALBUMS}
+                                />
+                            </div>
                         </div>
                     )}
                     <div className={artistColumns.side}>
@@ -1479,55 +1373,6 @@ export const AlbumArtistDetailContent = ({
                     </div>
                 </div>
             </div>
-        </div>
-    );
-};
-
-interface ArtistAlbumsProps {
-    albumsQuery: UseSuspenseQueryResult<AlbumListResponse, Error>;
-    artistMbid?: null | string;
-    artistName: string;
-    order?: number;
-    /** Navidrome's own tag, for the override picker; `artistMbid` is the effective one. */
-    tagMbid?: null | string;
-}
-
-/**
- * The discography (F7): every release, owned or missing, by kind, with the page's own filters, the
- * Rescan control and the MusicBrainz menu at the bar's right end.
- */
-const ArtistAlbums = ({
-    albumsQuery,
-    artistMbid,
-    artistName,
-    order,
-    tagMbid,
-}: ArtistAlbumsProps) => {
-    const { albumArtistId, artistId } = useParams() as {
-        albumArtistId?: string;
-        artistId?: string;
-    };
-    const routeId = (artistId || albumArtistId) as string;
-    // Read here only for the menu; the discography reads the same artist itself (one cache entry).
-    const discographyQuery = useLbBotDiscography(routeId, artistMbid);
-
-    return (
-        <div className={artistColumns.item} style={columnOrder(order)}>
-            <Discography
-                artistMbid={artistMbid}
-                artistName={artistName}
-                menu={
-                    <LbBotIndexButton
-                        artistMbid={artistMbid}
-                        artistName={artistName}
-                        discography={discographyQuery.data}
-                        ndId={routeId}
-                        tagMbid={tagMbid}
-                    />
-                }
-                ndId={routeId}
-                owned={albumsQuery.data?.items ?? NO_ALBUMS}
-            />
         </div>
     );
 };

@@ -1,0 +1,77 @@
+/*
+ * The board's `.cta` row under a hero header: Play 52 px round on the accent, buttons 36 px tall
+ * (`.btn`, `.btn.out`), rating, favourite and more pushed to the right. It wraps in a narrow column.
+ */
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    width: 100%;
+    margin-top: 16px;
+}
+
+.play {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    padding: 0;
+    color: var(--theme-colors-primary-contrast);
+    cursor: pointer;
+    background: var(--theme-colors-primary-filled);
+    border: none;
+    border-radius: 50%;
+}
+
+.button {
+    display: inline-flex;
+    flex: none;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    padding: 0 16px;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--theme-colors-foreground);
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    background: var(--theme-colors-surface);
+    border: none;
+    border-radius: 8px;
+
+    &[data-variant='outline'] {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--theme-colors-border);
+    }
+
+    &[data-variant='accent-outline'] {
+        color: var(--theme-colors-primary);
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--theme-colors-primary);
+    }
+
+    &:disabled {
+        cursor: default;
+        opacity: 0.45;
+    }
+}
+
+.play,
+.button {
+    &:focus-visible {
+        outline: 2px solid var(--theme-colors-primary);
+        outline-offset: 2px;
+    }
+}
+
+.end {
+    display: flex;
+    flex: none;
+    gap: 8px;
+    align-items: center;
+    margin-left: auto;
+}

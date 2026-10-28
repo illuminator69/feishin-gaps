@@ -34,7 +34,18 @@ import { ItemListKey } from '/@/shared/types/types';
 /** A section's open or closed state as the person set it this session, per artist (not persisted). */
 const collapseOverrides = new Map<string, Map<ReleaseKind, boolean>>();
 
-const getItemsPerRow = (cq: ReturnType<typeof useContainerQuery>) => {
+/** The tile grid's container widths; the artist page's lines use the same, so a tile is one size. */
+export const TILE_BREAKPOINTS = {
+    '2xl': 1280,
+    '3xl': 1440,
+    lg: 960,
+    md: 720,
+    sm: 520,
+    xl: 1152,
+    xs: 360,
+};
+
+export const getItemsPerRow = (cq: ReturnType<typeof useContainerQuery>) => {
     if (cq.is3xl) return 8;
     if (cq.is2xl) return 7;
     if (cq.isXl) return 6;
@@ -130,15 +141,7 @@ export const Discography = ({ artistMbid, artistName, menu, ndId, owned }: Disco
         [ndId],
     );
 
-    const cq = useContainerQuery({
-        '2xl': 1280,
-        '3xl': 1440,
-        lg: 960,
-        md: 720,
-        sm: 520,
-        xl: 1152,
-        xs: 360,
-    });
+    const cq = useContainerQuery(TILE_BREAKPOINTS);
     const itemsPerRow = getItemsPerRow(cq);
     const viewKey = `${view.type}|${view.own}|${view.sort}|${view.dir}|${debouncedSearch}`;
     const { propsFor } = useArrival(cq.isCalculated && shown.length > 0, viewKey);

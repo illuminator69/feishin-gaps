@@ -500,7 +500,15 @@
             "topSongsPersonal": "Yours",
             "favoriteSongsFrom": "Favorite songs from {{title}}",
             "viewAll": "View all",
-            "viewAllTracks": "View all $t(entity.track, {\"count\": 2})"
+            "viewAllTracks": "View all $t(entity.track, {\"count\": 2})",
+            "allTracks": "View all tracks",
+            "popularReleases": "Popular releases",
+            "releasesOwned": "{{owned}} of {{total}} releases",
+            "seeAll": "See all",
+            "seeDiscography": "See discography",
+            "shuffle": "Shuffle",
+            "songsInLibrary_one": "{{count}} song in your library",
+            "songsInLibrary_other": "{{count}} songs in your library"
         },
         "albumArtistList": {
             "title": "$t(entity.albumArtist, {\"count\": 2})"
