@@ -80,6 +80,14 @@
     }
 }
 
+/* An empty "Yours" or "Rating" list: one muted line where the rows would be. */
+.empty {
+    padding: 8px;
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--theme-colors-foreground-muted);
+}
+
 .about {
     max-width: 1280px;
 }

@@ -512,6 +512,8 @@
             "popular": "Popular",
             "seeMore": "See more",
             "showLess": "Show less",
+            "noPlaysYet": "No plays yet",
+            "noRatedSongs": "No rated songs",
             "playSong": "Play {{title}}",
             "songMenu": "More options for {{title}}",
             "discography": "Discography",

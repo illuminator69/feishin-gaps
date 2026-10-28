@@ -93,6 +93,7 @@ const SectionSwitch = <T extends string>({
 const SongSection = ({
     artistId,
     children,
+    empty,
     isLoading,
     name,
     songs,
@@ -100,6 +101,8 @@ const SongSection = ({
 }: {
     artistId: string;
     children?: React.ReactNode;
+    /** The muted line an empty list shows under its switch, so the section does not read as broken. */
+    empty: string;
     isLoading: boolean;
     name: string;
     songs: Song[];
@@ -121,6 +124,8 @@ const SongSection = ({
             </div>
             {isLoading ? (
                 <ArtistTrackListSkeleton />
+            ) : songs.length === 0 ? (
+                <p className={styles.empty}>{empty}</p>
             ) : (
                 <ArtistTrackList artistId={artistId} onPlay={onPlay} songs={songs} />
             )}
@@ -161,6 +166,7 @@ const ArtistPopular = ({
     return (
         <SongSection
             artistId={routeId}
+            empty={t('page.albumArtistDetail.noPlaysYet')}
             isLoading={isLoading}
             name="popular"
             songs={songs}
@@ -210,6 +216,7 @@ const ArtistFavouriteSongs = ({ routeId }: { routeId: string }) => {
     return (
         <SongSection
             artistId={routeId}
+            empty={t('page.albumArtistDetail.noRatedSongs')}
             isLoading={isLoading}
             name="favorite-songs"
             songs={songs}
