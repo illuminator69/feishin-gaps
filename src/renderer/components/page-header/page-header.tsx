@@ -126,8 +126,11 @@ const BasePageHeader = ({
             frame = 0;
             const hero = target?.current;
             const title = hero?.querySelector<HTMLElement>('[data-hero-title]') ?? hero;
+            // The host's own viewport (OverlayScrollbars puts it first among the host's children),
+            // never one nested inside the page.
             const scroller =
-                host.querySelector<HTMLElement>('[data-overlayscrollbars-viewport]') ?? host;
+                host.querySelector<HTMLElement>(':scope > [data-overlayscrollbars-viewport]') ??
+                host;
             let progress = 0;
             // At the top of the page the bar never shows, whatever the title's geometry.
             if (title && scroller.scrollTop > 0) {
@@ -155,12 +158,18 @@ const BasePageHeader = ({
         host.addEventListener('scroll', schedule, { capture: true, passive: true });
         window.addEventListener('resize', schedule);
         reduce.addEventListener('change', schedule);
+        // The queue opening or the sidebar folding resizes the page, and can rewrap the hero's title,
+        // with no window resize.
+        const resize = new ResizeObserver(schedule);
+        resize.observe(host);
+        if (target?.current) resize.observe(target.current);
         schedule();
 
         return () => {
             host.removeEventListener('scroll', schedule, { capture: true });
             window.removeEventListener('resize', schedule);
             reduce.removeEventListener('change', schedule);
+            resize.disconnect();
             if (frame) cancelAnimationFrame(frame);
         };
     }, [fadeWithTitle, scrollContainerRef, target]);
