@@ -1,0 +1,229 @@
+/*
+ * The artist page's compact track list (R10), Spotify's Popular: number, 40 px cover, title (with the
+ * other artists under it), plays, duration, menu. Fixed columns, so the rows line up without a
+ * table. Narrow, the plays go first, then the second line, before the title has to truncate hard.
+ */
+.root {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 0;
+    container-type: inline-size;
+}
+
+.list {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+
+.row {
+    --track-columns: 28px 40px minmax(0, 1fr) 120px 52px 32px;
+
+    display: grid;
+    grid-template-columns: var(--track-columns);
+    gap: 12px;
+    align-items: center;
+    min-height: 56px;
+    padding: 0 8px;
+    user-select: none;
+    border-radius: 6px;
+
+    &:hover,
+    &:focus-within {
+        background: var(--theme-colors-surface);
+
+        :root[data-cover-wash='true'] & {
+            background: var(--wash-surf2);
+        }
+    }
+}
+
+/* The number, or the equaliser on the playing row; a play button over it on hover. */
+.index {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 32px;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    color: var(--theme-colors-foreground-muted);
+}
+
+.row[data-active] .index {
+    color: var(--theme-colors-primary);
+}
+
+.play {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    color: var(--theme-colors-foreground);
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    opacity: 0;
+
+    &:focus-visible {
+        outline: 2px solid var(--theme-colors-primary);
+        outline-offset: 1px;
+        opacity: 1;
+    }
+}
+
+.row:hover .play,
+.row:focus-within .play {
+    opacity: 1;
+}
+
+.row:hover .mark,
+.row:focus-within .mark {
+    visibility: hidden;
+}
+
+.cover {
+    width: 40px;
+    height: 40px;
+    overflow: hidden;
+    border-radius: 4px;
+}
+
+.cover-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--theme-colors-foreground);
+    white-space: nowrap;
+}
+
+.row[data-active] .title {
+    color: var(--theme-colors-primary);
+}
+
+.title-link {
+    color: inherit;
+    text-decoration: none;
+
+    &:hover {
+        text-decoration: underline;
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--theme-colors-primary);
+        outline-offset: 1px;
+        border-radius: 2px;
+    }
+}
+
+.artists {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.plays,
+.duration {
+    overflow: hidden;
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--theme-colors-foreground-muted);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    color: var(--theme-colors-foreground-muted);
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    opacity: 0;
+
+    &:hover {
+        color: var(--theme-colors-foreground);
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--theme-colors-primary);
+        outline-offset: 1px;
+        opacity: 1;
+    }
+}
+
+.row:hover .more,
+.row:focus-within .more {
+    opacity: 1;
+}
+
+/* "See more" / "Show less", Spotify's: a muted bold word under the number column. */
+.toggle {
+    padding: 8px;
+    margin-top: 4px;
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--theme-colors-foreground-muted);
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-radius: 4px;
+
+    &:hover {
+        color: var(--theme-colors-foreground);
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--theme-colors-primary);
+        outline-offset: 1px;
+    }
+}
+
+/* Narrow: the play count goes first. */
+@container (width < 520px) {
+    .row {
+        --track-columns: 28px 40px minmax(0, 1fr) 52px 32px;
+    }
+
+    .plays {
+        display: none;
+    }
+}
+
+/* Narrower: then the second line, so the title keeps about 12 characters. */
+@container (width < 380px) {
+    .row {
+        gap: 8px;
+    }
+
+    .artists {
+        display: none;
+    }
+}

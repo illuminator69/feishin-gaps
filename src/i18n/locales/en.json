@@ -508,7 +508,12 @@
             "seeDiscography": "See discography",
             "shuffle": "Shuffle",
             "songsInLibrary_one": "{{count}} song in your library",
-            "songsInLibrary_other": "{{count}} songs in your library"
+            "songsInLibrary_other": "{{count}} songs in your library",
+            "popular": "Popular",
+            "seeMore": "See more",
+            "showLess": "Show less",
+            "playSong": "Play {{title}}",
+            "songMenu": "More options for {{title}}"
         },
         "albumArtistList": {
             "title": "$t(entity.albumArtist, {\"count\": 2})"
