@@ -1,3 +1,4 @@
+import { RefObject, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import styles from './center-controls.module.css';
@@ -10,6 +11,7 @@ import {
 } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { MainPlayButton, PlayerButton } from '/@/renderer/features/player/components/player-button';
 import { PlayerbarSlider } from '/@/renderer/features/player/components/playerbar-slider';
+import { transportSpan } from '/@/renderer/features/player/components/seek-row';
 import { openShuffleAllModal } from '/@/renderer/features/player/components/shuffle-all-modal';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
@@ -24,8 +26,33 @@ import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
 
+/**
+ * The seek row under the transport is as wide as its buttons, outer edge to outer edge (R6, B-211):
+ * the width lands in `--transport-width` on the wrapper, which the row reads. Measured when a button
+ * or the button row changes size and when the set of buttons changes, never on a plain render.
+ */
+const useTransportWidth = (ref: RefObject<HTMLDivElement | null>, buttonsKey: string) => {
+    useLayoutEffect(() => {
+        const root = ref.current;
+        const row = root?.querySelector(`.${styles.buttonsContainer}`);
+        if (!root || !row) return undefined;
+        const buttons = [...row.querySelectorAll('button')];
+        const measure = () => {
+            const span = transportSpan(buttons.map((button) => button.getBoundingClientRect()));
+            if (span === null) root.style.removeProperty('--transport-width');
+            else root.style.setProperty('--transport-width', `${span}px`);
+        };
+        const observer = new ResizeObserver(measure);
+        observer.observe(row);
+        for (const button of buttons) observer.observe(button);
+        return () => observer.disconnect();
+    }, [ref, buttonsKey]);
+};
+
 export const CenterControls = () => {
     const skip = useSkipButtons();
+    const transportRef = useRef<HTMLDivElement | null>(null);
+    useTransportWidth(transportRef, skip?.enabled ? 'skip' : 'plain');
 
     const isRadioActive = useIsRadioActive();
 
@@ -54,7 +81,7 @@ export const CenterControls = () => {
     }
 
     return (
-        <>
+        <div className={styles.transport} ref={transportRef}>
             <div className={styles.controlsContainer}>
                 <div className={styles.buttonsContainer}>
                     <div className={styles.side}>
@@ -72,7 +99,7 @@ export const CenterControls = () => {
                 </div>
             </div>
             <PlayerbarSlider />
-        </>
+        </div>
     );
 };
 
