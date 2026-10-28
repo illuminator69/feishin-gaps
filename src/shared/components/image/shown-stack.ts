@@ -19,3 +19,22 @@ export const dropUnder = (list: ShownEntry[]): ShownEntry[] => {
     const top = list[list.length - 1];
     return list.length > 1 && top?.loaded ? [top] : list;
 };
+
+/**
+ * What the element shows for this render: nothing once the image is gone (no source, or it failed),
+ * else the native image's current blob stacked over the last one that loaded. Gone wins over a
+ * `displaySrc` the native image still holds from the request that just went away; the two used to
+ * take turns, clearing and re-adding the same blob until React gave up (B-229, B-210). The result is
+ * a fixed point: fed back with the same inputs it returns the same list, so a render-time update
+ * settles in one step.
+ */
+export const nextShown = (
+    list: ShownEntry[],
+    displaySrc: string | undefined,
+    gone: boolean,
+    fade: boolean,
+): ShownEntry[] => {
+    if (gone) return list.length ? [] : list;
+    if (displaySrc) return showNext(list, displaySrc, fade);
+    return list;
+};

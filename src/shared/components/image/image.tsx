@@ -15,7 +15,7 @@ import {
 } from 'react';
 
 import styles from './image.module.css';
-import { dropUnder, markLoaded, type ShownEntry, showNext } from './shown-stack';
+import { dropUnder, markLoaded, nextShown, type ShownEntry } from './shown-stack';
 import { useNativeImage } from './use-native-image';
 
 import { tintHues } from '/@/shared/components/animations/tint-hues';
@@ -141,11 +141,8 @@ export function BaseImage({
     const [shown, setShown] = useState<ShownEntry[]>([]);
     const displaySrc = nativeImage.displaySrc;
     const gone = !src || nativeImage.isError;
-    if (displaySrc && shown[shown.length - 1]?.src !== displaySrc) {
-        setShown(showNext(shown, displaySrc, fade));
-    } else if (gone && shown.length) {
-        setShown([]);
-    }
+    const nextList = nextShown(shown, displaySrc, gone, fade);
+    if (nextList !== shown) setShown(nextList);
     const settle = () => setShown(dropUnder);
     const handleLoad = (event: SyntheticEvent<HTMLImageElement>, loadedSrc: string) => {
         const animating = event.currentTarget.getAnimations().length > 0;
