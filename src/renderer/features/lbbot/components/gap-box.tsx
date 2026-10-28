@@ -24,6 +24,7 @@ import {
     gapStage,
     gapStageFamily,
     type GapView,
+    gapViewOnAsk,
     heldTracks,
     missingTracks,
 } from '/@/renderer/features/lbbot/gap-stage';
@@ -89,6 +90,9 @@ import { LbBotGapSource, LbBotGapTrackState, LbBotResult } from '/@/shared/types
 
 /** Where the user had each album's box this session (not persisted), so coming back keeps it. */
 const gapViews = new Map<string, GapView>();
+
+/** History entries whose `lbGapView` ask has been taken, so a return to one does not repeat it. */
+const consumedAsks = new Set<string>();
 
 /** Released if lb-bot never admits to the fetch: a request that quietly did not take gives the box back. */
 const COMMIT_RELEASE_MS = 30_000;
@@ -271,13 +275,17 @@ const GapBox = ({
         return () => window.clearTimeout(timer);
     }, [committed, busy]);
 
-    // The context menu's "Find N missing tracks" lands here with the box asked open.
+    // The context menu's "Find N missing tracks" lands here with the box asked open. The ask is
+    // taken once per history entry (review minor 10): Back to this album later finds the same
+    // entry and its state, which must not reopen the box and scroll the page again.
     const location = useLocation();
     const asked = (location.state as GapBoxLocationState | null)?.lbGapView;
     useEffect(() => {
-        if (!asked) return;
-        gapViews.set(groupId, asked);
-        setViewState(asked);
+        if (!asked || consumedAsks.has(location.key)) return;
+        consumedAsks.add(location.key);
+        const next = gapViewOnAsk(gapViews.get(groupId) ?? 'folded', asked);
+        gapViews.set(groupId, next);
+        setViewState(next);
         const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         root.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
     }, [asked, groupId, location.key]);

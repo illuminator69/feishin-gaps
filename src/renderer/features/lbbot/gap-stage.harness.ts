@@ -14,6 +14,7 @@ import {
     gapReadGaveUp,
     type GapRecord,
     gapStage,
+    gapViewOnAsk,
     heldTracks,
 } from './gap-stage.ts';
 import { currentStep } from './request-steps.ts';
@@ -438,4 +439,11 @@ test('an open box whose reads gave up says lb-bot cannot be reached, instead of 
         kind: 'folded',
         missing: 3,
     });
+});
+
+test("the menu's ask opens the tracks but never takes the box off the sources", () => {
+    // Review minor 10: a search the user left running, or cards being chosen, stay put.
+    assert.equal(gapViewOnAsk('folded', 'tracks'), 'tracks');
+    assert.equal(gapViewOnAsk('tracks', 'tracks'), 'tracks');
+    assert.equal(gapViewOnAsk('sources', 'tracks'), 'sources');
 });

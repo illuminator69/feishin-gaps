@@ -26,6 +26,14 @@ import { type RequestStep, requestSteps } from './request-steps.ts';
 /** Where the user has put the box. */
 export type GapView = 'folded' | 'sources' | 'tracks';
 
+/**
+ * Where the box goes when the context menu's "Find N missing tracks" asks for a view: the asked
+ * one, except that the box is never taken off the sources (a search the user left running, or the
+ * cards being chosen from), review minor 10.
+ */
+export const gapViewOnAsk = (current: GapView, asked: GapView): GapView =>
+    current === 'sources' ? current : asked;
+
 /** How long the result row stays before the box folds away. */
 export const GAP_RESULT_HOLD_MS = 6_000;
 
