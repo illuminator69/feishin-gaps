@@ -94,13 +94,19 @@ export const RightSidebar = forwardRef(
     },
 );
 
-/** Elements whose clicks leave the overlay alone: itself, the rail and the bar's queue button toggle it. */
-const OVERLAY_KEEPERS = '#sidebar-queue, #queue-rail, [data-queue-toggle]';
+/**
+ * Elements whose clicks leave the overlay alone: itself, the rail and the bar's queue button toggle
+ * it, and the player bar (it sits inside the layout, and skipping a track should not close the
+ * queue that shows it).
+ */
+const OVERLAY_KEEPERS = '#sidebar-queue, #queue-rail, [data-queue-toggle], #player-bar';
 
 /**
  * The folded queue opened over the page closes with Escape or a click elsewhere in the window.
  * Only clicks inside the app's own layout count: menus, modals and tooltips render in portals
- * outside it, so acting in a queue row's context menu does not close the queue under it.
+ * outside it, so acting in a queue row's context menu does not close the queue under it. A click,
+ * not a pointerdown: a drag from the page (a track dropped into the queue) starts with a
+ * pointerdown and, being a native drag, ends with no click, so the overlay stays for the drop.
  */
 const useOverlayDismiss = (open: boolean) => {
     const setQueueOverlay = useSetQueueOverlay();
@@ -111,7 +117,7 @@ const useOverlayDismiss = (open: boolean) => {
         const insideLayout = (target: EventTarget | null) =>
             target instanceof Element && target.closest('#default-layout') !== null;
 
-        const onPointerDown = (event: PointerEvent) => {
+        const onClick = (event: MouseEvent) => {
             const { target } = event;
             if (!insideLayout(target) || (target as Element).closest(OVERLAY_KEEPERS)) return;
             setQueueOverlay(false);
@@ -124,10 +130,10 @@ const useOverlayDismiss = (open: boolean) => {
             setQueueOverlay(false);
         };
 
-        document.addEventListener('pointerdown', onPointerDown, true);
+        document.addEventListener('click', onClick, true);
         document.addEventListener('keydown', onKeyDown);
         return () => {
-            document.removeEventListener('pointerdown', onPointerDown, true);
+            document.removeEventListener('click', onClick, true);
             document.removeEventListener('keydown', onKeyDown);
         };
     }, [open, setQueueOverlay]);
