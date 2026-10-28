@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import styles from './library-background-overlay.module.css';
 
+import { bandBox } from '/@/renderer/features/shared/components/band-box';
 import { useAppThemeColors } from '/@/renderer/themes/use-app-theme';
 
 interface LibraryBackgroundOverlayProps {
@@ -38,7 +39,7 @@ export const LibraryBackgroundOverlay = ({
                 backgroundImage: isGradient
                     ? `var(--theme-overlay-subheader), ${background}`
                     : undefined,
-                height: height ? `${height + tail}px` : undefined,
+                ...bandBox({ height, tail }),
                 opacity,
             }}
         />
