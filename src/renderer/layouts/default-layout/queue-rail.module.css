@@ -53,7 +53,7 @@
 }
 
 /* B-227: the next song, under the label: its cover (a button that opens the queue like the one above)
-   and its title and artist written down the rail like the label. */
+   and its title and artist written down the rail like the label, as two columns side by side. */
 .cover {
     flex: none;
     width: 32px;
@@ -78,12 +78,20 @@
     min-height: 0;
     margin-top: 4px;
     overflow: hidden;
-    text-overflow: ellipsis;
     font-size: 12px;
     line-height: 1.3;
     white-space: nowrap;
     user-select: none;
     writing-mode: vertical-rl;
+}
+
+/* Blocks, so in vertical-rl each is its own column (title on the right, artist left of it) and
+   each is cut with its own ellipsis; inline they ran together as one word. */
+.next-title,
+.next-artist {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .next-title {
@@ -92,6 +100,6 @@
 }
 
 .next-artist {
-    margin-block-start: 6px;
+    margin-block-start: 4px;
     color: var(--theme-colors-foreground-muted);
 }
