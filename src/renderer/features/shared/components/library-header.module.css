@@ -111,6 +111,61 @@
     }
 }
 
+/*
+ * The hero size (opt-in through the `hero` prop): the board's `.hero` geometry, a flex row whose
+ * items sit on the bottom edge. Sizes arrive as `--hero-image` and `--hero-title` on the root. The
+ * selectors are two classes deep so they beat the container-query sizes above without `!important`
+ * on the layout, and the image keeps `!important` only because those sizes carry it.
+ */
+.library-header.hero {
+    display: flex;
+    gap: 24px;
+    align-items: flex-end;
+    justify-content: flex-start;
+    min-height: 0;
+    padding: 28px 28px 18px;
+
+    .image-section {
+        flex-shrink: 0;
+        filter: none;
+    }
+
+    .image,
+    :global(.item-image-placeholder) {
+        width: var(--hero-image) !important;
+        height: var(--hero-image) !important;
+        box-shadow: 0 14px 34px rgb(0 0 0 / 40%);
+    }
+
+    &.round .image,
+    &.round :global(.item-image-placeholder) {
+        border-radius: 50%;
+    }
+
+    .metadata-section {
+        flex: 1;
+        gap: 0;
+        align-items: flex-start;
+        justify-content: flex-end;
+        min-width: 0;
+        height: auto;
+        text-align: left;
+    }
+
+    .item-type {
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .title {
+        font-size: var(--hero-title);
+        font-weight: 800;
+        line-height: 1;
+    }
+}
+
 .image-section {
     position: relative;
     z-index: 15;
