@@ -36,6 +36,15 @@ const maxHeight = (panel: number): number =>
     Math.max(0, panel - headerFor(panel) - STRIP_ROW_HEIGHT - QUEUE_MIN_ROWS * QUEUE_ROW_HEIGHT);
 
 /**
+ * The heights the handle can reach in `panel`, for its separator's ARIA range: the minimum, unless
+ * the panel is too small for it (then the maximum wins, as in clampLyricsHeight), up to the maximum.
+ */
+export const lyricsHeightRange = (panel: number): { max: number; min: number } => {
+    const max = maxHeight(panel);
+    return { max, min: Math.min(LYRICS_MIN_HEIGHT, max) };
+};
+
+/**
  * The height the area takes. Never taller than `maxHeight`, which wins over the 120 px minimum: a
  * panel too small for both gives the queue its three rows first. `wanted` null is the default, six
  * queue rows or the 120 px minimum, and no taller than the strip used to be.

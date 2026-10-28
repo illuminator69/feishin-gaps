@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { clampLyricsHeight, LYRICS_MIN_HEIGHT, queueRowsLeft } from './lyrics-height.ts';
+import {
+    clampLyricsHeight,
+    LYRICS_MIN_HEIGHT,
+    lyricsHeightRange,
+    queueRowsLeft,
+} from './lyrics-height.ts';
 
 /**
  * R8 (B-226):  node --test src/renderer/features/now-playing/utils/lyrics-height.harness.ts
@@ -56,5 +61,13 @@ test('theWindowShrinkingNeverTakesThePanel', () => {
         const height = clampLyricsHeight({ panel, wanted: 600 });
         assert.ok(height >= 0 && height < panel, `panel ${panel}`);
         assert.ok(queueRowsLeft({ height, panel }) >= 3, `panel ${panel}`);
+    }
+});
+
+test('theRangeTheHandleAnnouncesIsTheRangeItCanReach', () => {
+    for (const panel of [900, 684, 420, 330, 100]) {
+        const { max, min } = lyricsHeightRange(panel);
+        assert.equal(clampLyricsHeight({ panel, wanted: 0 }), min, `min at panel ${panel}`);
+        assert.equal(clampLyricsHeight({ panel, wanted: 1e6 }), max, `max at panel ${panel}`);
     }
 });

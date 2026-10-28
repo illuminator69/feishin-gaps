@@ -29,7 +29,10 @@ import { DockedSimilarSongs } from '/@/renderer/features/now-playing/components/
 import { PlayQueue } from '/@/renderer/features/now-playing/components/play-queue';
 import { QueuePanelHeader } from '/@/renderer/features/now-playing/components/queue-panel-header';
 import { QueueSheetTab } from '/@/renderer/features/now-playing/components/queue-sheet-tabs';
-import { clampLyricsHeight } from '/@/renderer/features/now-playing/utils/lyrics-height';
+import {
+    clampLyricsHeight,
+    lyricsHeightRange,
+} from '/@/renderer/features/now-playing/utils/lyrics-height';
 import { movePanel } from '/@/renderer/features/now-playing/utils/panel-order';
 import { AppRoute } from '/@/renderer/router/routes';
 import {
@@ -407,6 +410,8 @@ const QueueLyricsStrip = ({
 
     // Until the panel is measured the stylesheet's default height holds.
     const height = panel > 0 ? clampLyricsHeight({ panel, wanted: live ?? wanted }) : undefined;
+    // What the handle can reach, announced as the separator's range.
+    const range = panel > 0 ? lyricsHeightRange(panel) : undefined;
 
     const commit = (next: null | number) => setSettings({ general: { queueLyricsHeight: next } });
 
@@ -463,8 +468,8 @@ const QueueLyricsStrip = ({
                 <div
                     aria-label={t('naviConnect.queue.strip.resize')}
                     aria-orientation="horizontal"
-                    aria-valuemax={panel}
-                    aria-valuemin={0}
+                    aria-valuemax={range?.max}
+                    aria-valuemin={range?.min}
                     aria-valuenow={height}
                     className={styles.stripHandle}
                     data-dragging={live !== null ? 'true' : undefined}
