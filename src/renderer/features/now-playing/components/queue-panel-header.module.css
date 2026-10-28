@@ -123,6 +123,22 @@
     }
 }
 
+/*
+ * B-225: the three characters (Familiar, Blend, Discover) at the panel's small-control size, 28 px
+ * tall with a 12.5 px label, as the count line's controls (the owner found the 40 px chips too big).
+ * Two classes so Mantine's own padding on the control and its labels cannot win by source order.
+ */
+.segments.characters {
+    padding: 3px;
+}
+
+.characters .segment-label {
+    height: 22px;
+    padding: 0 8px;
+    font-size: 12.5px;
+    line-height: 22px;
+}
+
 /* Off dims the characters; they stay tappable (a tap turns autoplay on with that one). */
 .dimmed {
     opacity: 0.4;
