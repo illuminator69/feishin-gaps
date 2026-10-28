@@ -6,6 +6,13 @@
     pointer-events: none;
     user-select: none;
     background-image: var(--theme-overlay-subheader);
+
+    /*
+     * The band runs 64 px past the hero, under the first row of content. Its tail ends in the theme's
+     * colour, which under the cover wash is not what lies below it, so it ended in a hard edge across
+     * the About text and the covers (B-216): the tail fades out instead.
+     */
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 64px), transparent);
     transform: translate3d(0, 0, 0);
     backface-visibility: hidden;
 }
