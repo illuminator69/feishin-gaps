@@ -53,11 +53,23 @@ const AlbumDetailRoute = () => {
 
     const showBlurredImage = albumBackground;
 
+    // The hero's band, drawn behind the hero and again in the bar (B-216), laid out against the hero.
+    const band = showBlurredImage ? (
+        <LibraryBackgroundImage
+            blur={albumBackgroundBlur}
+            headerRef={headerRef}
+            imageUrl={imageUrl}
+        />
+    ) : (
+        <LibraryBackgroundOverlay background={background} headerRef={headerRef} />
+    );
+
     return (
         <AnimatedPage key={`album-detail-${albumId}`}>
             <NativeScrollArea
                 pageHeaderProps={{
                     backgroundColor: background,
+                    band,
                     children: (
                         <LibraryHeaderBar>
                             <LibraryHeaderBar.PlayButton
@@ -74,15 +86,7 @@ const AlbumDetailRoute = () => {
                 }}
                 ref={scrollAreaRef}
             >
-                {showBlurredImage ? (
-                    <LibraryBackgroundImage
-                        blur={albumBackgroundBlur}
-                        headerRef={headerRef}
-                        imageUrl={imageUrl}
-                    />
-                ) : (
-                    <LibraryBackgroundOverlay background={background} headerRef={headerRef} />
-                )}
+                {band}
                 <LibraryContainer>
                     <AlbumDetailHeader ref={headerRef as React.Ref<HTMLDivElement>} />
                     <AlbumDetailContent />

@@ -24,8 +24,9 @@
 
 /*
  * The album and artist pages' bar (B-220): its opacity follows the hero title's scroll position through
- * `--bar-progress` (0 to 1), written by PageHeader on scroll. Opaque once shown (the container's own
- * background); while it fades nothing in it takes the pointer.
+ * `--bar-progress` (0 to 1), written by PageHeader on scroll. Opaque once shown, in the hero's colour at
+ * that spot (WashUnderlay under the hero's band; the container's own background with the wash off);
+ * while it fades nothing in it takes the pointer.
  */
 .container.fade {
     opacity: var(--bar-progress, 0);

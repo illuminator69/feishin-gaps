@@ -74,6 +74,7 @@ import {
     ItemTableListColumnConfig,
 } from '/@/renderer/components/item-list/types';
 import { PlayerContext, usePlayer } from '/@/renderer/features/player/context/player-context';
+import { WashUnderlay } from '/@/renderer/features/shared/components/wash-underlay';
 import {
     useAlbumGroupImageSize,
     useAlbumGroupItems,
@@ -975,6 +976,7 @@ const ItemTableListStickyUI = memo(
 
             return (
                 <div className={styles.stickyHeader} ref={stickyHeaderRef}>
+                    <WashUnderlay />
                     <div className={styles.stickyHeaderRow}>
                         {pinnedLeftColumnCount > 0 && (
                             <div
@@ -1163,6 +1165,7 @@ const ItemTableListStickyUI = memo(
             const totalTableWidth = calculatedColumnWidths.reduce((sum, width) => sum + width, 0);
             return (
                 <div className={styles.stickyGroupRow} ref={stickyGroupRowRef}>
+                    <WashUnderlay />
                     <div className={styles.stickyGroupRowContent}>
                         {pinnedLeftColumnCount > 0 && (
                             <div

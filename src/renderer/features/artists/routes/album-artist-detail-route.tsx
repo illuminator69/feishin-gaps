@@ -91,11 +91,23 @@ const AlbumArtistDetailRouteContent = () => {
     //     return <Spinner container />;
     // }
 
+    // The hero's band, drawn behind the hero and again in the bar (B-216), laid out against the hero.
+    const band = showBlurredImage ? (
+        <LibraryBackgroundImage
+            blur={artistBackgroundBlur}
+            headerRef={headerRef}
+            imageUrl={libraryBackgroundImageUrl || ''}
+        />
+    ) : (
+        <LibraryBackgroundOverlay background={background} headerRef={headerRef} />
+    );
+
     return (
         <AnimatedPage key={`album-artist-detail-${routeId}`}>
             <NativeScrollArea
                 pageHeaderProps={{
                     backgroundColor: background || undefined,
+                    band,
                     children: (
                         <LibraryHeaderBar>
                             <LibraryHeaderBar.PlayButton
@@ -114,15 +126,7 @@ const AlbumArtistDetailRouteContent = () => {
                 }}
                 ref={scrollAreaRef}
             >
-                {showBlurredImage ? (
-                    <LibraryBackgroundImage
-                        blur={artistBackgroundBlur}
-                        headerRef={headerRef}
-                        imageUrl={libraryBackgroundImageUrl || ''}
-                    />
-                ) : (
-                    <LibraryBackgroundOverlay background={background} headerRef={headerRef} />
-                )}
+                {band}
                 <LibraryContainer>
                     <AlbumArtistDetailHeader
                         albumsQuery={albumsQuery}

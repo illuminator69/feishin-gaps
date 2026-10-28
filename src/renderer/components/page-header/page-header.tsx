@@ -13,6 +13,7 @@ import {
     headerBarProgress,
 } from '/@/renderer/features/shared/components/header-bar-progress';
 import { LibraryBackgroundOverlay } from '/@/renderer/features/shared/components/library-background-overlay';
+import { setWashOrigin, WashUnderlay } from '/@/renderer/features/shared/components/wash-underlay';
 import { useShouldPadTitlebar } from '/@/renderer/hooks';
 import { useWindowSettings } from '/@/renderer/store/settings.store';
 import { Flex, FlexProps } from '/@/shared/components/flex/flex';
@@ -24,6 +25,12 @@ export interface PageHeaderProps extends Omit<
 > {
     animated?: boolean;
     backgroundColor?: string;
+    /**
+     * With `fadeWithTitle`: the hero's own band (the element the page draws behind the hero, laid out
+     * against the hero), drawn again in the bar over the page's wash, so at full opacity the bar has the
+     * colour the hero had at that spot. Without it the bar draws `backgroundColor` as other pages do.
+     */
+    band?: ReactNode;
     children?: ReactNode;
     /**
      * The album and artist pages: the bar fades in with the scroll as the hero's title (`target`'s
@@ -52,6 +59,7 @@ const variants: Variants = {
 const BasePageHeader = ({
     animated,
     backgroundColor,
+    band,
     children,
     fadeWithTitle,
     height,
@@ -131,13 +139,15 @@ const BasePageHeader = ({
             const scroller =
                 host.querySelector<HTMLElement>(':scope > [data-overlayscrollbars-viewport]') ??
                 host;
+            const barRect = bar.getBoundingClientRect();
+            setWashOrigin(bar, barRect.left, barRect.top);
             let progress = 0;
             // At the top of the page the bar never shows, whatever the title's geometry.
             if (title && scroller.scrollTop > 0) {
                 const span = reduce.matches ? 0 : BAR_FADE_SPAN;
                 const titleBottom = title.getBoundingClientRect().bottom;
                 const barBottom = headerBarLine({
-                    barBottom: bar.getBoundingClientRect().bottom,
+                    barBottom: barRect.bottom,
                     restTitleBottom: titleBottom + scroller.scrollTop,
                     span,
                 });
@@ -157,6 +167,8 @@ const BasePageHeader = ({
         // state that position implies, with no fade on arrival.
         host.addEventListener('scroll', schedule, { capture: true, passive: true });
         window.addEventListener('resize', schedule);
+        // The page's arrival moves the bar while it runs: its wash copy lines up again at the end.
+        window.addEventListener('animationend', schedule, true);
         reduce.addEventListener('change', schedule);
         // The queue opening or the sidebar folding resizes the page, and can rewrap the hero's title,
         // with no window resize.
@@ -168,6 +180,7 @@ const BasePageHeader = ({
         return () => {
             host.removeEventListener('scroll', schedule, { capture: true });
             window.removeEventListener('resize', schedule);
+            window.removeEventListener('animationend', schedule, true);
             reduce.removeEventListener('change', schedule);
             resize.disconnect();
             if (frame) cancelAnimationFrame(frame);
@@ -202,9 +215,15 @@ const BasePageHeader = ({
                         </motion.div>
                     </AnimatePresence>
                 </div>
-                {backgroundColor && (
-                    <LibraryBackgroundOverlay background={backgroundColor} headerRef={ref} />
-                )}
+                {/* The title-linked bar is the hero's top continued: the page under it (the card over
+                    the wash), then the hero's own band, so at full opacity it has the colour the hero
+                    had at that spot (B-216). */}
+                {fadeWithTitle && <WashUnderlay />}
+                {fadeWithTitle && band
+                    ? band
+                    : backgroundColor && (
+                          <LibraryBackgroundOverlay background={backgroundColor} headerRef={ref} />
+                      )}
             </Flex>
         </>
     );

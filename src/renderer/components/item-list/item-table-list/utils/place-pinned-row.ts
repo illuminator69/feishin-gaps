@@ -1,4 +1,5 @@
 import { pinnedRowBox } from '/@/renderer/components/item-list/item-table-list/utils/shell-pinned-top';
+import { setWashOrigin } from '/@/renderer/features/shared/components/wash-underlay';
 
 const write = (row: HTMLElement, name: 'left' | 'top' | 'width', px: number) => {
     const value = `${px}px`;
@@ -26,4 +27,6 @@ export const placePinnedRow = (row: HTMLElement, table: HTMLElement, top: number
     write(row, 'top', box.top);
     write(row, 'left', box.left);
     write(row, 'width', box.width);
+    // Its viewport corner, for the wash drawn under it (WashUnderlay): the page's colour at that spot.
+    setWashOrigin(row, tableRect.left, top);
 };
