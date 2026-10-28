@@ -9,7 +9,11 @@ import {
     type ArrivalWindow,
     openArrival,
 } from '/@/shared/components/animations/arrival';
-import { arrivedEntries, settleVisit } from '/@/shared/components/animations/arrived-entries';
+import {
+    arrivedEntries,
+    mayArrive,
+    settleVisit,
+} from '/@/shared/components/animations/arrived-entries';
 
 export type ArrivalProps = { className: string; 'data-arrive': string; style: CSSProperties };
 
@@ -27,9 +31,12 @@ export type ArrivalProps = { className: string; 'data-arrive': string; style: CS
  * `hold` in arrived-entries. The record is written in an effect, never in render, and it follows
  * `location.key`: once a mount has decided (it opened a window, or it was skipped) every new entry
  * under the mounted page is marked too (a replace writes the URL without remounting), so Back to it
- * shows it at rest. Only a mount that opened a window holds its pair.
+ * shows it at rest. Only a mount that opened a window holds its pair. `{ once: false }` opts a list
+ * out of the record: a gesture in place (a mood chosen on Home) is not a remount from history, so it
+ * arrives every time it opens, as before R4.
  */
-export const useArrival = (ready: boolean, key?: string) => {
+export const useArrival = (ready: boolean, key?: string, options?: { once?: boolean }) => {
+    const once = options?.once ?? true;
     const reduced = useReducedMotion();
     const entry = useLocation().key;
     const listKey = key ?? '';
@@ -45,7 +52,7 @@ export const useArrival = (ready: boolean, key?: string) => {
         skippedRef.current = false;
     }
     if (ready && windowRef.current.openedAt === null && !skippedRef.current) {
-        if (arrivedEntries.arrives(entry, listKey)) {
+        if (mayArrive(arrivedEntries, entry, listKey, once)) {
             // The window is the time the list first rendered with content: reading the clock here is the
             // point, and openArrival never moves a window once it is open, so a re-render gives the same answer.
             // eslint-disable-next-line react-hooks/purity
@@ -60,8 +67,8 @@ export const useArrival = (ready: boolean, key?: string) => {
     const decided = opened || skippedRef.current;
     useEffect(() => {
         if (!decided) return;
-        return settleVisit(arrivedEntries, entry, listKey, opened);
-    }, [decided, opened, entry, listKey]);
+        return settleVisit(arrivedEntries, entry, listKey, opened, once);
+    }, [decided, opened, entry, listKey, once]);
 
     const propsFor = useCallback(
         (index: number): ArrivalProps | undefined => {

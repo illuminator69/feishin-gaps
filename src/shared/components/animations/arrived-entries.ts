@@ -65,16 +65,30 @@ export const createArrivedEntries = (limit: number): ArrivedEntries => {
 };
 
 /**
+ * Whether a list opening now may arrive. A list that is not once-per-entry (a mood opened in place on
+ * Home: a gesture, never a remount from history) always may.
+ */
+export const mayArrive = (
+    record: ArrivedEntries,
+    entry: string,
+    list: string,
+    once: boolean,
+): boolean => !once || record.arrives(entry, list);
+
+/**
  * What a decided mount does under its current entry: mark the pair, and hold it only when this mount
  * opened an arrival window. Returns the release (a no-op for a mount that only skipped). Run again for
- * every new entry, so the mark follows the page across replaces.
+ * every new entry, so the mark follows the page across replaces. A list that is not once-per-entry
+ * leaves no mark and no hold.
  */
 export const settleVisit = (
     record: ArrivedEntries,
     entry: string,
     list: string,
     opened: boolean,
+    once = true,
 ): (() => void) => {
+    if (!once) return () => {};
     record.mark(entry, list);
     return opened ? record.hold(entry, list) : () => {};
 };

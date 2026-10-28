@@ -38,7 +38,9 @@ export const MoodBody = ({
             ),
         [mood.variants, queues],
     );
-    const { propsFor } = useArrival(mood.variants.length > 0 && !unavailable);
+    const { propsFor } = useArrival(mood.variants.length > 0 && !unavailable, undefined, {
+        once: false,
+    });
     const arrivals = useMemo(
         () => mood.variants.map((_, index) => propsFor(index)),
         [mood.variants, propsFor],

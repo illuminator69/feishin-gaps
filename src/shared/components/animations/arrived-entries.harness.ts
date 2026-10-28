@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { createArrivedEntries, settleVisit } from './arrived-entries.ts';
+import { createArrivedEntries, mayArrive, settleVisit } from './arrived-entries.ts';
 
 /**
  * R4:  node --test src/shared/components/animations/arrived-entries.harness.ts
@@ -153,6 +153,27 @@ test('theHookSettlesOnEveryEntryChange', () => {
         new URL('../../../renderer/features/motion/use-arrival.ts', import.meta.url),
         'utf8',
     );
-    assert.match(src, /settleVisit\(arrivedEntries, entry, listKey, opened\)/);
-    assert.match(src, /\[decided, opened, entry, listKey\]/);
+    assert.match(src, /settleVisit\(arrivedEntries, entry, listKey, opened, once\)/);
+    assert.match(src, /\[decided, opened, entry, listKey, once\]/);
+});
+
+test('aListThatIsNotOncePerEntryAlwaysArrivesAndLeavesNoMark', () => {
+    // A mood opened in place on Home is a gesture, not a remount from history: Home restored by Back
+    // (its shelves skipped, so no holder) must still let a chosen mood arrive, and again on a re-open.
+    const record = createArrivedEntries(10);
+    record.mark('k1', '');
+    assert.equal(mayArrive(record, 'k1', '', true), false);
+    assert.equal(mayArrive(record, 'k1', '', false), true);
+    const release = settleVisit(record, 'k2', '', true, false);
+    assert.equal(record.has('k2', ''), false);
+    release();
+    assert.equal(mayArrive(record, 'k2', '', false), true);
+});
+
+test('theMoodBodyOptsOutOfTheRecord', () => {
+    const src = readFileSync(
+        new URL('../../../renderer/features/moods/components/mood-body.tsx', import.meta.url),
+        'utf8',
+    );
+    assert.match(src, /useArrival\([^)]*once: false/s);
 });
