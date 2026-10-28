@@ -18,8 +18,8 @@ import {
  * and opens over the page instead. Only the horizontal side queue folds; the vertical one sits
  * under the page and takes no width.
  *
- * Here and not in use-right-sidebar-visible.ts (which re-exports it): that file reads the panel
- * list from sidebar-play-queue.tsx, and the panel's header needs this file without that loop.
+ * Here and not in use-right-sidebar-visible.ts, which imports it from here: that file reads the
+ * panel list from sidebar-play-queue.tsx, and the panel's header needs this file without that loop.
  */
 export const useQueueFolded = (): boolean => {
     const folded = useShellFit().queue === 'rail';
