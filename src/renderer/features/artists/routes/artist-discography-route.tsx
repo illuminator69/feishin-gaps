@@ -9,11 +9,9 @@ import { useNativeScrollPersist } from '/@/renderer/components/native-scroll-are
 import { albumQueries } from '/@/renderer/features/albums/api/album-api';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
 import { LbBotDiscographyPrefetch } from '/@/renderer/features/artists/components/lbbot-discography-prefetch';
-import {
-    usePlayArtistReleases,
-    viewPlayIds,
-} from '/@/renderer/features/artists/hooks/use-play-artist-releases';
+import { usePlayArtistReleases } from '/@/renderer/features/artists/hooks/use-play-artist-releases';
 import { Discography } from '/@/renderer/features/discography/components/discography';
+import { viewPlayIds } from '/@/renderer/features/discography/discography-model';
 import { useDiscographyItems } from '/@/renderer/features/discography/hooks/use-discography-items';
 import { useDiscographyView } from '/@/renderer/features/discography/hooks/use-discography-view';
 import { LbBotIndexButton } from '/@/renderer/features/lbbot/components/lbbot-index-button';
@@ -64,7 +62,7 @@ const ArtistDiscographyRouteContent = () => {
     const headerRef = useRef<HTMLDivElement>(null);
     const server = useCurrentServer();
     const serverId = useCurrentServerId();
-    const { albumArtistId, artistId, routeId } = useArtistRouteIds();
+    const { artistId, routeId } = useArtistRouteIds();
 
     useNativeScrollPersist({ enabled: true, scrollRef: scrollAreaRef });
 
@@ -99,7 +97,7 @@ const ArtistDiscographyRouteContent = () => {
     const { view } = useDiscographyView();
     const playIds = useMemo(() => viewPlayIds(items, view), [items, view]);
 
-    const playReleases = usePlayArtistReleases({ albumArtistId, routeId });
+    const playReleases = usePlayArtistReleases({ routeId });
     const handlePlay = useCallback(
         (type?: Play) => playReleases(playIds, type),
         [playReleases, playIds],

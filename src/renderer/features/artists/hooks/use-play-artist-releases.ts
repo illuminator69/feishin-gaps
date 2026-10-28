@@ -1,11 +1,5 @@
 import { useCallback } from 'react';
 
-import {
-    type DiscographyItem,
-    type DiscographyView,
-    filterItems,
-    sortItems,
-} from '/@/renderer/features/discography/discography-model';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { useCurrentServer } from '/@/renderer/store';
 import { usePlayButtonBehavior } from '/@/renderer/store/settings.store';
@@ -13,51 +7,34 @@ import { LibraryItem, Song } from '/@/shared/types/domain-types';
 import { Play } from '/@/shared/types/types';
 
 /**
- * Call 4: the album ids the discography's current view shows (its kind chip, ownership filter and
- * sort), owned and partly-owned albums only, in the order the view draws them. A missing release
- * has nothing to play.
- */
-export const viewPlayIds = (items: DiscographyItem[], view: DiscographyView): string[] =>
-    sortItems(filterItems(items, view), view).flatMap((item) =>
-        item.albumId && (item.ownership === 'owned' || item.ownership === 'partly')
-            ? [item.albumId]
-            : [],
-    );
-
-/**
  * Plays an artist's albums by id, keeping only the songs this artist is on (a compilation's other
  * artists are left out). The caller picks the ids: the discography page plays its filtered view,
- * the artist page its owned albums.
+ * the artist page its owned albums. The artist is `routeId`, the page's id under either route
+ * (`albumArtistId` is undefined on `/library/artists/:artistId`, where it filtered out every song).
  */
-export const usePlayArtistReleases = ({
-    albumArtistId,
-    routeId,
-}: {
-    albumArtistId?: string;
-    routeId: string;
-}) => {
-    const server = useCurrentServer();
+export const usePlayArtistReleases = ({ routeId }: { routeId: string }) => {
+    const serverId = useCurrentServer()?.id;
     const { addToQueueByFetch } = usePlayer();
     const playButtonBehavior = usePlayButtonBehavior();
 
     return useCallback(
         (albumIds: string[], type?: Play) => {
-            if (!server?.id || !routeId) return;
+            if (!serverId || !routeId) return;
 
             if (albumIds.length === 0) return;
 
             const filter = (song: Song) => {
-                if (song.albumArtists.some((artist) => artist.id === albumArtistId)) {
+                if (song.albumArtists.some((artist) => artist.id === routeId)) {
                     return true;
                 }
 
-                return song.artists.some((artist) => artist.id === albumArtistId);
+                return song.artists.some((artist) => artist.id === routeId);
             };
 
-            addToQueueByFetch(server.id, albumIds, LibraryItem.ALBUM, type || playButtonBehavior, {
+            addToQueueByFetch(serverId, albumIds, LibraryItem.ALBUM, type || playButtonBehavior, {
                 filter,
             });
         },
-        [addToQueueByFetch, playButtonBehavior, routeId, server.id, albumArtistId],
+        [addToQueueByFetch, playButtonBehavior, routeId, serverId],
     );
 };

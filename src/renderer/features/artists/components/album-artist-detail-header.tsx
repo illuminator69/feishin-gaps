@@ -7,13 +7,11 @@ import styles from './album-artist-detail-header.module.css';
 
 import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
-import {
-    usePlayArtistReleases,
-    viewPlayIds,
-} from '/@/renderer/features/artists/hooks/use-play-artist-releases';
+import { usePlayArtistReleases } from '/@/renderer/features/artists/hooks/use-play-artist-releases';
 import { useDeleteArtistImage } from '/@/renderer/features/artists/mutations/delete-artist-image-mutation';
 import { useUploadArtistImage } from '/@/renderer/features/artists/mutations/upload-artist-image-mutation';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
+import { viewPlayIds } from '/@/renderer/features/discography/discography-model';
 import { useDiscographyItems } from '/@/renderer/features/discography/hooks/use-discography-items';
 import { useDiscographyView } from '/@/renderer/features/discography/hooks/use-discography-view';
 import { useEffectiveArtistMbid } from '/@/renderer/features/lbbot/hooks/use-lbbot';
@@ -158,7 +156,7 @@ export const AlbumArtistDetailHeader = forwardRef<HTMLDivElement, AlbumArtistDet
         });
         const { view } = useDiscographyView();
 
-        const playReleases = usePlayArtistReleases({ albumArtistId, routeId });
+        const playReleases = usePlayArtistReleases({ routeId });
         const handlePlay = useCallback(
             (type?: Play) => playReleases(viewPlayIds(items, view), type),
             [playReleases, items, view],

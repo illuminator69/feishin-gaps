@@ -242,6 +242,15 @@ export const sortItems = (items: DiscographyItem[], view: DiscographyView): Disc
     return [...owned, ...rest];
 };
 
+/**
+ * Call 4: the album ids a view shows (its kind chip, ownership filter and sort), owned and partly
+ * owned albums only, in the order the view draws them. A missing release has nothing to play.
+ */
+export const viewPlayIds = (items: DiscographyItem[], view: DiscographyView): string[] =>
+    sortItems(filterItems(items, view), view).flatMap((item) =>
+        item.albumId && isOwned(item) ? [item.albumId] : [],
+    );
+
 /** A chip's count: the releases of that kind before any filter. Kinds with none are absent. */
 export const chipCounts = (
     items: DiscographyItem[],
@@ -269,6 +278,24 @@ export const summaryOf = (items: DiscographyItem[]): string => {
 };
 
 /**
+ * Each kind's place and switch, read from Settings' release-type list through `KIND_SETTING_ID`:
+ * the kinds it lists in its order, the kinds it does not list after them in display order, and the
+ * kinds whose item is switched off. The discography collapses those; the artist page leaves them out.
+ */
+export const kindSettings = (
+    settings: { disabled: boolean; id: string }[],
+): { disabled: Set<ReleaseKind>; order: ReleaseKind[] } => {
+    const position = new Map(settings.map((item, index) => [item.id, index]));
+    const off = new Set(settings.filter((item) => item.disabled).map((item) => item.id));
+    const rank = (kind: ReleaseKind) =>
+        position.get(KIND_SETTING_ID[kind]) ?? settings.length + RELEASE_KINDS.indexOf(kind);
+    return {
+        disabled: new Set(RELEASE_KINDS.filter((kind) => off.has(KIND_SETTING_ID[kind]))),
+        order: [...RELEASE_KINDS].sort((a, b) => rank(a) - rank(b)),
+    };
+};
+
+/**
  * The sections of the (already filtered and sorted) items: one per kind present, in the order of each
  * kind's Settings item, kinds Settings does not list after them in display order. A kind switched
  * off in Settings starts collapsed (Call 2) unless the view asks for exactly that kind.
@@ -278,20 +305,18 @@ export const sectionsOf = (
     view: DiscographyView,
     settings: { disabled: boolean; id: string }[],
 ): Section[] => {
-    const position = new Map(settings.map((item, index) => [item.id, index]));
-    const disabled = new Set(settings.filter((item) => item.disabled).map((item) => item.id));
+    const { disabled, order } = kindSettings(settings);
     const groups = new Map<ReleaseKind, DiscographyItem[]>();
     for (const item of items) {
         const list = groups.get(item.kind);
         if (list) list.push(item);
         else groups.set(item.kind, [item]);
     }
-    const rank = (kind: ReleaseKind) =>
-        position.get(KIND_SETTING_ID[kind]) ?? settings.length + RELEASE_KINDS.indexOf(kind);
+    const rank = (kind: ReleaseKind) => order.indexOf(kind);
     return [...groups.entries()]
         .sort(([a], [b]) => rank(a) - rank(b))
         .map(([kind, list]) => ({
-            collapsed: disabled.has(KIND_SETTING_ID[kind]) && view.type !== kind,
+            collapsed: disabled.has(kind) && view.type !== kind,
             items: list,
             kind,
             summary: summaryOf(list),

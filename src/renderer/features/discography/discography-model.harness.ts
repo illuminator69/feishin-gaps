@@ -8,11 +8,13 @@ import {
     type DiscographyView,
     type FillInput,
     filterItems,
+    kindSettings,
     type OwnedAlbumInput,
     type ReleaseRowInput,
     sectionsOf,
     sortItems,
     summaryOf,
+    viewPlayIds,
 } from './discography-model.ts';
 
 /**
@@ -419,6 +421,38 @@ test('sectionsOf: order follows the settings list; a kind switched off is collap
         only.map((s) => [s.kind, s.collapsed]),
         [['compilation', false]],
     );
+});
+
+test('kindSettings: listed kinds in the settings order, the rest after in display order; off is disabled', () => {
+    const { disabled, order } = kindSettings(SETTINGS);
+    assert.deepEqual(order, [
+        'live',
+        'album',
+        'compilation',
+        'ep',
+        'single',
+        'soundtrack',
+        'remix',
+        'other',
+        'appears-on',
+    ]);
+    assert.deepEqual([...disabled], ['compilation']);
+});
+
+test('viewPlayIds: owned and partly owned album ids only, in the view order', () => {
+    const items = mixed();
+    // Year, newest first: a-new 2024, a-live 2022 (live), a-old 2021, a-part 2018 (partly);
+    // m1, m2 (missing) and s1 (syncing) have no album to play.
+    assert.deepEqual(viewPlayIds(items, view()), ['a-new', 'a-live', 'a-old', 'a-part']);
+    assert.deepEqual(viewPlayIds(items, view({ dir: 'asc' })), [
+        'a-part',
+        'a-old',
+        'a-live',
+        'a-new',
+    ]);
+    assert.deepEqual(viewPlayIds(items, view({ type: 'live' })), ['a-live']);
+    assert.deepEqual(viewPlayIds(items, view({ own: 'partly' })), ['a-part']);
+    assert.deepEqual(viewPlayIds(items, view({ own: 'missing' })), []);
 });
 
 test('summary strings', () => {
