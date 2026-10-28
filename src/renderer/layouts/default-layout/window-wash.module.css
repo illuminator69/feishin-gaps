@@ -7,6 +7,7 @@
  */
 
 .wash {
+    /* Dark windows set it inline by the cover's lightness (colour-change.ts, artOpacity). */
     --wash-art-opacity: 0.55;
 
     position: absolute;

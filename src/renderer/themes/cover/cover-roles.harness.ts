@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import type { CoverSeed, Role, Roles } from './cover-roles.ts';
 
-import { toneVars } from './colour-change.ts';
+import { artOpacity, toneVars } from './colour-change.ts';
 import { NEUTRAL_SEED, rolesFor, surfaceOver } from './cover-roles.ts';
 import { composite, contrast, oklchToRgb } from './oklch.ts';
 
@@ -211,6 +211,66 @@ test('lightWashOverBlackArtKeepsTextPassing', () => {
                     `${name} on raised ${band} over black, hue ${hue}: ${ratio.toFixed(2)}`,
                 );
             }
+        }
+    }
+});
+
+/**
+ * The mode is the user's, not the cover's (a pale cover no longer turns the window light), so a dark
+ * window now meets pale artwork. The artwork is modelled as a flat grey of the cover's mean lightness,
+ * drawn at `artOpacity` (colour-change.ts) over the tone and under the dark veil, with no white lift.
+ * At every lightness, hue and seed strength the text roles keep 4.5:1, and the state colours never drop
+ * below what the darkest-allowed covers already gave them before (lightness 0.62, the old switch to
+ * light, at the full 0.55 glow).
+ */
+test('darkWashOverPaleArtKeepsTextPassing', () => {
+    const veil = toneVars(rolesFor(seed(0), false), 'dark');
+    const ov1 = Number.parseFloat(veil['--tone-ov1']) / 100;
+    const ov2 = Number.parseFloat(veil['--tone-ov2']) / 100;
+    const worst = (meanL: number, opacity: number) => {
+        const grey = oklchToRgb({ c: 0, h: 0, l: Math.min(meanL, 1) });
+        let text = { ratio: 99, where: '' };
+        let state = { ratio: 99, where: '' };
+        for (const k of [0, 0.3, 1]) {
+            for (const hue of HUES) {
+                const roles = rolesFor({ hue, k, meanL }, false);
+                for (const [band, cover] of [
+                    ['top', ov1],
+                    ['mid', ov2],
+                ] as const) {
+                    const tone = rgb(roles[band]);
+                    const page = composite(tone, composite(grey, tone, opacity), cover);
+                    const raised = composite(rgb(roles.surf2), page, roles.surf2.a ?? 1);
+                    const where = `${band}, hue ${hue}, k ${k}`;
+                    for (const [name, over] of [
+                        ['on', page],
+                        ['on2', page],
+                        ['acc', page],
+                        ['on2', raised],
+                        ['acc', raised],
+                    ] as const) {
+                        const ratio = contrast(rgb(roles[name]), over);
+                        if (ratio < text.ratio) text = { ratio, where: `${name} on ${where}` };
+                    }
+                    for (const name of STATES) {
+                        const ratio = contrast(rgb(roles[name]), page);
+                        if (ratio < state.ratio) state = { ratio, where: `${name} on ${where}` };
+                    }
+                }
+            }
+        }
+        return { state, text };
+    };
+    const floor = worst(0.62, 0.55).state.ratio;
+    for (let meanL = 0; meanL <= 1.0001; meanL += 0.01) {
+        const { state, text } = worst(meanL, artOpacity(meanL, 'dark'));
+        const at = `lightness ${meanL.toFixed(2)}`;
+        assert.ok(text.ratio >= 4.5, `${text.where}, ${at}: ${text.ratio.toFixed(2)}`);
+        if (meanL > 0.62) {
+            assert.ok(
+                state.ratio >= floor - 1e-9,
+                `${state.where}, ${at}: ${state.ratio.toFixed(2)} < ${floor.toFixed(2)}`,
+            );
         }
     }
 });

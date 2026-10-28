@@ -5,31 +5,37 @@ import { useRemoteAwarePlayerSong } from '/@/renderer/features/hub/hooks/use-rem
 import { usePlayerStoreBase } from '/@/renderer/store/player.store';
 import { useCoverColours } from '/@/renderer/store/settings.store';
 import { applyWashVars, washVars } from '/@/renderer/themes/cover/apply-wash-vars';
-import { switchDelayMs, type WashMode } from '/@/renderer/themes/cover/colour-change';
+import { artOpacity, switchDelayMs, type WashMode } from '/@/renderer/themes/cover/colour-change';
 import { useArtReady } from '/@/renderer/themes/cover/cover-art';
-import { type CoverSeed, NEUTRAL_SEED, rolesFor } from '/@/renderer/themes/cover/cover-roles';
-import { chooseLight } from '/@/renderer/themes/cover/cover-seed';
+import {
+    type CoverSeed,
+    NEUTRAL_SEED,
+    type Roles,
+    rolesFor,
+} from '/@/renderer/themes/cover/cover-roles';
 import { seedKey } from '/@/renderer/themes/cover/cover-seed-cache';
 import { readLastSeed, writeLastSeed } from '/@/renderer/themes/cover/cover-seed-store';
 import { useCoverWashStore } from '/@/renderer/themes/cover/cover-wash.store';
 import { useCoverSeed } from '/@/renderer/themes/cover/use-cover-seed';
+import { useWindowLight } from '/@/renderer/themes/cover/use-window-light';
 import { logger } from '/@/renderer/utils/logger';
 import { LibraryItem } from '/@/shared/types/domain-types';
 
 /** What the window shows: `artSrc` is set only for a seed resolved from that cover. */
 interface Shown {
     artSrc: null | string;
-    light: boolean;
     seed: CoverSeed;
 }
 
 /** The backdrop's mode: neutral only for nothing playing, not for a remembered seed before a cover. */
-const modeOf = (shown: Shown): WashMode =>
-    shown.artSrc === null && shown.seed === NEUTRAL_SEED
-        ? 'neutral'
-        : shown.light
-          ? 'light'
-          : 'dark';
+const modeOf = (shown: Shown, light: boolean): WashMode =>
+    shown.artSrc === null && shown.seed === NEUTRAL_SEED ? 'neutral' : light ? 'light' : 'dark';
+
+/** What the backdrop layers fade to: the roles and how strongly the artwork glows through. */
+const backdropOf = (shown: Shown, light: boolean, roles: Roles) => {
+    const mode = modeOf(shown, light);
+    return { artOpacity: artOpacity(shown.seed.meanL, mode), mode, roles };
+};
 
 /**
  * Nothing playing is neutral; a resolved cover is its own seed; an unresolved (or failed) cover keeps
@@ -43,30 +49,24 @@ const nextShown = (
     if (!playing) {
         return shown.seed === NEUTRAL_SEED && shown.artSrc === null
             ? shown
-            : {
-                  artSrc: null,
-                  light: chooseLight(NEUTRAL_SEED.meanL, shown.light),
-                  seed: NEUTRAL_SEED,
-              };
+            : { artSrc: null, seed: NEUTRAL_SEED };
     }
     if (!cover.resolved || !cover.src) return shown;
     if (cover.seed === shown.seed && cover.src === shown.artSrc) return shown;
-    return {
-        artSrc: cover.src,
-        light: chooseLight(cover.seed.meanL, shown.light),
-        seed: cover.seed,
-    };
+    return { artSrc: cover.src, seed: cover.seed };
 };
 
 /**
  * Colours the window from the playing cover while `Cover colours` is on: the roles as variables on
- * `<html>`, `data-cover-wash="true"`, and the wash store. A change writes the store's `backdrop` at
+ * `<html>`, `data-cover-wash="true"`, and the wash store, in the user's light or dark mode (never the
+ * cover's: `useWindowLight`). A change writes the store's `backdrop` at
  * once (the wash's layers cross-fade to it) and the page's roles at the fade's midpoint; the first
  * application and reduced motion write both before paint. Mounted once, in the renderer's
  * `ThemedApp`, before `useAppTheme`.
  */
 export const useCoverWash = (): void => {
     const on = useCoverColours();
+    const light = useWindowLight();
     const song = useRemoteAwarePlayerSong();
     // The player bar's own cover URL (left-controls' `ItemImage`, type "table"), so it is one image.
     const src = useItemImageUrl({
@@ -100,15 +100,16 @@ export const useCoverWash = (): void => {
 
     const [shown, setShown] = useState<Shown>(() => {
         const last = readLastSeed();
-        const initial = { artSrc: null, light: chooseLight(last.meanL, false), seed: last };
+        const initial: Shown = { artSrc: null, seed: last };
         const first = playingKnown ? nextShown(initial, Boolean(song), { ...cover, src }) : initial;
         // Seeded here, once, so `useAppTheme`'s first render already has the mode and leaves the accent
         // to the wash; afterwards only the layout effect below writes the store.
         if (on) {
-            const roles = rolesFor(first.seed, first.light);
+            const roles = rolesFor(first.seed, light);
             useCoverWashStore.setState({
                 ...first,
-                backdrop: { mode: modeOf(first), roles },
+                backdrop: backdropOf(first, light, roles),
+                light,
                 on: true,
                 roles,
             });
@@ -125,19 +126,19 @@ export const useCoverWash = (): void => {
 
     useLayoutEffect(() => {
         if (!on) return;
-        const roles = rolesFor(shown.seed, shown.light);
+        const roles = rolesFor(shown.seed, light);
         window.clearTimeout(pending.current);
         pending.current = undefined;
         document.documentElement.setAttribute('data-cover-wash', 'true');
         useCoverWashStore.setState({
             artSrc: shown.artSrc,
-            backdrop: { mode: modeOf(shown), roles },
+            backdrop: backdropOf(shown, light, roles),
             on: true,
         });
         const apply = () => {
             pending.current = undefined;
             applyWashVars(washVars(roles));
-            useCoverWashStore.setState({ light: shown.light, roles, seed: shown.seed });
+            useCoverWashStore.setState({ light, roles, seed: shown.seed });
             // The last window seed, for the next cold start: a cover's, or neutral once nothing is
             // known to play (so a launch with an empty queue does not open on the last cover's colours).
             if (shown.artSrc || shown.seed === NEUTRAL_SEED) writeLastSeed(shown.seed);
@@ -145,7 +146,7 @@ export const useCoverWash = (): void => {
                 cover: Boolean(shown.artSrc),
                 hue: Math.round(shown.seed.hue),
                 k: shown.seed.k,
-                light: shown.light,
+                light,
             });
         };
         const delay = switchDelayMs({
@@ -155,7 +156,7 @@ export const useCoverWash = (): void => {
         first.current = false;
         if (delay === 0) apply();
         else pending.current = window.setTimeout(apply, delay);
-    }, [on, shown]);
+    }, [light, on, shown]);
 
     useLayoutEffect(() => {
         if (!on) return undefined;

@@ -160,6 +160,13 @@ export const WindowWash = () => {
                 [styles.light]: backdrop.mode === 'light',
                 [styles.neutral]: !artSrc || art.neutral,
             })}
+            // On a dark window a paler cover glows less (colour-change.ts, artOpacity); the light and
+            // neutral values are the CSS classes'. The artwork's opacity transition eases the change.
+            style={
+                backdrop.mode === 'dark'
+                    ? ({ '--wash-art-opacity': String(backdrop.artOpacity) } as CSSProperties)
+                    : undefined
+            }
         >
             {pair('tone')}
             <div className={styles.art}>

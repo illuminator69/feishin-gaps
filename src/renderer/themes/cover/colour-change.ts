@@ -66,3 +66,47 @@ export const flipLayers = <T>(
     items[front] = next;
     return { front, items };
 };
+
+/**
+ * Light or dark is the user's choice, never the cover's: with `Use system theme` the system's, else
+ * the Cover colours mode setting. A pale cover used to turn the whole window light, which was straining
+ * on a large screen at the wrong moment; the cover now only tints the dark or the light palette.
+ */
+export const windowLight = (
+    settings: { followSystemTheme: boolean; mode: 'dark' | 'light' },
+    systemDark: boolean,
+): boolean => (settings.followSystemTheme ? !systemDark : settings.mode === 'light');
+
+/**
+ * The artwork's opacity on a dark window by the cover's mean lightness. Covers that kept the window dark
+ * before (up to 0.62, where it used to switch to light) glow exactly as before; paler ones glow less,
+ * so the text roles keep 4.5:1 over them and the state colours never drop below what those darker
+ * covers already gave them (cover-roles.harness.ts, darkWashOverPaleArtKeepsTextPassing). Interpolated
+ * linearly between these points, each about 6 % under the most that passes there.
+ */
+const DARK_ART: [meanL: number, opacity: number][] = [
+    [0.62, 0.55],
+    [0.65, 0.455],
+    [0.7, 0.38],
+    [0.75, 0.325],
+    [0.8, 0.28],
+    [0.85, 0.248],
+    [0.9, 0.22],
+    [0.95, 0.2],
+    [1, 0.182],
+];
+
+/** Light windows lift the artwork with white instead (window-wash.module.css); nothing playing has none. */
+export const artOpacity = (meanL: number, mode: WashMode): number => {
+    if (mode === 'light') return 0.85;
+    if (mode === 'neutral') return 0;
+    if (meanL <= DARK_ART[0][0]) return DARK_ART[0][1];
+    for (let i = 1; i < DARK_ART.length; i++) {
+        const [l1, o1] = DARK_ART[i];
+        if (meanL <= l1) {
+            const [l0, o0] = DARK_ART[i - 1];
+            return o0 + ((o1 - o0) * (meanL - l0)) / (l1 - l0);
+        }
+    }
+    return DARK_ART[DARK_ART.length - 1][1];
+};

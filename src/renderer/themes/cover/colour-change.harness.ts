@@ -3,12 +3,14 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
+    artOpacity,
     COLOUR_FADE_MS,
     flipLayers,
     type LayerPair,
     ROLE_SWITCH_MS,
     switchDelayMs,
     toneVars,
+    windowLight,
 } from './colour-change.ts';
 import { NEUTRAL_SEED, rolesFor } from './cover-roles.ts';
 
@@ -121,4 +123,30 @@ test('aBurstAlwaysKeepsTheShownItemUnderTheNewOne', () => {
     // Back to what is under: it comes in on top again, it is not just re-fronted.
     pair = flipLayers(pair, 'c', eq);
     assert.deepEqual(pair, { front: 0, items: ['c', 'd'] });
+});
+
+// The mode is the user's: a pale cover never turns the window light (a sudden light window strained the
+// eyes), and the cover only tints the dark or the light palette.
+test('theModeIsTheUsersNotTheCovers', () => {
+    assert.equal(windowLight({ followSystemTheme: false, mode: 'dark' }, false), false);
+    assert.equal(windowLight({ followSystemTheme: false, mode: 'dark' }, true), false);
+    assert.equal(windowLight({ followSystemTheme: false, mode: 'light' }, true), true);
+    assert.equal(windowLight({ followSystemTheme: true, mode: 'dark' }, false), true);
+    assert.equal(windowLight({ followSystemTheme: true, mode: 'light' }, true), false);
+});
+
+test('aPalerCoverGlowsLessOnADarkWindow', () => {
+    // Covers that kept the window dark before (mean lightness up to 0.62) glow exactly as before.
+    for (const l of [0, 0.2, 0.4, 0.5, 0.62]) assert.equal(artOpacity(l, 'dark'), 0.55);
+    let previous = 1;
+    for (let l = 0; l <= 1.0001; l += 0.01) {
+        const value = artOpacity(l, 'dark');
+        assert.ok(value <= previous + 1e-9, `${l.toFixed(2)}: ${value} after ${previous}`);
+        assert.ok(value > 0.1, `${l.toFixed(2)}: a pale cover still glows (${value})`);
+        previous = value;
+    }
+    assert.ok(artOpacity(1, 'dark') < 0.25);
+    assert.equal(artOpacity(0.9, 'light'), 0.85);
+    assert.equal(artOpacity(0.1, 'light'), 0.85);
+    assert.equal(artOpacity(0.5, 'neutral'), 0);
 });

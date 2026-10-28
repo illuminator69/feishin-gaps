@@ -16,7 +16,7 @@ import {
 import { useMixesStore } from '/@/renderer/store/mixes.store';
 import { useSavedQueuesStore } from '/@/renderer/store/saved-queues.store';
 import { applyWashVars, washVars } from '/@/renderer/themes/cover/apply-wash-vars';
-import { ROLE_SWITCH_MS } from '/@/renderer/themes/cover/colour-change';
+import { artOpacity, ROLE_SWITCH_MS } from '/@/renderer/themes/cover/colour-change';
 import { type CoverSeed, NEUTRAL_SEED, rolesFor } from '/@/renderer/themes/cover/cover-roles';
 import * as coverSeeds from '/@/renderer/themes/cover/cover-seed-store';
 import { useCoverWashStore } from '/@/renderer/themes/cover/cover-wash.store';
@@ -35,7 +35,9 @@ Object.assign(window, {
             const roles = rolesFor(seed, light);
             const mode = seed === NEUTRAL_SEED ? 'neutral' : light ? 'light' : 'dark';
             window.clearTimeout(pendingWash);
-            useCoverWashStore.setState({ backdrop: { mode, roles } });
+            useCoverWashStore.setState({
+                backdrop: { artOpacity: artOpacity(seed.meanL, mode), mode, roles },
+            });
             pendingWash = window.setTimeout(() => {
                 applyWashVars(washVars(roles));
                 useCoverWashStore.setState({ light, roles, seed });

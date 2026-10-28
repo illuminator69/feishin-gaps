@@ -544,6 +544,7 @@ export const GeneralSettingsSchema = z.object({
     combinedLyricsAndVisualizer: z.boolean(),
     confirmQueueChanges: z.boolean(),
     coverColours: z.boolean(),
+    coverColoursMode: z.enum(['dark', 'light']),
     disabledContextMenu: z.record(z.string(), z.boolean()),
     enableGridMultiSelect: z.boolean(),
     externalLinks: z.boolean(),
@@ -1415,6 +1416,7 @@ const initialState: SettingsState = {
         combinedLyricsAndVisualizer: false,
         confirmQueueChanges: true,
         coverColours: true,
+        coverColoursMode: 'dark',
         disabledContextMenu: {},
         enableGridMultiSelect: false,
         externalLinks: true,
@@ -3075,6 +3077,10 @@ export const useTableSettings = (type: ItemListKey) =>
 export const useGeneralSettings = () => useSettingsStore((state) => state.general, shallow);
 
 export const useCoverColours = () => useSettingsStore((state) => state.general.coverColours);
+
+/** Light or dark while Cover colours is on (unless `Use system theme` decides): never the cover's. */
+export const useCoverColoursMode = () =>
+    useSettingsStore((state) => state.general.coverColoursMode);
 
 export const usePlaybackType = () => useSettingsStore((state) => state.playback.type, shallow);
 

@@ -19,7 +19,7 @@ export interface CoverWashState {
      * What the wash's backdrop layers fade to: written at once on a change, while `light`, `roles` and
      * `seed` (what the page wears) follow at the fade's midpoint.
      */
-    backdrop: { mode: WashMode; roles: Roles };
+    backdrop: { artOpacity: number; mode: WashMode; roles: Roles };
     light: boolean;
     on: boolean;
     roles: Roles;
@@ -28,7 +28,7 @@ export interface CoverWashState {
 
 export const useCoverWashStore = create<CoverWashState>()(() => ({
     artSrc: null,
-    backdrop: { mode: 'neutral', roles: rolesFor(NEUTRAL_SEED, false) },
+    backdrop: { artOpacity: 0, mode: 'neutral', roles: rolesFor(NEUTRAL_SEED, false) },
     light: false,
     on: false,
     roles: rolesFor(NEUTRAL_SEED, false),
