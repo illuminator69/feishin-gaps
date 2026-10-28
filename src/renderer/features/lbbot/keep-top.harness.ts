@@ -12,25 +12,59 @@ import { albumBoxKey, albumBoxShrinks, gapBoxShrinks, scrollToKeepTop } from './
  */
 
 test('inViewIsNull', () => {
-    assert.equal(scrollToKeepTop({ barBottom: 117, boxTop: 400, gap: 8 }), null);
+    assert.equal(
+        scrollToKeepTop({ barBottom: 117, boxTop: 400, gap: 8, seenBelowBar: true }),
+        null,
+    );
 });
 
 test('underBarScrollsUp', () => {
     // The workstation's numbers: box top 35 against the bar's bottom 147.
-    assert.equal(scrollToKeepTop({ barBottom: 147, boxTop: 35, gap: 8 }), -120);
+    assert.equal(scrollToKeepTop({ barBottom: 147, boxTop: 35, gap: 8, seenBelowBar: true }), -120);
     // Scrolled far past it: the top is above the window.
-    assert.equal(scrollToKeepTop({ barBottom: 117, boxTop: -600, gap: 8 }), -725);
+    assert.equal(
+        scrollToKeepTop({ barBottom: 117, boxTop: -600, gap: 8, seenBelowBar: true }),
+        -725,
+    );
 });
 
 test('exactlyAtLineIsNull', () => {
-    assert.equal(scrollToKeepTop({ barBottom: 117, boxTop: 125, gap: 8 }), null);
-    assert.equal(scrollToKeepTop({ barBottom: 117, boxTop: 124.6, gap: 8 }), null);
+    assert.equal(
+        scrollToKeepTop({ barBottom: 117, boxTop: 125, gap: 8, seenBelowBar: true }),
+        null,
+    );
+    assert.equal(
+        scrollToKeepTop({ barBottom: 117, boxTop: 124.6, gap: 8, seenBelowBar: true }),
+        null,
+    );
 });
 
 test('gapApplied', () => {
-    assert.equal(scrollToKeepTop({ barBottom: 117, boxTop: 117, gap: 8 }), -8);
-    assert.equal(scrollToKeepTop({ barBottom: 117, boxTop: 117, gap: 0 }), null);
-    assert.equal(scrollToKeepTop({ barBottom: 117, boxTop: 100, gap: 20 }), -37);
+    assert.equal(scrollToKeepTop({ barBottom: 117, boxTop: 117, gap: 8, seenBelowBar: true }), -8);
+    assert.equal(
+        scrollToKeepTop({ barBottom: 117, boxTop: 117, gap: 0, seenBelowBar: true }),
+        null,
+    );
+    assert.equal(
+        scrollToKeepTop({ barBottom: 117, boxTop: 100, gap: 20, seenBelowBar: true }),
+        -37,
+    );
+});
+
+test('scrolledAwayNeverMoves', () => {
+    // Review F1: the user pressed Request, then scrolled down the tracklist to watch the songs
+    // arrive; minutes later lb-bot ends the fill. The box was nowhere below the bar just before
+    // that change, so the page stays where the user put it, however far above the line the top is.
+    assert.equal(
+        scrollToKeepTop({ barBottom: 117, boxTop: -600, gap: 8, seenBelowBar: false }),
+        null,
+    );
+    assert.equal(
+        scrollToKeepTop({ barBottom: 147, boxTop: 35, gap: 8, seenBelowBar: false }),
+        null,
+    );
+    // The same top with the box still showing under the bar: the one move.
+    assert.equal(scrollToKeepTop({ barBottom: 147, boxTop: 35, gap: 8, seenBelowBar: true }), -120);
 });
 
 test('gapBoxShrinksOnlyAfterTheUsersOwnStep', () => {

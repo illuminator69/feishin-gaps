@@ -1,5 +1,5 @@
 import { animate } from 'motion/react';
-import { RefObject, useLayoutEffect, useRef } from 'react';
+import { RefObject, useEffect, useLayoutEffect, useRef } from 'react';
 
 import { shellPinnedTop } from '/@/renderer/components/item-list/item-table-list/utils/shell-pinned-top';
 import { scrollToKeepTop } from '/@/renderer/features/lbbot/keep-top';
@@ -31,6 +31,10 @@ const scrollParentOf = (el: HTMLElement | null): HTMLElement | null => {
  * under). The move uses the shell's tween (`readMotionClock`), is instant under reduced motion, and
  * stops at the user's first wheel, touch, press or key; nothing happens on any later scroll.
  *
+ * Only while the user is looking at the box: an observer keeps whether any part of it showed below
+ * the bar, and a change that comes while it did not (a fill lb-bot ends minutes after the press,
+ * with the user down the tracklist) moves nothing (review F1).
+ *
  * A layout effect: the box's top is read after the new view is in the DOM and before it paints. The
  * box follows its content's height (`GrowBox`), which never moves its top.
  */
@@ -40,6 +44,24 @@ export const useKeepTopInView = (
     shrinks: (prev: string, next: string) => boolean,
 ) => {
     const last = useRef(view);
+    const seenBelowBar = useRef(false);
+    // Whether any part of the box shows below the bar's bottom, kept current by the browser. Set up
+    // again after each view change (cheap), so a box that mounted late is watched too; the layout
+    // effect below reads the value from before the change, since an observer reports after paint.
+    useEffect(() => {
+        const box = ref.current;
+        if (!box || typeof IntersectionObserver === 'undefined') return undefined;
+        const barBottom = Math.round(shellPinnedTop(getComputedStyle(box)));
+        const observer = new IntersectionObserver(
+            (entries) => {
+                const entry = entries[entries.length - 1];
+                if (entry) seenBelowBar.current = entry.isIntersecting;
+            },
+            { rootMargin: `${-barBottom}px 0px 0px 0px` },
+        );
+        observer.observe(box);
+        return () => observer.disconnect();
+    }, [ref, view]);
     useLayoutEffect(() => {
         const prev = last.current;
         last.current = view;
@@ -51,6 +73,7 @@ export const useKeepTopInView = (
             barBottom: shellPinnedTop(getComputedStyle(box)),
             boxTop: box.getBoundingClientRect().top,
             gap: KEEP_TOP_GAP_PX,
+            seenBelowBar: seenBelowBar.current,
         });
         if (delta === null) return undefined;
         const from = scroller.scrollTop;
