@@ -16,11 +16,9 @@ import {
     visibleTracks,
 } from '/@/renderer/features/artists/artist-track-list-model';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
-import {
-    useRemoteAwarePlayerSong,
-    useRemoteAwareStatus,
-} from '/@/renderer/features/hub/hooks/use-remote-aware';
+import { useRemoteAwareStatus } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { AppRoute } from '/@/renderer/router/routes';
+import { useHubIsRemoteActive, useHubRemoteNowPlaying, usePlayerSong } from '/@/renderer/store';
 import { ExplicitIndicator } from '/@/shared/components/explicit-indicator/explicit-indicator';
 import { Icon } from '/@/shared/components/icon/icon';
 import { Skeleton } from '/@/shared/components/skeleton/skeleton';
@@ -31,6 +29,17 @@ import { PlayerStatus } from '/@/shared/types/types';
 // default of every Enter it sees, so a focused button would never activate. The list keeps its keys.
 const keepKeys = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+};
+
+/**
+ * The playing song's id, the remote session's while another device plays (as the player bar shows
+ * it). Only the id: `useRemoteAwarePlayerSong` would also resolve the remote song's detail.
+ */
+const usePlayingId = (): string | undefined => {
+    const isRemote = useHubIsRemoteActive();
+    const local = usePlayerSong();
+    const remote = useHubRemoteNowPlaying();
+    return isRemote && remote ? remote.id : local?.id;
 };
 
 interface ArtistTrackListProps {
@@ -59,7 +68,7 @@ export const ArtistTrackList = ({
 }: ArtistTrackListProps) => {
     const { t } = useTranslation();
     const [expanded, setExpanded] = useState(false);
-    const current = useRemoteAwarePlayerSong();
+    const playingId = usePlayingId();
     const status = useRemoteAwareStatus();
     const { rows, toggle } = visibleTracks({ expanded, initial, max, songs });
 
@@ -67,7 +76,7 @@ export const ArtistTrackList = ({
         <div className={styles.root} data-artist-track-list="">
             <ol className={styles.list}>
                 {rows.map((song, index) => {
-                    const active = current?.id === song.id;
+                    const active = playingId === song.id;
                     return (
                         <TrackRow
                             active={active}
