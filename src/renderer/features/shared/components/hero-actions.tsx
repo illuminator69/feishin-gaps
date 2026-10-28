@@ -125,6 +125,7 @@ export const HeroActions = ({
                     )}
                     {onMore && (
                         <ActionIcon
+                            aria-label={t('page.library.more')}
                             icon="ellipsisHorizontal"
                             onClick={onMore}
                             size="lg"

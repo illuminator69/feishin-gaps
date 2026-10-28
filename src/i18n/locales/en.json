@@ -516,7 +516,13 @@
         "albumDetail": {
             "moreFromArtist": "More from this $t(entity.artist, {\"count\": 1})",
             "moreFromGeneric": "More from {{item}}",
-            "released": "Released"
+            "released": "Released",
+            "addToQueue": "Add to queue",
+            "playNext": "Play next",
+            "songs_one": "{{count}} song",
+            "songs_other": "{{count}} songs",
+            "songsAndMinutes_one": "{{count}} song, {{minutes}} min",
+            "songsAndMinutes_other": "{{count}} songs, {{minutes}} min"
         },
         "albumList": {
             "artistAlbums": "Albums by {{artist}}",
