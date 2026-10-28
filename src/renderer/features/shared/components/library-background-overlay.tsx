@@ -11,12 +11,19 @@ interface LibraryBackgroundOverlayProps {
     background?: string;
     headerRef: React.RefObject<HTMLDivElement | null>;
     opacity?: number;
+    /**
+     * How far the band runs past the header, its last 64 px fading out. A page hero's band ends with
+     * the hero (0, R13 B-237: it used to run 64 px on under the first row of content, and that row sat
+     * on its edge); the bar's own band runs 64 px under the bar.
+     */
+    tail?: number;
 }
 
 export const LibraryBackgroundOverlay = ({
     background,
     headerRef,
     opacity = 0.7,
+    tail = 0,
 }: LibraryBackgroundOverlayProps) => {
     const height = useHeaderHeight(headerRef);
     const isGradient = background?.includes('gradient(');
@@ -31,7 +38,7 @@ export const LibraryBackgroundOverlay = ({
                 backgroundImage: isGradient
                     ? `var(--theme-overlay-subheader), ${background}`
                     : undefined,
-                height: height ? `${height + 64}px` : undefined,
+                height: height ? `${height + tail}px` : undefined,
                 opacity,
             }}
         />
@@ -82,22 +89,20 @@ interface LibraryBackgroundProps {
 export const LibraryBackgroundImage = ({ blur, headerRef, imageUrl }: LibraryBackgroundProps) => {
     const url = imageUrl ? `url(${imageUrl})` : undefined;
     const height = useHeaderHeight(headerRef);
+    // R13 (B-237): the image and its shade end with the hero and fade out over its last 64 px, as the
+    // wash band does; the shade used to run 64 px on and end in an edge across the first row.
+    const bandHeight = height ? `${height}px` : undefined;
     return (
-        <div className={styles.backgroundImageStack}>
+        <div className={styles.backgroundImageStack} style={{ height: bandHeight }}>
             <div
                 className={styles.backgroundImage}
                 style={{
                     background: url,
                     filter: `blur(${blur ?? 0}rem)`,
-                    height: height ? `${height - 64}px` : undefined,
+                    height: bandHeight,
                 }}
             />
-            <div
-                className={styles.backgroundImageOverlay}
-                style={{
-                    height: height ? `${height + 64}px` : undefined,
-                }}
-            />
+            <div className={styles.backgroundImageOverlay} style={{ height: bandHeight }} />
         </div>
     );
 };

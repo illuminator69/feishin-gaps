@@ -222,7 +222,11 @@ const BasePageHeader = ({
                 {fadeWithTitle && band
                     ? band
                     : backgroundColor && (
-                          <LibraryBackgroundOverlay background={backgroundColor} headerRef={ref} />
+                          <LibraryBackgroundOverlay
+                              background={backgroundColor}
+                              headerRef={ref}
+                              tail={64}
+                          />
                       )}
             </Flex>
         </>

@@ -21,13 +21,7 @@ import { ClampFold } from '/@/renderer/features/motion/clamp-fold';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { useGenreRoute } from '/@/renderer/hooks/use-genre-route';
 import { AppRoute } from '/@/renderer/router/routes';
-import {
-    ArtistItem,
-    useCurrentServer,
-    useCurrentServerId,
-    useShowFavorites,
-    useShowRatings,
-} from '/@/renderer/store';
+import { ArtistItem, useCurrentServer, useCurrentServerId } from '/@/renderer/store';
 import { useArtistItems, useExternalLinks } from '/@/renderer/store/settings.store';
 import { sanitize } from '/@/renderer/utils/sanitize';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
@@ -84,7 +78,7 @@ const SectionSwitch = <T extends string>({
 );
 
 /**
- * A song list section (Popular, the favourite songs): the title, its switch, then the compact list
+ * A song list section (Popular): the title, its switch, then the compact list
  * (R10, B-218). Nothing is read from the Songs library's table settings: no columns, no filters, no
  * search, so the library's choices never reach the artist page.
  */
@@ -104,7 +98,7 @@ const SongSection = ({
     empty: string;
     isLoading: boolean;
     name: string;
-    /** The full list's page (the top-songs or favourite-songs route), its only way in. */
+    /** The full list's page (the top-songs route), its only way in. */
     showAllTo: string;
     songs: Song[];
     title: string;
@@ -139,26 +133,19 @@ const SongSection = ({
     );
 };
 
-/** The full songs pages, under the route the artist page itself is on (artist or album artist). */
-const songsPagePath = (
-    page: 'favorite' | 'top',
-    { albumArtistId, artistId }: { albumArtistId?: string; artistId?: string },
-): string => {
-    if (artistId) {
-        return generatePath(
-            page === 'top'
-                ? AppRoute.LIBRARY_ARTISTS_DETAIL_TOP_SONGS
-                : AppRoute.LIBRARY_ARTISTS_DETAIL_FAVORITE_SONGS,
-            { artistId },
-        );
-    }
-    return generatePath(
-        page === 'top'
-            ? AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_TOP_SONGS
-            : AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_FAVORITE_SONGS,
-        { albumArtistId: albumArtistId ?? '' },
-    );
-};
+/** The full Popular page, under the route the artist page itself is on (artist or album artist). */
+const topSongsPath = ({
+    albumArtistId,
+    artistId,
+}: {
+    albumArtistId?: string;
+    artistId?: string;
+}): string =>
+    artistId
+        ? generatePath(AppRoute.LIBRARY_ARTISTS_DETAIL_TOP_SONGS, { artistId })
+        : generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_TOP_SONGS, {
+              albumArtistId: albumArtistId ?? '',
+          });
 
 const ArtistPopular = ({
     detailQuery,
@@ -211,59 +198,6 @@ const ArtistPopular = ({
                 ]}
                 value={type}
             />
-        </SongSection>
-    );
-};
-
-const ArtistFavouriteSongs = ({ routeId, showAllTo }: { routeId: string; showAllTo: string }) => {
-    const { t } = useTranslation();
-    const [type, setType] = useLocalStorage<'favorite' | 'rating'>({
-        defaultValue: 'favorite',
-        key: 'album-artist-favorite-songs-query-type',
-    });
-    const serverId = useCurrentServerId();
-    const server = useCurrentServer();
-    const showRatings = useShowRatings();
-    const showFavorites = useShowFavorites();
-    const showSwitch = server?.type !== ServerType.JELLYFIN && showFavorites && showRatings;
-
-    let typeFilter = type;
-    if (showRatings && !showFavorites) typeFilter = 'rating';
-    else if (!showRatings && showFavorites) typeFilter = 'favorite';
-
-    const favoriteSongsQuery = useQuery({
-        ...artistsQueries.favoriteSongs({
-            query: { artistId: routeId, type: typeFilter },
-            serverId,
-        }),
-    });
-    const songs = favoriteSongsQuery.data?.items ?? NO_SONGS;
-    const isLoading = favoriteSongsQuery.isLoading;
-
-    // Shown only when there is something; "Rating" empty keeps the switch, to switch back.
-    if (!isLoading && songs.length === 0 && !(showSwitch && typeFilter === 'rating')) return null;
-
-    return (
-        <SongSection
-            artistId={routeId}
-            empty={t('page.albumArtistDetail.noRatedSongs')}
-            isLoading={isLoading}
-            name="favorite-songs"
-            showAllTo={showAllTo}
-            songs={songs}
-            title={t('page.albumArtistDetail.favoriteSongs')}
-        >
-            {showSwitch && (
-                <SectionSwitch
-                    label={t('page.albumArtistDetail.favoriteSongs')}
-                    onChange={setType}
-                    options={[
-                        { label: t('common.favorite'), value: 'favorite' },
-                        { label: t('common.rating'), value: 'rating' },
-                    ]}
-                    value={type}
-                />
-            )}
         </SongSection>
     );
 };
@@ -611,8 +545,9 @@ interface AlbumArtistDetailContentProps {
 }
 
 /**
- * The owned artist page's body (R10, B-217..B-219), one column in Spotify's order: Popular, the
- * favourite songs, Discography (chips and one row) with Appears on, About, Related artists last.
+ * The owned artist page's body (R10, B-217..B-219), one column in Spotify's order: Popular,
+ * Discography (chips and one row) with Appears on, About, Related artists last. R13 (B-246): no
+ * favourite songs section; Popular shows each song's rating and heart instead.
  * The owner's per-section switches (`artistItems`) still hide a section; their order no longer
  * reorders, the page has one order.
  */
@@ -647,13 +582,7 @@ export const AlbumArtistDetailContent = ({
                     <ArtistPopular
                         detailQuery={detailQuery}
                         routeId={routeId}
-                        showAllTo={songsPagePath('top', params)}
-                    />
-                )}
-                {enabled.favoriteSongs && (
-                    <ArtistFavouriteSongs
-                        routeId={routeId}
-                        showAllTo={songsPagePath('favorite', params)}
+                        showAllTo={topSongsPath(params)}
                     />
                 )}
                 {/* "Recent albums" in the owner's list is the releases' switch. */}

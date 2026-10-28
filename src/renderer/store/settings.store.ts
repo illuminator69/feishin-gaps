@@ -23,6 +23,7 @@ import {
 } from '/@/renderer/components/item-list/item-table-list/default-columns';
 import { audiomotionanalyzerPresets } from '/@/renderer/features/visualizer/components/audiomotionanalyzer/presets';
 import { AppRoute } from '/@/renderer/router/routes';
+import { type ArtistItemRow, migrateArtistItems } from '/@/renderer/store/artist-items-migration';
 import { migrateAutoplayToStations } from '/@/renderer/store/autoplay-migration';
 import { getEnvSettingsOverrides } from '/@/renderer/store/env-settings-overrides';
 import { migrateBuiltInFont } from '/@/renderer/store/font-migration';
@@ -123,7 +124,6 @@ const PlayerItemSchema = z.enum([
 const ArtistItemSchema = z.enum([
     'biography',
     'compilations',
-    'favoriteSongs',
     'recentAlbums',
     'similarArtists',
     'topSongs',
@@ -944,7 +944,6 @@ export enum AlbumGroupItem {
 
 export enum ArtistItem {
     BIOGRAPHY = 'biography',
-    FAVORITE_SONGS = 'favoriteSongs',
     RECENT_ALBUMS = 'recentAlbums',
     SIMILAR_ARTISTS = 'similarArtists',
     TOP_SONGS = 'topSongs',
@@ -2797,19 +2796,8 @@ export const useSettingsStore = createWithEqualityFn<SettingsSlice>()(
                     });
                 }
 
-                if (version <= 23) {
-                    // Add FAVORITE_SONGS to album artist page configuration
-                    const hasFavoriteSongs = state.general.artistItems?.some(
-                        (item) => item.id === ArtistItem.FAVORITE_SONGS,
-                    );
-
-                    if (!hasFavoriteSongs) {
-                        state.general.artistItems.push({
-                            disabled: false,
-                            id: ArtistItem.FAVORITE_SONGS,
-                        });
-                    }
-                }
+                // (version <= 23 added the artist page's Favourite songs row; version 42 removes it,
+                // so that step is gone.)
 
                 if (version <= 26) {
                     // Add ALBUM_GROUP column to the song table config
@@ -3080,10 +3068,18 @@ export const useSettingsStore = createWithEqualityFn<SettingsSlice>()(
                     state.general.queueLyricsHeight = null;
                 }
 
+                // R13 (B-246): the artist page's Favourite songs section and its switch are gone; its
+                // row leaves a stored order (artist-items-migration.ts). Settings import runs this too.
+                if (version < 42 && state.general) {
+                    state.general.artistItems = migrateArtistItems(
+                        state.general.artistItems as ArtistItemRow[] | undefined,
+                    ) as typeof state.general.artistItems;
+                }
+
                 return persistedState;
             },
             name: 'store_settings',
-            version: 41,
+            version: 42,
         },
     ),
 );

@@ -1,5 +1,5 @@
 import formatDuration from 'format-duration';
-import { type KeyboardEvent, type MouseEvent, useMemo, useState } from 'react';
+import { type CSSProperties, type KeyboardEvent, type MouseEvent, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 
@@ -13,16 +13,33 @@ import {
 } from '/@/renderer/features/albums/components/joined-artists';
 import {
     hasOtherArtists,
+    TRACK_LIST_NARROW_PX,
+    trackColumns,
+    trackColumnTemplate,
     visibleTracks,
 } from '/@/renderer/features/artists/artist-track-list-model';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
 import { useRemoteAwareStatus } from '/@/renderer/features/hub/hooks/use-remote-aware';
+import { useSetFavorite } from '/@/renderer/features/shared/hooks/use-set-favorite';
+import { useSetRating } from '/@/renderer/features/shared/hooks/use-set-rating';
+import { useIsMutatingCreateFavorite } from '/@/renderer/features/shared/mutations/create-favorite-mutation';
+import { useIsMutatingDeleteFavorite } from '/@/renderer/features/shared/mutations/delete-favorite-mutation';
+import { useIsMutatingRating } from '/@/renderer/features/shared/mutations/set-rating-mutation';
 import { useDragDrop } from '/@/renderer/hooks/use-drag-drop';
-import { useHubIsRemoteActive, useHubRemoteNowPlaying, usePlayerSong } from '/@/renderer/store';
+import {
+    useCurrentServer,
+    useHubIsRemoteActive,
+    useHubRemoteNowPlaying,
+    usePlayerSong,
+    useShowFavorites,
+    useShowRatings,
+} from '/@/renderer/store';
+import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { ExplicitIndicator } from '/@/shared/components/explicit-indicator/explicit-indicator';
 import { Icon } from '/@/shared/components/icon/icon';
+import { Rating } from '/@/shared/components/rating/rating';
 import { Skeleton } from '/@/shared/components/skeleton/skeleton';
-import { LibraryItem, Song } from '/@/shared/types/domain-types';
+import { LibraryItem, ServerType, Song } from '/@/shared/types/domain-types';
 import { DragOperation, DragTarget } from '/@/shared/types/drag-and-drop';
 import { PlayerStatus } from '/@/shared/types/types';
 
@@ -59,9 +76,11 @@ interface ArtistTrackListProps {
 /**
  * The artist page's compact track list (R10, B-218), Spotify's Popular: number (an equaliser on the
  * playing row, a play button on hover), a 40 px cover, the title with the other artists under it, the
- * play count when there is one, the duration and the row menu. Its own columns: nothing here reads
- * the Songs library's table settings, so the library's columns and filters never reach it. Folded
- * to `initial` rows, "See more" shows up to `max`, and then "Show all" opens the full list's page.
+ * star rating and the favourite heart (R13, B-245: the album table's controls, editable, in the play
+ * count's place; unset ones show on hover), the duration and the row menu. Its own columns
+ * (`trackColumns`): nothing here reads the Songs library's table settings, so the library's columns
+ * and filters never reach it. Folded to `initial` rows, "See more" shows up to `max`, and then
+ * "Show all" opens the full list's page.
  */
 export const ArtistTrackList = ({
     artistId,
@@ -76,9 +95,11 @@ export const ArtistTrackList = ({
     const playingId = usePlayingId();
     const status = useRemoteAwareStatus();
     const { rows, toggle } = visibleTracks({ expanded, initial, max, songs });
+    const controls = useRowControls();
+    const style = useColumnStyle(controls);
 
     return (
-        <div className={styles.root} data-artist-track-list="">
+        <div className={styles.root} data-artist-track-list="" style={style}>
             <ol className={styles.list}>
                 {rows.map((song, index) => {
                     const active = playingId === song.id;
@@ -86,6 +107,7 @@ export const ArtistTrackList = ({
                         <TrackRow
                             active={active}
                             artistId={artistId}
+                            controls={controls}
                             index={index}
                             key={song.id}
                             onPlay={onPlay}
@@ -122,17 +144,73 @@ export const ArtistTrackList = ({
     );
 };
 
+/** The rating and heart the rows draw, and what editing them calls (the album table's mutations). */
+interface RowControls {
+    favorite: boolean;
+    favoriteBusy: boolean;
+    onFavorite: (song: Song, favorite: boolean) => void;
+    onRate: (song: Song, rating: number) => void;
+    rating: boolean;
+    ratingBusy: boolean;
+}
+
+const useRowControls = (): RowControls => {
+    const server = useCurrentServer();
+    const showRatings = useShowRatings();
+    const showFavorites = useShowFavorites();
+    const setRating = useSetRating();
+    const setFavorite = useSetFavorite();
+    const ratingBusy = useIsMutatingRating();
+    const creating = useIsMutatingCreateFavorite();
+    const deleting = useIsMutatingDeleteFavorite();
+    return {
+        favorite: showFavorites,
+        favoriteBusy: creating || deleting,
+        onFavorite: (song, favorite) =>
+            setFavorite(song._serverId, [song.id], LibraryItem.SONG, favorite),
+        onRate: (song, rating) => setRating(song._serverId, [song.id], LibraryItem.SONG, rating),
+        // Jellyfin keeps no star ratings.
+        rating: showRatings && server?.type !== ServerType.JELLYFIN,
+        ratingBusy,
+    };
+};
+
+/** The grid's columns, wide and narrow, from the model; the stylesheet only picks one by width. */
+const useColumnStyle = ({ favorite, rating }: Pick<RowControls, 'favorite' | 'rating'>) =>
+    useMemo(
+        () =>
+            ({
+                '--track-columns': trackColumnTemplate(
+                    trackColumns(Number.POSITIVE_INFINITY, { favorite, rating }),
+                ),
+                '--track-columns-narrow': trackColumnTemplate(
+                    trackColumns(TRACK_LIST_NARROW_PX - 1, { favorite, rating }),
+                ),
+            }) as CSSProperties,
+        [favorite, rating],
+    );
+
+const stopDoubleClick = (event: MouseEvent<HTMLElement>) => {
+    event.stopPropagation();
+    event.preventDefault();
+};
+
 interface TrackRowProps {
     active: boolean;
     artistId?: string;
+    controls: RowControls;
     index: number;
     onPlay: (song: Song) => void;
     playing: boolean;
     song: Song;
 }
 
-const TrackRow = ({ active, artistId, index, onPlay, playing, song }: TrackRowProps) => {
+const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: TrackRowProps) => {
     const { t } = useTranslation();
+    // The five stars are drawn once the row is pointed at or focused, or when the song is rated:
+    // an unrated row shows them only on hover, and the page keeps R10's node count until then.
+    const [starsDrawn, setStarsDrawn] = useState(false);
+    const drawStars = () => setStarsDrawn(true);
     const openMenu = (event: MouseEvent<HTMLElement>) => {
         event.preventDefault();
         event.stopPropagation();
@@ -171,7 +249,9 @@ const TrackRow = ({ active, artistId, index, onPlay, playing, song }: TrackRowPr
             data-dragging={isDragging || undefined}
             onContextMenu={openMenu}
             onDoubleClick={() => onPlay(song)}
+            onFocus={drawStars}
             onKeyDown={onKeyDown}
+            onPointerEnter={drawStars}
             ref={ref}
             tabIndex={0}
         >
@@ -228,9 +308,43 @@ const TrackRow = ({ active, artistId, index, onPlay, playing, song }: TrackRowPr
                     </span>
                 )}
             </div>
-            <span className={styles.plays}>
-                {song.playCount > 0 ? song.playCount.toLocaleString() : ''}
-            </span>
+            {controls.rating && (
+                <div className={styles.rating} onDoubleClick={stopDoubleClick}>
+                    {(song.userRating || starsDrawn) && (
+                        <Rating
+                            className={song.userRating ? undefined : styles.hoverOnly}
+                            onChange={(rating) => controls.onRate(song, rating)}
+                            readOnly={controls.ratingBusy}
+                            size="xs"
+                            value={song.userRating || 0}
+                        />
+                    )}
+                </div>
+            )}
+            {controls.favorite && (
+                <ActionIcon
+                    aria-label={t(
+                        song.userFavorite ? 'action.removeFromFavorites' : 'action.addToFavorites',
+                    )}
+                    aria-pressed={song.userFavorite}
+                    className={song.userFavorite ? undefined : styles.hoverOnly}
+                    disabled={controls.favoriteBusy}
+                    icon="favorite"
+                    iconProps={{
+                        color: song.userFavorite ? 'primary' : 'muted',
+                        fill: song.userFavorite ? 'primary' : undefined,
+                        size: 'md',
+                    }}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        event.preventDefault();
+                        controls.onFavorite(song, !song.userFavorite);
+                    }}
+                    onDoubleClick={stopDoubleClick}
+                    size="xs"
+                    variant="subtle"
+                />
+            )}
             <span className={styles.duration}>{formatDuration(song.duration)}</span>
             <button
                 aria-label={t('page.albumArtistDetail.songMenu', { title: song.name })}
@@ -246,8 +360,17 @@ const TrackRow = ({ active, artistId, index, onPlay, playing, song }: TrackRowPr
 };
 
 /** The list's shape while its songs load: the rows it will most likely show, so nothing jumps. */
+const SKELETON_STYLE = {
+    '--track-columns': trackColumnTemplate(
+        trackColumns(Number.POSITIVE_INFINITY, { favorite: true, rating: true }),
+    ),
+    '--track-columns-narrow': trackColumnTemplate(
+        trackColumns(TRACK_LIST_NARROW_PX - 1, { favorite: true, rating: true }),
+    ),
+} as CSSProperties;
+
 export const ArtistTrackListSkeleton = ({ rows = 5 }: { rows?: number }) => (
-    <div aria-hidden className={styles.root}>
+    <div aria-hidden className={styles.root} style={SKELETON_STYLE}>
         <div className={styles.list}>
             {Array.from({ length: rows }, (_, index) => (
                 <div className={styles.row} key={index}>

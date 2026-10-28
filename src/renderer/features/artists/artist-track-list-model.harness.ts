@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { hasOtherArtists, visibleTracks } from './artist-track-list-model.ts';
+import {
+    hasOtherArtists,
+    TRACK_LIST_NARROW_PX,
+    TRACK_LIST_NARROWER_PX,
+    trackColumns,
+    trackColumnTemplate,
+    visibleTracks,
+} from './artist-track-list-model.ts';
 
 /**
  * The artist page's compact track list (R10): how many rows show, and which toggle sits under them.
@@ -51,4 +59,68 @@ test('secondLineOnlyWithOtherArtists', () => {
     assert.equal(hasOtherArtists([{ id: 'b' }], 'a'), true);
     // No page artist (a list outside an artist page): any credit is worth a line.
     assert.equal(hasOtherArtists([{ id: 'a' }], undefined), true);
+});
+
+// R13 (B-245): the rating and the heart took the play count's place; narrow, the rating goes first.
+const both = { favorite: true, rating: true };
+
+test('wideShowsRatingAndHeartBeforeTheDuration', () => {
+    assert.deepEqual(trackColumns(900, both), [
+        'index',
+        'cover',
+        'title',
+        'rating',
+        'favorite',
+        'duration',
+        'menu',
+    ]);
+    assert.equal(
+        trackColumnTemplate(trackColumns(900, both)),
+        '28px 40px minmax(0, 1fr) 84px 32px 52px 32px',
+    );
+});
+
+test('narrowDropsTheRatingFirstAndKeepsTheHeart', () => {
+    assert.deepEqual(trackColumns(TRACK_LIST_NARROW_PX, both), trackColumns(900, both));
+    assert.deepEqual(trackColumns(TRACK_LIST_NARROW_PX - 1, both), [
+        'index',
+        'cover',
+        'title',
+        'favorite',
+        'duration',
+        'menu',
+    ]);
+    assert.deepEqual(
+        trackColumns(TRACK_LIST_NARROWER_PX - 1, both),
+        trackColumns(TRACK_LIST_NARROW_PX - 1, both),
+    );
+});
+
+test('aColumnSwitchedOffInSettingsIsNotThere', () => {
+    assert.deepEqual(trackColumns(900, { favorite: false, rating: false }), [
+        'index',
+        'cover',
+        'title',
+        'duration',
+        'menu',
+    ]);
+    assert.deepEqual(trackColumns(900, { favorite: false, rating: true }), [
+        'index',
+        'cover',
+        'title',
+        'rating',
+        'duration',
+        'menu',
+    ]);
+});
+
+test('theStylesheetBreaksWhereTheModelDoes', () => {
+    const css = readFileSync(
+        new URL('./components/artist-track-list.module.css', import.meta.url),
+        'utf8',
+    );
+    assert.match(css, new RegExp(String.raw`@container \(width < ${TRACK_LIST_NARROW_PX}px\)`));
+    assert.match(css, new RegExp(String.raw`@container \(width < ${TRACK_LIST_NARROWER_PX}px\)`));
+    // The play count's column is gone.
+    assert.doesNotMatch(css, /\.plays\b/);
 });

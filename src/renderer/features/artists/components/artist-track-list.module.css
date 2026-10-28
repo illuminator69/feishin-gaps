@@ -1,7 +1,9 @@
 /*
  * The artist page's compact track list (R10), Spotify's Popular: number, 40 px cover, title (with the
- * other artists under it), plays, duration, menu. Fixed columns, so the rows line up without a
- * table. Narrow, the plays go first, then the second line, before the title has to truncate hard.
+ * other artists under it), rating, heart (R13: in the play count's place), duration, menu. Fixed
+ * columns from the model (`trackColumns`, set on the root as --track-columns and
+ * --track-columns-narrow), so the rows line up without a table. Narrow, the rating goes first, then
+ * the second line, before the title has to truncate hard.
  */
 .root {
     display: flex;
@@ -21,8 +23,6 @@
 }
 
 .row {
-    --track-columns: 28px 40px minmax(0, 1fr) 120px 52px 32px;
-
     display: grid;
     grid-template-columns: var(--track-columns);
     gap: 12px;
@@ -137,7 +137,6 @@
     white-space: nowrap;
 }
 
-.plays,
 .duration {
     overflow: hidden;
     font-size: 13.5px;
@@ -177,6 +176,23 @@
     opacity: 1;
 }
 
+/* The album table's rating and heart; an unset one shows while the row is pointed at or focused. */
+.rating {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+}
+
+.hover-only {
+    visibility: hidden;
+}
+
+.row:hover .hover-only,
+.row:focus-within .hover-only {
+    visibility: visible;
+}
+
 /* "See more" / "Show less", then (unfolded) "Show all" to the full list's page. */
 .footer {
     display: flex;
@@ -211,13 +227,13 @@
     text-decoration: none;
 }
 
-/* Narrow: the play count goes first. */
+/* Narrow: the rating goes first. */
 @container (width < 520px) {
     .row {
-        --track-columns: 28px 40px minmax(0, 1fr) 52px 32px;
+        grid-template-columns: var(--track-columns-narrow);
     }
 
-    .plays {
+    .rating {
         display: none;
     }
 }
