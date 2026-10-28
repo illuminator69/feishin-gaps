@@ -435,7 +435,9 @@ const QueueLyricsStrip = ({
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
             event.currentTarget.releasePointerCapture(event.pointerId);
         }
-        commit(drag.last);
+        // A click on the grip without moving keeps the setting: committing it would turn the
+        // default (null, which follows the window) into a fixed number.
+        if (drag.last !== drag.startHeight) commit(drag.last);
         setLive(null);
     };
 
