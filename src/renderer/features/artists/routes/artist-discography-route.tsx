@@ -161,11 +161,13 @@ const ArtistDiscographyRouteContent = () => {
                     >
                         <Group gap="sm" wrap="wrap">
                             <PlayTextButton
+                                aria-label={t('player.play')}
                                 {...playClick.handlers}
                                 {...playClick.props}
                                 disabled={nothingToPlay || playClick.props.disabled}
                             />
                             <WideShuffleButton
+                                aria-label={t('action.shuffle')}
                                 disabled={nothingToPlay}
                                 onClick={() => handlePlay(Play.SHUFFLE)}
                             />

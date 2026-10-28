@@ -119,6 +119,7 @@
  */
 .library-header.hero {
     display: flex;
+    flex-shrink: 0;
     gap: 24px;
     align-items: flex-end;
     justify-content: flex-start;

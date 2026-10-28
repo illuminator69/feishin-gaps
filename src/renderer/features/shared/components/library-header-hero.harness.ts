@@ -30,3 +30,15 @@ test('noHeroWithoutProp', () => {
         assert.ok(/hero\s*&&\s*$/.test(before), `styles.hero outside "hero &&": ${before}`);
     }
 });
+
+test('heroKeepsItsHeightInAFlexColumn', () => {
+    const css = readFileSync(new URL('library-header.module.css', import.meta.url), 'utf8');
+    const start = css.indexOf('.library-header.hero {');
+    assert.ok(start >= 0, 'the hero rule is missing');
+    // The rule's own declarations, up to its first nested selector.
+    const block = css.slice(start, css.indexOf('.image-section', start));
+    assert.ok(
+        /flex-shrink:\s*0\s*;/.test(block),
+        'the hero header must not shrink inside the page flex column (min-height 0 would squash it)',
+    );
+});
