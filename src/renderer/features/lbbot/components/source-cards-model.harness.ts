@@ -8,6 +8,7 @@ import {
     initialSelection,
     isSafeSource,
     shownSelection,
+    sourceKey,
     sourceRank,
 } from './source-cards-model.ts';
 
@@ -106,4 +107,15 @@ test("a gap preselects by Navic's three terms: its sources carry no coverage", (
     assert.equal(shownSelection(rows, 1, initialGapSelection(rows)), 1);
     assert.equal(shownSelection(rows, null, initialGapSelection(rows)), 0);
     assert.equal(shownSelection(rows, null), null);
+});
+
+test('a listing is kept by the folder it lists, not by its place in one search', () => {
+    // Review minor 11: after Search again, index 0 can be another folder; its old listing must
+    // not show under it, and the same folder at a new index keeps what was fetched for it.
+    const first = source({ folder: 'A', id: 0, peer: 'p' });
+    const again = source({ folder: 'B', id: 0, peer: 'p' });
+    const moved = source({ folder: 'A', id: 3, peer: 'p' });
+    assert.notEqual(sourceKey(first), sourceKey(again));
+    assert.equal(sourceKey(first), sourceKey(moved));
+    assert.notEqual(sourceKey(first), sourceKey(source({ folder: 'A', id: 0, peer: 'q' })));
 });

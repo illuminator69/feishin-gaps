@@ -375,7 +375,7 @@ const GapBox = ({
     const choose = (source: LbBotGapSource) => {
         setPicked(source.id);
         // A gap's listing is not on the poll (the hub strips it): fetched once, on the pick.
-        void sourceFiles.open(source.id);
+        void sourceFiles.open(source);
     };
 
     const request = (source: LbBotGapSource) =>
@@ -664,21 +664,7 @@ const GapBox = ({
                             )}
                             <SourceCards
                                 disabled={working}
-                                files={(source) =>
-                                    sourceFiles.expanded[source.id]
-                                        ? {
-                                              error:
-                                                  sourceFiles.files[source.id] &&
-                                                  !sourceFiles.files[source.id].ok
-                                                      ? sourceFiles.files[source.id].error
-                                                      : '',
-                                              loading: !!sourceFiles.loading[source.id],
-                                              value: sourceFiles.files[source.id]?.ok
-                                                  ? sourceFiles.files[source.id].data
-                                                  : null,
-                                          }
-                                        : null
-                                }
+                                files={sourceFiles.view}
                                 onSelect={choose}
                                 renderUnderSelected={(source) => (
                                     <div className={styles.underCard}>

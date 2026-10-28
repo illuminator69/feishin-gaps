@@ -63,7 +63,10 @@ import { useNavigate } from 'react-router';
 
 import { api } from '/@/renderer/api';
 import { noteScanStarted } from '/@/renderer/features/discography/hooks/scan-session';
-import { isSourceVerified } from '/@/renderer/features/lbbot/components/source-cards-model';
+import {
+    isSourceVerified,
+    sourceKey,
+} from '/@/renderer/features/lbbot/components/source-cards-model';
 import { gapProgress } from '/@/renderer/features/lbbot/gap-stage';
 import {
     gapFailReason,
@@ -2711,45 +2714,49 @@ export const useLbBotGap = (
 };
 
 /**
- * A source's real folder listing, fetched when it is expanded and kept.
+ * A source's real folder listing, fetched when its card is chosen and kept.
  *
  * `/lb/gap` has these stripped by the hub — lb-bot embeds every ranked source's
  * entire peer listing, ten to a page, on a path polled every five seconds. So
- * they are fetched per source, once, on demand. Cached for the life of the modal
- * because expanding a row twice must not re-walk the peer's directory.
+ * they are fetched per source, once, on demand, by the source's index in the
+ * current list. Kept by the folder's identity (`sourceKey`), never by that
+ * index (review minor 11): after Search again an index names another folder,
+ * whose card must not show the previous one's files.
  */
 export const useGapSourceFiles = (groupId: null | string) => {
-    const [expanded, setExpanded] = useState<Record<number, boolean>>({});
-    const [files, setFiles] = useState<Record<number, LbBotResult<LbBotSourceFiles>>>({});
-    const [loading, setLoading] = useState<Record<number, boolean>>({});
+    const [files, setFiles] = useState<Record<string, LbBotResult<LbBotSourceFiles>>>({});
+    const [loading, setLoading] = useState<Record<string, boolean>>({});
 
-    const toggle = useCallback(
-        async (index: number) => {
-            const isOpen = expanded[index];
-            setExpanded((prev) => ({ ...prev, [index]: !isOpen }));
-            if (isOpen || files[index] || !lbBot || !groupId) return;
-            setLoading((prev) => ({ ...prev, [index]: true }));
-            const result = await lbBot.gapSourceFiles(groupId, index);
-            setFiles((prev) => ({ ...prev, [index]: result }));
-            setLoading((prev) => ({ ...prev, [index]: false }));
-        },
-        [expanded, files, groupId],
-    );
-
-    /** R11: a card chosen opens its listing, fetched once and kept. */
+    /** A card chosen opens its listing, fetched once and kept. */
     const open = useCallback(
-        async (index: number) => {
-            setExpanded((prev) => ({ ...prev, [index]: true }));
-            if (files[index] || loading[index] || !lbBot || !groupId) return;
-            setLoading((prev) => ({ ...prev, [index]: true }));
-            const result = await lbBot.gapSourceFiles(groupId, index);
-            setFiles((prev) => ({ ...prev, [index]: result }));
-            setLoading((prev) => ({ ...prev, [index]: false }));
+        async (source: LbBotGapSource) => {
+            const key = sourceKey(source);
+            if (files[key] || loading[key] || !lbBot || !groupId) return;
+            setLoading((prev) => ({ ...prev, [key]: true }));
+            const result = await lbBot.gapSourceFiles(groupId, source.id);
+            setFiles((prev) => ({ ...prev, [key]: result }));
+            setLoading((prev) => ({ ...prev, [key]: false }));
         },
         [files, groupId, loading],
     );
 
-    return { expanded, files, loading, open, toggle };
+    /** What a chosen card shows: its listing, its loading, or why it could not be read; null
+     *  for a folder never opened. */
+    const view = useCallback(
+        (source: LbBotGapSource) => {
+            const key = sourceKey(source);
+            const result = files[key];
+            if (!result && !loading[key]) return null;
+            return {
+                error: result && !result.ok ? result.error : '',
+                loading: !!loading[key],
+                value: result?.ok ? result.data : null,
+            };
+        },
+        [files, loading],
+    );
+
+    return { open, view };
 };
 
 // ---------------------------------------------------------------------------

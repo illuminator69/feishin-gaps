@@ -65,6 +65,13 @@ export const shownSelection = (
 ): null | number =>
     picked !== null && sources.some((source) => source.id === picked) ? picked : preselected;
 
+/**
+ * A source's identity across searches: its peer and folder. lb-bot numbers sources by their place
+ * in the current list, so after Search again an index names another folder (review minor 11).
+ */
+export const sourceKey = (source: Pick<LbBotGapSource, 'folder' | 'peer'>): string =>
+    `${source.peer}\n${source.folder}`;
+
 /** The rank lb-bot gave the folder, 1 first; the list position when it sent none. */
 export const sourceRank = (source: Pick<LbBotGapSource, 'id' | 'rank'>): number =>
     source.rank || source.id + 1;
