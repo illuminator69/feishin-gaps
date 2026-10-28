@@ -186,9 +186,11 @@ const LbBotExternalAlbumRoute = () => {
                         <Group gap="sm">
                             <Button
                                 data-find-sources=""
-                                disabled={searching}
+                                disabled={searching || request.busy}
                                 leftSection={<Icon icon="search" />}
-                                onClick={searching ? undefined : request.sources.start}
+                                onClick={
+                                    searching || request.busy ? undefined : request.sources.start
+                                }
                                 variant="filled"
                             >
                                 {searching
@@ -222,6 +224,7 @@ const LbBotExternalAlbumRoute = () => {
                             artist={artistName}
                             coverUrl={caaCoverUrl(rgid)}
                             ownedAlbumId={ownedAlbumId ?? null}
+                            request={request}
                             rgid={rgid}
                             title={title}
                         />

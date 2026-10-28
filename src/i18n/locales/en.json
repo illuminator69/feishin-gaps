@@ -1783,7 +1783,9 @@
         "albumPage": {
             "about": "About",
             "aboutFirst": "read this first",
-            "download": "Download",
+            "autoPick": "Pick the best source for me",
+            "chooseSource": "Choose a source: none is safe to pick for you, so nothing downloads until you do.",
+            "downloadFromHere": "Download from here",
             "editionsUnread": "Could not load this album's editions. Finding sources still works: lb-bot picks the release itself.",
             "fallback": "lb-bot tries this source first and falls back to the others if it stalls or disappears.",
             "findSources": "Find sources",
@@ -1797,12 +1799,14 @@
             "nothingPartial": "Results appear together when the search ends. Nothing partial is shown.",
             "older": "This lb-bot cannot describe albums yet. Updating lb-bot adds it.",
             "quality": "Preferred quality",
-            "results": "Results (ranked, best first)",
             "resultsFor": "These results are for {{edition}}. Find sources again for the edition shown.",
-            "resultsLater": "Results appear here when the search ends.",
+            "searchAgain": "Search again",
             "searchBarLabel": "Searching the network, length unknown",
+            "searchTakes": "lb-bot is asking Soulseek's peers. This takes 30 to 90 seconds.",
             "searching": "Searching the network",
             "searchingButton": "Searching",
+            "sourcesBestFirst_one": "{{count}} source",
+            "sourcesBestFirst_other": "{{count}} sources, best first",
             "stopWaiting": "Stop waiting",
             "stopWaitingNote": "lb-bot's search carries on without this page. Press Find sources again within a minute of it ending and its answer is here at once.",
             "tracklist": "Tracklist · from MusicBrainz",
@@ -1810,8 +1814,7 @@
             "tracks_one": "{{count}} track",
             "tracks_other": "{{count}} tracks",
             "tryAgain": "Try again",
-            "unconfigured": "lb-bot cannot be reached through your hub (or is not set up there), so there is nothing to read this album from.",
-            "whileSearching": "While searching (30 to 90 seconds)"
+            "unconfigured": "lb-bot cannot be reached through your hub (or is not set up there), so there is nothing to read this album from."
         },
         "artistPage": {
             "about": "About",
@@ -1960,8 +1963,10 @@
         },
         "request": {
             "addWishlist": "Add to wishlist",
+            "cancelRequest": "Cancel request",
             "finishedFiles": "{{done}} of {{total}} files had finished.",
             "folder": "Folder",
+            "leaveAnyTime": "Leave this page any time. Progress also shows in Downloads.",
             "onWishlist": "On the wishlist",
             "removeWishlist": "Remove",
             "source": "Source"

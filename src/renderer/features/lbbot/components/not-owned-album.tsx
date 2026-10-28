@@ -4,16 +4,14 @@ import { useTranslation } from 'react-i18next';
 import styles from './not-owned-album.module.css';
 
 import { AlbumTracklist } from '/@/renderer/features/lbbot/components/album-tracklist';
-import { FindSourcesSection } from '/@/renderer/features/lbbot/components/find-sources-section';
 import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
 import { type AlbumRequest } from '/@/renderer/features/lbbot/hooks/use-album-request';
-import { Fold } from '/@/renderer/features/motion/fold';
 import { LbBotMeta } from '/@/shared/types/lbbot-types';
 
 /**
- * The body of the page for an album the library does not have (board AlbumUnowned, B-169): Find
- * sources folds in under the hero when pressed (the hero and its button stay where they are), the
- * request box sits above the columns, then About (read this first) beside the MusicBrainz tracklist.
+ * The body of the page for an album the library does not have (board AlbumUnowned, B-169): the one
+ * request box under the hero (R11: Find sources folds it open into the search, the cards, then the
+ * request), then About (read this first) beside the MusicBrainz tracklist.
  */
 export const NotOwnedAlbum = ({
     artist,
@@ -25,7 +23,7 @@ export const NotOwnedAlbum = ({
     artist: string;
     meta: LbBotMeta | null | undefined;
     request: AlbumRequest;
-    /** The request box (Task 7), when a request exists. */
+    /** The one request box (sources, then the request). */
     requestBox?: ReactNode;
     rgid: string;
 }) => {
@@ -33,9 +31,6 @@ export const NotOwnedAlbum = ({
     const hasAbout = !!meta && (meta.paragraphs.length > 0 || !!meta.summary);
     return (
         <div className={styles.body} data-not-owned-album="">
-            <Fold name="find-sources" open={request.sources.state !== 'idle'} tall>
-                <FindSourcesSection request={request} />
-            </Fold>
             {requestBox}
             <div className={styles.columns}>
                 <section data-album-about="">

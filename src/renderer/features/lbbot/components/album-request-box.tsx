@@ -6,10 +6,14 @@ import styles from './album-request-box.module.css';
 
 import { ItemImage } from '/@/renderer/components/item-image/item-image';
 import { ReleasePill } from '/@/renderer/features/discography/components/release-pill';
-import { requestStage } from '/@/renderer/features/discography/request-stage';
+import { albumBoxView, requestStage } from '/@/renderer/features/discography/request-stage';
+import { FindSourcesSection } from '/@/renderer/features/lbbot/components/find-sources-section';
+import { RequestSteps } from '/@/renderer/features/lbbot/components/request-steps';
 import { describeFill, SHORT_STATE } from '/@/renderer/features/lbbot/fill-vocabulary';
+import { type AlbumRequest } from '/@/renderer/features/lbbot/hooks/use-album-request';
 import { useFillActions } from '/@/renderer/features/lbbot/hooks/use-fill-actions';
 import { useAdoptRemoteFill } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { requestSteps } from '/@/renderer/features/lbbot/request-steps';
 import {
     ActiveFill,
     ledgerRowOf,
@@ -38,23 +42,29 @@ interface AlbumRequestBoxProps {
     coverUrl: null | string;
     /** The Navidrome album the index names for this release-group, once the library has it. */
     ownedAlbumId: null | string;
+    /** The page's source search and pick (`useAlbumRequest`). */
+    request: AlbumRequest;
     rgid: string;
     title: string;
 }
 
 /**
- * The album request as one box that grows and folds with each step (Call 8): the fill ledger's row
- * for this release-group, shown with `describeFill`'s words and buttons (PROTOCOL 15.2) and the same
- * actions as the Downloads page. A failure turns the same box into the recovery card: the reason in
- * lb-bot's own words, then exactly the buttons that are true for it.
+ * The missing album's one box (Call 8, then R11 / B-222 after Navic's request box): Find sources
+ * turns it into the search, then lb-bot's ranked folders as radio cards with Download right under
+ * the chosen one; the request turns the same box into the steps, the bar and Cancel; a failure into
+ * the recovery card, the reason in lb-bot's own words and exactly the buttons that are true for it
+ * (`describeFill`, PROTOCOL 15.2). The box follows its content's height; a fill in flight is shown
+ * whatever else is set, since it may have been started on another client (`albumBoxView`).
  */
 export const AlbumRequestBox = ({
     artist,
     coverUrl,
     ownedAlbumId,
+    request,
     rgid,
     title,
 }: AlbumRequestBoxProps) => {
+    const { t } = useTranslation();
     const fill = useActiveFill(rgid);
     // A fill from another device, which this ledger has no row for: read once, adopted if real.
     useAdoptRemoteFill(rgid, { album: title, artist }, !fill);
@@ -63,21 +73,43 @@ export const AlbumRequestBox = ({
         ownedAlbumId,
         row: fill ? ledgerRowOf(fill) : null,
     });
-    const open = stage !== 'none' && !!fill;
+    const shown = albumBoxView({
+        fillFinishedAt: fill?.settled ? (fill.finishedAt ?? 0) : 0,
+        searchStartedAt: request.sources.startedAt,
+        searchState: request.sources.state,
+        stage: fill ? stage : 'none',
+        starting: request.starting,
+    });
+    const running = shown === 'fill' && !!fill && !fill.settled;
     return (
-        <Fold name="request" open={open}>
+        <Fold name="request" open={shown !== 'none'} tall>
             <GrowBox name="request">
-                {fill && (
-                    <RequestBody
-                        artist={artist}
-                        coverUrl={coverUrl}
-                        fill={fill}
-                        ownedAlbumId={ownedAlbumId}
-                        stage={stage}
-                        title={title}
-                    />
-                )}
+                <div
+                    className={styles.box}
+                    data-request-box=""
+                    data-request-stage={shown === 'fill' ? stage : undefined}
+                    data-request-view={shown}
+                >
+                    {/* Keyed by the view, so a change of kind fades in and a progress tick does not. */}
+                    <div className={styles.view} key={shown}>
+                        {shown === 'fill' && fill && (
+                            <RequestBody
+                                artist={artist}
+                                coverUrl={coverUrl}
+                                fill={fill}
+                                ownedAlbumId={ownedAlbumId}
+                                stage={stage}
+                                title={title}
+                            />
+                        )}
+                        {shown === 'sources' && <FindSourcesSection request={request} />}
+                    </div>
+                </div>
             </GrowBox>
+            {/* Under the box, as Navic says it: the fill goes on without the page. */}
+            <Fold name="request-leave" open={running}>
+                <p className={styles.leave}>{t('naviConnect.request.leaveAnyTime')}</p>
+            </Fold>
         </Fold>
     );
 };
@@ -112,9 +144,10 @@ const RequestBody = ({
               ? SHORT_STATE.failed
               : (SHORT_STATE[state] ?? SHORT_STATE.searching);
     const downloading = !row.settled && state === 'downloading';
+    const steps = row.settled ? [] : requestSteps(state, row.done, row.total);
 
     return (
-        <div className={styles.box} data-request-box="" data-request-stage={stage}>
+        <div data-request-body="">
             <div className={styles.head}>
                 <ItemImage
                     containerClassName={styles.cover}
@@ -155,6 +188,7 @@ const RequestBody = ({
                         />
                     </div>
                 )}
+                {steps.length > 0 && <RequestSteps steps={steps} />}
                 {downloading && (row.lastSourcePeer || fill.sourceFolder) && (
                     <dl className={styles.kv}>
                         {row.lastSourcePeer && (
@@ -214,7 +248,9 @@ const RequestBody = ({
                                     size="compact-sm"
                                     variant={button === 'retry' ? 'filled' : 'default'}
                                 >
-                                    {actions.label(button)}
+                                    {button === 'cancel'
+                                        ? t('naviConnect.request.cancelRequest')
+                                        : actions.label(button)}
                                 </Button>
                             ))
                     )}

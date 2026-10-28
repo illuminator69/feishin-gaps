@@ -1,9 +1,9 @@
 import { useTranslation } from 'react-i18next';
 
-import styles from './not-owned-album.module.css';
+import styles from './album-request-box.module.css';
 
 import scanStyles from '/@/renderer/features/discography/components/scan.module.css';
-import { SourceList } from '/@/renderer/features/lbbot/components/source-list';
+import { SourceCards } from '/@/renderer/features/lbbot/components/source-cards';
 import { type AlbumRequest } from '/@/renderer/features/lbbot/hooks/use-album-request';
 import { Button } from '/@/shared/components/button/button';
 import { Select } from '/@/shared/components/select/select';
@@ -20,132 +20,142 @@ const elapsed = (ms: number) => {
 };
 
 /**
- * Find sources (boards Sources and Requests): a stated wait, never a skeleton (the answer comes
- * whole after 30 to 90 seconds), then lb-bot's ranked folders, the pick and Download.
+ * The missing album's box while it is about sources (R11, B-222, after Navic's request box): a
+ * stated wait, never a skeleton (the answer comes whole after 30 to 90 seconds), then lb-bot's
+ * ranked folders as radio cards with Download right under the chosen one, and Search again and
+ * Pick the best source for me as quiet buttons under the cards. The request turns the same box
+ * into the steps (`AlbumRequestBox`).
  */
 export const FindSourcesSection = ({ request }: { request: AlbumRequest }) => {
     const { t } = useTranslation();
     const { sources } = request;
-    const waiting = sources.state === 'waiting';
-    return (
-        <section className={styles.sources} data-find-sources-section={sources.state}>
-            {waiting && (
-                <div className={styles.wait} data-sources-wait="">
-                    <h2 className={styles.label}>{t('naviConnect.albumPage.whileSearching')}</h2>
-                    <div className={styles.waitHead}>
-                        <span aria-hidden="true" className={scanStyles.spin} />
-                        {t('naviConnect.albumPage.searching')}
-                        <span className={styles.elapsed} data-sources-elapsed="">
-                            {elapsed(sources.elapsedMs)}
-                        </span>
-                    </div>
-                    <p className={styles.muted}>{t('naviConnect.albumPage.nothingPartial')}</p>
-                    <div
-                        aria-label={t('naviConnect.albumPage.searchBarLabel')}
-                        className={scanStyles.bar}
-                        role="progressbar"
+
+    if (sources.state === 'waiting') {
+        return (
+            <div className={styles.sources} data-find-sources-section="waiting">
+                <div className={styles.waitHead}>
+                    <span aria-hidden="true" className={scanStyles.spin} />
+                    {t('naviConnect.albumPage.searching')}
+                    <span className={styles.elapsed} data-sources-elapsed="">
+                        {elapsed(sources.elapsedMs)}
+                    </span>
+                </div>
+                <p className={styles.line}>{t('naviConnect.albumPage.searchTakes')}</p>
+                <div
+                    aria-label={t('naviConnect.albumPage.searchBarLabel')}
+                    className={scanStyles.bar}
+                    role="progressbar"
+                >
+                    <i className={scanStyles.barFill} />
+                </div>
+                <p className={styles.line}>{t('naviConnect.albumPage.nothingPartial')}</p>
+                <div className={styles.buttons}>
+                    <Button
+                        data-sources-stop=""
+                        onClick={sources.stop}
+                        size="compact-sm"
+                        variant="default"
                     >
-                        <i className={scanStyles.barFill} />
-                    </div>
-                    <div>
+                        {t('naviConnect.albumPage.stopWaiting')}
+                    </Button>
+                </div>
+                <p className={styles.line}>{t('naviConnect.albumPage.stopWaitingNote')}</p>
+            </div>
+        );
+    }
+
+    if (sources.state === 'failed' || sources.state === 'empty') {
+        return (
+            <div className={styles.sources} data-find-sources-section={sources.state}>
+                {sources.state === 'failed' ? (
+                    <p className={styles.reason} data-sources-failed="" role="alert">
+                        {sources.error}
+                    </p>
+                ) : (
+                    <p className={styles.headline} data-sources-empty="">
+                        {t('naviConnect.albumPage.noSource')}
+                    </p>
+                )}
+                <div className={styles.buttons}>
+                    <Button onClick={sources.again} size="compact-sm" variant="default">
+                        {t('naviConnect.albumPage.searchAgain')}
+                    </Button>
+                </div>
+            </div>
+        );
+    }
+
+    if (sources.state !== 'ready') return null;
+
+    return (
+        <div className={styles.sources} data-find-sources-section="ready">
+            <h2 className={styles.label}>
+                {t('naviConnect.albumPage.sourcesBestFirst', { count: sources.rows.length })}
+            </h2>
+            {sources.searchedOther && (
+                <p className={styles.line} data-sources-other-edition="">
+                    {t('naviConnect.albumPage.resultsFor', { edition: sources.searchedLabel })}
+                </p>
+            )}
+            {!request.selected && (
+                <p className={styles.line} data-sources-choose="">
+                    {t('naviConnect.albumPage.chooseSource')}
+                </p>
+            )}
+            <SourceCards
+                disabled={request.busy}
+                files={sources.filesFor}
+                onDownloadAll={(source) => {
+                    request.select(source);
+                    void request.download({ allFiles: true, source });
+                }}
+                onSelect={request.select}
+                renderUnderSelected={(source) => (
+                    <div className={styles.underCard}>
                         <Button
-                            data-sources-stop=""
-                            onClick={sources.stop}
-                            size="compact-sm"
-                            variant="default"
+                            data-download=""
+                            disabled={request.busy}
+                            loading={request.starting}
+                            onClick={() => void request.download({ source })}
+                            variant="filled"
                         >
-                            {t('naviConnect.albumPage.stopWaiting')}
+                            {t('naviConnect.albumPage.downloadFromHere')}
                         </Button>
+                        <p className={styles.line}>{t('naviConnect.albumPage.fallback')}</p>
                     </div>
-                    <p className={styles.muted}>{t('naviConnect.albumPage.stopWaitingNote')}</p>
-                </div>
-            )}
-            {waiting && (
-                <div>
-                    <h2 className={styles.label}>{t('naviConnect.albumPage.results')}</h2>
-                    <p className={styles.muted}>{t('naviConnect.albumPage.resultsLater')}</p>
-                </div>
-            )}
-            {!waiting && (
-                <div>
-                    <h2 className={styles.label}>{t('naviConnect.albumPage.results')}</h2>
-                    {sources.searchedOther && (
-                        <p className={styles.muted} data-sources-other-edition="">
-                            {t('naviConnect.albumPage.resultsFor', {
-                                edition: sources.searchedLabel,
-                            })}
-                        </p>
-                    )}
-                    {sources.state === 'failed' && (
-                        <div data-sources-failed="">
-                            <p className={styles.muted} role="alert">
-                                {sources.error}
-                            </p>
-                            <Button
-                                mt={8}
-                                onClick={sources.start}
-                                size="compact-sm"
-                                variant="default"
-                            >
-                                {t('naviConnect.albumPage.tryAgain')}
-                            </Button>
-                        </div>
-                    )}
-                    {sources.state === 'empty' && (
-                        <div data-sources-empty="">
-                            <p className={styles.muted}>{t('naviConnect.albumPage.noSource')}</p>
-                            <Button
-                                mt={8}
-                                onClick={sources.start}
-                                size="compact-sm"
-                                variant="default"
-                            >
-                                {t('naviConnect.albumPage.tryAgain')}
-                            </Button>
-                        </div>
-                    )}
-                    {sources.state === 'ready' && (
-                        <>
-                            <SourceList
-                                downloadDisabled={request.busy}
-                                filesFor={sources.filesFor}
-                                onDownloadAll={(source) => {
-                                    request.select(source);
-                                    void request.download({ allFiles: true, source });
-                                }}
-                                onSelect={request.select}
-                                onToggleFiles={sources.toggleFiles}
-                                selectedId={request.selected?.id ?? null}
-                                sources={sources.rows}
-                            />
-                            <div className={styles.resultFooter}>
-                                {request.selected && (
-                                    <p className={styles.muted}>
-                                        {t('naviConnect.albumPage.fallback')}
-                                    </p>
-                                )}
-                                <Select
-                                    aria-label={t('naviConnect.albumPage.quality')}
-                                    data={QUALITY_DATA}
-                                    disabled={request.busy}
-                                    onChange={(value) => request.setQuality(value ?? '')}
-                                    value={request.preferredQuality}
-                                    width={220}
-                                />
-                                <Button
-                                    data-download=""
-                                    disabled={request.busy || !request.selected}
-                                    loading={request.starting}
-                                    onClick={() => void request.download()}
-                                    variant="filled"
-                                >
-                                    {t('naviConnect.albumPage.download')}
-                                </Button>
-                            </div>
-                        </>
-                    )}
-                </div>
-            )}
-        </section>
+                )}
+                selected={request.selected?.id ?? null}
+                sources={sources.rows}
+            />
+            <div className={styles.under}>
+                <Select
+                    aria-label={t('naviConnect.albumPage.quality')}
+                    data={QUALITY_DATA}
+                    disabled={request.busy}
+                    onChange={(value) => request.setQuality(value ?? '')}
+                    size="xs"
+                    value={request.preferredQuality}
+                    width={200}
+                />
+                <Button
+                    data-sources-again=""
+                    disabled={request.busy}
+                    onClick={sources.again}
+                    size="compact-sm"
+                    variant="subtle"
+                >
+                    {t('naviConnect.albumPage.searchAgain')}
+                </Button>
+                <Button
+                    data-sources-auto=""
+                    disabled={request.busy}
+                    onClick={() => void request.download({ auto: true })}
+                    size="compact-sm"
+                    variant="subtle"
+                >
+                    {t('naviConnect.albumPage.autoPick')}
+                </Button>
+            </div>
+        </div>
     );
 };

@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
-import { defaultSelectedSource } from '/@/renderer/features/lbbot/components/source-list';
+import { shownSelection } from '/@/renderer/features/lbbot/components/source-cards-model';
 import {
     startAlbumDownload,
     useLbBotAlbumReleases,
@@ -138,6 +138,11 @@ export const useAlbumRequest = ({
                 setNow(Date.now());
                 emit();
                 void sources.refetch();
+            } else if (sourcesState === 'ready') {
+                // R11: the cards already found, brought back over a finished request's card
+                // (`albumBoxView` shows the sources asked for after the fill ended). No new search.
+                sessions.set(rgid, { ...current, startedAt: Date.now() });
+                emit();
             }
             return;
         }
@@ -149,6 +154,18 @@ export const useAlbumRequest = ({
         setNow(Date.now());
         emit();
     }, [editionLabel, resolvedEdition, rgid, sources, sourcesState]);
+    // "Search again" under the cards: a fresh answer for the edition shown, whatever the last one was.
+    const searchAgain = useCallback(() => {
+        const current = sessions.get(rgid);
+        if (!current || current.edition?.releaseMbid !== resolvedEdition?.releaseMbid) {
+            startSearch();
+            return;
+        }
+        sessions.set(rgid, { ...current, startedAt: Date.now() });
+        setNow(Date.now());
+        emit();
+        void sources.refetch();
+    }, [resolvedEdition, rgid, sources, startSearch]);
     // "Stop waiting": this page stops waiting for the answer; lb-bot's search is not cancellable from
     // here, and its answer stays in the hub's cache for a minute after it ends.
     const stopSearch = useCallback(() => {
@@ -159,15 +176,16 @@ export const useAlbumRequest = ({
     const searchedOther =
         !!session && session.edition?.releaseMbid !== resolvedEdition?.releaseMbid;
 
-    // The pick: rank 1 pre-selected (never an artist-unverified row, B-019), an explicit pick wins.
+    // The pick (R11): only a source lb-bot marks safe is chosen for the user; otherwise nothing is,
+    // and there is no Download until a card is tapped (a tap is consent, a default is not).
     const [chosen, setChosen] = useState<LbBotGapSource | null>(null);
     const rows = useMemo(() => sources.sources ?? [], [sources.sources]);
-    const selected =
-        chosen && rows.some((row) => row.id === chosen.id) ? chosen : defaultSelectedSource(rows);
-    const [openFiles, setOpenFiles] = useState<Record<number, boolean>>({});
+    const selectedId = shownSelection(rows, chosen?.id ?? null);
+    const selected = rows.find((row) => row.id === selectedId) ?? null;
+    // The album's listing rides along with its sources; a card shows it once chosen.
     const filesFor = useCallback(
         (source: LbBotGapSource) =>
-            openFiles[source.id]
+            source.files.length > 0
                 ? {
                       error: '',
                       loading: false,
@@ -181,11 +199,6 @@ export const useAlbumRequest = ({
                       },
                   }
                 : null,
-        [openFiles],
-    );
-    const toggleFiles = useCallback(
-        (source: LbBotGapSource) =>
-            setOpenFiles((prev) => ({ ...prev, [source.id]: !prev[source.id] })),
         [],
     );
 
@@ -201,17 +214,24 @@ export const useAlbumRequest = ({
 
     const download = useCallback(
         async (
-            options: { allFiles?: boolean; allowMp3?: boolean; source?: LbBotGapSource } = {},
+            options: {
+                allFiles?: boolean;
+                allowMp3?: boolean;
+                /** "Pick the best source for me": no peer is named and lb-bot walks its own
+                 *  ranked list under its unattended gates, for the edition shown. */
+                auto?: boolean;
+                source?: LbBotGapSource;
+            } = {},
         ) => {
-            const source = options.source ?? selected;
-            if (busy || inFlight.current || !source || !rgid) return;
+            const source = options.auto ? null : (options.source ?? selected);
+            if (busy || inFlight.current || (!source && !options.auto) || !rgid) return;
             inFlight.current = true;
             setStarting(true);
             try {
                 const result = await startAlbumDownload(
                     rgid,
                     preferredQuality,
-                    { folder: source.folder, peer: source.peer },
+                    source ? { folder: source.folder, peer: source.peer } : undefined,
                     session?.edition ?? resolvedEdition,
                     undefined,
                     { album: title, artist },
@@ -227,8 +247,8 @@ export const useAlbumRequest = ({
                     asked: options.allFiles === true,
                     echo: result.allFiles,
                     existing: result.existing,
-                    fileCount: source.fileCount,
-                    peer: source.peer,
+                    fileCount: source?.fileCount ?? 0,
+                    peer: source?.peer ?? '',
                 });
                 if (confirmation.kind === 'existing') {
                     toast.show({ message: 'Already downloading this album' });
@@ -260,6 +280,7 @@ export const useAlbumRequest = ({
         setQuality,
         setVariantIndex,
         sources: {
+            again: searchAgain,
             elapsedMs: session ? Math.max(0, now - session.startedAt) : 0,
             error: sources.error,
             filesFor,
@@ -267,9 +288,9 @@ export const useAlbumRequest = ({
             searchedLabel: session?.label ?? '',
             searchedOther,
             start: startSearch,
+            startedAt: session?.startedAt ?? 0,
             state: sourcesState,
             stop: stopSearch,
-            toggleFiles,
         },
         starting,
         tracklistQuery,
