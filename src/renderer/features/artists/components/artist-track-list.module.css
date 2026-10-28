@@ -54,6 +54,10 @@
     color: var(--theme-colors-foreground-muted);
 }
 
+.row[data-dragging] {
+    opacity: 0.5;
+}
+
 .row[data-active] .index {
     color: var(--theme-colors-primary);
 }

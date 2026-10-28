@@ -1,5 +1,5 @@
 import formatDuration from 'format-duration';
-import { type KeyboardEvent, type MouseEvent, useState } from 'react';
+import { type KeyboardEvent, type MouseEvent, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import styles from './artist-track-list.module.css';
@@ -16,11 +16,13 @@ import {
 } from '/@/renderer/features/artists/artist-track-list-model';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
 import { useRemoteAwareStatus } from '/@/renderer/features/hub/hooks/use-remote-aware';
+import { useDragDrop } from '/@/renderer/hooks/use-drag-drop';
 import { useHubIsRemoteActive, useHubRemoteNowPlaying, usePlayerSong } from '/@/renderer/store';
 import { ExplicitIndicator } from '/@/shared/components/explicit-indicator/explicit-indicator';
 import { Icon } from '/@/shared/components/icon/icon';
 import { Skeleton } from '/@/shared/components/skeleton/skeleton';
 import { LibraryItem, Song } from '/@/shared/types/domain-types';
+import { DragOperation, DragTarget } from '/@/shared/types/drag-and-drop';
 import { PlayerStatus } from '/@/shared/types/types';
 
 // The artist page binds Enter to "play the selection" app-wide, and the hotkey hook prevents the
@@ -120,13 +122,28 @@ const TrackRow = ({ active, artistId, index, onPlay, playing, song }: TrackRowPr
         event.stopPropagation();
         ContextMenuController.call({ cmd: { items: [song], type: LibraryItem.SONG }, event });
     };
+    // The row drags its song, as the library table's rows and the album tiles below it do: onto the
+    // queue (which takes a SONG drop) or a sidebar playlist (any ADD drop). One song, no selection.
+    const drag = useMemo(
+        () => ({
+            getId: () => [song.id],
+            getItem: () => [song],
+            itemType: LibraryItem.SONG,
+            operation: [DragOperation.ADD],
+            target: DragTarget.SONG,
+        }),
+        [song],
+    );
+    const { isDragging, ref } = useDragDrop<HTMLLIElement>({ drag, isEnabled: true });
 
     return (
         <li
             className={styles.row}
             data-active={active || undefined}
+            data-dragging={isDragging || undefined}
             onContextMenu={openMenu}
             onDoubleClick={() => onPlay(song)}
+            ref={ref}
         >
             <div className={styles.index}>
                 {active ? (
