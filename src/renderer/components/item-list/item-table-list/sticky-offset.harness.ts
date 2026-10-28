@@ -84,11 +84,12 @@ test('the pinned top is the window bar, the top bar and the title row', () => {
 
 /**
  * Sticky headers, Task 3 (B-221): the pinned header and disc row are `position: fixed`, but the page's
- * arrival animation leaves a transform on `<main>`, which makes `<main>` their containing block. Their
- * tops and left were viewport px, so on the VM they landed 82 px under the bar and 248 px to the right
- * (the panel's offset), with rows readable between and the right end cut by the panel. The rule: the
- * tops are viewport lines (the bar's bottom, then the header's bottom), written relative to whatever
- * block the rows are fixed to, and the box spans the table's own left and right edges.
+ * arrival animation left a transform on `<main>` (its `both` fill; `backwards` since), which made
+ * `<main>` their containing block. Their tops and left were viewport px, so on the VM they landed 82 px
+ * under the bar and 248 px to the right (the panel's offset), with rows readable between and the right
+ * end cut by the panel. The rule: the tops are viewport lines (the bar's bottom, then the header's
+ * bottom), written relative to whatever block the rows are fixed to, and the box spans the table's own
+ * left and right edges.
  */
 
 const BAR_BOTTOM = 147; // the VM's Windows-style bar: 30 + 52 + 65

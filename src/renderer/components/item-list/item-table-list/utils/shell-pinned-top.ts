@@ -41,8 +41,8 @@ export const pinnedRowTops = ({
 /**
  * Where to write a pinned row, a `position: fixed` element, so it sits at viewport `top` across the
  * table. `blockOrigin` is the viewport position of the block it is fixed to: (0, 0) for the viewport,
- * the page's own corner while an ancestor carries a transform (the arrival animation leaves one on
- * `<main>`), which turns that ancestor into the containing block.
+ * the page's own corner while an ancestor carries a transform (`<main>` during its 220 ms arrival),
+ * which turns that ancestor into the containing block.
  */
 export const pinnedRowBox = ({
     blockOrigin,

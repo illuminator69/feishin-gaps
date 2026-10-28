@@ -63,22 +63,28 @@
     }
 }
 
+/*
+ * `backwards`, not `both`: the keyframes end at the page's own style, so holding the last frame changes
+ * nothing on screen, but a held `transform` (even an identity one) kept `<main>` a containing block for
+ * every `position: fixed` row inside it for the page's life, which put the pinned table rows 82 px under
+ * the bar and off the table's edge (B-221). Released at the end, `<main>` is a plain box again.
+ */
 @media (prefers-reduced-motion: no-preference) {
     .animated-page[data-nav='forward'] {
-        animation: page-push 220ms var(--arrive-ease) both;
+        animation: page-push 220ms var(--arrive-ease) backwards;
     }
 
     .animated-page[data-nav='back'] {
-        animation: page-pop 220ms var(--arrive-ease) both;
+        animation: page-pop 220ms var(--arrive-ease) backwards;
     }
 
     .animated-page[data-nav='none'] {
-        animation: page-fade 220ms var(--arrive-ease) both;
+        animation: page-fade 220ms var(--arrive-ease) backwards;
     }
 
     .animated-page[data-nav='tab'] {
         animation:
-            page-tab-rise 200ms var(--arrive-ease) both,
-            page-tab-fade 180ms var(--arrive-ease) both;
+            page-tab-rise 200ms var(--arrive-ease) backwards,
+            page-tab-fade 180ms var(--arrive-ease) backwards;
     }
 }
