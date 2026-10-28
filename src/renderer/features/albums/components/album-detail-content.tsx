@@ -23,6 +23,7 @@ import { ItemControls } from '/@/renderer/components/item-list/types';
 import { aboutRow } from '/@/renderer/features/albums/album-page-layout';
 import { albumQueries } from '/@/renderer/features/albums/api/album-api';
 import { AlbumInfiniteCarousel } from '/@/renderer/features/albums/components/album-infinite-carousel';
+import { AlbumGapBox } from '/@/renderer/features/lbbot/components/gap-box';
 import { SimilarAlbumsShelf } from '/@/renderer/features/lbbot/components/similar-albums-shelf';
 import { useLbBotAlbumMeta } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
@@ -472,6 +473,9 @@ export const AlbumDetailContent = () => {
                 )}
                 {detailQuery?.data?.songs && detailQuery.data.songs.length > 0 && (
                     <div className={styles.songsColumn}>
+                        {/* R11 (B-223): lb-bot's gaps box, above the toolbar, only for an album
+                            the library holds part of. */}
+                        <AlbumGapBox album={detailQuery.data} />
                         <AlbumDetailSongsTable songs={detailQuery.data.songs} />
                     </div>
                 )}

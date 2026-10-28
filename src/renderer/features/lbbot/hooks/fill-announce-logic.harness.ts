@@ -99,7 +99,7 @@ test('a groupId with characters that need escaping is encoded', () => {
 // Q-031: `picking` with a `downloaded` track is lb-bot's needs_match bucket
 // (files already downloaded, waiting on a manual match lb-bot's own workspace
 // does), not "your move" — the shared predicate behind both the settle and the
-// gap modal's "Open in lb-bot" prominence.
+// gaps box's attention stage.
 
 test('picking with a downloaded track is awaiting a match', () => {
     assert.equal(

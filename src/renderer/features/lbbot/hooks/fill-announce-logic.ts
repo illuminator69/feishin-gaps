@@ -32,9 +32,9 @@ import type { LbBotGap } from '/@/shared/types/lbbot-types';
  * `needs_match` bucket, files already `downloaded` and waiting on a manual match
  * only lb-bot's own workspace can do. `gapAwaitingMatch` is the one predicate
  * that tells them apart, shared by `applyGapSummary`'s settle (`use-lbbot.ts`,
- * via `gapSettleOutcome`) and the gap modal's own "Open in lb-bot" prominence
- * (`gap-fill-modal.tsx`) — two copies of this test would drift the way the
- * ledger and the modal already had.
+ * via `gapSettleOutcome`) and the album page's gaps box (`gap-stage.ts`'s
+ * attention stage, R11). Two copies of this test would drift the way the
+ * ledger and the old gap modal already had.
  */
 
 /** Which of the two settled-row toasts to show; `null` means say nothing (the

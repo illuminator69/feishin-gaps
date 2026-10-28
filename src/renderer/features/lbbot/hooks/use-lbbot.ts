@@ -15,7 +15,6 @@ import type {
     LbBotFillStatus,
     LbBotGap,
     LbBotGapSource,
-    LbBotGapTrackState,
     LbBotListeningPeriod,
     LbBotListeningStatus,
     LbBotListeningSummary,
@@ -65,6 +64,7 @@ import { useNavigate } from 'react-router';
 import { api } from '/@/renderer/api';
 import { noteScanStarted } from '/@/renderer/features/discography/hooks/scan-session';
 import { isSourceVerified } from '/@/renderer/features/lbbot/components/source-cards-model';
+import { gapProgress } from '/@/renderer/features/lbbot/gap-stage';
 import {
     gapFailReason,
     gapSettleOutcome,
@@ -2602,37 +2602,8 @@ export const useLbBotAlbumSources = (
     };
 };
 
-/** Track states that mean "nothing further is coming for this slot".
- *  B-004: `cancelled` belongs here too — it counts toward completion (the
- *  fill can still reach 100%) without counting as a success (`done`, below,
- *  doubles as the label; a cancelled track was never in doubt about landing)
- *  or a failure (kept out of `gapProgress`'s separate `failed` count). */
-const SETTLED_TRACK_STATES: ReadonlySet<LbBotGapTrackState> = new Set<LbBotGapTrackState>([
-    'cancelled',
-    'done',
-    'downloaded',
-    'skipped',
-]);
-
-/**
- * Fill progress, counted off the tracks rather than off a task.
- *
- * A gap fill is per-track and has no single transfer to report, so this is the
- * only honest measure. **Measured against the tracks actually being filled, not
- * the album's length**: progress against 17 when only 12 were queued stalls at
- * 12/17 and reads as a hang.
- */
-export const gapProgress = (gap: LbBotGap | null | undefined) => {
-    const wanted = (gap?.tracks ?? []).filter((track) => track.state !== 'present');
-    const done = wanted.filter((track) => SETTLED_TRACK_STATES.has(track.state));
-    const failed = wanted.filter((track) => track.state === 'failed');
-    return {
-        done: done.length,
-        failed: failed.length,
-        percent: wanted.length ? Math.round((done.length / wanted.length) * 100) : 0,
-        wanted: wanted.length,
-    };
-};
+/** Fill progress, counted off the tracks (one copy, in the pure `gap-stage.ts`). */
+export { gapProgress };
 
 /**
  * Is anything still happening to this gap?
@@ -2673,7 +2644,13 @@ export const gapIsBusy = (gap: LbBotGap | null | undefined): boolean => {
  * only exists while the user is looking at it, and five seconds is the floor
  * lb-bot's single process and process-wide lock can afford anyway.
  */
-export const useLbBotGap = (groupId: null | string, enabled: boolean) => {
+export const useLbBotGap = (
+    groupId: null | string,
+    enabled: boolean,
+    /** R11: poll only while this says so (the album page's gaps box reads once, then polls while
+     *  something moves); absent, it polls for as long as it is enabled. */
+    poll?: (gap: LbBotGap | null) => boolean,
+) => {
     const queryClient = useQueryClient();
     const queryKey = ['lbbot', 'gap', groupId];
     const quiet = useRef(0);
@@ -2695,7 +2672,8 @@ export const useLbBotGap = (groupId: null | string, enabled: boolean) => {
             return next;
         },
         queryKey,
-        refetchInterval: () => pollInterval(quiet.current),
+        refetchInterval: (query) =>
+            !poll || poll(query.state.data?.data ?? null) ? pollInterval(quiet.current) : false,
         retry: false,
         staleTime: 0,
     });
@@ -2734,7 +2712,20 @@ export const useGapSourceFiles = (groupId: null | string) => {
         [expanded, files, groupId],
     );
 
-    return { expanded, files, loading, toggle };
+    /** R11: a card chosen opens its listing, fetched once and kept. */
+    const open = useCallback(
+        async (index: number) => {
+            setExpanded((prev) => ({ ...prev, [index]: true }));
+            if (files[index] || loading[index] || !lbBot || !groupId) return;
+            setLoading((prev) => ({ ...prev, [index]: true }));
+            const result = await lbBot.gapSourceFiles(groupId, index);
+            setFiles((prev) => ({ ...prev, [index]: result }));
+            setLoading((prev) => ({ ...prev, [index]: false }));
+        },
+        [files, groupId, loading],
+    );
+
+    return { expanded, files, loading, open, toggle };
 };
 
 // ---------------------------------------------------------------------------

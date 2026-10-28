@@ -157,7 +157,7 @@ export const describeFill = (row: LedgerRow, now: number = Date.now()): FillPres
             if (row.rgid) buttons.push('openAlbum');
             break;
         case 'needsPick':
-            // The picker is the gap modal on the album page; there is no rgid to
+            // The picker is the gaps box on the album page; there is no rgid to
             // route to from a gap row, so the row says where to go rather than
             // offering a button that could not.
             headline = 'Waiting for you to pick a source';
