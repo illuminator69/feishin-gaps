@@ -26,7 +26,8 @@ import { DragOperation, DragTarget } from '/@/shared/types/drag-and-drop';
 import { PlayerStatus } from '/@/shared/types/types';
 
 // The artist page binds Enter to "play the selection" app-wide, and the hotkey hook prevents the
-// default of every Enter it sees, so a focused button would never activate. The list keeps its keys.
+// default of every Enter it sees, so a focused button or link would never activate. The list keeps
+// its keys: the toggle here, and every control inside a row through the row's own handler.
 const keepKeys = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
 };
@@ -135,6 +136,18 @@ const TrackRow = ({ active, artistId, index, onPlay, playing, song }: TrackRowPr
         [song],
     );
     const { isDragging, ref } = useDragDrop<HTMLLIElement>({ drag, isEnabled: true });
+    // The row is focusable and Enter on it plays from it (the table's Enter). A key on a control
+    // inside (play, the artist links, the menu) is that control's, kept from the page's hotkey.
+    const onKeyDown = (event: KeyboardEvent<HTMLLIElement>) => {
+        if (event.target !== event.currentTarget) {
+            keepKeys(event);
+            return;
+        }
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        event.stopPropagation();
+        onPlay(song);
+    };
 
     return (
         <li
@@ -143,7 +156,9 @@ const TrackRow = ({ active, artistId, index, onPlay, playing, song }: TrackRowPr
             data-dragging={isDragging || undefined}
             onContextMenu={openMenu}
             onDoubleClick={() => onPlay(song)}
+            onKeyDown={onKeyDown}
             ref={ref}
+            tabIndex={0}
         >
             <div className={styles.index}>
                 {active ? (
@@ -164,7 +179,6 @@ const TrackRow = ({ active, artistId, index, onPlay, playing, song }: TrackRowPr
                     className={styles.play}
                     onClick={() => onPlay(song)}
                     onDoubleClick={(event) => event.stopPropagation()}
-                    onKeyDown={keepKeys}
                     type="button"
                 >
                     <Icon fill="default" icon="mediaPlay" />
@@ -208,7 +222,6 @@ const TrackRow = ({ active, artistId, index, onPlay, playing, song }: TrackRowPr
                 className={styles.more}
                 onClick={openMenu}
                 onDoubleClick={(event) => event.stopPropagation()}
-                onKeyDown={keepKeys}
                 type="button"
             >
                 <Icon icon="ellipsisHorizontal" />

@@ -40,6 +40,11 @@
             background: var(--wash-surf2);
         }
     }
+
+    &:focus-visible {
+        outline: 2px solid var(--theme-colors-primary);
+        outline-offset: -2px;
+    }
 }
 
 /* The number, or the equaliser on the playing row; a play button over it on hover. */
