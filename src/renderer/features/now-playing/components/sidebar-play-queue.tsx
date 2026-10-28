@@ -417,6 +417,10 @@ const QueueLyricsStrip = ({
 
     const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
         if (event.button !== 0 || height === undefined) return;
+        // A selection left anywhere (a double-click selects the strip's text) would turn this press
+        // into a native drag of it, and Chromium then cancels the pointer after the first move.
+        event.preventDefault();
+        window.getSelection()?.removeAllRanges();
         event.currentTarget.setPointerCapture(event.pointerId);
         dragRef.current = { last: height, startHeight: height, startY: event.clientY };
         setLive(height);

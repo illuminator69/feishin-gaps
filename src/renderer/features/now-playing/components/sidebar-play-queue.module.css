@@ -170,6 +170,10 @@
     touch-action: none;
     cursor: row-resize;
 
+    /* A double-click (the reset) must not select text here: a selection under the next press
+       starts a native drag, which cancels the pointer after its first move. */
+    user-select: none;
+
     &::after {
         position: absolute;
         top: 1px;
