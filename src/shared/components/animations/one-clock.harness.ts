@@ -40,6 +40,8 @@ test('motionClockParsesTheCssVariables', async () => {
     const css = read('shared/styles/global.css');
     assert.ok(css.includes(`--fold-ease: cubic-bezier(${FALLBACK_CLOCK.ease.join(', ')});`));
     assert.ok(css.includes(`--motion-duration: ${FALLBACK_CLOCK.ms}ms;`));
+    // The crossfade and the grid tween both read --motion-ease, so it must stay the fold's curve.
+    assert.ok(css.includes('--motion-ease: var(--fold-ease);'));
 });
 
 test('carouselSlidesEightPx', () => {
@@ -70,4 +72,8 @@ test('barHasNoLayoutProjection', () => {
     const bar = read('renderer/features/player/components/left-controls.tsx');
     assert.ok(!bar.includes('LayoutGroup'));
     assert.ok(!bar.includes('layout='));
+    // The cover mounts when the sidebar collapses, so a CSS fade on it would be a second clock.
+    const barCss = read('renderer/features/player/components/left-controls.module.css');
+    assert.ok(!barCss.includes('fadein'));
+    assert.ok(!/\banimation\s*:/.test(barCss));
 });

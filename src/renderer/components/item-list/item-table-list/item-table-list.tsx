@@ -1897,7 +1897,7 @@ const BaseItemTableList = ({
         };
     }, [CellComponent, columnCellComponents]);
 
-    const tableMotion = (
+    const tableBody = (
         <div
             className={styles.itemTableListContainer}
             onKeyDown={handleKeyDown}
@@ -1968,10 +1968,10 @@ const BaseItemTableList = ({
             <ItemTableListConfigProvider value={tableConfigValue}>
                 {onColumnResized ? (
                     <ItemTableListColumnResizeLiveProvider value={columnResizeLiveValue}>
-                        {tableMotion}
+                        {tableBody}
                     </ItemTableListColumnResizeLiveProvider>
                 ) : (
-                    tableMotion
+                    tableBody
                 )}
             </ItemTableListConfigProvider>
         </ItemTableListStoreProvider>
