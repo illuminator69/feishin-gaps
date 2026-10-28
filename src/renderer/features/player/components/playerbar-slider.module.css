@@ -47,28 +47,20 @@
 }
 
 .slider-container {
-    /*
-     * R6 (B-211): the row (times and track) is as wide as the transport's buttons, outer edge to
-     * outer edge (--transport-width, set by CenterControls), and the centre column centres it on
-     * the play button. Each time column is the same fixed width, fitting "1:23:45" plus the
-     * scrobble dot, so the track's centre is the row's and a longer time never moves it.
-     */
-    --slider-value-width: 3.5rem;
+    --slider-value-width: 4.75rem;
     --slider-value-gap: var(--theme-spacing-sm);
 
     display: grid;
     grid-template-columns: var(--slider-value-width) minmax(0, 1fr) var(--slider-value-width);
     gap: var(--slider-value-gap);
     align-items: center;
-    width: var(--transport-width, 100%);
-    max-width: 100%;
+    width: 95%;
     height: 20px;
 }
 
 .slider-value-wrapper {
     min-width: 0;
     min-height: 0;
-    font-variant-numeric: tabular-nums;
 
     &:first-child {
         justify-self: end;
