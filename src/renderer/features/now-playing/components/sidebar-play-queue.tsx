@@ -3,10 +3,13 @@ import clsx from 'clsx';
 import isElectron from 'is-electron';
 import {
     lazy,
+    KeyboardEvent as ReactKeyboardEvent,
     ReactNode,
+    PointerEvent as ReactPointerEvent,
     Suspense,
     useCallback,
     useEffect,
+    useLayoutEffect,
     useMemo,
     useRef,
     useState,
@@ -26,6 +29,7 @@ import { DockedSimilarSongs } from '/@/renderer/features/now-playing/components/
 import { PlayQueue } from '/@/renderer/features/now-playing/components/play-queue';
 import { QueuePanelHeader } from '/@/renderer/features/now-playing/components/queue-panel-header';
 import { QueueSheetTab } from '/@/renderer/features/now-playing/components/queue-sheet-tabs';
+import { clampLyricsHeight } from '/@/renderer/features/now-playing/utils/lyrics-height';
 import { movePanel } from '/@/renderer/features/now-playing/utils/panel-order';
 import { AppRoute } from '/@/renderer/router/routes';
 import {
@@ -33,6 +37,7 @@ import {
     useFullScreenPlayerStore,
     usePlaybackSettings,
     usePlayerSong,
+    useQueueLyricsHeight,
     useQueueLyricsOpen,
     useSettingsStore,
     useSettingsStoreActions,
@@ -359,9 +364,15 @@ const QueueLyricsStrip = ({
 }) => {
     const { t } = useTranslation();
     const open = useQueueLyricsOpen();
+    const wanted = useQueueLyricsHeight();
     const { setSettings } = useSettingsStoreActions();
     const [mounted, setMounted] = useState(open);
     const [shown, setShown] = useState(open);
+    const rootRef = useRef<HTMLDivElement>(null);
+    const [panel, setPanel] = useState(0);
+    // The height while the handle is held: written to the setting on release, not on every move.
+    const [live, setLive] = useState<null | number>(null);
+    const dragRef = useRef<null | { last: number; startHeight: number; startY: number }>(null);
 
     useEffect(() => {
         if (open) {
@@ -383,10 +394,92 @@ const QueueLyricsStrip = ({
         };
     }, [open]);
 
+    // The panel the strip shares with the queue and its header (the `queue-panel` container): the
+    // limits of the area's height follow it, so a window shrunk after a drag never lets the area take it.
+    useLayoutEffect(() => {
+        const parent = rootRef.current?.parentElement;
+        if (!parent) return undefined;
+        setPanel(parent.clientHeight);
+        const observer = new ResizeObserver(() => setPanel(parent.clientHeight));
+        observer.observe(parent);
+        return () => observer.disconnect();
+    }, []);
+
+    // Until the panel is measured the stylesheet's default height holds.
+    const height = panel > 0 ? clampLyricsHeight({ panel, wanted: live ?? wanted }) : undefined;
+
+    const commit = (next: null | number) => setSettings({ general: { queueLyricsHeight: next } });
+
+    const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+        if (event.button !== 0 || height === undefined) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        dragRef.current = { last: height, startHeight: height, startY: event.clientY };
+        setLive(height);
+    };
+
+    // 1:1 with the pointer, no easing: the area is as tall as the pointer says it is.
+    const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+        const drag = dragRef.current;
+        if (!drag || panel <= 0) return;
+        drag.last = clampLyricsHeight({
+            panel,
+            wanted: drag.startHeight + (drag.startY - event.clientY),
+        });
+        setLive(drag.last);
+    };
+
+    const onPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+        const drag = dragRef.current;
+        if (!drag) return;
+        dragRef.current = null;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        commit(drag.last);
+        setLive(null);
+    };
+
+    const onHandleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+        if (height === undefined || panel <= 0) return;
+        const step = event.shiftKey ? 48 : 16;
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+            event.preventDefault();
+            commit(
+                clampLyricsHeight({
+                    panel,
+                    wanted: height + (event.key === 'ArrowUp' ? step : -step),
+                }),
+            );
+        }
+    };
+
     const label = t(`naviConnect.queue.strip.${kind}`);
 
     return (
-        <div className={styles.lyricsStrip} data-open={open ? 'true' : 'false'}>
+        <div className={styles.lyricsStrip} data-open={open ? 'true' : 'false'} ref={rootRef}>
+            {open && (
+                <div
+                    aria-label={t('naviConnect.queue.strip.resize')}
+                    aria-orientation="horizontal"
+                    aria-valuemax={panel}
+                    aria-valuemin={0}
+                    aria-valuenow={height}
+                    className={styles.stripHandle}
+                    data-dragging={live !== null ? 'true' : undefined}
+                    onDoubleClick={() => commit(null)}
+                    onKeyDown={onHandleKeyDown}
+                    onLostPointerCapture={() => {
+                        dragRef.current = null;
+                        setLive(null);
+                    }}
+                    onPointerCancel={onPointerEnd}
+                    onPointerDown={onPointerDown}
+                    onPointerMove={onPointerMove}
+                    onPointerUp={onPointerEnd}
+                    role="separator"
+                    tabIndex={0}
+                />
+            )}
             <button
                 aria-expanded={open}
                 className={styles.stripRow}
@@ -399,7 +492,14 @@ const QueueLyricsStrip = ({
             </button>
             {/* Tall: the area is usually more than the kit's GROW_TALL_PX (up to 320 px). */}
             <Fold name="queue-lyrics" open={shown} tall>
-                {mounted && <div className={styles.stripArea}>{children}</div>}
+                {mounted && (
+                    <div
+                        className={styles.stripArea}
+                        style={height === undefined ? undefined : { height }}
+                    >
+                        {children}
+                    </div>
+                )}
             </Fold>
         </div>
     );

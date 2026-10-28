@@ -1944,6 +1944,7 @@
             "stopped": "stopped",
             "strip": {
                 "lyrics": "Lyrics",
+                "resize": "Drag to resize, double-click for the default height",
                 "visualizer": "Visualizer"
             },
             "tableSettings": "Table settings"
