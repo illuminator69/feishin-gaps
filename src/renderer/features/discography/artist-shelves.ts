@@ -78,3 +78,81 @@ export const ownedPlayIds = (items: DiscographyItem[]): string[] =>
     inDefaultOrder(items).flatMap((item) =>
         isOwned(item) && item.albumId !== null ? [item.albumId] : [],
     );
+
+export interface DiscographyChip {
+    kind: DiscographyChipKind;
+    /**
+     * The release kinds the chip shows, in Settings' order. For Popular releases, the kinds its
+     * fallback may draw from (every kind with a chip).
+     */
+    kinds: ReleaseKind[];
+    total: number;
+}
+
+/**
+ * R10 (B-219): Spotify's Discography, one row of tiles under a row of chips. Popular releases first,
+ * then one chip per release kind the artist has, in Settings' order, kinds switched off left out.
+ * Singles and EPs are one chip, as Spotify groups them; Appears on is never a chip (it keeps its own
+ * row below, as Spotify's "Appears On" does).
+ */
+export type DiscographyChipKind = 'popular' | 'singles-and-eps' | ReleaseKind;
+
+const CHIP_OF: Partial<Record<ReleaseKind, DiscographyChipKind>> = {
+    ep: 'singles-and-eps',
+    single: 'singles-and-eps',
+};
+
+const onShelf = (items: DiscographyItem[]) => items.filter((item) => item.kind !== 'appears-on');
+
+/**
+ * Popular releases' pool: Navic's rule over everything but Appears on; when that picks nothing (an
+ * artist with only missing singles, say), whatever the chips show, in the default order.
+ */
+const popularPool = (
+    items: DiscographyItem[],
+    shown: ReadonlySet<ReleaseKind>,
+): DiscographyItem[] => {
+    const shelf = onShelf(items);
+    const popular = popularReleases(shelf, shelf.length);
+    return popular.length > 0
+        ? popular
+        : inDefaultOrder(shelf.filter((item) => shown.has(item.kind)));
+};
+
+export const discographyChips = (
+    items: DiscographyItem[],
+    order: ReleaseKind[],
+    disabled: ReadonlySet<ReleaseKind>,
+): DiscographyChip[] => {
+    const shelf = onShelf(items);
+    const kinds: DiscographyChip[] = [];
+    for (const kind of order) {
+        if (kind === 'appears-on' || disabled.has(kind)) continue;
+        const total = shelf.filter((item) => item.kind === kind).length;
+        if (total === 0) continue;
+        const chipKind = CHIP_OF[kind] ?? kind;
+        const chip = kinds.find((entry) => entry.kind === chipKind);
+        if (chip) {
+            chip.kinds.push(kind);
+            chip.total += total;
+        } else {
+            kinds.push({ kind: chipKind, kinds: [kind], total });
+        }
+    }
+    const shown = kinds.flatMap((chip) => chip.kinds);
+    const popular = popularPool(items, new Set(shown)).length;
+    return popular > 0 ? [{ kind: 'popular', kinds: shown, total: popular }, ...kinds] : kinds;
+};
+
+/** The one row of tiles a chip shows: at most `itemsPerRow`, in the chip's order. */
+export const chipRow = (
+    items: DiscographyItem[],
+    chip: DiscographyChip,
+    itemsPerRow: number,
+): DiscographyItem[] => {
+    if (chip.kind === 'popular') {
+        return popularPool(items, new Set(chip.kinds)).slice(0, itemsPerRow);
+    }
+    const kinds = new Set(chip.kinds);
+    return inDefaultOrder(items.filter((item) => kinds.has(item.kind))).slice(0, itemsPerRow);
+};

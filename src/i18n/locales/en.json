@@ -513,7 +513,10 @@
             "seeMore": "See more",
             "showLess": "Show less",
             "playSong": "Play {{title}}",
-            "songMenu": "More options for {{title}}"
+            "songMenu": "More options for {{title}}",
+            "discography": "Discography",
+            "showAll": "Show all",
+            "singlesAndEps": "Singles and EPs"
         },
         "albumArtistList": {
             "title": "$t(entity.albumArtist, {\"count\": 2})"

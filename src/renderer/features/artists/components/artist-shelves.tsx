@@ -1,6 +1,6 @@
-import { CSSProperties, useMemo, useState } from 'react';
+import { CSSProperties, type KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { generatePath, Link } from 'react-router';
+import { generatePath, Link, useLocation } from 'react-router';
 
 import styles from './artist-shelves.module.css';
 
@@ -8,7 +8,13 @@ import { DataRow } from '/@/renderer/components/item-card/item-card';
 import { useDefaultItemListControls } from '/@/renderer/components/item-list/helpers/item-list-controls';
 import { useGridRows } from '/@/renderer/components/item-list/helpers/use-grid-rows';
 import { ItemControls } from '/@/renderer/components/item-list/types';
-import { kindLines, popularReleases } from '/@/renderer/features/discography/artist-shelves';
+import { useArtistChipStore } from '/@/renderer/features/discography/artist-chip.store';
+import {
+    chipRow,
+    type DiscographyChip,
+    discographyChips,
+    kindLines,
+} from '/@/renderer/features/discography/artist-shelves';
 import {
     getItemsPerRow,
     TILE_BREAKPOINTS,
@@ -37,11 +43,17 @@ interface ArtistShelvesProps {
     owned: Album[];
 }
 
+// The artist page binds Enter to "play the selection" app-wide; a chip keeps its own keys.
+const keepKeys = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+};
+
 /**
- * The owned artist page's releases (R2): one line of Popular releases, then one line per release
- * kind in Settings' order (kinds switched off there are left out), each one grid row of tiles with a
- * link to the whole discography, which is its own page. The page mounts a line's worth of tiles per
- * kind instead of every release.
+ * The owned artist page's releases (R10, B-219), as Spotify lays them out: one Discography header
+ * with "Show all", a row of chips (Popular releases, then one per release kind the artist has in
+ * Settings' order, kinds switched off left out, singles and EPs together) and ONE row of tiles that
+ * the chip switches; then Appears on as its own row. The chip is kept per history entry. The page
+ * mounts one row of tiles per row on screen (R2), never the whole discography.
  */
 export const ArtistShelves = ({ artistMbid, artistName, ndId, owned }: ArtistShelvesProps) => {
     const { t } = useTranslation();
@@ -57,22 +69,52 @@ export const ArtistShelves = ({ artistMbid, artistName, ndId, owned }: ArtistShe
     const cq = useContainerQuery(TILE_BREAKPOINTS);
     const itemsPerRow = getItemsPerRow(cq);
 
-    const popular = useMemo(() => popularReleases(items, itemsPerRow), [items, itemsPerRow]);
-    const lines = useMemo(() => {
+    const entry = useLocation().key;
+    const storedChip = useArtistChipStore((state) => state.chips[entry]);
+    const storeChip = useArtistChipStore((state) => state.setChip);
+    const [chosen, setChosen] = useState<string | undefined>(storedChip);
+    // Written in an effect, and again under a new entry key (a replace keeps the page mounted).
+    useEffect(() => {
+        if (chosen) storeChip(entry, chosen);
+    }, [chosen, entry, storeChip]);
+
+    const { appearsOn, chips } = useMemo(() => {
         const { disabled, order } = kindSettings(releaseTypeItems);
-        return kindLines(items, order, disabled, itemsPerRow);
+        return {
+            appearsOn: kindLines(items, ['appears-on'], disabled, itemsPerRow)[0],
+            chips: discographyChips(items, order, disabled),
+        };
     }, [items, itemsPerRow, releaseTypeItems]);
-    // Only Popular releases arrives; the kind lines appear with the page.
-    const { propsFor } = useArrival(cq.isCalculated && popular.length > 0);
+    // A chip the artist no longer has (a rescan, a Settings change) falls back to the first.
+    const selected = chips.find((chip) => chip.kind === chosen) ?? chips[0];
+    const row = useMemo(
+        () => (selected ? chipRow(items, selected, itemsPerRow) : []),
+        [items, itemsPerRow, selected],
+    );
+    // The row arrives once per history entry (R4); Appears on appears with the page.
+    const { propsFor } = useArrival(cq.isCalculated && row.length > 0);
 
     const discographyPath = generatePath(AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_DISCOGRAPHY, {
         albumArtistId: ndId,
     });
     const kindPath = (kind: ReleaseKind) =>
         `${discographyPath}?${writeView({ ...DEFAULT_VIEW, type: kind }, new URLSearchParams())}`;
-    // lb-bot's first scan: the lines show what the library has, and the link to the discography
+    // "Show all" opens the discography at the chip's kind; the discography filters one kind at a
+    // time, so Popular releases, and Singles and EPs holding both, open it unfiltered.
+    const showAllPath =
+        selected && selected.kind !== 'popular' && selected.kinds.length === 1
+            ? kindPath(selected.kinds[0])
+            : discographyPath;
+    // lb-bot's first scan: the row shows what the library has, and the link to the discography
     // (where the scan's bar and line are) says one is running.
     const scanning = scan.phase === 'running' && !known;
+
+    const chipLabel = (chip: DiscographyChip) =>
+        chip.kind === 'popular'
+            ? t('page.albumArtistDetail.popularReleases')
+            : chip.kind === 'singles-and-eps'
+              ? t('page.albumArtistDetail.singlesAndEps')
+              : t(`naviConnect.discography.kind.${chip.kind}`);
 
     const tileProps = { albumsById, artistMbid, artistName, controls, known, ndId, rows };
 
@@ -80,27 +122,44 @@ export const ArtistShelves = ({ artistMbid, artistName, ndId, owned }: ArtistShe
         <div className={styles.root} data-artist-shelves="" ref={cq.ref}>
             {cq.isCalculated && (
                 <>
-                    <section className={styles.line} data-line="popular">
-                        <div className={styles.head}>
-                            {popular.length > 0 && (
+                    {selected && (
+                        <section className={styles.line} data-line="discography">
+                            <div className={styles.head}>
                                 <h2 className={styles.title}>
-                                    {t('page.albumArtistDetail.popularReleases')}
+                                    {t('page.albumArtistDetail.discography')}
                                 </h2>
-                            )}
-                            <Link
-                                aria-busy={scanning || undefined}
-                                className={styles.link}
-                                data-scanning={scanning ? 'true' : undefined}
-                                title={scanning ? scan.line : undefined}
-                                to={discographyPath}
+                                <Link
+                                    aria-busy={scanning || undefined}
+                                    className={styles.link}
+                                    data-scanning={scanning ? 'true' : undefined}
+                                    title={scanning ? scan.line : undefined}
+                                    to={showAllPath}
+                                >
+                                    {scanning && <Spinner size={12} />}
+                                    {t('page.albumArtistDetail.showAll')}
+                                </Link>
+                            </div>
+                            <div
+                                aria-label={t('page.albumArtistDetail.discography')}
+                                className={styles.chips}
+                                role="group"
                             >
-                                {scanning && <Spinner size={12} />}
-                                {t('page.albumArtistDetail.seeDiscography')}
-                            </Link>
-                        </div>
-                        {popular.length > 0 && (
+                                {chips.map((chip) => (
+                                    <button
+                                        aria-pressed={chip.kind === selected.kind}
+                                        className={styles.chip}
+                                        data-chip={chip.kind}
+                                        key={chip.kind}
+                                        onClick={() => setChosen(chip.kind)}
+                                        onKeyDown={keepKeys}
+                                        type="button"
+                                    >
+                                        {chipLabel(chip)}
+                                    </button>
+                                ))}
+                            </div>
                             <Row itemsPerRow={itemsPerRow}>
-                                {popular.map((item, index) => (
+                                {row.map((item, index) => (
                                     <Slot
                                         {...tileProps}
                                         arrivalFor={propsFor}
@@ -110,28 +169,27 @@ export const ArtistShelves = ({ artistMbid, artistName, ndId, owned }: ArtistShe
                                     />
                                 ))}
                             </Row>
-                        )}
-                    </section>
-                    {lines.map((line) => (
-                        <section className={styles.line} data-line={line.kind} key={line.kind}>
+                        </section>
+                    )}
+                    {appearsOn && (
+                        <section className={styles.line} data-line="appears-on">
                             <div className={styles.head}>
                                 <h2 className={styles.title}>
-                                    {t(`naviConnect.discography.kind.${line.kind}`)}{' '}
-                                    <small className={styles.count}>{line.total}</small>
+                                    {t('page.albumArtistDetail.appearsOn')}
                                 </h2>
-                                {line.more && (
-                                    <Link className={styles.link} to={kindPath(line.kind)}>
-                                        {t('page.albumArtistDetail.seeAll')}
+                                {appearsOn.more && (
+                                    <Link className={styles.link} to={kindPath('appears-on')}>
+                                        {t('page.albumArtistDetail.showAll')}
                                     </Link>
                                 )}
                             </div>
                             <Row itemsPerRow={itemsPerRow}>
-                                {line.items.map((item) => (
+                                {appearsOn.items.map((item) => (
                                     <Tile {...tileProps} item={item} key={item.key} />
                                 ))}
                             </Row>
                         </section>
-                    ))}
+                    )}
                 </>
             )}
         </div>
