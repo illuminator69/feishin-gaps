@@ -39,7 +39,7 @@ export const NotOwnedAlbum = ({
                         <small>{t('naviConnect.albumPage.aboutFirst')}</small>
                     </h2>
                     {hasAbout ? (
-                        <MetaAbout maxHeight={360} meta={meta!} />
+                        <MetaAbout meta={meta!} />
                     ) : (
                         // No About from lb-bot (none written, or an lb-bot too old to say): said once,
                         // never as an error.

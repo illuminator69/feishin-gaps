@@ -2,7 +2,7 @@ import { ReactNode, useLayoutEffect, useRef } from 'react';
 
 import styles from './grow-box.module.css';
 
-import { growTarget } from '/@/renderer/features/motion/grow';
+import { FOLD_EASING, growTarget } from '/@/renderer/features/motion/grow';
 
 /**
  * A box that follows its content's height (the request box, brief 8): a step with more lines grows in
@@ -40,7 +40,7 @@ export const GrowBox = ({ children, name }: { children: ReactNode; name?: string
             box.setAttribute('data-moving', '');
             const animation = box.animate([{ height: `${from}px` }, { height: `${next}px` }], {
                 duration: ms,
-                easing: 'cubic-bezier(0.3, 0.7, 0.2, 1)',
+                easing: FOLD_EASING,
             });
             moving = animation;
             animation.onfinish = () => {

@@ -26,6 +26,7 @@ import { AlbumInfiniteCarousel } from '/@/renderer/features/albums/components/al
 import { AlbumGapBox } from '/@/renderer/features/lbbot/components/gap-box';
 import { SimilarAlbumsShelf } from '/@/renderer/features/lbbot/components/similar-albums-shelf';
 import { useLbBotAlbumMeta } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { ClampFold } from '/@/renderer/features/motion/clamp-fold';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
     ListConfigMenu,
@@ -374,6 +375,8 @@ export const AlbumDetailContent = () => {
     });
     const showAbout = row === 'two' || row === 'about-only';
     const showSide = row === 'two' || row === 'side-only';
+    // The tags column, for the About beside it to fill its height (B-243).
+    const [sideColumn, setSideColumn] = useState<HTMLDivElement | null>(null);
 
     return (
         <div className={styles.contentContainer}>
@@ -412,6 +415,7 @@ export const AlbumDetailContent = () => {
                             ) : (
                                 <AlbumAbout
                                     albumId={albumId}
+                                    beside={showSide ? sideColumn : null}
                                     // lb-bot's prose carries its CC BY-SA attribution and
                                     // its links, outside the clamp, so collapsing never
                                     // hides them.
@@ -447,7 +451,7 @@ export const AlbumDetailContent = () => {
                                 </AlbumAbout>
                             ))}
                         {showSide && (
-                            <div className={styles.side}>
+                            <div className={styles.side} ref={setSideColumn}>
                                 <ChipLine chips={chips.genres} />
                                 <ChipLine chips={chips.tags} />
                                 {links.length > 0 && (
@@ -496,85 +500,67 @@ export const AlbumDetailContent = () => {
 /** The About open state as the person set it this session, per album (not persisted). */
 const aboutOpen = new Set<string>();
 
-/** Lines of About shown while collapsed (board: three). */
-const ABOUT_LINES = 3;
-
 /**
- * The About column: the board's `.lbl` label with a chevron toggle, the text at 14 px / 1.55,
- * 62ch wide, clamped to three lines. The toggle shows only when the text runs past them.
- * Pressing it keeps the label where it is on screen (the anchor rule the discography's
- * sections use), so neither direction moves the row the reader is on.
+ * The About column (R13, B-243): the board's `.lbl` label, then the text at 14 px / 1.55, 62ch wide,
+ * folded like the artist page's About (`ClampFold`: five lines, the arrow at the cut, the fold's
+ * motion). Beside a taller tags column the folded text fills that column's height with whole lines,
+ * so the row has no empty band under it; with the columns stacked it folds to five.
  */
 const AlbumAbout = ({
     albumId,
+    beside,
     children,
     footer,
 }: {
     albumId: string;
+    /** The tags and links column, when the row has one. */
+    beside: HTMLElement | null;
     children: ReactNode;
     footer?: ReactNode;
 }) => {
     const { t } = useTranslation();
-    const [open, setOpen] = useState(() => aboutOpen.has(albumId));
-    const [overflows, setOverflows] = useState(false);
-    const textRef = useRef<HTMLDivElement>(null);
-    const toggleRef = useRef<HTMLButtonElement>(null);
-    const anchor = useRef<null | number>(null);
+    const sectionRef = useRef<HTMLElement>(null);
+    const [fillPx, setFillPx] = useState(0);
 
-    // Measured against the line height in both states, so an About opened earlier this session
-    // still knows it has a toggle.
+    // The room beside the text: the side column's height less this column's label, arrow and
+    // footer (the section's height less its text box, which does not depend on the fold).
     useLayoutEffect(() => {
-        const el = textRef.current;
-        if (!el) return undefined;
+        const section = sectionRef.current;
+        if (!section || !beside) {
+            setFillPx(0);
+            return undefined;
+        }
         const measure = () => {
-            const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight);
-            if (!Number.isFinite(lineHeight)) return;
-            setOverflows(el.scrollHeight > lineHeight * ABOUT_LINES + 1);
+            const text = section.querySelector<HTMLElement>('[data-clamp-box]');
+            const side = beside.getBoundingClientRect();
+            const own = section.getBoundingClientRect();
+            const sideBySide = Math.abs(side.top - own.top) < 2;
+            const rest = own.height - (text?.getBoundingClientRect().height ?? own.height);
+            const next = sideBySide ? Math.max(0, Math.floor(side.height - rest)) : 0;
+            setFillPx((prev) => (prev === next ? prev : next));
         };
         measure();
         const observer = new ResizeObserver(measure);
-        observer.observe(el);
+        observer.observe(beside);
+        observer.observe(section);
         return () => observer.disconnect();
-    }, []);
-
-    useLayoutEffect(() => {
-        const before = anchor.current;
-        const toggle = toggleRef.current;
-        if (before === null || !toggle) return;
-        anchor.current = null;
-        const scroller = scrollParentOf(toggle);
-        const moved = toggle.getBoundingClientRect().top - before;
-        if (scroller && Math.abs(moved) > 0.5) scroller.scrollTop += moved;
-    });
-
-    const toggle = () => {
-        if (toggleRef.current) anchor.current = toggleRef.current.getBoundingClientRect().top;
-        const next = !open;
-        if (next) aboutOpen.add(albumId);
-        else aboutOpen.delete(albumId);
-        setOpen(next);
-    };
+    }, [beside]);
 
     return (
-        <section className={styles.about}>
-            {overflows ? (
-                <button
-                    aria-expanded={open}
-                    className={clsx(styles.label, styles.labelToggle)}
-                    onClick={toggle}
-                    ref={toggleRef}
-                    title={t(open ? 'common.collapse' : 'common.expand')}
-                    type="button"
-                >
-                    {t('page.albumDetail.about')}
-                    <Icon icon={open ? 'arrowUpS' : 'arrowDownS'} size="sm" />
-                </button>
-            ) : (
-                <div className={styles.label}>{t('page.albumDetail.about')}</div>
-            )}
-            <div className={clsx(styles.aboutText, !open && styles.aboutTextClamped)} ref={textRef}>
+        <section className={styles.about} ref={sectionRef}>
+            <div className={styles.label}>{t('page.albumDetail.about')}</div>
+            <ClampFold
+                className={styles.aboutText}
+                fillPx={fillPx}
+                initialOpen={aboutOpen.has(albumId)}
+                name="album-about"
+                onOpenChange={(open) => {
+                    if (open) aboutOpen.add(albumId);
+                    else aboutOpen.delete(albumId);
+                }}
+            >
                 {children}
-            </div>
+            </ClampFold>
             {footer}
         </section>
     );
@@ -610,19 +596,6 @@ const MetaSource = ({ meta }: { meta: LbBotMeta }) => {
             )}
         </div>
     );
-};
-
-const scrollParentOf = (el: HTMLElement | null): HTMLElement | null => {
-    for (let node = el?.parentElement ?? null; node; node = node.parentElement) {
-        const { overflowY } = getComputedStyle(node);
-        if (
-            (overflowY === 'auto' || overflowY === 'scroll') &&
-            node.scrollHeight > node.clientHeight
-        ) {
-            return node;
-        }
-    }
-    return null;
 };
 
 /**

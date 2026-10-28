@@ -17,6 +17,7 @@ import {
     useEffectiveArtistMbid,
     useLbBotArtistMeta,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { ClampFold } from '/@/renderer/features/motion/clamp-fold';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { useGenreRoute } from '/@/renderer/hooks/use-genre-route';
 import { AppRoute } from '/@/renderer/router/routes';
@@ -31,7 +32,6 @@ import { useArtistItems, useExternalLinks } from '/@/renderer/store/settings.sto
 import { sanitize } from '/@/renderer/utils/sanitize';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Skeleton } from '/@/shared/components/skeleton/skeleton';
-import { Spoiler } from '/@/shared/components/spoiler/spoiler';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
 import { useLocalStorage } from '/@/shared/hooks/use-local-storage';
@@ -49,9 +49,6 @@ import { Play } from '/@/shared/types/types';
 
 const NO_ALBUMS: Album[] = [];
 const NO_SONGS: Song[] = [];
-
-/** About's collapsed height: about five lines of the body text. */
-const ABOUT_HEIGHT = 124;
 
 // The artist page binds Enter to "play the selection" app-wide; a switch keeps its own keys.
 const keepKeys = (event: KeyboardEvent<HTMLElement>) => {
@@ -476,16 +473,15 @@ const ArtistAbout = ({
                         <Skeleton enableAnimation height="1rem" width="60%" />
                     </Stack>
                 ) : biography ? (
-                    <Spoiler maxHeight={ABOUT_HEIGHT}>
+                    <ClampFold name="about">
                         <Text
                             dangerouslySetInnerHTML={{
                                 __html: sanitize(stripLastFmReadMore(biography)),
                             }}
                         />
-                    </Spoiler>
+                    </ClampFold>
                 ) : (
-                    metaShown &&
-                    meta && <MetaAbout maxHeight={ABOUT_HEIGHT} meta={meta} showLinks={false} />
+                    metaShown && meta && <MetaAbout meta={meta} showLinks={false} />
                 )}
                 {hasGenres && (
                     <div

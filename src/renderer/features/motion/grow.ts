@@ -7,6 +7,8 @@
 export const GROW_MS = 300;
 export const GROW_MS_TALL = 450;
 export const GROW_TALL_PX = 240;
+/** `--fold-ease`, as the Web Animations API takes it. */
+export const FOLD_EASING = 'cubic-bezier(0.3, 0.7, 0.2, 1)';
 
 export const growMs = (heightPx: number): number =>
     heightPx > GROW_TALL_PX ? GROW_MS_TALL : GROW_MS;
