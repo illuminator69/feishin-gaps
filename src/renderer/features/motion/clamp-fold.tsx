@@ -5,17 +5,47 @@ import styles from './clamp-fold.module.css';
 
 import {
     ABOUT_LINES,
-    clampFolds,
-    clampHeight,
-    lineHeightPx,
+    foldAt,
+    halfLeading,
+    LineBox,
+    lineBoxes,
 } from '/@/renderer/features/motion/clamp';
 import { FOLD_EASING, growTarget } from '/@/renderer/features/motion/grow';
 import { scrollParentOf, USER_INPUT } from '/@/renderer/features/motion/scroll-parent';
 import { Icon } from '/@/shared/components/icon/icon';
 
+/**
+ * The text's glyph runs, one rect per line fragment of each text node, from the top of `el`, each
+ * with its half-leading added so it spans its line box (Review M1: the cut lands between lines,
+ * whatever the paragraph gaps or line heights inside the text).
+ */
+const glyphRuns = (el: HTMLElement): LineBox[] => {
+    const origin = el.getBoundingClientRect().top;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    const lineHeights = new Map<Element, string>();
+    const runs: LineBox[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const parent = node.parentElement;
+        if (!parent || !node.textContent?.trim()) continue;
+        let lineHeight = lineHeights.get(parent);
+        if (lineHeight === undefined) {
+            lineHeight = getComputedStyle(parent).lineHeight;
+            lineHeights.set(parent, lineHeight);
+        }
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects()) {
+            if (rect.width === 0 || rect.height === 0) continue;
+            const lead = halfLeading(lineHeight, rect.height);
+            runs.push({ bottom: rect.bottom - origin + lead, top: rect.top - origin - lead });
+        }
+    }
+    return runs;
+};
+
 interface ClampFoldProps {
     children: ReactNode;
-    /** The text's own type (font size and line height), on the element the lines are counted in. */
+    /** The text's own type, on the element whose lines are counted. */
     className?: string;
     initialOpen?: boolean;
     lines?: number;
@@ -51,22 +81,15 @@ export const ClampFold = ({
     const arrowTop = useRef<null | number>(null);
     const moving = useRef<Animation | null>(null);
     const [open, setOpen] = useState(initialOpen);
-    const [size, setSize] = useState({ collapsed: 0, full: 0 });
+    const [cut, setCut] = useState<null | number>(null);
 
-    // The text's whole height and the folded one, kept current as the width or the text changes.
+    // Where the fold cuts (null: the text fits), kept current as the width or the text changes.
     useLayoutEffect(() => {
         const el = inner.current;
         if (!el) return undefined;
         const measure = () => {
-            const style = getComputedStyle(el.firstElementChild ?? el);
-            const collapsed = clampHeight({
-                lineHeight: lineHeightPx(style.lineHeight, style.fontSize),
-                lines,
-            });
-            const full = el.offsetHeight;
-            setSize((prev) =>
-                prev.collapsed === collapsed && prev.full === full ? prev : { collapsed, full },
-            );
+            const next = foldAt(lineBoxes(glyphRuns(el)), lines);
+            setCut((prev) => (prev === next ? prev : next));
         };
         measure();
         const observer = new ResizeObserver(measure);
@@ -132,7 +155,7 @@ export const ClampFold = ({
 
     useEffect(() => () => moving.current?.cancel(), []);
 
-    const folds = clampFolds(size.full, size.collapsed);
+    const folds = cut !== null;
     const clamped = folds && !open;
 
     const toggle = () => {
@@ -153,7 +176,7 @@ export const ClampFold = ({
                 data-clamped={clamped ? 'true' : undefined}
                 id={id}
                 ref={outer}
-                style={clamped ? { height: size.collapsed } : undefined}
+                style={clamped ? { height: cut } : undefined}
             >
                 <div className={className} ref={inner}>
                     {children}
