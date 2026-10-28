@@ -2,7 +2,7 @@ import type { Variants } from 'motion/react';
 import type { ReactNode } from 'react';
 
 import clsx from 'clsx';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import styles from './grid-carousel.module.css';
@@ -11,6 +11,7 @@ import { DataRow, MemoizedItemCard } from '/@/renderer/components/item-card/item
 import { type ArrivalProps, useArrival } from '/@/renderer/features/motion/use-arrival';
 import { useContainerQuery } from '/@/renderer/hooks';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
+import { KIT_EASE, KIT_MS, KIT_RISE_PX } from '/@/shared/components/animations/motion-tokens';
 import { Group } from '/@/shared/components/group/group';
 import { TextTitle } from '/@/shared/components/text-title/text-title';
 import { LibraryItem } from '/@/shared/types/domain-types';
@@ -64,14 +65,32 @@ const MemoizedCard = memo(
 
 MemoizedCard.displayName = 'MemoizedCard';
 
+interface PageCustom {
+    isNext: boolean;
+    reduced: boolean;
+}
+
+// A page change is the kit's rise (8 px over 240 ms on the arrival curve), out and in; reduced motion is instant.
+const pageTransition = (reduced: boolean) => ({
+    duration: reduced ? 0 : KIT_MS / 1000,
+    ease: KIT_EASE,
+});
+
 const pageVariants: Variants = {
-    animate: { opacity: 1, transition: { duration: 0.3, ease: 'easeOut' }, x: 0 },
-    exit: (custom: { isNext: boolean }) => ({
-        opacity: 0,
-        transition: { duration: 0.3, ease: 'easeIn' },
-        x: custom.isNext ? -100 : 100,
+    animate: (custom: PageCustom) => ({
+        opacity: 1,
+        transition: pageTransition(custom.reduced),
+        x: 0,
     }),
-    initial: (custom: { isNext: boolean }) => ({ opacity: 0, x: custom.isNext ? 100 : -100 }),
+    exit: (custom: PageCustom) => ({
+        opacity: 0,
+        transition: pageTransition(custom.reduced),
+        x: custom.isNext ? -KIT_RISE_PX : KIT_RISE_PX,
+    }),
+    initial: (custom: PageCustom) => ({
+        opacity: 0,
+        x: custom.isNext ? KIT_RISE_PX : -KIT_RISE_PX,
+    }),
 };
 
 function BaseGridCarousel(props: GridCarouselProps) {
@@ -99,6 +118,11 @@ function BaseGridCarousel(props: GridCarouselProps) {
         isNext: false,
         page: 0,
     });
+    const reduced = !!useReducedMotion();
+    const pageCustom = useMemo<PageCustom>(
+        () => ({ isNext: currentPage.isNext, reduced }),
+        [currentPage.isNext, reduced],
+    );
 
     const handlePrevPage = useCallback(() => {
         setCurrentPage((prev) => ({
@@ -350,11 +374,11 @@ function BaseGridCarousel(props: GridCarouselProps) {
                             </div>
                         )}
                     </motion.div>
-                    <AnimatePresence custom={currentPage} initial={false} mode="wait">
+                    <AnimatePresence custom={pageCustom} initial={false} mode="wait">
                         <motion.div
                             animate="animate"
                             className={styles.grid}
-                            custom={currentPage}
+                            custom={pageCustom}
                             exit="exit"
                             initial="initial"
                             key={currentPage.page}

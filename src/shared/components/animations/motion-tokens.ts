@@ -24,6 +24,14 @@ export const EASING: Record<
     emphasizedDecelerate: [0.05, 0.7, 0.1, 1],
 };
 
+/**
+ * The arrival grammar's rise as numbers, for motion/react transitions that must share it
+ * (`--arrive-ms`, `--arrive-ease` in global.css, `arrive-rise` in arrival.module.css).
+ */
+export const KIT_RISE_PX = 8;
+export const KIT_MS = 240;
+export const KIT_EASE: Bezier = [0.2, 0.7, 0.2, 1];
+
 /** The shell's own tween, as `global.css` sets it (`--motion-duration`, `--motion-ease`). */
 export interface MotionClock {
     ease: Bezier;
