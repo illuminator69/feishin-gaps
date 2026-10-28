@@ -236,10 +236,10 @@
     flex-direction: column;
 
     /*
-     * At most 320 px and 40 % of the panel, and never so much that the queue drops below three
-     * rows: 280 px is the short header (about 82), the strip's row (41) and three 48 px rows plus
-     * a little. It only bites below a 467 px panel (1280 x 600 gives 420: 140 px of lyrics, three
-     * rows of queue); above that the area is exactly what it was.
+     * Only the first frame's height: once the panel is measured, clampLyricsHeight
+     * (utils/lyrics-height.ts) decides and the component sets it inline. Until then this keeps
+     * the area under 320 px, 40 % of the panel, and the panel less 280 px (the short header, the
+     * strip's row and three queue rows), so the first frame cannot take the panel.
      */
     height: min(320px, 40cqh, calc(100cqh - 280px));
 }
