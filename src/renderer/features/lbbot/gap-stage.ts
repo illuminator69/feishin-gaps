@@ -71,25 +71,36 @@ export type GapRecord = Pick<
     | 'tracks'
 >;
 
+/*
+ * The members are kept in the order the linter sorts them (by their first field), so each comment
+ * sits directly above the member it describes; the order says nothing about precedence, which is
+ * `gapStage`'s.
+ */
 export type GapStage =
-    /** Nothing missing, or the result has been shown: the box folds away. */
+    /** A fill finished: its result row, held for `GAP_RESULT_HOLD_MS`, then the box goes. */
     | { added: number; kind: 'done'; present: number; total: number }
-    /** lb-bot's record has not come yet and the box is open. */
+    /** Files that arrived and need filing in lb-bot (a stalled placement, or a match pending):
+     *  why, in lb-bot's words or the cause's fallback, and its ways on. */
     | { cause: 'awaitingMatch' | 'stalledPlacement'; kind: 'attention'; reason: string }
+    /** A transfer in flight, wherever it was started: the steps, the bar, the count, Cancel. */
     | { done: number; failed: number; kind: 'active'; steps: RequestStep[]; wanted: number }
-    /** A fill that failed: why, and a way on. */
+    /** Nothing missing, or the result has been shown: the box folds away. */
     | { kind: 'absent' }
-    /** Files that arrived and need filing in lb-bot: no search or fetch from here can help. */
+    /** The ranked sources as cards; `preselected` is a card lb-bot marks safe, else none. */
     | { kind: 'choosing'; preselected: null | number; sources: LbBotGapSource[] }
+    /** A fill that failed: why, and a way on. */
     | { kind: 'failed'; mp3WouldHelp: boolean; reason: string }
-    | { kind: 'folded'; missing: number }
-    | { kind: 'loading' }
     /** One line: how many are missing, Fill gaps, a chevron. */
-    | { kind: 'noSources'; mp3WouldHelp: boolean; reason: string }
+    | { kind: 'folded'; missing: number }
+    /** lb-bot's record has not come yet and the box is open. */
+    | { kind: 'loading' }
     /** A search that ended with nothing; lb-bot's reason when it gave one. */
+    | { kind: 'noSources'; mp3WouldHelp: boolean; reason: string }
+    /** A search pressed here, or one lb-bot reports running. */
     | { kind: 'searching' }
     /** Unfolded to the missing songs and what they are measured against. */
     | { kind: 'tracks'; missing: LbBotGapTrack[]; total: number }
+    /** The box is open, no record ever came, and failed reads ran out of patience. */
     | { kind: 'unreachable' };
 
 /** Track states that mean "nothing further is coming for this slot". B-004: `cancelled` counts
