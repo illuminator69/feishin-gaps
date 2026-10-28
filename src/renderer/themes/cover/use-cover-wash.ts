@@ -6,6 +6,7 @@ import { usePlayerStoreBase } from '/@/renderer/store/player.store';
 import { useCoverColours } from '/@/renderer/store/settings.store';
 import { applyWashVars, washVars } from '/@/renderer/themes/cover/apply-wash-vars';
 import { switchDelayMs, type WashMode } from '/@/renderer/themes/cover/colour-change';
+import { useArtReady } from '/@/renderer/themes/cover/cover-art';
 import { type CoverSeed, NEUTRAL_SEED, rolesFor } from '/@/renderer/themes/cover/cover-roles';
 import { chooseLight } from '/@/renderer/themes/cover/cover-seed';
 import { seedKey } from '/@/renderer/themes/cover/cover-seed-cache';
@@ -77,7 +78,12 @@ export const useCoverWash = (): void => {
     });
     const key =
         on && song?._serverId && song.imageId ? seedKey(song._serverId, song.imageId) : undefined;
-    const cover = useCoverSeed({ key, src });
+    // The cover's seed and its artwork load side by side, and a change waits for both, so the colours
+    // and the artwork arrive in the same frame (a cached seed alone used to change the colours a
+    // second before the artwork had loaded).
+    const seed = useCoverSeed({ key, src });
+    const artReady = useArtReady(key ? src : undefined);
+    const cover = { ...seed, resolved: seed.resolved && artReady };
 
     // The player store hydrates from IndexedDB after the first render: until it has, "no song" means
     // "not known yet", not "nothing playing", so a cold start keeps the last seed instead of neutral.

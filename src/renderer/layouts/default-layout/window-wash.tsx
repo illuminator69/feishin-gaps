@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type CSSProperties, useLayoutEffect, useRef, useState } from 'react';
 
 import styles from './window-wash.module.css';
 
@@ -9,6 +9,7 @@ import {
     type LayerPair,
     toneVars,
 } from '/@/renderer/themes/cover/colour-change';
+import { artCache } from '/@/renderer/themes/cover/cover-art';
 import { useCoverWashOn, useCoverWashStore } from '/@/renderer/themes/cover/cover-wash.store';
 
 interface ArtLayers {
@@ -25,6 +26,17 @@ interface Tone {
 }
 
 const sameTone = (a: Tone, b: Tone) => a.key === b.key;
+
+/** `artSrc` on the other art layer, made the front; out of nothing playing the old cover is dropped. */
+const showArt = (current: ArtLayers, artSrc: string): ArtLayers => {
+    if (current.srcs[current.front] === artSrc) {
+        return current.neutral ? { ...current, neutral: false } : current;
+    }
+    const front = current.front === 0 ? 1 : 0;
+    const srcs: ArtLayers['srcs'] = current.neutral ? [null, null] : [...current.srcs];
+    srcs[front] = artSrc;
+    return { front, neutral: false, srcs };
+};
 
 const FOLD_EASE = 'cubic-bezier(0.3, 0.7, 0.2, 1)';
 
@@ -102,33 +114,23 @@ export const WindowWash = () => {
         fade(veilEls.current[tones.front], veilEls.current[back]);
     }, [on, tones]);
 
-    useEffect(() => {
+    // Before paint: the wash's store only names a cover once its artwork is decoded (use-cover-wash.ts),
+    // so the artwork changes in the same frame as the colours. A cover not loaded through that path
+    // (none today) is decoded first, then swapped in.
+    useLayoutEffect(() => {
         if (!artSrc) {
             setArt((current) => (current.neutral ? current : { ...current, neutral: true }));
             return undefined;
         }
+        if (artCache.isReady(artSrc)) {
+            setArt((current) => showArt(current, artSrc));
+            return undefined;
+        }
         let live = true;
-        const image = new Image();
-        image.src = artSrc;
         // A cover that cannot decode is swapped in anyway: an empty layer, not the previous cover.
-        image
-            .decode()
-            .catch(() => undefined)
-            .then(() => {
-                if (!live) return;
-                setArt((current) => {
-                    if (current.srcs[current.front] === artSrc) {
-                        return current.neutral ? { ...current, neutral: false } : current;
-                    }
-                    const front = current.front === 0 ? 1 : 0;
-                    // Out of nothing playing, the old cover is dropped rather than shown under the new one.
-                    const srcs: ArtLayers['srcs'] = current.neutral
-                        ? [null, null]
-                        : [...current.srcs];
-                    srcs[front] = artSrc;
-                    return { front, neutral: false, srcs };
-                });
-            });
+        void artCache.preload(artSrc).then(() => {
+            if (live) setArt((current) => showArt(current, artSrc));
+        });
         return () => {
             live = false;
         };
