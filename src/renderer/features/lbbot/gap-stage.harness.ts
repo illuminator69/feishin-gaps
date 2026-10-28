@@ -83,6 +83,7 @@ const input = (over: Partial<GapInput> = {}): GapInput => ({
     committed: false,
     fill: null,
     gap: gap(),
+    landedAt: 0,
     mirroredMissing: 2,
     now: 100_000,
     readGaveUp: false,
@@ -446,4 +447,42 @@ test("the menu's ask opens the tracks but never takes the box off the sources", 
     assert.equal(gapViewOnAsk('folded', 'tracks'), 'tracks');
     assert.equal(gapViewOnAsk('tracks', 'tracks'), 'tracks');
     assert.equal(gapViewOnAsk('sources', 'tracks'), 'sources');
+});
+
+test('the result row holds from the landing the box saw, not from the ledger settle that lags it', () => {
+    // Walk finding (R11 Task 4): lb-bot's record went complete 13 s after Request, the box folded
+    // away, and the ledger row (90 s settle grace) settled done 80 s later, so the result row came
+    // back for 6 s on a box that had gone. The hold now starts when the box saw the fill land.
+    const filled = gap({
+        status: 'complete',
+        tracks: [track(1, 'present'), track(2, 'done'), track(3, 'done')],
+    });
+    const running = fill('running', { settled: false, total: 2 });
+    assert.deepEqual(
+        gapStage(input({ fill: running, gap: filled, landedAt: 100_000, now: 101_000 })),
+        // `present` is lb-bot's own count, which this fixture derives from the `present` rows.
+        { added: 2, kind: 'done', present: 1, total: 3 },
+    );
+    assert.equal(
+        gapStage(
+            input({
+                fill: running,
+                gap: filled,
+                landedAt: 100_000,
+                now: 100_000 + GAP_RESULT_HOLD_MS,
+            }),
+        ).kind,
+        'absent',
+    );
+    // The ledger settling long after does not bring the row back.
+    const late = fill('done', { finishedAt: 180_000 });
+    assert.equal(
+        gapStage(input({ fill: late, gap: filled, landedAt: 100_000, now: 181_000 })).kind,
+        'absent',
+    );
+    // A fill started on another client (no ledger row here) shows its result too.
+    assert.equal(
+        gapStage(input({ fill: null, gap: filled, landedAt: 100_000, now: 101_000 })).kind,
+        'done',
+    );
 });

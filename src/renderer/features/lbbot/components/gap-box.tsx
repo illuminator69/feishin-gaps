@@ -265,10 +265,14 @@ const GapBox = ({
     const albumControls = useAlbumOverrideControls();
     const busy = gapIsBusy(gap);
 
+    // When the box saw a fill land during this visit: the result row holds from here (the ledger's
+    // settle lags a short fill by up to its 90 s grace, walk finding R11 Task 4).
+    const [landedAt, setLandedAt] = useState(0);
     const stage = gapStage({
         committed,
         fill,
         gap,
+        landedAt,
         mirroredMissing,
         now,
         readGaveUp,
@@ -276,14 +280,17 @@ const GapBox = ({
         view,
     });
 
-    // The result row holds for a few seconds after the finish, then the box folds away.
+    // The result row holds for a few seconds after the finish (as the box saw it, else as the
+    // ledger settled it), then the box folds away.
+    const heldFrom =
+        landedAt || (active?.settled && active.outcome === 'done' ? (active.finishedAt ?? 0) : 0);
     useEffect(() => {
-        if (!active?.settled || active.outcome !== 'done' || !active.finishedAt) return undefined;
-        const left = active.finishedAt + GAP_RESULT_HOLD_MS - Date.now();
+        if (!heldFrom) return undefined;
+        const left = heldFrom + GAP_RESULT_HOLD_MS - Date.now();
         if (left <= 0) return undefined;
         const timer = window.setTimeout(() => setNow(Date.now()), left + 50);
         return () => window.clearTimeout(timer);
-    }, [active?.settled, active?.outcome, active?.finishedAt]);
+    }, [heldFrom]);
 
     // A fetch is held as committed until lb-bot says it is busy, or for 30 s if it never does.
     useEffect(() => {
@@ -337,13 +344,22 @@ const GapBox = ({
             serverId: server.id,
         }).queryKey;
         landing.current.forEach((timer) => window.clearTimeout(timer));
-        landing.current = LANDED_REFRESH_MS.map((ms) =>
-            window.setTimeout(() => {
-                if (songs.current < heldNow.current) {
-                    void queryClient.invalidateQueries({ queryKey });
-                }
-            }, ms),
-        );
+        // The landing is noted on the next tick: the result row's hold starts here.
+        const noted = window.setTimeout(() => {
+            const at = Date.now();
+            setLandedAt(at);
+            setNow(at);
+        }, 0);
+        landing.current = [
+            noted,
+            ...LANDED_REFRESH_MS.map((ms) =>
+                window.setTimeout(() => {
+                    if (songs.current < heldNow.current) {
+                        void queryClient.invalidateQueries({ queryKey });
+                    }
+                }, ms),
+            ),
+        ];
     }, [albumId, gap, landed, queryClient, server.id]);
     useEffect(() => {
         const timers = landing;

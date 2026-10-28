@@ -54,6 +54,8 @@ export interface GapInput {
     fill: GapFillRow | null;
     /** lb-bot's record for the group; null until the first read lands. */
     gap: GapRecord | null;
+    /** When the box saw a fill land during this visit (`gapFillLanded` turning true), 0 if not. */
+    landedAt: number;
     /** The index's count, for the folded line before `gap` lands. */
     mirroredMissing: number;
     now: number;
@@ -195,10 +197,17 @@ export const gapStage = (input: GapInput): GapStage => {
         };
     }
     const missing = missingTracks(gap);
-    if (fill?.settled && fill.outcome === 'done') {
-        if (input.now - fill.finishedAt < GAP_RESULT_HOLD_MS) {
+    // The result row holds from the landing the box saw during the visit, else from this device's
+    // ledger settle: the ledger settles a gap only after a 90 s grace from its start, so a short
+    // fill's record went complete well before it, and holding from the settle folded the box away
+    // and brought the row back a minute later (walk finding, R11 Task 4).
+    const settled = fill?.settled && fill.outcome === 'done' ? fill : null;
+    const heldFrom = input.landedAt > 0 ? input.landedAt : (settled?.finishedAt ?? 0);
+    if (heldFrom > 0 && gapFillLanded(gap, fill)) {
+        if (input.now - heldFrom < GAP_RESULT_HOLD_MS) {
+            const added = gap.tracks.filter((track) => track.state === 'done').length;
             return {
-                added: fill.done > 0 ? fill.done : fill.total,
+                added: settled && settled.done > 0 ? settled.done : added || (fill?.total ?? 0),
                 kind: 'done',
                 present: gap.present,
                 total: gap.total,
