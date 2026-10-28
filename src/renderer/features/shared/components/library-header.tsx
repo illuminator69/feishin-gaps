@@ -66,6 +66,8 @@ interface LibraryHeaderProps {
     loading?: boolean;
     onImageFileDrop?: (file: File) => Promise<void> | void;
     title: string;
+    /** Where the title links to (the discography page's title leads back to the artist). */
+    titleTo?: string;
     topRight?: ReactNode;
 }
 
@@ -81,6 +83,7 @@ export const LibraryHeader = forwardRef(
             item,
             onImageFileDrop,
             title,
+            titleTo,
             topRight,
         }: LibraryHeaderProps,
         ref: Ref<HTMLDivElement>,
@@ -272,7 +275,13 @@ export const LibraryHeader = forwardRef(
                             className={styles.title}
                             style={hero ? undefined : { fontSize: calculateTitleSize(title) }}
                         >
-                            {title}
+                            {titleTo ? (
+                                <Link className={styles.titleLink} to={titleTo}>
+                                    {title}
+                                </Link>
+                            ) : (
+                                title
+                            )}
                         </h1>
                         {children}
                     </div>

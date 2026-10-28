@@ -242,6 +242,16 @@
     overflow-wrap: anywhere;
 }
 
+/* A title that links somewhere (`titleTo`) reads as the title, underlined only under the pointer. */
+.title-link {
+    color: inherit;
+    text-decoration: none;
+
+    &:hover {
+        text-decoration: underline;
+    }
+}
+
 .library-header-menu {
     display: flex;
     flex-direction: column;

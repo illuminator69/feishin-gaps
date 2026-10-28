@@ -487,6 +487,7 @@
         "albumArtistDetail": {
             "about": "About {{artist}}",
             "appearsOn": "Appears on",
+            "discographyKicker": "Discography",
             "favoriteSongs": "Favorite songs",
             "groupingTypeAll": "All release types",
             "groupingTypePrimary": "Primary release types",

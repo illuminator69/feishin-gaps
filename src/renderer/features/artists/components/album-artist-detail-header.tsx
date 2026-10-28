@@ -7,14 +7,16 @@ import styles from './album-artist-detail-header.module.css';
 
 import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
+import {
+    usePlayArtistReleases,
+    viewPlayIds,
+} from '/@/renderer/features/artists/hooks/use-play-artist-releases';
 import { useDeleteArtistImage } from '/@/renderer/features/artists/mutations/delete-artist-image-mutation';
 import { useUploadArtistImage } from '/@/renderer/features/artists/mutations/upload-artist-image-mutation';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
-import { filterItems, sortItems } from '/@/renderer/features/discography/discography-model';
 import { useDiscographyItems } from '/@/renderer/features/discography/hooks/use-discography-items';
 import { useDiscographyView } from '/@/renderer/features/discography/hooks/use-discography-view';
 import { useEffectiveArtistMbid } from '/@/renderer/features/lbbot/hooks/use-lbbot';
-import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import {
     LibraryHeader,
     LibraryHeaderMenu,
@@ -23,7 +25,6 @@ import { useSetFavorite } from '/@/renderer/features/shared/hooks/use-set-favori
 import { useSetRating } from '/@/renderer/features/shared/hooks/use-set-rating';
 import { AppRoute } from '/@/renderer/router/routes';
 import { useCurrentServer, useShowFavorites, useShowRatings } from '/@/renderer/store';
-import { usePlayButtonBehavior } from '/@/renderer/store/settings.store';
 import { formatDurationString } from '/@/renderer/utils';
 import { hasFeature, SEPARATOR_STRING } from '/@/shared/api/utils';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
@@ -36,7 +37,6 @@ import {
     AlbumListResponse,
     LibraryItem,
     ServerType,
-    Song,
 } from '/@/shared/types/domain-types';
 import { ServerFeature } from '/@/shared/types/features-types';
 import { Play } from '/@/shared/types/types';
@@ -144,8 +144,6 @@ export const AlbumArtistDetailHeader = forwardRef<HTMLDivElement, AlbumArtistDet
             },
         ];
 
-        const { addToQueueByFetch } = usePlayer();
-        const playButtonBehavior = usePlayButtonBehavior();
         const setFavorite = useSetFavorite();
         const setRating = useSetRating();
         const uploadArtistImageMutation = useUploadArtistImage({});
@@ -160,34 +158,10 @@ export const AlbumArtistDetailHeader = forwardRef<HTMLDivElement, AlbumArtistDet
         });
         const { view } = useDiscographyView();
 
+        const playReleases = usePlayArtistReleases({ albumArtistId, routeId });
         const handlePlay = useCallback(
-            (type?: Play) => {
-                if (!server?.id || !routeId) return;
-
-                const albumIds = sortItems(filterItems(items, view), view).flatMap((item) =>
-                    item.albumId && (item.ownership === 'owned' || item.ownership === 'partly')
-                        ? [item.albumId]
-                        : [],
-                );
-                if (albumIds.length === 0) return;
-
-                const filter = (song: Song) => {
-                    if (song.albumArtists.some((artist) => artist.id === albumArtistId)) {
-                        return true;
-                    }
-
-                    return song.artists.some((artist) => artist.id === albumArtistId);
-                };
-
-                addToQueueByFetch(
-                    server.id,
-                    albumIds,
-                    LibraryItem.ALBUM,
-                    type || playButtonBehavior,
-                    { filter },
-                );
-            },
-            [addToQueueByFetch, playButtonBehavior, routeId, server.id, items, view, albumArtistId],
+            (type?: Play) => playReleases(viewPlayIds(items, view), type),
+            [playReleases, items, view],
         );
 
         const handleFavorite = useCallback(() => {
