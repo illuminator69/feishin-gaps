@@ -222,7 +222,9 @@
     }
 }
 
-/* Narrower: then the second line, so the title keeps about 12 characters. */
+/* Narrower: then the second line, and the gaps shrink (16 px back to the title). The title's room
+   comes mostly from the step above; on paper it keeps 12 or more characters down to about 300 px of
+   list width. */
 @container (width < 380px) {
     .row {
         gap: 8px;
