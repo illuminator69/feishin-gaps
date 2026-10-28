@@ -6,8 +6,9 @@ import styles from './clamp-fold.module.css';
 import { shellPinnedTop } from '/@/renderer/components/item-list/item-table-list/utils/shell-pinned-top';
 import {
     ABOUT_LINES,
-    closeScrollBy,
+    closeScroll,
     foldAt,
+    foldProgress,
     halfLeading,
     LineBox,
     lineBoxes,
@@ -61,9 +62,9 @@ interface ClampFoldProps {
  * now on the album page too). A text that fits shows whole, with no arrow and no reserved space. The
  * arrow, not the text, opens it; the height moves on the fold's clock (`--fold-ms`, 450 ms past
  * 240 px, `--fold-ease`, as `GrowBox`), the text stays drawn while it closes, and under reduced
- * motion the height just changes. Closing never lets the arrow pass under the bar: the page holds
- * still while the arrow rises in view, and follows it up only from the bar's bottom on (until the
- * user scrolls), so the reader is not left a long text's height down the page.
+ * motion the height just changes. Closing holds the page still while the arrow stays in view; when
+ * it would rise past the bar, the About's top settles just under the bar with the fold (until the
+ * user scrolls), so the reader sees the folded lines, not a long text's height of page below them.
  */
 export const ClampFold = ({
     children,
@@ -131,21 +132,24 @@ export const ClampFold = ({
             box.removeAttribute('data-moving');
         }
         if (anchor === null) return undefined;
-        // Closing: the arrow rises with the fold, and the page follows it up only once it reaches
-        // the bar's bottom, frame by frame, until the fold settles or the user scrolls (Review M3).
+        // Closing (Review M3 and its follow-up): when the arrow, rising by the shrink, would end above
+        // the bar, the page scrolls so the About's top (its section, with the label) settles a panel
+        // gap under the bar, spread over the fold frame by frame, until it settles or the user
+        // scrolls. With the arrow staying in view, nothing moves.
         const scroller = scrollParentOf(box);
-        const barBottom = shellPinnedTop(getComputedStyle(box));
+        const root = box.parentElement;
+        const total = closeScroll({
+            aboutTop: (root?.closest('section') ?? root ?? box).getBoundingClientRect().top,
+            arrowTop: anchor,
+            barBottom: shellPinnedTop(getComputedStyle(box)),
+            shrink: start - end,
+        });
+        if (!scroller || total === 0) return undefined;
+        const scrollFrom = scroller.scrollTop;
         let frame = 0;
         const hold = () => {
-            const arrow = button.current;
-            if (scroller && arrow) {
-                const by = closeScrollBy({
-                    arrowTop: arrow.getBoundingClientRect().top,
-                    barBottom,
-                    pressedTop: anchor,
-                });
-                if (by !== 0) scroller.scrollTop += by;
-            }
+            const height = box.getBoundingClientRect().height;
+            scroller.scrollTop = scrollFrom + total * foldProgress({ end, height, start });
             if (animation && moving.current === animation) frame = requestAnimationFrame(hold);
             else stop();
         };

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ABOUT_LINES, closeScrollBy, foldAt, halfLeading, lineBoxes } from './clamp.ts';
+import { ABOUT_LINES, closeScroll, foldAt, foldProgress, halfLeading, lineBoxes } from './clamp.ts';
 
 /**
  * R13 (B-243): the About text folds to whole lines, with an arrow only when it runs past them.
@@ -64,25 +64,35 @@ test('half-leading: what a glyph run adds above and below to fill its line box',
 });
 
 /*
- * Review M3: closing scrolls the page only for the part of the shrink that would carry the arrow
- * above the bar's bottom (or above where it was pressed, if that was higher); with the arrow staying
- * in view, nothing moves.
+ * Review M3 and its follow-up: closing scrolls the page only when the arrow, rising by the shrink,
+ * would end above the bar's bottom; then the About's top (its label) settles a panel gap under the
+ * bar, so the folded lines are what the reader sees. The scroll is spread over the fold.
  */
 
-test('closing: the page holds still while the arrow stays below the bar', () => {
-    // Pressed at 600 under a 100 px bar; the fold has raised the arrow to 300 so far.
-    assert.equal(closeScrollBy({ arrowTop: 300, barBottom: 100, pressedTop: 600 }), 0);
-    assert.equal(closeScrollBy({ arrowTop: 100, barBottom: 100, pressedTop: 600 }), 0);
-    // Within a subpixel of the line: still nothing.
-    assert.equal(closeScrollBy({ arrowTop: 99.6, barBottom: 100, pressedTop: 600 }), 0);
+test('closing: nothing moves while the arrow ends below the bar', () => {
+    // Pressed at 900 under a 147 px bar, the text shrinks by 596: the arrow ends at 304.
+    assert.equal(closeScroll({ aboutTop: 200, arrowTop: 900, barBottom: 147, shrink: 596 }), 0);
+    // Exactly on the bar: still in view.
+    assert.equal(closeScroll({ aboutTop: 200, arrowTop: 743, barBottom: 147, shrink: 596 }), 0);
 });
 
-test('closing: an arrow that would pass under the bar is held on its bottom', () => {
-    assert.equal(closeScrollBy({ arrowTop: 40, barBottom: 100, pressedTop: 600 }), -60);
-    assert.equal(closeScrollBy({ arrowTop: -284, barBottom: 100, pressedTop: 436 }), -384);
+test('closing from deep in a long About: its top settles a panel gap under the bar', () => {
+    // Pressed at 400 with the About's top 330 px above the window: the page scrolls up by 485, so the
+    // top lands at 147 + 8 and the five folded lines show under it.
+    assert.equal(closeScroll({ aboutTop: -330, arrowTop: 400, barBottom: 147, shrink: 596 }), -485);
+    assert.equal(
+        closeScroll({ aboutTop: 120, arrowTop: 300, barBottom: 147, gap: 8, shrink: 596 }),
+        -35,
+    );
+    // Never a scroll down: a top already under the line stays.
+    assert.equal(closeScroll({ aboutTop: 160, arrowTop: 100, barBottom: 147, shrink: 596 }), 0);
 });
 
-test('closing: an arrow pressed above the bar line is held where it was pressed', () => {
-    assert.equal(closeScrollBy({ arrowTop: 50, barBottom: 100, pressedTop: 60 }), -10);
-    assert.equal(closeScrollBy({ arrowTop: 60, barBottom: 100, pressedTop: 60 }), 0);
+test('the close scroll follows the fold: none at the start, all of it when the height settles', () => {
+    assert.equal(foldProgress({ end: 116, height: 712, start: 712 }), 0);
+    assert.equal(foldProgress({ end: 116, height: 414, start: 712 }), 0.5);
+    assert.equal(foldProgress({ end: 116, height: 116, start: 712 }), 1);
+    // The ease overshoots nothing, but a subpixel past either end is clamped.
+    assert.equal(foldProgress({ end: 116, height: 115.6, start: 712 }), 1);
+    assert.equal(foldProgress({ end: 300, height: 300, start: 300 }), 1);
 });

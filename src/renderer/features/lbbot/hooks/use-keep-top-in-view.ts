@@ -4,11 +4,9 @@ import { RefObject, useEffect, useLayoutEffect, useRef } from 'react';
 import { shellPinnedTop } from '/@/renderer/components/item-list/item-table-list/utils/shell-pinned-top';
 import { scrollToKeepTop } from '/@/renderer/features/lbbot/keep-top';
 import { afterMotion } from '/@/renderer/features/motion/after-motion';
+import { PANEL_GAP_PX } from '/@/renderer/features/motion/clamp';
 import { scrollParentOf, USER_INPUT } from '/@/renderer/features/motion/scroll-parent';
 import { readMotionClock } from '/@/shared/components/animations/motion-tokens';
-
-/** How far under the bar's bottom the box's top comes to rest: the shell's `--panel-gap`. */
-const KEEP_TOP_GAP_PX = 8;
 
 /**
  * R12 (B-236): when `view` changes in a way `shrinks` names, and the box's top is then above the line
@@ -73,7 +71,7 @@ export const useKeepTopInView = (
             const delta = scrollToKeepTop({
                 barBottom: shellPinnedTop(getComputedStyle(box)),
                 boxTop: box.getBoundingClientRect().top,
-                gap: KEEP_TOP_GAP_PX,
+                gap: PANEL_GAP_PX,
                 seenBelowBar: seen,
             });
             if (delta === null) {

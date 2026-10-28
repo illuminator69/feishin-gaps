@@ -56,21 +56,43 @@ export const foldAt = (lines: LineBox[], count: number): null | number => {
     return Math.min(lines[count - 1].bottom, lines[count].top);
 };
 
+/** How far under the bar's bottom a top comes to rest after the app scrolls: the shell's `--panel-gap`. */
+export const PANEL_GAP_PX = 8;
+
 /**
- * Closing (Review M3): how far to scroll the page this frame (negative: up) so the arrow, rising
- * with the fold, stops on the bar's bottom (or where it was pressed, when that was higher) instead
- * of passing under it. Zero while it is still below that line: with the arrow staying in view, the
- * page does not move. Viewport pixels.
+ * Closing (Review M3 and its follow-up): the whole scroll the close makes (negative: up), spread over
+ * the fold by `foldProgress`. Zero when the arrow, rising by `shrink`, still ends at or below the
+ * bar's bottom: with the arrow staying in view, the page does not move. Otherwise the About's top
+ * (`aboutTop`, its label) settles `gap` under the bar, so the folded lines are what shows, never a
+ * scroll down. Viewport pixels, read at the press.
  */
-export const closeScrollBy = ({
+export const closeScroll = ({
+    aboutTop,
     arrowTop,
     barBottom,
-    pressedTop,
+    gap = PANEL_GAP_PX,
+    shrink,
 }: {
+    aboutTop: number;
     arrowTop: number;
     barBottom: number;
-    pressedTop: number;
+    gap?: number;
+    shrink: number;
 }): number => {
-    const line = Math.min(pressedTop, barBottom);
-    return arrowTop < line - ON_THE_LINE_PX / 2 ? arrowTop - line : 0;
+    if (arrowTop - shrink >= barBottom - ON_THE_LINE_PX / 2) return 0;
+    return Math.min(0, Math.round(aboutTop - (barBottom + gap)));
+};
+
+/** How far a fold from `start` to `end` has got at `height`, 0 to 1 (1 when there is nothing to move). */
+export const foldProgress = ({
+    end,
+    height,
+    start,
+}: {
+    end: number;
+    height: number;
+    start: number;
+}): number => {
+    if (start === end) return 1;
+    return Math.min(1, Math.max(0, (start - height) / (start - end)));
 };
