@@ -195,13 +195,16 @@ const albumTracklist = (releaseMbid: string, albumIds?: string[]): Promise<LbBot
 /** Ranked Soulseek folders for one release-group. Slow (a live slskd fan-out). */
 /** `edition` is the release the caller already resolved, so lb-bot can skip
  *  re-asking MusicBrainz — see the main-process handler. */
+/** `refresh`: Search again after a refusal, so lb-bot searches afresh (R12, review F4). */
 const albumSources = (
     rgid: string,
     edition?: LbBotResolvedEdition,
+    options: { refresh?: boolean } = {},
 ): Promise<LbBotResult<LbBotGapSource[]>> =>
     ipcRenderer.invoke('lbbot-album-sources', {
         album: edition?.title,
         artist: edition?.artist,
+        refresh: options.refresh === true,
         releaseMbid: edition?.releaseMbid,
         rgid,
         total: edition?.totalTracks,

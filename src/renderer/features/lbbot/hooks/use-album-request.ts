@@ -176,7 +176,8 @@ export const useAlbumRequest = ({
         sessions.set(rgid, { ...current, startedAt: Date.now() });
         setNow(Date.now());
         emit();
-        void sources.refetch();
+        // `refresh=1`: lb-bot searches afresh, past what it kept and the hub's one-minute cache.
+        void sources.again();
     }, [rgid, sources, startSearch]);
     // "Stop waiting": this page stops waiting for the answer; lb-bot's search is not cancellable from
     // here, and its answer stays in the hub's cache for a minute after it ends.

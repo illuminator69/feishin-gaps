@@ -79,6 +79,7 @@ import type {
 import { BrowserWindow, ipcMain, Notification } from 'electron';
 
 import { getHubConfig } from '../hub';
+import { albumSourcesParams } from './album-sources-params';
 
 import {
     albumDownloadBody,
@@ -2155,30 +2156,15 @@ ipcMain.handle(
         args: {
             album?: string;
             artist?: string;
+            refresh?: boolean;
             releaseMbid?: string;
             rgid: string;
             total?: number;
         },
     ): Promise<LbBotResult<LbBotGapSource[]>> => {
         if (!args.rgid) return failed(0, 'No release');
-        // The release we already resolved, when we have one. lb-bot otherwise
-        // re-resolves the group at MusicBrainz, and its resolver caches a
-        // transient failure for five minutes without retrying inside that
-        // window — so one 503 made this a hard "Could not resolve album" for the
-        // same album for the next five minutes. These values came from
-        // /lb/album/releases, so they cost nothing.
         const result = await request('GET', '/lb/album/sources', {
-            params: {
-                rgid: args.rgid,
-                ...(args.releaseMbid
-                    ? {
-                          album: args.album ?? '',
-                          artist: args.artist ?? '',
-                          release_mbid: args.releaseMbid,
-                          total: String(args.total ?? 0),
-                      }
-                    : {}),
-            },
+            params: albumSourcesParams({ ...args, refresh: args.refresh === true }),
         });
         if (!result.ok) return failed(result.status, result.error);
         const rows = Array.isArray(result.data?.sources) ? result.data.sources : [];

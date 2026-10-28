@@ -2585,10 +2585,16 @@ export const useLbBotAlbumSources = (
      *  the page shows it instead of starting a second live search. */
     options: { staleTime?: number } = {},
 ) => {
+    // Search again (R12, review F4): the next fetch asks lb-bot to search afresh, once.
+    const refreshNext = useRef(false);
     const query = useQuery<LbBotResult<LbBotGapSource[]>>({
         enabled: !!lbBot && !!rgid && enabled,
         gcTime: 5 * 60 * 1000,
-        queryFn: () => lbBot!.albumSources(rgid!, edition),
+        queryFn: () => {
+            const refresh = refreshNext.current;
+            refreshNext.current = false;
+            return lbBot!.albumSources(rgid!, edition, { refresh });
+        },
         // Keyed on the edition too: two pressings of the same group are two
         // different searches, and re-using one's answer for the other is exactly
         // the wrong-record mistake this screen exists to prevent.
@@ -2596,7 +2602,13 @@ export const useLbBotAlbumSources = (
         retry: false,
         staleTime: options.staleTime ?? 60 * 1000,
     });
+    const { refetch } = query;
+    const again = useCallback(() => {
+        refreshNext.current = true;
+        return refetch();
+    }, [refetch]);
     return {
+        again,
         error: query.data && !query.data.ok ? query.data.error : '',
         isLoading: query.isFetching,
         queryKey: ['lbbot', 'album-sources', rgid, edition?.releaseMbid ?? ''],
