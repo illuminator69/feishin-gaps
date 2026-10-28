@@ -8,6 +8,7 @@ import styles from './app-menu.module.css';
 import { UpdateAvailableButton } from '/@/renderer/features/settings/components/update-available-button';
 import { openSettingsModal } from '/@/renderer/features/settings/utils/open-settings-modal';
 import { ServerSelector } from '/@/renderer/features/sidebar/components/server-selector';
+import { useSidebarFolded } from '/@/renderer/layouts/default-layout/use-shell-fit';
 import { openReleaseNotesModal } from '/@/renderer/release-notes-modal';
 import {
     useAppStore,
@@ -57,6 +58,7 @@ type MenuItem = ConditionalGroupItem | ConditionalItem | CustomItem | DividerIte
 
 interface RegularMenuItem extends BaseMenuItem {
     component?: 'a' | typeof Link;
+    disabled?: boolean;
     href?: string;
     icon?: keyof typeof import('/@/shared/components/icon/icon').AppIcon;
     iconColor?:
@@ -81,7 +83,10 @@ interface RegularMenuItem extends BaseMenuItem {
 export const AppMenu = () => {
     const { t } = useTranslation();
     const navigate = useNavigate();
-    const collapsed = useAppStore((state) => state.sidebar.collapsed);
+    // What the window shows: a sidebar folded to its rail for width (R6, B-198) reads as collapsed,
+    // and its toggle is off until the window widens (the fold would hide any change).
+    const folded = useSidebarFolded();
+    const collapsed = useAppStore((state) => state.sidebar.collapsed) || folded;
     const privateMode = useAppStore((state) => state.privateMode);
     const { setPrivateMode, setSideBar } = useAppStoreActions();
     const { setSettings } = useSettingsStoreActions();
@@ -188,6 +193,7 @@ export const AppMenu = () => {
             condition: collapsed,
             id: 'sidebar-expand',
             item: {
+                disabled: folded,
                 icon: 'panelRightOpen',
                 id: 'expand-sidebar',
                 label: t('page.appMenu.expandSidebar'),
@@ -383,6 +389,7 @@ export const AppMenu = () => {
                     ...(item.to && { to: item.to }),
                     ...(item.href && { href: item.href }),
                     ...(item.target && { target: item.target }),
+                    ...(item.disabled && { disabled: true }),
                 } as MenuItemProps;
 
                 return (

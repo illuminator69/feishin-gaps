@@ -26,6 +26,8 @@ export type MenuPlaybackState = {
     repeatMode?: PlayerRepeat;
     shuffleEnabled?: boolean;
     sidebarCollapsed?: boolean;
+    /** The sidebar is a rail because the window is narrow (R6): the item is off until it widens. */
+    sidebarFolded?: boolean;
 };
 
 const MENU_ITEM_IDS = {
@@ -92,6 +94,7 @@ export default class MenuBuilder {
         repeatMode = PlayerRepeat.NONE,
         shuffleEnabled = false,
         sidebarCollapsed = false,
+        sidebarFolded = false,
     }: MenuPlaybackState = {}): MenuItemConstructorOptions[] {
         const isPlaying = playbackStatus === PlayerStatus.PLAYING;
         const isRepeatEnabled = repeatMode !== PlayerRepeat.NONE;
@@ -163,6 +166,7 @@ export default class MenuBuilder {
                     click: () => {
                         this.mainWindow.webContents.send('renderer-toggle-sidebar');
                     },
+                    enabled: !sidebarFolded,
                     id: MENU_ITEM_IDS.sidebarCollapsed,
                     label: 'Collapse Sidebar',
                     type: 'checkbox',
@@ -504,6 +508,7 @@ export default class MenuBuilder {
         repeatMode = PlayerRepeat.NONE,
         shuffleEnabled = false,
         sidebarCollapsed = false,
+        sidebarFolded = false,
     }: MenuPlaybackState = {}): void {
         if (process.platform !== 'darwin' || !this.applicationMenu) {
             return;
@@ -517,7 +522,10 @@ export default class MenuBuilder {
         const shuffleItem = this.applicationMenu.getMenuItemById(MENU_ITEM_IDS.shuffle);
 
         if (privateModeItem) privateModeItem.checked = privateMode;
-        if (sidebarItem) sidebarItem.checked = sidebarCollapsed;
+        if (sidebarItem) {
+            sidebarItem.checked = sidebarCollapsed;
+            sidebarItem.enabled = !sidebarFolded;
+        }
         if (pauseItem) pauseItem.visible = playbackStatus === PlayerStatus.PLAYING;
         if (playItem) playItem.visible = playbackStatus !== PlayerStatus.PLAYING;
         if (repeatItem) repeatItem.checked = repeatMode !== PlayerRepeat.NONE;

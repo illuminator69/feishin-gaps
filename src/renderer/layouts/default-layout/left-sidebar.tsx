@@ -80,15 +80,17 @@ export const LeftSidebar = ({ isResizing, startResizing }: LeftSidebarProps) => 
             ) : (
                 content
             )}
-            <ResizeHandle
-                isResizing={isResizing}
-                onMouseDown={(e) => {
-                    e.preventDefault();
-                    startResizing('left');
-                }}
-                placement="right"
-                ref={sidebarRef}
-            />
+            {!folded && (
+                <ResizeHandle
+                    isResizing={isResizing}
+                    onMouseDown={(e) => {
+                        e.preventDefault();
+                        startResizing('left');
+                    }}
+                    placement="right"
+                    ref={sidebarRef}
+                />
+            )}
         </aside>
     );
 };

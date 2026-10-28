@@ -370,6 +370,7 @@ let currentPlaybackStatus: PlayerStatus = PlayerStatus.PAUSED;
 let currentPrivateMode = false;
 let currentRepeatMode: PlayerRepeat = PlayerRepeat.NONE;
 let currentSidebarCollapsed = false;
+let currentSidebarFolded = false;
 let currentShuffleEnabled = false;
 
 app.on('before-quit', () => {
@@ -508,6 +509,7 @@ const getMainMenuState = (): MenuPlaybackState => ({
     repeatMode: currentRepeatMode,
     shuffleEnabled: currentShuffleEnabled,
     sidebarCollapsed: currentSidebarCollapsed,
+    sidebarFolded: currentSidebarFolded,
 });
 
 const rebuildMainMenu = () => {
@@ -1329,10 +1331,15 @@ ipcMain.on('update-private-mode', (_event, privateMode: boolean) => {
     updateMainMenu();
 });
 
-ipcMain.on('update-sidebar-collapsed', (_event, collapsedSidebar: boolean) => {
-    currentSidebarCollapsed = collapsedSidebar;
+// The second value (R6): the sidebar is a rail because the window is narrow, so its item is off.
+ipcMain.on(
+    'update-sidebar-collapsed',
+    (_event, collapsedSidebar: boolean, foldedSidebar = false) => {
+        currentSidebarCollapsed = collapsedSidebar;
+        currentSidebarFolded = foldedSidebar;
 
-    if (!isMacOS()) return;
+        if (!isMacOS()) return;
 
-    updateMainMenu();
-});
+        updateMainMenu();
+    },
+);
