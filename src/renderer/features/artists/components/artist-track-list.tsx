@@ -1,7 +1,6 @@
 import formatDuration from 'format-duration';
 import { type KeyboardEvent, type MouseEvent, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { generatePath, Link } from 'react-router';
 
 import styles from './artist-track-list.module.css';
 
@@ -17,7 +16,6 @@ import {
 } from '/@/renderer/features/artists/artist-track-list-model';
 import { ContextMenuController } from '/@/renderer/features/context-menu/context-menu-controller';
 import { useRemoteAwareStatus } from '/@/renderer/features/hub/hooks/use-remote-aware';
-import { AppRoute } from '/@/renderer/router/routes';
 import { useHubIsRemoteActive, useHubRemoteNowPlaying, usePlayerSong } from '/@/renderer/store';
 import { ExplicitIndicator } from '/@/shared/components/explicit-indicator/explicit-indicator';
 import { Icon } from '/@/shared/components/icon/icon';
@@ -122,9 +120,6 @@ const TrackRow = ({ active, artistId, index, onPlay, playing, song }: TrackRowPr
         event.stopPropagation();
         ContextMenuController.call({ cmd: { items: [song], type: LibraryItem.SONG }, event });
     };
-    const albumPath = song.albumId
-        ? generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, { albumId: song.albumId })
-        : null;
 
     return (
         <li
@@ -171,14 +166,10 @@ const TrackRow = ({ active, artistId, index, onPlay, playing, song }: TrackRowPr
                 type="table"
             />
             <div className={styles.text}>
+                {/* Plain text, as the table's title was: a link here would take the first click of a
+                    double-click and open the album instead of playing ("Go to album" is in the menu). */}
                 <span className={styles.title}>
-                    {albumPath ? (
-                        <Link className={styles.titleLink} onKeyDown={keepKeys} to={albumPath}>
-                            {song.name}
-                        </Link>
-                    ) : (
-                        song.name
-                    )}
+                    {song.name}
                     <ExplicitIndicator explicitStatus={song.explicitStatus} />
                 </span>
                 {hasOtherArtists(song.artists, artistId) && (
