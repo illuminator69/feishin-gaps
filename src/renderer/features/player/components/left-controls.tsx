@@ -20,6 +20,7 @@ import {
     useRadioPlayer,
 } from '/@/renderer/features/radio/hooks/use-radio-player';
 import { useHotkeys } from '/@/renderer/hooks/use-hotkeys';
+import { useSidebarFolded } from '/@/renderer/layouts/default-layout/use-shell-fit';
 import { AppRoute } from '/@/renderer/router/routes';
 import {
     useAppStore,
@@ -83,7 +84,10 @@ export const LeftControls = () => {
 
     const isRadioMode = isRadioActive;
     const hasRadioStationImage = Boolean(currentStationArt?.imageId || currentStationArt?.imageUrl);
-    const hideImage = !sidebarCollapsed && sidebarImageEnabled && sidebarImageShown;
+    // The sidebar shows the cover only when it is not a rail, by the user's flag or a narrow window.
+    const sidebarFolded = useSidebarFolded();
+    const hideImage =
+        !sidebarCollapsed && !sidebarFolded && sidebarImageEnabled && sidebarImageShown;
     const isSongDefined = Boolean(currentSong?.id) && !isRadioMode;
     const title = currentSong?.name;
     const artists = currentSong?.artists;

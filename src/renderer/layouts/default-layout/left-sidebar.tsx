@@ -4,6 +4,7 @@ import { lazy, Suspense, useRef } from 'react';
 import styles from './left-sidebar.module.css';
 
 import { ResizeHandle } from '/@/renderer/features/shared/components/resize-handle';
+import { useSidebarFolded } from '/@/renderer/layouts/default-layout/use-shell-fit';
 import { useAppStore } from '/@/renderer/store';
 import { readMotionClock } from '/@/shared/components/animations/motion-tokens';
 
@@ -26,7 +27,9 @@ interface LeftSidebarProps {
 
 export const LeftSidebar = ({ isResizing, startResizing }: LeftSidebarProps) => {
     const sidebarRef = useRef<HTMLDivElement | null>(null);
-    const collapsed = useAppStore((state) => state.sidebar.collapsed);
+    // A narrow window shows the rail, for display only: the saved flag stays the user's (B-198).
+    const folded = useSidebarFolded();
+    const collapsed = useAppStore((state) => state.sidebar.collapsed) || folded;
     // The crossfade always runs, except under reduced motion (the plain instant swap).
     const crossfade = !useReducedMotion();
     // The crossfade runs on the grid tween's clock (--motion-duration, --motion-ease), not its own.

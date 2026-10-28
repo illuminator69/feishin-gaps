@@ -2,7 +2,14 @@ import { useTranslation } from 'react-i18next';
 
 import styles from './queue-rail.module.css';
 
-import { useQueueRailVisible } from '/@/renderer/features/now-playing/hooks/use-right-sidebar-visible';
+import {
+    useQueueFolded,
+    useQueueRailVisible,
+} from '/@/renderer/features/now-playing/hooks/use-right-sidebar-visible';
+import {
+    useQueueOverlayOpen,
+    useSetQueueOverlay,
+} from '/@/renderer/layouts/default-layout/use-shell-fit';
 import {
     useAppStoreActions,
     useHubIsRemoteActive,
@@ -16,6 +23,10 @@ export const QueueRail = () => {
     const { t } = useTranslation();
     const visible = useQueueRailVisible();
     const { setSideBar } = useAppStoreActions();
+    // On a narrow window the rail opens the panel over the page and leaves the saved flag alone.
+    const folded = useQueueFolded();
+    const overlayOpen = useQueueOverlayOpen();
+    const setQueueOverlay = useSetQueueOverlay();
     // The session's queue, as the window bar counts it: the hub's mirror while another device plays.
     const isRemote = useHubIsRemoteActive();
     const remoteQueueLength = useHubStore((state) => state.remoteQueue.length);
@@ -31,7 +42,9 @@ export const QueueRail = () => {
                 className={styles.button}
                 icon="queue"
                 iconProps={{ size: 'lg' }}
-                onClick={() => setSideBar({ rightExpanded: true })}
+                onClick={() =>
+                    folded ? setQueueOverlay(!overlayOpen) : setSideBar({ rightExpanded: true })
+                }
                 size="compact-md"
                 tooltip={{ label: t('player.viewQueue'), position: 'left' }}
                 variant="subtle"

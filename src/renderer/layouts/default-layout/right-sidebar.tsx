@@ -1,11 +1,15 @@
 import clsx from 'clsx';
-import { forwardRef, Ref } from 'react';
+import { forwardRef, Ref, useEffect } from 'react';
 
 import styles from './right-sidebar.module.css';
 
 import { SidebarPlayQueue } from '/@/renderer/features/now-playing/components/sidebar-play-queue';
-import { useRightSidebarVisible } from '/@/renderer/features/now-playing/hooks/use-right-sidebar-visible';
+import {
+    useQueueOverlayVisible,
+    useRightSidebarVisible,
+} from '/@/renderer/features/now-playing/hooks/use-right-sidebar-visible';
 import { ResizeHandle } from '/@/renderer/features/shared/components/resize-handle';
+import { useSetQueueOverlay } from '/@/renderer/layouts/default-layout/use-shell-fit';
 import { useSideQueueLayout } from '/@/renderer/store';
 
 // const queueDrawerVariants: Variants = {
@@ -59,12 +63,15 @@ export const RightSidebar = forwardRef(
         const sideQueueLayout = useSideQueueLayout();
         const isVerticalLayout = sideQueueLayout === 'vertical';
         const showRightSidebar = useRightSidebarVisible();
+        const showOverlay = useQueueOverlayVisible();
+        useOverlayDismiss(showOverlay);
 
         return (
             <>
-                {showRightSidebar && (
+                {(showRightSidebar || showOverlay) && (
                     <aside
                         className={clsx(styles.rightSidebarContainer, {
+                            [styles.overlay]: showOverlay,
                             [styles.verticalLayout]: isVerticalLayout,
                         })}
                         id="sidebar-queue"
@@ -86,3 +93,42 @@ export const RightSidebar = forwardRef(
         );
     },
 );
+
+/** Elements whose clicks leave the overlay alone: itself, the rail and the bar's queue button toggle it. */
+const OVERLAY_KEEPERS = '#sidebar-queue, #queue-rail, [data-queue-toggle]';
+
+/**
+ * The folded queue opened over the page closes with Escape or a click elsewhere in the window.
+ * Only clicks inside the app's own layout count: menus, modals and tooltips render in portals
+ * outside it, so acting in a queue row's context menu does not close the queue under it.
+ */
+const useOverlayDismiss = (open: boolean) => {
+    const setQueueOverlay = useSetQueueOverlay();
+
+    useEffect(() => {
+        if (!open) return;
+
+        const insideLayout = (target: EventTarget | null) =>
+            target instanceof Element && target.closest('#default-layout') !== null;
+
+        const onPointerDown = (event: PointerEvent) => {
+            const { target } = event;
+            if (!insideLayout(target) || (target as Element).closest(OVERLAY_KEEPERS)) return;
+            setQueueOverlay(false);
+        };
+
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== 'Escape' || event.defaultPrevented) return;
+            // Escape in a portal (a menu, a modal) belongs to it.
+            if (event.target !== document.body && !insideLayout(event.target)) return;
+            setQueueOverlay(false);
+        };
+
+        document.addEventListener('pointerdown', onPointerDown, true);
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+            document.removeEventListener('pointerdown', onPointerDown, true);
+            document.removeEventListener('keydown', onKeyDown);
+        };
+    }, [open, setQueueOverlay]);
+};

@@ -6,13 +6,21 @@ import styles from './right-controls.module.css';
 
 import { useRemoteAwarePlayerSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { PopoverPlayQueue } from '/@/renderer/features/now-playing/components/popover-play-queue';
-import { useRightSidebarVisible } from '/@/renderer/features/now-playing/hooks/use-right-sidebar-visible';
+import {
+    useQueueFolded,
+    useQueueOverlayVisible,
+    useRightSidebarVisible,
+} from '/@/renderer/features/now-playing/hooks/use-right-sidebar-visible';
 import { DeviceControl } from '/@/renderer/features/player/components/device-control';
 import { MoreControl } from '/@/renderer/features/player/components/more-control';
 import { VolumeGroup } from '/@/renderer/features/player/components/volume-group';
 import { useCreateFavorite } from '/@/renderer/features/shared/mutations/create-favorite-mutation';
 import { useDeleteFavorite } from '/@/renderer/features/shared/mutations/delete-favorite-mutation';
 import { useHotkeys } from '/@/renderer/hooks/use-hotkeys';
+import {
+    useQueueOverlayOpen,
+    useSetQueueOverlay,
+} from '/@/renderer/layouts/default-layout/use-shell-fit';
 import {
     useAppStoreActions,
     useHotkeySettings,
@@ -45,14 +53,20 @@ const QueueButton = () => {
     const isSidebarRightExpanded = useSidebarRightExpanded();
     // The icon says whether the panel is on screen; the toggle keeps the raw flag (on Now Playing
     // there is no panel, and the flag is what a click must flip).
-    const isPanelShown = useRightSidebarVisible();
+    const isOverlayShown = useQueueOverlayVisible();
+    const isPanelShown = useRightSidebarVisible() || isOverlayShown;
     const { setSideBar } = useAppStoreActions();
     const sideQueueType = useSideQueueType();
+    // On a narrow window the queue opens over the page, and the saved flag stays the user's.
+    const isQueueFolded = useQueueFolded();
+    const overlayOpen = useQueueOverlayOpen();
+    const setQueueOverlay = useSetQueueOverlay();
     const { bindings } = useHotkeySettings();
     const [popoverOpened, setPopoverOpened] = useState(false);
     const handleToggleQueue = () => {
-        if (sideQueueType === 'sideQueue') setSideBar({ rightExpanded: !isSidebarRightExpanded });
-        else setPopoverOpened((prev) => !prev);
+        if (sideQueueType !== 'sideQueue') setPopoverOpened((prev) => !prev);
+        else if (isQueueFolded) setQueueOverlay(!overlayOpen);
+        else setSideBar({ rightExpanded: !isSidebarRightExpanded });
     };
     useHotkeys([
         [bindings.toggleQueue.isGlobal ? '' : bindings.toggleQueue.hotkey, handleToggleQueue],
@@ -60,6 +74,8 @@ const QueueButton = () => {
     if (sideQueueType === 'sideQueue') {
         return (
             <ActionIcon
+                // The overlay's click-outside leaves this button to toggle it.
+                data-queue-toggle
                 icon={isPanelShown ? 'panelRightClose' : 'panelRightOpen'}
                 iconProps={{ size: 'lg' }}
                 onClick={(e) => {

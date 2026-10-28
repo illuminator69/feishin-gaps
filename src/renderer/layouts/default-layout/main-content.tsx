@@ -18,6 +18,10 @@ import { LeftSidebar } from '/@/renderer/layouts/default-layout/left-sidebar';
 import { QueueRail } from '/@/renderer/layouts/default-layout/queue-rail';
 import { RightSidebar } from '/@/renderer/layouts/default-layout/right-sidebar';
 import {
+    useShellFitTracker,
+    useSidebarFolded,
+} from '/@/renderer/layouts/default-layout/use-shell-fit';
+import {
     useAppStore,
     useAppStoreActions,
     useGlobalExpanded,
@@ -29,7 +33,15 @@ import { Spinner } from '/@/shared/components/spinner/spinner';
 const MINIMUM_SIDEBAR_WIDTH = 200;
 
 export const MainContent = ({ shell }: { shell?: boolean }) => {
-    const { collapsed, leftWidth, rightHeight, rightWidth } = useAppStore(
+    useShellFitTracker();
+    // A narrow window shows the sidebar as its rail without touching the user's flag (B-198).
+    const sidebarFolded = useSidebarFolded();
+    const {
+        collapsed: collapsedSetting,
+        leftWidth,
+        rightHeight,
+        rightWidth,
+    } = useAppStore(
         (state) => ({
             collapsed: state.sidebar.collapsed,
             leftWidth: state.sidebar.leftWidth,
@@ -38,6 +50,7 @@ export const MainContent = ({ shell }: { shell?: boolean }) => {
         }),
         shallow,
     );
+    const collapsed = collapsedSetting || sidebarFolded;
     const { setSideBar } = useAppStoreActions();
     const sideQueueLayout = useSideQueueLayout();
     const rightSidebarVisible = useRightSidebarVisible();
@@ -66,6 +79,9 @@ export const MainContent = ({ shell }: { shell?: boolean }) => {
     const startResizing = useCallback(
         (position: 'left' | 'right' | 'top', mouseEvent?: MouseEvent) => {
             if (position === 'left') {
+                // Folded for width, the rail is not the user's to drag open: the drag would write
+                // a width and a flag the fold then overrides, and nothing would move.
+                if (sidebarFolded) return;
                 setIsResizing(true);
                 wasCollapsedDuringDragRef.current = false;
             } else {
@@ -99,7 +115,7 @@ export const MainContent = ({ shell }: { shell?: boolean }) => {
                 }
             }
         },
-        [rightHeight, rightWidth],
+        [rightHeight, rightWidth, sidebarFolded],
     );
 
     const stopResizing = useCallback(() => {

@@ -1,4 +1,8 @@
 .main-content-container {
+    /* The rails' widths, named once: the sidebar's collapsed rail and the queue's (L5-15). */
+    --sidebar-rail-width: 80px;
+    --queue-rail-width: 44px;
+
     position: relative;
     display: grid;
     grid-area: main-content;
@@ -16,8 +20,8 @@
     }
 
     /*
-     * Tween the grid tracks when the left sidebar minimizes or the side-queue opens/collapses
-     * (off under reduced motion); suppressed while dragging a resize handle (data-resizing) so
+     * Tween the grid tracks when the left sidebar minimizes or the side-queue opens/collapses,
+     * by a click or by the window's width folding them (shell-fit.ts) (off under reduced motion); suppressed while dragging a resize handle (data-resizing) so
      * live resize stays 1:1 with the cursor.
      * Modern Chromium interpolates grid-template track lists across count changes (added /
      * removed tracks animate from a used size of 0), which covers the 2↔3 column queue toggle.
@@ -45,7 +49,7 @@
     }
 
     &.sidebar-collapsed:not(.right-expanded, .vertical-layout) {
-        grid-template-columns: calc(80px + var(--panel-gap)) 1fr 0;
+        grid-template-columns: calc(var(--sidebar-rail-width) + var(--panel-gap)) 1fr 0;
     }
 }
 
@@ -54,7 +58,7 @@
 }
 
 .main-content-container.sidebar-collapsed {
-    grid-template-columns: calc(80px + var(--panel-gap)) 1fr;
+    grid-template-columns: calc(var(--sidebar-rail-width) + var(--panel-gap)) 1fr;
 }
 
 .main-content-container.sidebar-expanded {
@@ -62,20 +66,20 @@
 }
 
 .main-content-container.sidebar-expanded.queue-rail {
-    grid-template-columns: calc(var(--sidebar-width) + var(--panel-gap)) 1fr calc(44px + var(--panel-gap));
+    grid-template-columns: calc(var(--sidebar-width) + var(--panel-gap)) 1fr calc(var(--queue-rail-width) + var(--panel-gap));
 }
 
 .main-content-container.sidebar-collapsed.queue-rail {
-    grid-template-columns: calc(80px + var(--panel-gap)) 1fr calc(44px + var(--panel-gap));
+    grid-template-columns: calc(var(--sidebar-rail-width) + var(--panel-gap)) 1fr calc(var(--queue-rail-width) + var(--panel-gap));
 }
 
-/* The closed panel's track is the rail's 44px, so opening it eases 44px to the panel's width. */
+/* The closed panel's track is the rail's width, so opening it eases from the rail to the panel's width. */
 .main-content-container.sidebar-expanded.queue-rail:not(.right-expanded, .vertical-layout) {
-    grid-template-columns: calc(var(--sidebar-width) + var(--panel-gap)) 1fr calc(44px + var(--panel-gap));
+    grid-template-columns: calc(var(--sidebar-width) + var(--panel-gap)) 1fr calc(var(--queue-rail-width) + var(--panel-gap));
 }
 
 .main-content-container.sidebar-collapsed.queue-rail:not(.right-expanded, .vertical-layout) {
-    grid-template-columns: calc(80px + var(--panel-gap)) 1fr calc(44px + var(--panel-gap));
+    grid-template-columns: calc(var(--sidebar-rail-width) + var(--panel-gap)) 1fr calc(var(--queue-rail-width) + var(--panel-gap));
 }
 
 .main-content-container.right-expanded {
@@ -83,7 +87,7 @@
 }
 
 .main-content-container.sidebar-collapsed.right-expanded {
-    grid-template-columns: calc(80px + var(--panel-gap)) 1fr calc(var(--right-sidebar-width) + var(--panel-gap));
+    grid-template-columns: calc(var(--sidebar-rail-width) + var(--panel-gap)) 1fr calc(var(--right-sidebar-width) + var(--panel-gap));
 }
 
 .main-content-container.vertical-layout {
@@ -96,7 +100,7 @@
 }
 
 .main-content-container.sidebar-collapsed.vertical-layout {
-    grid-template-columns: calc(80px + var(--panel-gap)) 1fr;
+    grid-template-columns: calc(var(--sidebar-rail-width) + var(--panel-gap)) 1fr;
 }
 
 
