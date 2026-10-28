@@ -55,6 +55,17 @@
     margin-top: -4px;
 }
 
+/* R14 (B-250): hides the panel. The rail's open button at the same size (queue-rail.module.css
+   `.button`), at the top right where the rail's stands when the panel is folded. */
+.hide {
+    flex-shrink: 0;
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    min-height: 32px;
+    border-radius: 8px;
+}
+
 .switch-label {
     padding-inline-end: 8px;
     font-size: 11.5px;
@@ -126,13 +137,16 @@
 /*
  * B-225: the three characters (Familiar, Blend, Discover) at the panel's small-control size, 28 px
  * tall with a 12.5 px label, as the count line's controls (the owner found the 40 px chips too big).
+ * R14 (B-251): the Up next / Related switch the same, so the header's two switches are one size.
  * Two classes so Mantine's own padding on the control and its labels cannot win by source order.
  */
-.segments.characters {
+.segments.characters,
+.segments.tabs {
     padding: 3px;
 }
 
-.characters .segment-label {
+.characters .segment-label,
+.tabs .segment-label {
     height: 22px;
     padding: 0 8px;
     font-size: 12.5px;

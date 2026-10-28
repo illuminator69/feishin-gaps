@@ -216,3 +216,38 @@ export const chipLine = (origin: null | string, status: null | string): null | s
     const parts = [origin, status].filter((part): part is string => Boolean(part?.trim()));
     return parts.length > 0 ? parts.join(' · ') : null;
 };
+
+/** What happens when the queue runs out, as the key of its sentence (`naviConnect.station.*`). */
+export type StationStatusKey = 'continues' | 'exhausted' | 'finding' | 'offStops' | 'partial';
+
+/**
+ * The status under the chips, by key. Off (a stopped station, or no station and Autoplay off)
+ * means the queue stops at its end, radios included. Null when there is nothing to say.
+ */
+export const stationStatusKey = (state: {
+    autoplay: boolean;
+    bound: null | Pick<StationBinding, 'exhausted' | 'stopped'>;
+    inFlight: boolean;
+    lastPartial: boolean;
+    mode: StationMode;
+}): null | StationStatusKey => {
+    if (state.mode !== 'stations') return null;
+    if (state.bound ? state.bound.stopped : !state.autoplay) return 'offStops';
+    if (state.bound?.exhausted) return 'exhausted';
+    if (state.inFlight) return 'finding';
+    if (state.lastPartial) return 'partial';
+    if (!state.bound) return 'continues';
+    return null;
+};
+
+/**
+ * The side queue header's status line (R14, B-251): the chip row's line without "When this queue
+ * runs out, it carries on as a radio", which the owner found a subtitle too many there (the
+ * Autoplay switch beside the title already says so). The drawer, the popover and the Now Playing
+ * page keep the whole line (queue-station-chips.tsx).
+ */
+export const panelStatusLine = (
+    origin: null | string,
+    statusKey: null | StationStatusKey,
+    status: null | string,
+): null | string => chipLine(origin, statusKey === 'continues' ? null : status);

@@ -12,11 +12,13 @@ import {
     chipsFor,
     KEEP_NEXT_UNDER_MS,
     keepsNext,
+    panelStatusLine,
     planChipTap,
     remoteEditActs,
     removableStationRows,
     REPLACE_COUNT,
     selectedChip,
+    stationStatusKey,
 } from './station-chips.ts';
 
 /**
@@ -509,4 +511,50 @@ test('theToggleIsOnIffTheSelectedChipIsNotOff', () => {
     assert.equal(autoplayIsOn('close'), true);
     assert.equal(autoplayIsOn('balanced'), true);
     assert.equal(autoplayIsOn('explore'), true);
+});
+
+// R14 (B-251): the status line's key, as useStationWords had it inline, and the side queue
+// header's line without the "carries on as a radio" sentence.
+
+test('statusKeyInEachState', () => {
+    const base = { autoplay: true, bound: null, inFlight: false, lastPartial: false };
+    assert.equal(stationStatusKey({ ...base, mode: 'fallback' }), null);
+    assert.equal(stationStatusKey({ ...base, mode: 'pending' }), null);
+    assert.equal(stationStatusKey({ ...base, mode: 'stations' }), 'continues');
+    assert.equal(stationStatusKey({ ...base, autoplay: false, mode: 'stations' }), 'offStops');
+    assert.equal(stationStatusKey({ ...base, inFlight: true, mode: 'stations' }), 'finding');
+    assert.equal(stationStatusKey({ ...base, lastPartial: true, mode: 'stations' }), 'partial');
+    const live = { exhausted: false, stopped: false };
+    assert.equal(stationStatusKey({ ...base, bound: live, mode: 'stations' }), null);
+    // A bound station answers for itself: Autoplay off does not stop it, Off does.
+    assert.equal(
+        stationStatusKey({ ...base, autoplay: false, bound: live, mode: 'stations' }),
+        null,
+    );
+    assert.equal(
+        stationStatusKey({ ...base, bound: { ...live, stopped: true }, mode: 'stations' }),
+        'offStops',
+    );
+    assert.equal(
+        stationStatusKey({ ...base, bound: { ...live, exhausted: true }, mode: 'stations' }),
+        'exhausted',
+    );
+});
+
+test('panelLineDropsOnlyTheContinuesSentence', () => {
+    const continues = 'When this queue runs out, it carries on as a radio from its last tracks.';
+    assert.equal(panelStatusLine(null, 'continues', continues), null);
+    assert.equal(panelStatusLine('Auto DJ', 'continues', continues), 'Auto DJ');
+    assert.equal(
+        panelStatusLine(null, 'offStops', 'Autoplay is off. This queue stops at its end.'),
+        'Autoplay is off. This queue stops at its end.',
+    );
+    assert.equal(
+        panelStatusLine('Moon Song radio · Balanced', 'finding', 'Finding the next tracks...'),
+        'Moon Song radio · Balanced · Finding the next tracks...',
+    );
+    assert.equal(
+        panelStatusLine('Moon Song radio · Balanced', null, null),
+        'Moon Song radio · Balanced',
+    );
 });

@@ -13,14 +13,15 @@ import {
 } from '/@/renderer/features/now-playing/components/queue-actions-menu';
 import { QueueSheetTab } from '/@/renderer/features/now-playing/components/queue-sheet-tabs';
 import { usePlayingFrom } from '/@/renderer/features/now-playing/hooks/use-playing-from';
+import { useToggleQueuePanel } from '/@/renderer/features/now-playing/hooks/use-queue-panel-toggle';
 import { usePlayingRowId } from '/@/renderer/features/now-playing/hooks/use-queue-rows';
 import { PlayingFrom } from '/@/renderer/features/now-playing/utils/playing-from';
 import { queueLength } from '/@/renderer/features/now-playing/utils/queue-grouping';
 import {
     autoplayIsOn,
     characterChips,
-    chipLine,
     chipsFor,
+    panelStatusLine,
     selectedChip,
 } from '/@/renderer/features/player/station/station-chips';
 import {
@@ -31,6 +32,7 @@ import { useStationWords } from '/@/renderer/features/player/station/use-station
 import { SearchInput } from '/@/renderer/features/shared/components/search-input';
 import { describeQueueSource } from '/@/renderer/features/sonic/audio-muse-palette';
 import { useHubIsRemoteActive, useHubStore, usePlayerStoreBase } from '/@/renderer/store';
+import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Button } from '/@/shared/components/button/button';
 import { SegmentedControl } from '/@/shared/components/segmented-control/segmented-control';
 import { Switch } from '/@/shared/components/switch/switch';
@@ -73,7 +75,8 @@ const useQueueSize = (): { count: number; totalMs: number } => {
 
 /**
  * The side queue's header (F4), Navic's queue sheet as a desktop panel: what the queue is playing
- * from with the Autoplay switch, the line the chip row used to carry, the three characters, the Up
+ * from with the Autoplay switch and the button that hides the panel (R14), the line the chip row
+ * used to carry, the three characters, the Up
  * next / Related switch, and the count line with search, the `...` menu and Clear. It replaces, in
  * the side panel only, the icon tabs, the toolbar and the chip row; the drawer, the popover and the
  * Now Playing page keep those.
@@ -112,7 +115,10 @@ export const QueuePanelHeader = ({
         mode: words.mode,
         stationName: words.stationName,
     });
-    const statusLine = chipLine(origin?.label ?? null, words.status);
+    // Without "When this queue runs out..." (B-251): the Autoplay switch beside the title says it.
+    const statusLine = panelStatusLine(origin?.label ?? null, words.statusKey, words.status);
+    // The rail's open button, mirrored: the same toggle as the player bar's queue icon (B-250).
+    const toggleQueue = useToggleQueuePanel();
 
     // By the playing row's id in the table's own rows, never `player.index` (a shuffled
     // position, and the local one while another device plays).
@@ -168,6 +174,16 @@ export const QueuePanelHeader = ({
                     labelPosition="left"
                     onChange={(e) => toggleStationAutoplay(e.currentTarget.checked)}
                     size="sm"
+                />
+                <ActionIcon
+                    aria-label={t('naviConnect.queue.hide')}
+                    className={styles.hide}
+                    icon="panelRightClose"
+                    iconProps={{ size: 'lg' }}
+                    onClick={toggleQueue}
+                    size="compact-md"
+                    tooltip={{ label: t('naviConnect.queue.hide'), position: 'left' }}
+                    variant="subtle"
                 />
             </div>
             {statusLine && (

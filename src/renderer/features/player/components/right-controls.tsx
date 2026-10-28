@@ -6,8 +6,8 @@ import styles from './right-controls.module.css';
 
 import { useRemoteAwarePlayerSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { PopoverPlayQueue } from '/@/renderer/features/now-playing/components/popover-play-queue';
+import { useToggleQueuePanel } from '/@/renderer/features/now-playing/hooks/use-queue-panel-toggle';
 import {
-    useQueueFolded,
     useQueueOverlayVisible,
     useRightSidebarVisible,
 } from '/@/renderer/features/now-playing/hooks/use-right-sidebar-visible';
@@ -17,17 +17,7 @@ import { VolumeGroup } from '/@/renderer/features/player/components/volume-group
 import { useCreateFavorite } from '/@/renderer/features/shared/mutations/create-favorite-mutation';
 import { useDeleteFavorite } from '/@/renderer/features/shared/mutations/delete-favorite-mutation';
 import { useHotkeys } from '/@/renderer/hooks/use-hotkeys';
-import {
-    useQueueOverlayOpen,
-    useSetQueueOverlay,
-} from '/@/renderer/layouts/default-layout/use-shell-fit';
-import {
-    useAppStoreActions,
-    useHotkeySettings,
-    usePlayerData,
-    useSidebarRightExpanded,
-    useSideQueueType,
-} from '/@/renderer/store';
+import { useHotkeySettings, usePlayerData, useSideQueueType } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { LibraryItem, QueueSong } from '/@/shared/types/domain-types';
 
@@ -50,23 +40,19 @@ export const RightControls = () => (
 
 const QueueButton = () => {
     const { t } = useTranslation();
-    const isSidebarRightExpanded = useSidebarRightExpanded();
     // The icon says whether the panel is on screen; the toggle keeps the raw flag (on Now Playing
     // there is no panel, and the flag is what a click must flip).
     const isOverlayShown = useQueueOverlayVisible();
     const isPanelShown = useRightSidebarVisible() || isOverlayShown;
-    const { setSideBar } = useAppStoreActions();
     const sideQueueType = useSideQueueType();
-    // On a narrow window the queue opens over the page, and the saved flag stays the user's.
-    const isQueueFolded = useQueueFolded();
-    const overlayOpen = useQueueOverlayOpen();
-    const setQueueOverlay = useSetQueueOverlay();
+    // The rail's and the panel header's toggle too (R14): on a narrow window the queue opens over
+    // the page, and the saved flag stays the user's.
+    const toggleQueuePanel = useToggleQueuePanel();
     const { bindings } = useHotkeySettings();
     const [popoverOpened, setPopoverOpened] = useState(false);
     const handleToggleQueue = () => {
         if (sideQueueType !== 'sideQueue') setPopoverOpened((prev) => !prev);
-        else if (isQueueFolded) setQueueOverlay(!overlayOpen);
-        else setSideBar({ rightExpanded: !isSidebarRightExpanded });
+        else toggleQueuePanel();
     };
     useHotkeys([
         [bindings.toggleQueue.isGlobal ? '' : bindings.toggleQueue.hotkey, handleToggleQueue],
@@ -84,7 +70,7 @@ const QueueButton = () => {
                 }}
                 size="sm"
                 tooltip={{
-                    label: t('player.viewQueue'),
+                    label: isPanelShown ? t('naviConnect.queue.hide') : t('naviConnect.queue.show'),
                     openDelay: 0,
                 }}
                 variant="subtle"

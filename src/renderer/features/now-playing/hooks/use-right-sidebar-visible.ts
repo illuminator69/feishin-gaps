@@ -1,18 +1,10 @@
 import { useSidebarPanels } from '/@/renderer/features/now-playing/components/sidebar-play-queue';
-import { useQueueOverlayOpen, useShellFit } from '/@/renderer/layouts/default-layout/use-shell-fit';
+import { useQueueFolded } from '/@/renderer/features/now-playing/hooks/use-queue-panel-toggle';
+import { useQueueOverlayOpen } from '/@/renderer/layouts/default-layout/use-shell-fit';
 import { useAppStore, useSideQueueLayout, useSideQueueType } from '/@/renderer/store';
 
-/**
- * Whether the window is too narrow for the queue panel in the grid (B-207): it shows as its rail,
- * and opens over the page instead. Only the horizontal side queue folds; the vertical one sits
- * under the page and takes no width.
- */
-export const useQueueFolded = (): boolean => {
-    const folded = useShellFit().queue === 'rail';
-    const sideQueueType = useSideQueueType();
-    const sideQueueLayout = useSideQueueLayout();
-    return folded && sideQueueType === 'sideQueue' && sideQueueLayout !== 'vertical';
-};
+// B-207's fold moved beside the toggle (R14); its readers keep importing it from here.
+export { useQueueFolded };
 
 /**
  * Whether the queue panel stands in the grid: open, in side-queue mode, with at least one panel

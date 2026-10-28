@@ -5,20 +5,12 @@ import styles from './queue-rail.module.css';
 import { ItemImage } from '/@/renderer/components/item-image/item-image';
 import { useRemoteAwareNextSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { usePlayingFrom } from '/@/renderer/features/now-playing/hooks/use-playing-from';
+import { useToggleQueuePanel } from '/@/renderer/features/now-playing/hooks/use-queue-panel-toggle';
 import {
-    useQueueFolded,
+    useQueueOverlayVisible,
     useQueueRailVisible,
 } from '/@/renderer/features/now-playing/hooks/use-right-sidebar-visible';
-import {
-    useQueueOverlayOpen,
-    useSetQueueOverlay,
-} from '/@/renderer/layouts/default-layout/use-shell-fit';
-import {
-    useAppStoreActions,
-    useHubIsRemoteActive,
-    useHubStore,
-    usePlayerData,
-} from '/@/renderer/store';
+import { useHubIsRemoteActive, useHubStore, usePlayerData } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { Tooltip } from '/@/shared/components/tooltip/tooltip';
 import { LibraryItem } from '/@/shared/types/domain-types';
@@ -27,11 +19,13 @@ import { LibraryItem } from '/@/shared/types/domain-types';
 export const QueueRail = () => {
     const { t } = useTranslation();
     const visible = useQueueRailVisible();
-    const { setSideBar } = useAppStoreActions();
-    // On a narrow window the rail opens the panel over the page and leaves the saved flag alone.
-    const folded = useQueueFolded();
-    const overlayOpen = useQueueOverlayOpen();
-    const setQueueOverlay = useSetQueueOverlay();
+    // The player bar's queue toggle (R14): on a narrow window it opens the panel over the page
+    // and leaves the saved flag alone, as before.
+    const open = useToggleQueuePanel();
+    // Hide while the folded queue stands open over the page beside it, as the bar's icon says.
+    const toggleLabel = useQueueOverlayVisible()
+        ? t('naviConnect.queue.hide')
+        : t('naviConnect.queue.show');
     // The session's queue, as the window bar counts it: the hub's mirror while another device plays.
     const isRemote = useHubIsRemoteActive();
     const remoteQueueLength = useHubStore((state) => state.remoteQueue.length);
@@ -46,8 +40,6 @@ export const QueueRail = () => {
 
     if (!visible) return null;
 
-    const open = () =>
-        folded ? setQueueOverlay(!overlayOpen) : setSideBar({ rightExpanded: true });
     const nextArtist = next?.artistName || next?.artists?.map((artist) => artist.name).join(', ');
     const nextLabel = next
         ? nextArtist
@@ -66,13 +58,13 @@ export const QueueRail = () => {
     return (
         <aside className={styles.rail} id="queue-rail">
             <ActionIcon
-                aria-label={t('player.viewQueue')}
+                aria-label={toggleLabel}
                 className={styles.button}
                 icon="queue"
                 iconProps={{ size: 'lg' }}
                 onClick={open}
                 size="compact-md"
-                tooltip={{ label: t('player.viewQueue'), position: 'left' }}
+                tooltip={{ label: toggleLabel, position: 'left' }}
                 variant="subtle"
             />
             {queueLength > 0 && <span className={styles.count}>{queueLength}</span>}

@@ -1987,6 +1987,7 @@
                 "queuedByYou": "Queued by you",
                 "upNext": "Up next"
             },
+            "hide": "Hide queue",
             "kind": {
                 "album": "Album",
                 "journey": "Journey",
@@ -2000,6 +2001,7 @@
             "playingOn": "Playing on {{device}}",
             "railNext": "Up next: {{title}}, {{artist}}",
             "railNextTitle": "Up next: {{title}}",
+            "show": "Show queue",
             "songs_one": "{{count}} song",
             "songs_other": "{{count}} songs",
             "stopped": "stopped",
