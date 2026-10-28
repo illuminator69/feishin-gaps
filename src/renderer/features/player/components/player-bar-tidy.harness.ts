@@ -33,8 +33,10 @@ test('playRandomLeftTheTransportForMore', () => {
 
 test('songTextHasAWidthOfItsOwn', () => {
     const css = read('left-controls.module.css');
-    // A share of the column, not the longest line's width: no `auto` basis, no growing.
-    assert.match(block(css, '.metadata-stack {'), /flex: 0 1 45%;/);
+    // A width in px, not the longest line's (`auto`) nor a share of the column (`%`, which moved
+    // the heart with the window): no growing, shrinking only when the window is too narrow.
+    assert.match(block(css, '.metadata-stack {'), /flex: 0 1 160px;/);
+    assert.ok(!/flex: [^;]*%/.test(block(css, '.metadata-stack {')), 'no share of the column');
     assert.match(block(css, '.metadata-stack {'), /min-width: 0;/);
     const line = block(css, '.line-item {');
     for (const rule of ['overflow: hidden;', 'text-overflow: ellipsis;', 'white-space: nowrap;']) {

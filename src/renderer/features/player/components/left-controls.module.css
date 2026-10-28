@@ -7,13 +7,16 @@
 }
 
 /*
- * R14 (B-253): the title, artist and album take a fixed share of the bar's left column, each one
- * line cut with an ellipsis (the full text in its title attribute), so the heart after them stands
- * at the same x for every song: it moved with the longest line (x 247, 264, 293 for three songs).
+ * R14 (B-253): the title, artist and album take a fixed width, each one line cut with an ellipsis
+ * (the full text in its title attribute), so the heart after them stands at the same x for every
+ * song: it moved with the longest line (the owner's shots, at about 1.2 zoom: x 247, 264, 293, i.e.
+ * 206, 220, 244 CSS px, for three songs). The width is in px, not a share of the column, so the
+ * heart also keeps its x from window to window: 30 px past the widest of those three, all of which
+ * still fit uncut. Only a window too narrow for it cuts it further.
  */
 .metadata-stack {
     display: flex;
-    flex: 0 1 45%;
+    flex: 0 1 160px;
     flex-direction: column;
     gap: var(--theme-spacing-xs);
     justify-content: center;
