@@ -112,6 +112,41 @@ export const hubTrackToQueueSong = (
         userRating: track.rating ?? null,
     }) as unknown as QueueSong;
 
+/**
+ * The artists of a side-queue row, with ids. A row built from a remote session's wire track
+ * (`_uniqueId` `remote:<i>`) carries names only when the publisher sends no ids (Navic), so its
+ * artists would draw as plain text. The table only mounts the rows near the viewport, so each
+ * mounted row resolves its song once (cached, in flight deduped) and swaps in the real artists.
+ * A local row, or a remote one whose artists already carry ids, never asks.
+ */
+export const useRemoteRowArtists = (song: QueueSong | undefined): QueueSong['artists'] => {
+    const rowId = song?._uniqueId;
+    const songId = song?.id;
+    const serverId = song?._serverId;
+    const named = song?.artists ?? [];
+    const needsIds =
+        !!rowId?.startsWith('remote:') && !!songId && !!serverId && !named.some((a) => !!a.id);
+    const [detail, setDetail] = useState<null | Song>(null);
+
+    useEffect(() => {
+        if (!needsIds || !songId || !serverId) {
+            setDetail(null);
+            return undefined;
+        }
+        let cancelled = false;
+        void resolveRemoteDetail(serverId, songId).then((resolved) => {
+            if (!cancelled) setDetail(resolved);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [needsIds, serverId, songId]);
+
+    if (!needsIds) return named;
+    const resolved = detail?.id === songId ? detail : (remoteDetailCache.get(songId ?? '') ?? null);
+    return resolved?.artists && resolved.artists.length > 0 ? resolved.artists : named;
+};
+
 /** The current song — remote now-playing when remote-active, else local. */
 export const useRemoteAwarePlayerSong = (): QueueSong | undefined => {
     const isRemote = useHubIsRemoteActive();
