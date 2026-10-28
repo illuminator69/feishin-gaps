@@ -3,9 +3,6 @@ import { useQueueFolded } from '/@/renderer/features/now-playing/hooks/use-queue
 import { useQueueOverlayOpen } from '/@/renderer/layouts/default-layout/use-shell-fit';
 import { useAppStore, useSideQueueLayout, useSideQueueType } from '/@/renderer/store';
 
-// B-207's fold moved beside the toggle (R14); its readers keep importing it from here.
-export { useQueueFolded };
-
 /**
  * Whether the queue panel stands in the grid: open, in side-queue mode, with at least one panel
  * to show, and the window wide enough for it.

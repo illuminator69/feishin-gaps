@@ -56,14 +56,17 @@
 }
 
 /* R14 (B-250): hides the panel. The rail's open button at the same size (queue-rail.module.css
-   `.button`), at the top right where the rail's stands when the panel is folded. */
+   `.button`) and on the same centre, so the toggle does not move when the panel opens or closes:
+   the rail centres it 6 px from its right edge and 12 px from its top, this header pads 14 px. */
 .hide {
     flex-shrink: 0;
     width: 32px;
     min-width: 32px;
     height: 32px;
     min-height: 32px;
+    margin-inline-end: -8px;
     border-radius: 8px;
+    translate: 0 -2px;
 }
 
 .switch-label {
@@ -215,6 +218,11 @@
 
     .from {
         align-items: center;
+    }
+
+    /* Centred in its row 8 px down, 4 px above the rail's (B-250); moved, not grown, to meet it. */
+    .hide {
+        translate: 0 4px;
     }
 
     /* Two classes on the characters: Mantine's own rule for a full-width control sets its display. */

@@ -23,9 +23,8 @@ export const QueueRail = () => {
     // and leaves the saved flag alone, as before.
     const open = useToggleQueuePanel();
     // Hide while the folded queue stands open over the page beside it, as the bar's icon says.
-    const toggleLabel = useQueueOverlayVisible()
-        ? t('naviConnect.queue.hide')
-        : t('naviConnect.queue.show');
+    const overlayOpen = useQueueOverlayVisible();
+    const toggleLabel = overlayOpen ? t('naviConnect.queue.hide') : t('naviConnect.queue.show');
     // The session's queue, as the window bar counts it: the hub's mirror while another device plays.
     const isRemote = useHubIsRemoteActive();
     const remoteQueueLength = useHubStore((state) => state.remoteQueue.length);
@@ -60,7 +59,8 @@ export const QueueRail = () => {
             <ActionIcon
                 aria-label={toggleLabel}
                 className={styles.button}
-                icon="queue"
+                // The bar's own pair (R14): open here, close in the panel's header.
+                icon={overlayOpen ? 'panelRightClose' : 'panelRightOpen'}
                 iconProps={{ size: 'lg' }}
                 onClick={open}
                 size="compact-md"
