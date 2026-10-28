@@ -83,7 +83,7 @@ export interface DiscographyChip {
     kind: DiscographyChipKind;
     /**
      * The release kinds the chip shows, in Settings' order. For Popular releases, the kinds its
-     * fallback may draw from (every kind with a chip).
+     * pool draws from (every kind with a chip).
      */
     kinds: ReleaseKind[];
     total: number;
@@ -105,18 +105,17 @@ const CHIP_OF: Partial<Record<ReleaseKind, DiscographyChipKind>> = {
 const onShelf = (items: DiscographyItem[]) => items.filter((item) => item.kind !== 'appears-on');
 
 /**
- * Popular releases' pool: Navic's rule over everything but Appears on; when that picks nothing (an
- * artist with only missing singles, say), whatever the chips show, in the default order.
+ * Popular releases' pool: Navic's rule over the kinds the chips show (never Appears on, never a kind
+ * switched off in Settings, so Popular holds nothing the chip row beside it leaves out); when that
+ * picks nothing (an artist with only missing singles, say), those kinds in the default order.
  */
 const popularPool = (
     items: DiscographyItem[],
     shown: ReadonlySet<ReleaseKind>,
 ): DiscographyItem[] => {
-    const shelf = onShelf(items);
+    const shelf = onShelf(items).filter((item) => shown.has(item.kind));
     const popular = popularReleases(shelf, shelf.length);
-    return popular.length > 0
-        ? popular
-        : inDefaultOrder(shelf.filter((item) => shown.has(item.kind)));
+    return popular.length > 0 ? popular : inDefaultOrder(shelf);
 };
 
 export const discographyChips = (

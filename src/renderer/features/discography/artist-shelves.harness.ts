@@ -204,3 +204,13 @@ test('chipRowNeverLongerThanItemsPerRow', () => {
     }
     assert.deepEqual(keys(chipRow(items, chips[1], 3)), ['a8', 'a7', 'a6']);
 });
+
+test('popularLeavesSwitchedOffKindsOut', () => {
+    // The most played release is live, and Live is switched off: no chip for it, so Popular
+    // releases must not show it either.
+    const items = [item({ key: 'l1', kind: 'live', plays: 99 }), item({ key: 'a1', plays: 1 })];
+    const chips = discographyChips(items, ['album', 'live'], new Set<ReleaseKind>(['live']));
+    assert.deepEqual(chipKinds(chips), ['popular', 'album']);
+    assert.equal(chips[0].total, 1);
+    assert.deepEqual(keys(chipRow(items, chips[0], 4)), ['a1']);
+});
