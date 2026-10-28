@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ABOUT_LINES, foldAt, halfLeading, lineBoxes } from './clamp.ts';
+import { ABOUT_LINES, closeScrollBy, foldAt, halfLeading, lineBoxes } from './clamp.ts';
 
 /**
  * R13 (B-243): the About text folds to whole lines, with an arrow only when it runs past them.
@@ -61,4 +61,28 @@ test('half-leading: what a glyph run adds above and below to fill its line box',
     assert.equal(halfLeading('normal', 17), 0);
     // A run taller than the line height never shrinks it.
     assert.equal(halfLeading('14px', 20), 0);
+});
+
+/*
+ * Review M3: closing scrolls the page only for the part of the shrink that would carry the arrow
+ * above the bar's bottom (or above where it was pressed, if that was higher); with the arrow staying
+ * in view, nothing moves.
+ */
+
+test('closing: the page holds still while the arrow stays below the bar', () => {
+    // Pressed at 600 under a 100 px bar; the fold has raised the arrow to 300 so far.
+    assert.equal(closeScrollBy({ arrowTop: 300, barBottom: 100, pressedTop: 600 }), 0);
+    assert.equal(closeScrollBy({ arrowTop: 100, barBottom: 100, pressedTop: 600 }), 0);
+    // Within a subpixel of the line: still nothing.
+    assert.equal(closeScrollBy({ arrowTop: 99.6, barBottom: 100, pressedTop: 600 }), 0);
+});
+
+test('closing: an arrow that would pass under the bar is held on its bottom', () => {
+    assert.equal(closeScrollBy({ arrowTop: 40, barBottom: 100, pressedTop: 600 }), -60);
+    assert.equal(closeScrollBy({ arrowTop: -284, barBottom: 100, pressedTop: 436 }), -384);
+});
+
+test('closing: an arrow pressed above the bar line is held where it was pressed', () => {
+    assert.equal(closeScrollBy({ arrowTop: 50, barBottom: 100, pressedTop: 60 }), -10);
+    assert.equal(closeScrollBy({ arrowTop: 60, barBottom: 100, pressedTop: 60 }), 0);
 });

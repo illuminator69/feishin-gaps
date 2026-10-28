@@ -55,3 +55,22 @@ export const foldAt = (lines: LineBox[], count: number): null | number => {
     if (count < 1 || lines.length <= count) return null;
     return Math.min(lines[count - 1].bottom, lines[count].top);
 };
+
+/**
+ * Closing (Review M3): how far to scroll the page this frame (negative: up) so the arrow, rising
+ * with the fold, stops on the bar's bottom (or where it was pressed, when that was higher) instead
+ * of passing under it. Zero while it is still below that line: with the arrow staying in view, the
+ * page does not move. Viewport pixels.
+ */
+export const closeScrollBy = ({
+    arrowTop,
+    barBottom,
+    pressedTop,
+}: {
+    arrowTop: number;
+    barBottom: number;
+    pressedTop: number;
+}): number => {
+    const line = Math.min(pressedTop, barBottom);
+    return arrowTop < line - ON_THE_LINE_PX / 2 ? arrowTop - line : 0;
+};

@@ -3,8 +3,10 @@ import { useTranslation } from 'react-i18next';
 
 import styles from './clamp-fold.module.css';
 
+import { shellPinnedTop } from '/@/renderer/components/item-list/item-table-list/utils/shell-pinned-top';
 import {
     ABOUT_LINES,
+    closeScrollBy,
     foldAt,
     halfLeading,
     LineBox,
@@ -59,9 +61,9 @@ interface ClampFoldProps {
  * now on the album page too). A text that fits shows whole, with no arrow and no reserved space. The
  * arrow, not the text, opens it; the height moves on the fold's clock (`--fold-ms`, 450 ms past
  * 240 px, `--fold-ease`, as `GrowBox`), the text stays drawn while it closes, and under reduced
- * motion the height just changes. Closing keeps the arrow where it is on screen (the page scrolls up
- * with the fold, until the user scrolls), so the reader is not left a long text's height down the
- * page.
+ * motion the height just changes. Closing never lets the arrow pass under the bar: the page holds
+ * still while the arrow rises in view, and follows it up only from the bar's bottom on (until the
+ * user scrolls), so the reader is not left a long text's height down the page.
  */
 export const ClampFold = ({
     children,
@@ -129,15 +131,20 @@ export const ClampFold = ({
             box.removeAttribute('data-moving');
         }
         if (anchor === null) return undefined;
-        // Closing: the page follows the arrow up, frame by frame with the fold, until it settles or
-        // the user scrolls.
+        // Closing: the arrow rises with the fold, and the page follows it up only once it reaches
+        // the bar's bottom, frame by frame, until the fold settles or the user scrolls (Review M3).
         const scroller = scrollParentOf(box);
+        const barBottom = shellPinnedTop(getComputedStyle(box));
         let frame = 0;
         const hold = () => {
             const arrow = button.current;
             if (scroller && arrow) {
-                const moved = arrow.getBoundingClientRect().top - anchor;
-                if (Math.abs(moved) > 0.5) scroller.scrollTop += moved;
+                const by = closeScrollBy({
+                    arrowTop: arrow.getBoundingClientRect().top,
+                    barBottom,
+                    pressedTop: anchor,
+                });
+                if (by !== 0) scroller.scrollTop += by;
             }
             if (animation && moving.current === animation) frame = requestAnimationFrame(hold);
             else stop();
