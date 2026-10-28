@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import {
     hasOtherArtists,
+    staticStarsMask,
     TRACK_LIST_NARROW_PX,
     TRACK_LIST_NARROWER_PX,
     trackColumns,
@@ -123,4 +124,24 @@ test('theStylesheetBreaksWhereTheModelDoes', () => {
     assert.match(css, new RegExp(String.raw`@container \(width < ${TRACK_LIST_NARROWER_PX}px\)`));
     // The play count's column is gone.
     assert.doesNotMatch(css, /\.plays\b/);
+});
+
+/*
+ * R13 review M5: a rated row draws its stars as ONE element (a mask of five stars) until it is pointed
+ * at or focused, so five rated Popular rows keep the page under R10's node count. The mask has as many
+ * filled stars as the rating, the rest outlined, as Mantine's Rating draws them.
+ */
+test('staticStarsMask: filled up to the rating, the rest outlined, clamped to 0 to 5', () => {
+    const svg = (n: number) =>
+        decodeURIComponent(staticStarsMask(n).replace(/^url\("data:image\/svg\+xml,|"\)$/g, ''));
+    const count = (n: number, fill: string) => svg(n).split(`fill='${fill}'`).length - 1;
+    assert.match(staticStarsMask(3), /^url\("data:image\/svg\+xml,.+"\)$/);
+    assert.equal(count(3, '#000'), 3);
+    assert.equal(count(3, 'none'), 2);
+    assert.equal(count(0, '#000'), 0);
+    assert.equal(count(7, '#000'), 5);
+    assert.equal(count(-1, 'none'), 5);
+    assert.equal(svg(2).split('<path').length - 1, 5);
+    // Mantine's star (its 24-unit path), five across.
+    assert.ok(svg(1).includes("viewBox='0 0 120 24'"));
 });

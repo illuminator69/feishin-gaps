@@ -13,6 +13,7 @@ import {
 } from '/@/renderer/features/albums/components/joined-artists';
 import {
     hasOtherArtists,
+    staticStarsMask,
     TRACK_LIST_NARROW_PX,
     trackColumns,
     trackColumnTemplate,
@@ -207,8 +208,8 @@ interface TrackRowProps {
 
 const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: TrackRowProps) => {
     const { t } = useTranslation();
-    // The five stars are drawn once the row is pointed at or focused, or when the song is rated:
-    // an unrated row shows them only on hover, and the page keeps R10's node count until then.
+    // The five stars are drawn once the row is pointed at or focused: until then a rated row shows
+    // its stars as one element and an unrated row shows none, so the page keeps R10's node count.
     const [starsDrawn, setStarsDrawn] = useState(false);
     const drawStars = () => setStarsDrawn(true);
     const openMenu = (event: MouseEvent<HTMLElement>) => {
@@ -310,7 +311,25 @@ const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: 
             </div>
             {controls.rating && (
                 <div className={styles.rating} onDoubleClick={stopDoubleClick}>
-                    {(song.userRating || starsDrawn) && (
+                    {!starsDrawn && song.userRating ? (
+                        // Until the row is pointed at or focused, a rated row's stars are one
+                        // element (R13 review M5: five Mantine stars are ~36 nodes a row).
+                        <span
+                            aria-label={t('page.albumArtistDetail.songRated', {
+                                count: song.userRating,
+                                title: song.name,
+                            })}
+                            className={styles.staticStars}
+                            role="img"
+                            style={
+                                {
+                                    '--stars-filled': `calc(${song.userRating} * var(--theme-font-size-xs))`,
+                                    '--stars-mask': staticStarsMask(song.userRating),
+                                } as CSSProperties
+                            }
+                        />
+                    ) : null}
+                    {starsDrawn && (
                         <Rating
                             busy={controls.ratingBusy}
                             className={song.userRating ? undefined : styles.hoverOnly}

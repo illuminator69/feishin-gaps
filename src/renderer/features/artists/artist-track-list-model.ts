@@ -80,3 +80,23 @@ export const trackColumnTemplate = (columns: readonly TrackColumn[]): string =>
     columns
         .map((column) => (column === 'title' ? 'minmax(0, 1fr)' : `${COLUMN_PX[column]}px`))
         .join(' ');
+
+/** Mantine's Rating star, on its 24-unit grid. */
+const STAR_PATH =
+    'M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873z';
+
+/**
+ * R13 review M5: a rated row's stars as one element until it is pointed at or focused. The CSS mask
+ * of five stars, the first `rating` filled and the rest outlined (1 unit, as Mantine's are stroked),
+ * as a `url(...)` value; the element's background gives the filled and the outlined their colours.
+ */
+export const staticStarsMask = (rating: number): string => {
+    const filled = Math.max(0, Math.min(5, Math.round(rating)));
+    const paths = Array.from(
+        { length: 5 },
+        (_, i) =>
+            `<path transform='translate(${i * 24} 0)' d='${STAR_PATH}' fill='${i < filled ? '#000' : 'none'}' stroke='#000' stroke-width='1' stroke-linecap='round' stroke-linejoin='round'/>`,
+    ).join('');
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 24'>${paths}</svg>`;
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+};

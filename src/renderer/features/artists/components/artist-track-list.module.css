@@ -184,6 +184,28 @@
     min-width: 0;
 }
 
+/*
+ * A rated row's stars until it is pointed at or focused (R13 review M5): one element drawn like the
+ * album table's xs Rating (five stars of the xs font size, the xs spacing either side, the filled
+ * ones in Mantine's rating yellow, the rest outlined in the foreground), so swapping in the real
+ * stars on hover moves nothing.
+ */
+.static-stars {
+    box-sizing: content-box;
+    display: block;
+    width: calc(5 * var(--theme-font-size-xs));
+    height: var(--theme-font-size-xs);
+    padding: 0 var(--theme-spacing-xs);
+    background: linear-gradient(
+            to right,
+            var(--mantine-color-yellow-5) var(--stars-filled),
+            var(--theme-colors-foreground) var(--stars-filled)
+        )
+        content-box;
+    mask: var(--stars-mask) content-box no-repeat;
+    mask-size: 100% 100%;
+}
+
 .hover-only {
     visibility: hidden;
 }

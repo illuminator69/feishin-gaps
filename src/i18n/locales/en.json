@@ -514,6 +514,8 @@
             "favoriteSong": "Add {{title}} to $t(entity.favorite, {\"count\": 2})",
             "unfavoriteSong": "Remove {{title}} from $t(entity.favorite, {\"count\": 2})",
             "rateSongNone": "No rating for {{title}}",
+            "songRated_one": "{{title}}, rated {{count}} star",
+            "songRated_other": "{{title}}, rated {{count}} stars",
             "rateSong_one": "Rate {{title}} {{count}} star",
             "rateSong_other": "Rate {{title}} {{count}} stars",
             "showAll": "Show all",
