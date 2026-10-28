@@ -529,6 +529,7 @@
             "recordLabelChip": "Record label: {{label}}",
             "searchTracks": "Search tracks",
             "sortChip": "Sort: {{value}}",
+            "sortOrderChip": "Sort order: {{value}}",
             "sortTrackNumber": "Track number",
             "tableSettings": "Table settings"
         },

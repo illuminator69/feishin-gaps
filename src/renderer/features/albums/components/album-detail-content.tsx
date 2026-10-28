@@ -837,9 +837,10 @@ const AlbumDetailSongsTable = ({ songs }: AlbumDetailSongsTableProps) => {
         [t],
     );
     const sortLabel = sortFilters.find((filter) => filter.value === sortBy)?.name ?? '';
-    const sortOrderLabel = t(
-        sortOrder === SortOrder.ASC ? 'common.ascending' : 'common.descending',
-    );
+    // The chip flips the order, so its name says what the order is now, not what a press does.
+    const sortOrderLabel = t('page.albumDetail.sortOrderChip', {
+        value: t(sortOrder === SortOrder.ASC ? 'common.ascending' : 'common.descending'),
+    });
 
     const filteredSongs = useMemo(() => {
         return sortSongList(
