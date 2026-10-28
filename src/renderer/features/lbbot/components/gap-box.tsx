@@ -421,7 +421,8 @@ const GapBox = ({
     const family = gapStageFamily(stage);
     const missingCount =
         stage.kind === 'folded' ? stage.missing : missing.length || mirroredMissing;
-    const selected = stage.kind === 'choosing' ? shownSelection(stage.sources, picked) : null;
+    const selected =
+        stage.kind === 'choosing' ? shownSelection(stage.sources, picked, stage.preselected) : null;
 
     let content: ReactNode = null;
     if (stage.kind === 'folded' || stage.kind === 'tracks') {

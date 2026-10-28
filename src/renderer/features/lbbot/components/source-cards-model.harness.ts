@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
     coverageLine,
     folderName,
+    initialGapSelection,
     initialSelection,
     isSafeSource,
     shownSelection,
@@ -91,4 +92,18 @@ test('rank and folder name', () => {
     assert.equal(folderName(source()), 'Album (2001)');
     assert.equal(folderName(source({ folder: 'a/b/c/' })), 'c');
     assert.equal(folderName(source({ folder: '' })), 'p');
+});
+
+test("a gap preselects by Navic's three terms: its sources carry no coverage", () => {
+    // Review minor 4: lb-bot's gap sources have no coverageFull, so the album's rule never fired.
+    assert.equal(initialGapSelection([source({ coverageFull: false, id: 2 })]), 2);
+    assert.equal(initialGapSelection([source({ artistVerified: undefined, id: 3 })]), 3);
+    assert.equal(initialGapSelection([source({ artistVerified: false })]), null);
+    assert.equal(initialGapSelection([source({ albumMatchOk: false })]), null);
+    assert.equal(initialGapSelection([source({ recommended: false })]), null);
+    // A pick still wins over it, and the gap's preselection is what a box falls back to.
+    const rows = [source({ coverageFull: false, id: 0 }), source({ id: 1, recommended: false })];
+    assert.equal(shownSelection(rows, 1, initialGapSelection(rows)), 1);
+    assert.equal(shownSelection(rows, null, initialGapSelection(rows)), 0);
+    assert.equal(shownSelection(rows, null), null);
 });

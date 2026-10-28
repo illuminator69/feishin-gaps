@@ -36,17 +36,34 @@ export const initialSelection = (
     >[],
 ): null | number => sources.find(isSafeSource)?.id ?? null;
 
-/** The selection a box shows: the user's pick while it is still on the list, else the safe one. */
+/**
+ * A gap's source the box may select without being asked: Navic's three terms (`preselectedSource`),
+ * no coverage term. lb-bot's gap sources (`_source_view`) carry no `coverageFull`, so the album's
+ * rule never fired for a gap (review minor 4); a gap's folder is judged against the missing tracks
+ * only, which the card's coverage line shows.
+ */
+export const isSafeGapSource = (
+    source: Pick<LbBotGapSource, 'albumMatchOk' | 'artistVerified' | 'recommended'>,
+): boolean => source.recommended && isSourceVerified(source) && source.albumMatchOk;
+
+/** The gap's card selected when its sources arrive: the safe one by `isSafeGapSource`, else none. */
+export const initialGapSelection = (
+    sources: Pick<LbBotGapSource, 'albumMatchOk' | 'artistVerified' | 'id' | 'recommended'>[],
+): null | number => sources.find(isSafeGapSource)?.id ?? null;
+
+/**
+ * The selection a box shows: the user's pick while it is still on the list, else the preselected
+ * one (the album's rule unless the caller passes the gap's).
+ */
 export const shownSelection = (
     sources: Pick<
         LbBotGapSource,
         'albumMatchOk' | 'artistVerified' | 'coverageFull' | 'id' | 'recommended'
     >[],
     picked: null | number,
+    preselected: null | number = initialSelection(sources),
 ): null | number =>
-    picked !== null && sources.some((source) => source.id === picked)
-        ? picked
-        : initialSelection(sources);
+    picked !== null && sources.some((source) => source.id === picked) ? picked : preselected;
 
 /** The rank lb-bot gave the folder, 1 first; the list position when it sent none. */
 export const sourceRank = (source: Pick<LbBotGapSource, 'id' | 'rank'>): number =>

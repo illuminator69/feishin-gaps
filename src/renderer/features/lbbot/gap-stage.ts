@@ -5,7 +5,7 @@ import type {
     LbBotGapTrackState,
 } from '/@/shared/types/lbbot-types';
 
-import { initialSelection } from './components/source-cards-model.ts';
+import { initialGapSelection } from './components/source-cards-model.ts';
 import { gapAwaitingMatch, gapFailReason } from './hooks/fill-announce-logic.ts';
 import { type RequestStep, requestSteps } from './request-steps.ts';
 
@@ -208,7 +208,7 @@ export const gapStage = (input: GapInput): GapStage => {
         if (gap.sources.length > 0) {
             return {
                 kind: 'choosing',
-                preselected: initialSelection(gap.sources),
+                preselected: initialGapSelection(gap.sources),
                 sources: gap.sources,
             };
         }

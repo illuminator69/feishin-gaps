@@ -93,7 +93,8 @@ const source = (over: Partial<LbBotGapSource> = {}): LbBotGapSource => ({
     bitrate: '',
     coverage: '',
     coverageDetail: { haveTracks: 2, totalTracks: 2, unmatched: [] },
-    coverageFull: true,
+    // lb-bot's gap sources (`_source_view`) carry no coverageFull, so it always parses false here.
+    coverageFull: false,
     fileCount: 2,
     files: [],
     filesTruncated: false,
