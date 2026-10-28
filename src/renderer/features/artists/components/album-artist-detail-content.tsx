@@ -488,7 +488,11 @@ const ArtistAbout = ({
                     meta && <MetaAbout maxHeight={ABOUT_HEIGHT} meta={meta} showLinks={false} />
                 )}
                 {hasGenres && (
-                    <div aria-label={t('entity.genre', { count: 2 })} className={styles.genres}>
+                    <div
+                        aria-label={t('entity.genre', { count: 2 })}
+                        className={styles.genres}
+                        role="group"
+                    >
                         {genres!.map((genre) => (
                             <Link
                                 className={styles.genre}
