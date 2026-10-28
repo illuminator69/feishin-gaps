@@ -4,6 +4,7 @@ import styles from './queue-rail.module.css';
 
 import { ItemImage } from '/@/renderer/components/item-image/item-image';
 import { useRemoteAwareNextSong } from '/@/renderer/features/hub/hooks/use-remote-aware';
+import { usePlayingFrom } from '/@/renderer/features/now-playing/hooks/use-playing-from';
 import {
     useQueueFolded,
     useQueueRailVisible,
@@ -39,6 +40,9 @@ export const QueueRail = () => {
     // What plays next, from the source the player bar and the full-screen player read: the local
     // player's (repeat and shuffle applied), or the hub session's while another device plays.
     const next = useRemoteAwareNextSong();
+    // Whether something follows the last song: the panel header's own state, so the rail and
+    // the header cannot disagree about it (autoplay, a running station, or Auto DJ).
+    const continues = ['autoDj', 'continues', 'running'].includes(usePlayingFrom().state);
 
     if (!visible) return null;
 
@@ -50,8 +54,14 @@ export const QueueRail = () => {
             ? t('naviConnect.queue.railNext', { artist: nextArtist, title: next.name })
             : t('naviConnect.queue.railNextTitle', { title: next.name })
         : undefined;
-    // Nothing next in a queue that has songs: its end, with repeat off. An empty queue says Up next.
+    // Nothing next in a queue that has songs: its end, with repeat off. An empty queue says Up
+    // next. With autoplay on the end is not the end: the label says autoplay takes over.
     const atEnd = queueLength > 0 && !next;
+    const label = !atEnd
+        ? t('page.fullscreenPlayer.upNext')
+        : continues
+          ? t('naviConnect.queue.group.autoplay')
+          : t('naviConnect.queue.endOfQueue');
 
     return (
         <aside className={styles.rail} id="queue-rail">
@@ -67,7 +77,7 @@ export const QueueRail = () => {
             />
             {queueLength > 0 && <span className={styles.count}>{queueLength}</span>}
             <span aria-hidden className={styles.label}>
-                {atEnd ? t('naviConnect.queue.endOfQueue') : t('page.fullscreenPlayer.upNext')}
+                {label}
             </span>
             {next && (
                 <>
