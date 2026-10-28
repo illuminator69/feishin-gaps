@@ -357,9 +357,12 @@ const ExternalLinkIcons = ({
  * About (R10): the biography, then the genres as chips, then the external links, full width.
  *
  * The description rule (navi-connect CLAUDE.md section 5, "Editorial metadata"): the text is
- * Navidrome's, from the request the page already blocks on; lb-bot fills the slot only when
- * Navidrome has nothing, so nothing arriving late replaces text on screen. lb-bot's links (when it
- * has any) join the links row below the text, where a late arrival moves nothing the reader is on.
+ * Navidrome's, and nothing arriving late replaces text on screen. The slot's source is
+ * `getArtistInfo2.biography`, which the page does not block on, so the slot holds a skeleton until
+ * that request settles and only then shows its biography, else `getArtist`'s (already in hand); the
+ * shorter `getArtist` text is never painted first and swapped. lb-bot fills the slot only when
+ * Navidrome has neither. lb-bot's links (when it has any) join the links row below the text, where
+ * a late arrival moves nothing the reader is on.
  * lb-bot's Members and Related rows are gone (B-217). With lb-bot absent, About is Navidrome's alone.
  */
 const ArtistAbout = ({
@@ -397,12 +400,14 @@ const ArtistAbout = ({
     // Same key as anywhere else on the page, so react-query asks lb-bot once.
     const meta = useLbBotArtistMeta(artistMbid, artistName).data;
 
-    const biography = showBiography
-        ? artistInfoQuery.data?.biography || detailQuery.data?.biography
-        : undefined;
-    // The skeleton belongs to the request the page blocks on, never to lb-bot.
-    const bioLoading =
-        showBiography && !biography && (artistInfoQuery.isLoading || detailQuery.isLoading);
+    // Until getArtistInfo2 settles nothing is shown, so its answer never replaces getArtist's text.
+    // The skeleton belongs to Navidrome's requests, never to lb-bot.
+    const infoPending = showBiography && artistInfoQuery.isLoading;
+    const biography =
+        showBiography && !infoPending
+            ? artistInfoQuery.data?.biography || detailQuery.data?.biography
+            : undefined;
+    const bioLoading = infoPending || (showBiography && !biography && detailQuery.isLoading);
     const metaShown =
         showBiography &&
         !biography &&
