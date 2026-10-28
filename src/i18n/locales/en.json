@@ -1941,6 +1941,7 @@
             "playingFrom": "Playing from",
             "playingOn": "Playing on {{device}}",
             "railNext": "Up next: {{title}}, {{artist}}",
+            "railNextTitle": "Up next: {{title}}",
             "songs_one": "{{count}} song",
             "songs_other": "{{count}} songs",
             "stopped": "stopped",

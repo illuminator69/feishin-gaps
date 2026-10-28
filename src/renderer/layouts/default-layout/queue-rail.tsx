@@ -46,7 +46,9 @@ export const QueueRail = () => {
         folded ? setQueueOverlay(!overlayOpen) : setSideBar({ rightExpanded: true });
     const nextArtist = next?.artistName || next?.artists?.map((artist) => artist.name).join(', ');
     const nextLabel = next
-        ? t('naviConnect.queue.railNext', { artist: nextArtist, title: next.name })
+        ? nextArtist
+            ? t('naviConnect.queue.railNext', { artist: nextArtist, title: next.name })
+            : t('naviConnect.queue.railNextTitle', { title: next.name })
         : undefined;
     // Nothing next in a queue that has songs: its end, with repeat off. An empty queue says Up next.
     const atEnd = queueLength > 0 && !next;
