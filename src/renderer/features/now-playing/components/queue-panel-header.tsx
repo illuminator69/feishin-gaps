@@ -115,8 +115,8 @@ export const QueuePanelHeader = ({
         mode: words.mode,
         stationName: words.stationName,
     });
-    // Without "When this queue runs out..." (B-251): the Autoplay switch beside the title says it.
-    const statusLine = panelStatusLine(origin?.label ?? null, words.statusKey, words.status);
+    // No status sentence (B-251): the Autoplay switch beside the title says it.
+    const statusLine = panelStatusLine(origin?.label ?? null, Boolean(words.bound));
     // The rail's open button, mirrored: the same toggle as the player bar's queue icon (B-250).
     const toggleQueue = useToggleQueuePanel();
 
@@ -155,11 +155,15 @@ export const QueuePanelHeader = ({
                             <Tooltip label={from.title} multiline openDelay={500} w={320}>
                                 <span className={styles.title}>{from.title}</span>
                             </Tooltip>
-                            {sentence && (
-                                <span className={clsx(styles.caption, styles.sentence)}>
-                                    {sentence}
-                                </span>
-                            )}
+                            {/* Always a line, empty when there is nothing to say (autoplay off on
+                                a queue of no kind): it came and went with the switch and moved the
+                                list. A zero-width space holds the line's height. */}
+                            <span
+                                aria-hidden={!sentence}
+                                className={clsx(styles.caption, styles.sentence)}
+                            >
+                                {sentence ?? '\u200b'}
+                            </span>
                         </>
                     )}
                 </div>

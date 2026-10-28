@@ -241,13 +241,11 @@ export const stationStatusKey = (state: {
 };
 
 /**
- * The side queue header's status line (R14, B-251): the chip row's line without "When this queue
- * runs out, it carries on as a radio", which the owner found a subtitle too many there (the
- * Autoplay switch beside the title already says so). The drawer, the popover and the Now Playing
- * page keep the whole line (queue-station-chips.tsx).
+ * The side queue header's line under the title (R14, B-251): the bound station's name, character
+ * and engine, and no status sentence. The Autoplay switch beside the title already says on or off,
+ * and a line that came and went with it ("Off stops", "Auto DJ") moved the list under the pointer
+ * at every flip. The drawer, the popover and the Now Playing page keep the whole line
+ * (queue-station-chips.tsx).
  */
-export const panelStatusLine = (
-    origin: null | string,
-    statusKey: null | StationStatusKey,
-    status: null | string,
-): null | string => chipLine(origin, statusKey === 'continues' ? null : status);
+export const panelStatusLine = (origin: null | string, bound: boolean): null | string =>
+    bound && origin?.trim() ? origin : null;

@@ -514,7 +514,7 @@ test('theToggleIsOnIffTheSelectedChipIsNotOff', () => {
 });
 
 // R14 (B-251): the status line's key, as useStationWords had it inline, and the side queue
-// header's line without the "carries on as a radio" sentence.
+// header's line, which carries no status sentence.
 
 test('statusKeyInEachState', () => {
     const base = { autoplay: true, bound: null, inFlight: false, lastPartial: false };
@@ -541,20 +541,12 @@ test('statusKeyInEachState', () => {
     );
 });
 
-test('panelLineDropsOnlyTheContinuesSentence', () => {
-    const continues = 'When this queue runs out, it carries on as a radio from its last tracks.';
-    assert.equal(panelStatusLine(null, 'continues', continues), null);
-    assert.equal(panelStatusLine('Auto DJ', 'continues', continues), 'Auto DJ');
-    assert.equal(
-        panelStatusLine(null, 'offStops', 'Autoplay is off. This queue stops at its end.'),
-        'Autoplay is off. This queue stops at its end.',
-    );
-    assert.equal(
-        panelStatusLine('Moon Song radio · Balanced', 'finding', 'Finding the next tracks...'),
-        'Moon Song radio · Balanced · Finding the next tracks...',
-    );
-    assert.equal(
-        panelStatusLine('Moon Song radio · Balanced', null, null),
-        'Moon Song radio · Balanced',
-    );
+test('panelLineIsTheBoundStationOnly', () => {
+    // I1: no status sentence (the Autoplay switch says on and off), and no "Auto DJ" (it comes
+    // and goes with that switch): the line's presence never follows the switch.
+    assert.equal(panelStatusLine('Auto DJ', false), null);
+    assert.equal(panelStatusLine(null, false), null);
+    assert.equal(panelStatusLine(null, true), null);
+    assert.equal(panelStatusLine('  ', true), null);
+    assert.equal(panelStatusLine('Moon Song radio · Balanced', true), 'Moon Song radio · Balanced');
 });

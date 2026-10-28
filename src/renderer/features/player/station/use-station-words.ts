@@ -82,6 +82,5 @@ export const useStationWords = () => {
         preferred,
         stationName,
         status,
-        statusKey,
     };
 };
