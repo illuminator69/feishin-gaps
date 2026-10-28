@@ -153,3 +153,67 @@ from React's development script work, as the audit found before the redesign.
    `--wash-bar`: a large surface that changes in one frame while the backdrop beside it fades (as do the release pills and Discover's
    row backgrounds, which also read `--wash-bar`).
 2. The bar's one frame at 4.13:1 before a dark-to-light switch: acceptable, or switch the bar's text at 0 ms?
+
+## After the owner's first look (2026-10-28)
+
+The owner ran R1 on their build and reported two things: the cover's artwork popped in behind the gradient about a second after
+the colours had changed, and the switch to light mode was too jarring (a pale cover turned the whole window light at moments a
+large bright screen was unwelcome; Navic gets away with it on a small phone screen with auto brightness). Their call: in Feishin
+light or dark stays manual, and the cover only tints a dark palette or a light one.
+
+| Commit | |
+|---|---|
+| `7f808625` | The wash's colours wait for its artwork, so both change in the same frame |
+| `b49d4dff` | Light or dark is the user's choice, and the cover only tints it |
+
+**The pop, root cause (measured, production, the cover proxy given 800 ms of latency).** The colours and the artwork had two
+separate gates: the colours changed as soon as the cover's seed was known, which is at once for any cover seen before (seeds are
+kept in IndexedDB), while the art layer only started its own load after that. On a restart, going back over seen covers: colours
+at +15 to 26 ms, artwork at +1.63 s. With a server that forbids caching (Navidrome answers its placeholders `no-store`) a first-time
+cover was fetched four times in a row, two before the colours and two before the artwork (colours +1.6 s, artwork +3.2 s). With a
+cacheable server (`public, max-age=31536000`, which Navidrome's binary carries for artwork) there was one request and no gap.
+
+**The fix.** The artwork is loaded and decoded beside the seed (`cover-art-cache.ts`, one load per cover, the last 8 kept, a cover
+that fails counts as ready and shows as an empty layer), the wash moves to a new cover only once both are ready, and the art layer
+then swaps before paint. Same measurements after: the colours and the artwork in the same frame (0 ms apart in all 15 changes whose timings were printed, of 26 run;
+the rest were cut by a `tail`); a seen cover after a restart +1.6 s for both (one fetch); a first-time cover +0.83 s with a cacheable server
+(one request per change) and +2.4 s when the server forbids caching (Chromium queues the three requests for the same URL; see Open,
+3).
+
+**Light or dark.** A new setting under Cover colours, **Cover colours mode: Dark / Light** (default Dark), hidden while `Use system
+theme` is on, which then decides as before. The cover no longer chooses (`chooseLight` is no longer called by the app; only its
+harness uses it). The roles' two palettes are the existing dark and light ones, tinted by the cover's hue and strength.
+
+That made one case possible that never existed: a pale cover on a dark window (a white cover used to force light). Modelled as a
+flat grey of the cover's mean lightness, the old 0.55 glow over a white cover leaves the error colour at 3.26:1 on the top band. The
+artwork's opacity on a dark window now follows the cover's lightness (`artOpacity`): **0.55 up to 0.62**, where the window used to
+switch to light, so every cover that was dark before looks exactly as before, then down to 0.18 for white. Pinned by
+`darkWashOverPaleArtKeepsTextPassing`, checked every 0.01 of lightness, 36 hues, three seed strengths: the text roles keep 4.5:1, and
+the state colours never go below the 4.08:1 that the old design already gave them over a 0.62 cover. (A stricter rule, the state
+colours at 4.5:1 too, was tried first: it cut the glow of ordinary red, blue and green covers to 0.12 to 0.24, which nobody asked
+for.)
+
+Watched on the GPU (production, the diagnostic profile made by the build before, so an existing profile takes the default):
+
+- **Mode.** Dark through every cover of the walk, the near-white one included; set to Light on the settings page, light at once and
+  through every cover, the near-black one included; back to Dark.
+- **Contrast on rendered pixels**, the artist page title / the bar's song title: dark + near-white 9.84 / 16.90; dark + yellow
+  9.90 / 16.87; light + near-black 6.80 / 15.63; light + near-white 7.38 / 15.63 (`shots-mode/` in the work folder).
+- **Artwork opacity** on the dark window, inline on `.wash`: 0.55 for the near-black and the coloured covers up to 0.62, 0.32 for the
+  yellow (0.75), 0.20 for the near-white.
+- **The budget again** (6 changes per page, 700 ms each; no light/dark flip any more): dropped frames 0 / 0 / 0 on Home / Tracks /
+  the artist page, worst frame 16.8 ms, style 35 / 35 / 46 ms median, 59 ms worst (the budget is 60); skip burst 0 / 0 / 1 dropped.
+- Gates: both typechecks, eslint and stylelint on the changed files, web and remote builds exit 0, 70 harness files 951 pass 0 fail;
+  `cover-art-cache` (3) and the new cases seen failing first (`ERR_MODULE_NOT_FOUND`; the mode and opacity cases on a missing export;
+  the dark-over-pale case at 3.31, then on the stricter curve's 0.105 at 0.62).
+
+**Not verified:** the owner's real server's cache header for artwork (not called: it is the real Navidrome); real artwork, which is
+not a flat grey; the settings row in another language (only `en.json` has the strings); the web and remote builds beyond building.
+
+## Open for the owner (second round)
+
+3. When the server forbids caching the artwork, a first-time cover now waits for three requests in a row (+2.4 s at 800 ms latency)
+   before anything changes. Sharing one CORS load between the seed and the art layer (an `<img crossorigin>` for the layer) would
+   make it one; worth doing only if your server answers `no-store`.
+4. Prefetching the next track's cover and seed (Navic prefetches three) would make a Next change at once instead of one round trip
+   later.
