@@ -77,38 +77,28 @@ export const sourceRank = (source: Pick<LbBotGapSource, 'id' | 'rank'>): number 
     source.rank || source.id + 1;
 
 /**
- * "All 12 tracks" / "9 of 12 tracks", paired against the canonical tracklist and never a file
- * count; lb-bot's own coverage word when it sent no counts.
+ * Which coverage line a card shows, "All 12 tracks" / "9 of 12 tracks", paired against the
+ * canonical tracklist and never a file count; lb-bot's own coverage word when it sent no counts.
+ * The words are en.json's (`naviConnect.sourceCard.*`), so this says which and with what.
  */
-export const coverageLine = (
+export type CoverageText =
+    | { have: number; kind: 'some'; total: number }
+    | { kind: 'all'; total: number }
+    | { kind: 'unknown' }
+    | { kind: 'word'; word: string };
+
+export const coverageText = (
     source: Pick<LbBotGapSource, 'coverage' | 'coverageDetail'>,
-): string => {
+): CoverageText => {
     const { haveTracks, totalTracks } = source.coverageDetail;
-    if (totalTracks > 0 && haveTracks >= totalTracks) return `All ${totalTracks} tracks`;
-    if (totalTracks > 0) return `${haveTracks} of ${totalTracks} tracks`;
-    return source.coverage || 'Coverage unknown';
+    if (totalTracks > 0 && haveTracks >= totalTracks) return { kind: 'all', total: totalTracks };
+    if (totalTracks > 0) return { have: haveTracks, kind: 'some', total: totalTracks };
+    return source.coverage ? { kind: 'word', word: source.coverage } : { kind: 'unknown' };
 };
 
-/** The album verdict, first on every card: a heuristic over the folder name, so a failure asks. */
-export const verdictLine = (source: Pick<LbBotGapSource, 'albumMatchOk'>): string =>
-    source.albumMatchOk ? 'Matches album title' : 'Different album?';
-
-/** Format, bitrate and size: the quality actually on offer. */
+/** Format, bitrate and size: the quality actually on offer (lb-bot's own strings). */
 export const qualityLine = (source: Pick<LbBotGapSource, 'bitrate' | 'format' | 'size'>): string =>
     [source.format, source.bitrate, source.size].filter(Boolean).join(' · ');
-
-/** The peer and its conditions. */
-export const peerLine = (
-    source: Pick<LbBotGapSource, 'freeSlot' | 'peer' | 'queueLength' | 'speedMbps'>,
-): string =>
-    [
-        source.peer ? `@${source.peer}` : '',
-        source.speedMbps ? `${source.speedMbps.toFixed(1)} Mbps` : '',
-        source.freeSlot ? 'free slot' : '',
-        source.queueLength ? `queue ${source.queueLength}` : '',
-    ]
-        .filter(Boolean)
-        .join(' · ');
 
 /** The folder's own name, the last path segment (Soulseek paths use either slash). */
 export const folderName = (source: Pick<LbBotGapSource, 'folder' | 'peer'>): string =>

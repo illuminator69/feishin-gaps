@@ -30,12 +30,17 @@ test('a state that is not a step of a running request gives none', () => {
 });
 
 test('the first step says whether the source is still being found', () => {
-    assert.equal(requestSteps('searching', 0, 0)[0].label, 'Finding a source');
-    assert.equal(requestSteps('queued', 0, 0)[0].label, 'Source chosen');
+    // Review minor 9: the captions are en.json's; the model names the step.
+    assert.equal(requestSteps('searching', 0, 0)[0].name, 'finding');
+    assert.equal(requestSteps('queued', 0, 0)[0].name, 'chosen');
+    assert.deepEqual(
+        requestSteps('placed', 0, 0).map((step) => step.name),
+        ['chosen', 'queued', 'downloading', 'placing', 'inLibrary'],
+    );
 });
 
 test('the count rides on Downloading only while it is the step that moves', () => {
-    assert.equal(requestSteps('downloading', 3, 12)[2].detail, '3 of 12');
-    assert.equal(requestSteps('downloading', 0, 0)[2].detail, '');
-    assert.equal(requestSteps('placing', 12, 12)[2].detail, '');
+    assert.deepEqual(requestSteps('downloading', 3, 12)[2].count, { done: 3, total: 12 });
+    assert.equal(requestSteps('downloading', 0, 0)[2].count, null);
+    assert.equal(requestSteps('placing', 12, 12)[2].count, null);
 });

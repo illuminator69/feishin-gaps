@@ -1,17 +1,17 @@
 import clsx from 'clsx';
 import { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import styles from './source-cards.module.css';
 
 import { ReleasePill } from '/@/renderer/features/discography/components/release-pill';
 import {
-    coverageLine,
+    type CoverageText,
+    coverageText,
     folderName,
     isSourceVerified,
-    peerLine,
     qualityLine,
     sourceRank,
-    verdictLine,
 } from '/@/renderer/features/lbbot/components/source-cards-model';
 import { extraFilesView } from '/@/renderer/features/lbbot/utils/album-download';
 import { Fold } from '/@/renderer/features/motion/fold';
@@ -26,12 +26,6 @@ export interface SourceFilesView {
     value: LbBotSourceFiles | null;
 }
 
-const FLAG_LABEL: Record<string, string> = {
-    compilation: 'Compilation',
-    live: 'Live',
-    risk: 'Risky',
-};
-
 const fileDetail = (file: LbBotSourceFile): string =>
     [
         file.ext?.toUpperCase(),
@@ -43,6 +37,7 @@ const fileDetail = (file: LbBotSourceFile): string =>
 
 /** The folder's files, each paired against the tracklist: a file matching no slot is dimmed, not hidden. */
 export const SourceFileListing = ({ view }: { view: SourceFilesView }) => {
+    const { t } = useTranslation();
     if (view.loading) {
         return (
             <div className={styles.files}>
@@ -59,11 +54,7 @@ export const SourceFileListing = ({ view }: { view: SourceFilesView }) => {
         <div className={styles.listing}>
             {/* `expanded: false` means lb-bot could not reach the peer: these rows are the search
                 hits, not the folder, which is exactly when a file you need looks absent. */}
-            {!expanded && (
-                <p className={styles.warn}>
-                    Peer offline: showing the search results, not the real folder.
-                </p>
-            )}
+            {!expanded && <p className={styles.warn}>{t('naviConnect.sourceCard.peerOffline')}</p>}
             <div className={styles.files}>
                 {files.map((file, index) => (
                     <div
@@ -74,18 +65,24 @@ export const SourceFileListing = ({ view }: { view: SourceFilesView }) => {
                         <span className={styles.note}>
                             {file.matchedTo
                                 ? `→ ${file.matchedTo.position ? `${file.matchedTo.position}. ` : ''}${file.matchedTo.title}`
-                                : 'no matching track'}
-                            {file.accepted ? '' : ' · format not accepted'}
+                                : t('naviConnect.sourceCard.noMatch')}
+                            {file.accepted ? '' : ` · ${t('naviConnect.sourceCard.notAccepted')}`}
                             {fileDetail(file) ? ` · ${fileDetail(file)}` : ''}
                         </span>
                     </div>
                 ))}
-                {files.length === 0 && <p className={styles.note}>No files listed.</p>}
+                {files.length === 0 && (
+                    <p className={styles.note}>{t('naviConnect.sourceCard.noFiles')}</p>
+                )}
             </div>
-            {filesTruncated && <p className={styles.note}>Listing truncated.</p>}
+            {filesTruncated && (
+                <p className={styles.note}>{t('naviConnect.sourceCard.truncated')}</p>
+            )}
             {view.value.coverageDetail.unmatched.length > 0 && (
                 <p className={styles.note}>
-                    Nothing here covers: {view.value.coverageDetail.unmatched.join(', ')}
+                    {t('naviConnect.sourceCard.uncovered', {
+                        tracks: view.value.coverageDetail.unmatched.join(', '),
+                    })}
                 </p>
             )}
         </div>
@@ -122,113 +119,160 @@ export const SourceCards = ({
     renderUnderSelected,
     selected,
     sources,
-}: SourceCardsProps) => (
-    <div aria-label="Sources" className={styles.cards} role="radiogroup">
-        {sources.map((source) => {
-            const isSelected = source.id === selected;
-            const view = files(source);
-            const extra = onDownloadAll ? extraFilesView(source) : null;
-            const quality = qualityLine(source);
-            const peer = peerLine(source);
-            return (
-                <div
-                    className={styles.item}
-                    data-source-card={source.peer}
-                    key={`${source.peer}-${source.folder}-${source.id}`}
-                >
+}: SourceCardsProps) => {
+    const { t } = useTranslation();
+    const coverage = (text: CoverageText): string => {
+        switch (text.kind) {
+            case 'all':
+                return t('naviConnect.sourceCard.coverageAll', { total: text.total });
+            case 'some':
+                return t('naviConnect.sourceCard.coverageSome', {
+                    have: text.have,
+                    total: text.total,
+                });
+            case 'unknown':
+                return t('naviConnect.sourceCard.coverageUnknown');
+            case 'word':
+                return text.word;
+        }
+    };
+    const flag = (name: string): string =>
+        name === 'compilation'
+            ? t('naviConnect.sourceCard.flagCompilation')
+            : name === 'live'
+              ? t('naviConnect.sourceCard.flagLive')
+              : name === 'risk'
+                ? t('naviConnect.sourceCard.flagRisk')
+                : name;
+    // The peer and its conditions.
+    const peerLine = (source: LbBotGapSource): string =>
+        [
+            source.peer ? `@${source.peer}` : '',
+            source.speedMbps ? `${source.speedMbps.toFixed(1)} Mbps` : '',
+            source.freeSlot ? t('naviConnect.sourceCard.freeSlot') : '',
+            source.queueLength
+                ? t('naviConnect.sourceCard.queue', { count: source.queueLength })
+                : '',
+        ]
+            .filter(Boolean)
+            .join(' · ');
+    return (
+        <div
+            aria-label={t('naviConnect.sourceCard.label')}
+            className={styles.cards}
+            role="radiogroup"
+        >
+            {sources.map((source) => {
+                const isSelected = source.id === selected;
+                const view = files(source);
+                const extra = onDownloadAll ? extraFilesView(source) : null;
+                const quality = qualityLine(source);
+                const peer = peerLine(source);
+                return (
                     <div
-                        className={styles.card}
-                        data-selected={isSelected ? 'true' : undefined}
-                        data-source-selected={isSelected ? 'true' : undefined}
+                        className={styles.item}
+                        data-source-card={source.peer}
+                        key={`${source.peer}-${source.folder}-${source.id}`}
                     >
-                        <button
-                            aria-checked={isSelected}
-                            className={styles.head}
-                            disabled={disabled}
-                            onClick={() => onSelect(source)}
-                            role="radio"
-                            type="button"
+                        <div
+                            className={styles.card}
+                            data-selected={isSelected ? 'true' : undefined}
+                            data-source-selected={isSelected ? 'true' : undefined}
                         >
-                            <span aria-hidden="true" className={styles.radio} />
-                            <span className={styles.body}>
-                                <span className={styles.pills}>
-                                    <span className={styles.rank}>#{sourceRank(source)}</span>
-                                    {source.recommended && (
-                                        <ReleasePill tone="owned">Recommended</ReleasePill>
-                                    )}
-                                    {source.format && (
-                                        <ReleasePill tone="partly">{source.format}</ReleasePill>
-                                    )}
-                                    {source.flags.map((flag) => (
-                                        <ReleasePill key={flag} tone="missing">
-                                            {FLAG_LABEL[flag] ?? flag}
-                                        </ReleasePill>
-                                    ))}
-                                </span>
-                                <span className={styles.folder} title={source.folder}>
-                                    {folderName(source)}
-                                </span>
-                                <span
-                                    className={styles.coverage}
-                                    data-full={source.coverageFull ? 'true' : undefined}
-                                >
-                                    {coverageLine(source)}
-                                </span>
-                                <span
-                                    className={styles.verdict}
-                                    data-ok={source.albumMatchOk ? 'true' : 'false'}
-                                >
-                                    {verdictLine(source)}
-                                </span>
-                                {/* B-019: lb-bot will not fetch this one unattended, and a tap
+                            <button
+                                aria-checked={isSelected}
+                                className={styles.head}
+                                disabled={disabled}
+                                onClick={() => onSelect(source)}
+                                role="radio"
+                                type="button"
+                            >
+                                <span aria-hidden="true" className={styles.radio} />
+                                <span className={styles.body}>
+                                    <span className={styles.pills}>
+                                        <span className={styles.rank}>#{sourceRank(source)}</span>
+                                        {source.recommended && (
+                                            <ReleasePill tone="owned">
+                                                {t('naviConnect.sourceCard.recommended')}
+                                            </ReleasePill>
+                                        )}
+                                        {source.format && (
+                                            <ReleasePill tone="partly">{source.format}</ReleasePill>
+                                        )}
+                                        {source.flags.map((name) => (
+                                            <ReleasePill key={name} tone="missing">
+                                                {flag(name)}
+                                            </ReleasePill>
+                                        ))}
+                                    </span>
+                                    <span className={styles.folder} title={source.folder}>
+                                        {folderName(source)}
+                                    </span>
+                                    <span
+                                        className={styles.coverage}
+                                        data-full={source.coverageFull ? 'true' : undefined}
+                                    >
+                                        {coverage(coverageText(source))}
+                                    </span>
+                                    <span
+                                        className={styles.verdict}
+                                        data-ok={source.albumMatchOk ? 'true' : 'false'}
+                                    >
+                                        {source.albumMatchOk
+                                            ? t('naviConnect.sourceCard.verdictOk')
+                                            : t('naviConnect.sourceCard.verdictDifferent')}
+                                    </span>
+                                    {/* B-019: lb-bot will not fetch this one unattended, and a tap
                                     here is consent, so the card says so. */}
-                                {!isSourceVerified(source) && (
-                                    <span className={styles.verdict} data-ok="false">
-                                        Artist unverified
-                                    </span>
-                                )}
-                                {(quality || peer) && (
-                                    <span className={styles.meta}>
-                                        {[peer, quality].filter(Boolean).join(' · ')}
-                                    </span>
-                                )}
-                                {source.recommendation && (
-                                    <span className={styles.meta}>{source.recommendation}</span>
-                                )}
-                                {!isSelected && source.fileCount > 0 && (
-                                    <span className={styles.hint}>
-                                        Show {source.fileCount}{' '}
-                                        {source.fileCount === 1 ? 'file' : 'files'}
-                                    </span>
-                                )}
-                            </span>
-                        </button>
-                        <Fold name="source-files" open={isSelected && (!!view || !!extra)}>
-                            <div className={styles.expanded}>
-                                {view && <SourceFileListing view={view} />}
-                                {extra && onDownloadAll && (
-                                    <div className={styles.extra}>
-                                        <span className={styles.note}>{extra.line}</span>
-                                        <Button
-                                            disabled={disabled}
-                                            onClick={() => onDownloadAll(source)}
-                                            size="compact-xs"
-                                            variant="subtle"
-                                        >
-                                            {extra.action}
-                                        </Button>
-                                    </div>
-                                )}
-                            </div>
-                        </Fold>
+                                    {!isSourceVerified(source) && (
+                                        <span className={styles.verdict} data-ok="false">
+                                            {t('common.artistUnverified')}
+                                        </span>
+                                    )}
+                                    {(quality || peer) && (
+                                        <span className={styles.meta}>
+                                            {[peer, quality].filter(Boolean).join(' · ')}
+                                        </span>
+                                    )}
+                                    {source.recommendation && (
+                                        <span className={styles.meta}>{source.recommendation}</span>
+                                    )}
+                                    {!isSelected && source.fileCount > 0 && (
+                                        <span className={styles.hint}>
+                                            {t('naviConnect.sourceCard.showFiles', {
+                                                count: source.fileCount,
+                                            })}
+                                        </span>
+                                    )}
+                                </span>
+                            </button>
+                            <Fold name="source-files" open={isSelected && (!!view || !!extra)}>
+                                <div className={styles.expanded}>
+                                    {view && <SourceFileListing view={view} />}
+                                    {extra && onDownloadAll && (
+                                        <div className={styles.extra}>
+                                            <span className={styles.note}>{extra.line}</span>
+                                            <Button
+                                                disabled={disabled}
+                                                onClick={() => onDownloadAll(source)}
+                                                size="compact-xs"
+                                                variant="subtle"
+                                            >
+                                                {extra.action}
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+                            </Fold>
+                        </div>
+                        {renderUnderSelected && (
+                            <Fold name="under-selected" open={isSelected}>
+                                <div className={styles.under}>{renderUnderSelected(source)}</div>
+                            </Fold>
+                        )}
                     </div>
-                    {renderUnderSelected && (
-                        <Fold name="under-selected" open={isSelected}>
-                            <div className={styles.under}>{renderUnderSelected(source)}</div>
-                        </Fold>
-                    )}
-                </div>
-            );
-        })}
-    </div>
-);
+                );
+            })}
+        </div>
+    );
+};

@@ -100,18 +100,6 @@ const COMMIT_RELEASE_MS = 30_000;
 /** When the page re-reads the album after a fill lands: Navidrome may still be scanning the files. */
 const LANDED_REFRESH_MS = [5_000, 20_000, 45_000];
 
-const TRACK_LABEL: Partial<Record<LbBotGapTrackState, string>> = {
-    cancelled: 'Cancelled',
-    done: 'Added',
-    downloaded: 'Downloaded',
-    downloading: 'Downloading',
-    failed: 'Failed',
-    missing: 'Missing',
-    picked: 'Picked',
-    queued: 'Queued',
-    skipped: 'Skipped',
-};
-
 const TRACK_TONE: Partial<Record<LbBotGapTrackState, PillTone>> = {
     done: 'owned',
     downloaded: 'syncing',
@@ -119,6 +107,38 @@ const TRACK_TONE: Partial<Record<LbBotGapTrackState, PillTone>> = {
     failed: 'failed',
     picked: 'active',
     queued: 'active',
+};
+
+/**
+ * A missing row's pill, from en.json (review minor 9). B-004: `cancelled` is the user's verdict,
+ * not a failure, and its word is the app's shared `common.cancelled`.
+ */
+const useTrackLabel = () => {
+    const { t } = useTranslation();
+    return (state: LbBotGapTrackState): string => {
+        switch (state) {
+            case 'cancelled':
+                return t('common.cancelled');
+            case 'done':
+                return t('naviConnect.gapBox.trackAdded');
+            case 'downloaded':
+                return t('naviConnect.gapBox.trackDownloaded');
+            case 'downloading':
+                return t('naviConnect.gapBox.trackDownloading');
+            case 'failed':
+                return t('naviConnect.gapBox.trackFailed');
+            case 'missing':
+                return t('naviConnect.gapBox.trackMissing');
+            case 'picked':
+                return t('naviConnect.gapBox.trackPicked');
+            case 'queued':
+                return t('naviConnect.gapBox.trackQueued');
+            case 'skipped':
+                return t('naviConnect.gapBox.trackSkipped');
+            default:
+                return String(state).replace('_', ' ');
+        }
+    };
 };
 
 /** Where the album-page state a context-menu entry sends asks the box to open. */
@@ -187,6 +207,7 @@ const GapBox = ({
     songCount: number;
 }) => {
     const { t } = useTranslation();
+    const trackLabel = useTrackLabel();
     const [view, setViewState] = useState<GapView>(() => gapViews.get(groupId) ?? 'folded');
     const [searchAsked, setSearchAsked] = useState(false);
     const [committed, setCommitted] = useState(false);
@@ -339,7 +360,7 @@ const GapBox = ({
         try {
             const result = await action();
             if (!result.ok) {
-                setError(result.error || 'lb-bot would not take that request.');
+                setError(result.error || t('naviConnect.gapBox.refused'));
                 return false;
             }
             after?.();
@@ -418,7 +439,7 @@ const GapBox = ({
         const ok = await allowMp3ForAlbum(groupId);
         setWorking(false);
         if (!ok) {
-            setError('Could not allow MP3 for this album.');
+            setError(t('naviConnect.gapBox.mp3Refused'));
             return;
         }
         void search();
@@ -515,7 +536,7 @@ const GapBox = ({
                                     </span>
                                     <span className={styles.trackTitle}>{track.title}</span>
                                     <ReleasePill tone={TRACK_TONE[track.state] ?? 'missing'}>
-                                        {TRACK_LABEL[track.state] ?? track.state.replace('_', ' ')}
+                                        {trackLabel(track.state)}
                                     </ReleasePill>
                                 </li>
                             ))}

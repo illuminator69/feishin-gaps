@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-    coverageLine,
+    coverageText,
     folderName,
     initialGapSelection,
     initialSelection,
@@ -71,19 +71,29 @@ test('isSafeSource needs all four', () => {
 });
 
 test('the coverage line counts tracks against the release', () => {
-    assert.equal(coverageLine(source()), 'All 12 tracks');
-    assert.equal(
-        coverageLine(source({ coverageDetail: { haveTracks: 9, totalTracks: 12, unmatched: [] } })),
-        '9 of 12 tracks',
+    // Review minor 9: the words are en.json's; the model says which line and with what counts.
+    assert.deepEqual(coverageText(source()), { kind: 'all', total: 12 });
+    assert.deepEqual(
+        coverageText(source({ coverageDetail: { haveTracks: 9, totalTracks: 12, unmatched: [] } })),
+        { have: 9, kind: 'some', total: 12 },
     );
-    assert.equal(
-        coverageLine(
+    assert.deepEqual(
+        coverageText(
             source({
                 coverage: 'partial',
                 coverageDetail: { haveTracks: 0, totalTracks: 0, unmatched: [] },
             }),
         ),
-        'partial',
+        { kind: 'word', word: 'partial' },
+    );
+    assert.deepEqual(
+        coverageText(
+            source({
+                coverage: '',
+                coverageDetail: { haveTracks: 0, totalTracks: 0, unmatched: [] },
+            }),
+        ),
+        { kind: 'unknown' },
     );
 });
 
