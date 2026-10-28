@@ -154,18 +154,6 @@ export const useAlbumRequest = ({
         setNow(Date.now());
         emit();
     }, [editionLabel, resolvedEdition, rgid, sources, sourcesState]);
-    // "Search again" under the cards: a fresh answer for the edition shown, whatever the last one was.
-    const searchAgain = useCallback(() => {
-        const current = sessions.get(rgid);
-        if (!current || current.edition?.releaseMbid !== resolvedEdition?.releaseMbid) {
-            startSearch();
-            return;
-        }
-        sessions.set(rgid, { ...current, startedAt: Date.now() });
-        setNow(Date.now());
-        emit();
-        void sources.refetch();
-    }, [resolvedEdition, rgid, sources, startSearch]);
     // "Stop waiting": this page stops waiting for the answer; lb-bot's search is not cancellable from
     // here, and its answer stays in the hub's cache for a minute after it ends.
     const stopSearch = useCallback(() => {
@@ -217,21 +205,20 @@ export const useAlbumRequest = ({
             options: {
                 allFiles?: boolean;
                 allowMp3?: boolean;
-                /** "Pick the best source for me": no peer is named and lb-bot walks its own
-                 *  ranked list under its unattended gates, for the edition shown. */
-                auto?: boolean;
                 source?: LbBotGapSource;
             } = {},
         ) => {
-            const source = options.auto ? null : (options.source ?? selected);
-            if (busy || inFlight.current || (!source && !options.auto) || !rgid) return;
+            // Always a card on the screen, never lb-bot's own pick from a fresh search: the client
+            // sends the chosen peer (CLAUDE.md section 5; review I1).
+            const source = options.source ?? selected;
+            if (busy || inFlight.current || !source || !rgid) return;
             inFlight.current = true;
             setStarting(true);
             try {
                 const result = await startAlbumDownload(
                     rgid,
                     preferredQuality,
-                    source ? { folder: source.folder, peer: source.peer } : undefined,
+                    { folder: source.folder, peer: source.peer },
                     session?.edition ?? resolvedEdition,
                     undefined,
                     { album: title, artist },
@@ -247,8 +234,8 @@ export const useAlbumRequest = ({
                     asked: options.allFiles === true,
                     echo: result.allFiles,
                     existing: result.existing,
-                    fileCount: source?.fileCount ?? 0,
-                    peer: source?.peer ?? '',
+                    fileCount: source.fileCount,
+                    peer: source.peer,
                 });
                 if (confirmation.kind === 'existing') {
                     toast.show({ message: 'Already downloading this album' });
@@ -280,7 +267,6 @@ export const useAlbumRequest = ({
         setQuality,
         setVariantIndex,
         sources: {
-            again: searchAgain,
             elapsedMs: session ? Math.max(0, now - session.startedAt) : 0,
             error: sources.error,
             filesFor,

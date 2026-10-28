@@ -22,9 +22,16 @@ const elapsed = (ms: number) => {
 /**
  * The missing album's box while it is about sources (R11, B-222, after Navic's request box): a
  * stated wait, never a skeleton (the answer comes whole after 30 to 90 seconds), then lb-bot's
- * ranked folders as radio cards with Download right under the chosen one, and Search again and
- * Pick the best source for me as quiet buttons under the cards. The request turns the same box
- * into the steps (`AlbumRequestBox`).
+ * ranked folders as radio cards with Download right under the chosen one. The request turns the
+ * same box into the steps (`AlbumRequestBox`).
+ *
+ * Under the cards there is only the preferred quality, as Navic's album box has it:
+ * - no "Pick the best source for me": with no peer, lb-bot runs a fresh 30 to 90 second search and
+ *   takes its own pick from that new sample, a folder that may not be on the screen (CLAUDE.md
+ *   section 5: the client sends the chosen peer). A safe card is already chosen for the user.
+ * - no "Search again": the hub caches `/lb/album/sources` for a minute and lb-bot its kept list for
+ *   fifteen, and the hub passes no `refresh`, so it would show the same cards after a flash. It
+ *   shows only after a failed or empty search, as Navic's does.
  */
 export const FindSourcesSection = ({ request }: { request: AlbumRequest }) => {
     const { t } = useTranslation();
@@ -77,7 +84,12 @@ export const FindSourcesSection = ({ request }: { request: AlbumRequest }) => {
                     </p>
                 )}
                 <div className={styles.buttons}>
-                    <Button onClick={sources.again} size="compact-sm" variant="default">
+                    <Button
+                        data-sources-again=""
+                        onClick={sources.start}
+                        size="compact-sm"
+                        variant="default"
+                    >
                         {t('naviConnect.albumPage.searchAgain')}
                     </Button>
                 </div>
@@ -137,24 +149,6 @@ export const FindSourcesSection = ({ request }: { request: AlbumRequest }) => {
                     value={request.preferredQuality}
                     width={200}
                 />
-                <Button
-                    data-sources-again=""
-                    disabled={request.busy}
-                    onClick={sources.again}
-                    size="compact-sm"
-                    variant="subtle"
-                >
-                    {t('naviConnect.albumPage.searchAgain')}
-                </Button>
-                <Button
-                    data-sources-auto=""
-                    disabled={request.busy}
-                    onClick={() => void request.download({ auto: true })}
-                    size="compact-sm"
-                    variant="subtle"
-                >
-                    {t('naviConnect.albumPage.autoPick')}
-                </Button>
             </div>
         </div>
     );
