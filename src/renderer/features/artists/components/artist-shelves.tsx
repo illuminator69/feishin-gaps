@@ -126,7 +126,7 @@ export const ArtistShelves = ({ artistMbid, artistName, ndId, owned }: ArtistShe
                         <section className={styles.line} data-line="discography">
                             <div className={styles.head}>
                                 <h2 className={styles.title}>
-                                    {t('page.albumArtistDetail.discography')}
+                                    {t('page.albumArtistDetail.discographyKicker')}
                                 </h2>
                                 <Link
                                     aria-busy={scanning || undefined}
@@ -140,7 +140,7 @@ export const ArtistShelves = ({ artistMbid, artistName, ndId, owned }: ArtistShe
                                 </Link>
                             </div>
                             <div
-                                aria-label={t('page.albumArtistDetail.discography')}
+                                aria-label={t('page.albumArtistDetail.discographyKicker')}
                                 className={styles.chips}
                                 role="group"
                             >

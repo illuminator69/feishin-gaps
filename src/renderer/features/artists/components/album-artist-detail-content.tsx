@@ -584,11 +584,7 @@ const AlbumArtistMetadataSimilarArtists = ({ routeId }: { routeId: string }) => 
     }, [relatedArtists, server?.type, serverId]);
 
     const carouselTitle = useMemo(
-        () => (
-            <h2 className={styles.sectionTitle}>
-                {t('page.albumArtistDetail.relatedArtistsHeading')}
-            </h2>
-        ),
+        () => <h2 className={styles.sectionTitle}>{t('page.albumArtistDetail.relatedArtists')}</h2>,
         [t],
     );
 

@@ -485,7 +485,6 @@
     },
     "page": {
         "albumArtistDetail": {
-            "about": "About {{artist}}",
             "appearsOn": "Appears on",
             "discographyKicker": "Discography",
             "favoriteSongs": "Favorite songs",
@@ -493,19 +492,16 @@
             "groupingTypePrimary": "Primary release types",
             "recentReleases": "Recent releases",
             "viewDiscography": "View discography",
-            "relatedArtists": "Related $t(entity.artist, {\"count\": 2})",
+            "relatedArtists": "Related artists",
             "topSongs": "Top songs",
             "topSongsCommunity": "Everyone",
             "topSongsFrom": "Top songs from {{title}}",
             "topSongsPersonal": "Yours",
             "favoriteSongsFrom": "Favorite songs from {{title}}",
-            "viewAll": "View all",
             "viewAllTracks": "View all $t(entity.track, {\"count\": 2})",
             "allTracks": "View all tracks",
             "popularReleases": "Popular releases",
             "releasesOwned": "{{owned}} of {{total}} releases",
-            "seeAll": "See all",
-            "seeDiscography": "See discography",
             "shuffle": "Shuffle",
             "songsInLibrary_one": "{{count}} song in your library",
             "songsInLibrary_other": "{{count}} songs in your library",
@@ -516,11 +512,9 @@
             "noRatedSongs": "No rated songs",
             "playSong": "Play {{title}}",
             "songMenu": "More options for {{title}}",
-            "discography": "Discography",
             "showAll": "Show all",
             "singlesAndEps": "Singles and EPs",
-            "aboutHeading": "About",
-            "relatedArtistsHeading": "Related artists"
+            "aboutHeading": "About"
         },
         "albumArtistList": {
             "title": "$t(entity.albumArtist, {\"count\": 2})"
