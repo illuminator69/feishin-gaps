@@ -64,7 +64,7 @@ import { useNavigate } from 'react-router';
 
 import { api } from '/@/renderer/api';
 import { noteScanStarted } from '/@/renderer/features/discography/hooks/scan-session';
-import { isSourceVerified } from '/@/renderer/features/lbbot/components/source-list';
+import { isSourceVerified } from '/@/renderer/features/lbbot/components/source-cards-model';
 import {
     gapFailReason,
     gapSettleOutcome,

@@ -3,14 +3,25 @@ import { useTranslation } from 'react-i18next';
 
 import styles from './source-list.module.css';
 
+import {
+    SourceFileListing,
+    SourceFilesView,
+} from '/@/renderer/features/lbbot/components/source-cards';
+import {
+    coverageLine,
+    isSourceVerified,
+    peerLine,
+    qualityLine,
+    sourceRank,
+    verdictLine,
+} from '/@/renderer/features/lbbot/components/source-cards-model';
 import { extraFilesView } from '/@/renderer/features/lbbot/utils/album-download';
 import { Badge } from '/@/shared/components/badge/badge';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
-import { Skeleton } from '/@/shared/components/skeleton/skeleton';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Text } from '/@/shared/components/text/text';
-import { LbBotGapSource, LbBotSourceFile, LbBotSourceFiles } from '/@/shared/types/lbbot-types';
+import { LbBotGapSource } from '/@/shared/types/lbbot-types';
 
 /**
  * lb-bot's ranked Soulseek folders, rendered the same way for a whole-album
@@ -28,12 +39,6 @@ import { LbBotGapSource, LbBotSourceFile, LbBotSourceFiles } from '/@/shared/typ
  *    the only thing that really answers "what am I getting".
  * 4. Peer conditions, then the expandable file list.
  */
-
-interface SourceFilesView {
-    error: string;
-    loading: boolean;
-    value: LbBotSourceFiles | null;
-}
 
 interface SourceListProps {
     /** The "Download all M files" action is offered only where a caller supplies this -
@@ -55,10 +60,6 @@ const FLAG_LABEL: Record<string, string> = {
     risk: 'Risky',
 };
 
-/** B-019 (ruling R4): a missing field is the server's own `True` default. */
-export const isSourceVerified = (source: LbBotGapSource): boolean =>
-    source.artistVerified !== false;
-
 /**
  * Rank 1, but never an unverified one — the shared rule for both the
  * whole-album download picker and the gap-fill picker. `recommended` is
@@ -70,105 +71,6 @@ export const isSourceVerified = (source: LbBotGapSource): boolean =>
  */
 export const defaultSelectedSource = (sources: LbBotGapSource[]): LbBotGapSource | null =>
     sources.find((source) => source.recommended) ?? sources.find(isSourceVerified) ?? null;
-
-const coverageText = (source: LbBotGapSource): string => {
-    const { haveTracks, totalTracks } = source.coverageDetail;
-    if (totalTracks > 0) return `${haveTracks}/${totalTracks} tracks`;
-    return source.coverage || 'coverage unknown';
-};
-
-const qualityText = (source: LbBotGapSource): string =>
-    [source.format, source.bitrate, source.size].filter(Boolean).join(' · ');
-
-const peerText = (source: LbBotGapSource): string =>
-    [
-        source.peer,
-        source.speedMbps ? `${source.speedMbps.toFixed(1)} Mbps` : '',
-        source.freeSlot ? 'free slot' : '',
-        source.queueLength ? `queue ${source.queueLength}` : '',
-    ]
-        .filter(Boolean)
-        .join(' · ');
-
-const fileDetail = (file: LbBotSourceFile): string =>
-    [
-        file.ext?.toUpperCase(),
-        file.bitrate ? `${file.bitrate} kbps` : '',
-        file.sizeMb ? `${file.sizeMb.toFixed(1)} MB` : '',
-    ]
-        .filter(Boolean)
-        .join(' · ');
-
-const SourceFiles = ({ view }: { view: SourceFilesView }) => {
-    if (view.loading) {
-        return (
-            <Stack gap="xs">
-                <Skeleton height={14} />
-                <Skeleton height={14} />
-                <Skeleton height={14} />
-            </Stack>
-        );
-    }
-    if (view.error) {
-        return (
-            <Text isMuted size="sm">
-                {view.error}
-            </Text>
-        );
-    }
-    if (!view.value) return null;
-
-    const { expanded, files, filesTruncated } = view.value;
-
-    return (
-        <Stack gap="xs">
-            {/* Not cosmetic. `expanded: false` means lb-bot could not reach the
-                peer, so these rows are the original search hits rather than the
-                folder's real contents — which is exactly the case where a file
-                you need looks absent when it is only unlisted. */}
-            {!expanded && (
-                <Text isMuted size="xs">
-                    Could not open this peer&apos;s folder — showing the search results only, which
-                    may not be everything it has.
-                </Text>
-            )}
-            <div className={styles.files}>
-                {files.map((file, index) => (
-                    <div
-                        className={clsx(styles.file, { [styles.unmatched]: !file.matchedTo })}
-                        key={`${file.filename}-${index}`}
-                    >
-                        <Text className={styles.filename} size="xs">
-                            {file.filename}
-                        </Text>
-                        <Text isMuted size="xs">
-                            {file.matchedTo
-                                ? `→ ${file.matchedTo.position ? `${file.matchedTo.position}. ` : ''}${file.matchedTo.title}`
-                                : 'no matching track'}
-                            {file.accepted ? '' : ' · format not accepted'}
-                            {fileDetail(file) ? ` · ${fileDetail(file)}` : ''}
-                        </Text>
-                    </div>
-                ))}
-                {files.length === 0 && (
-                    <Text isMuted size="xs">
-                        No files listed.
-                    </Text>
-                )}
-            </div>
-            {filesTruncated && (
-                <Text isMuted size="xs">
-                    Listing truncated.
-                </Text>
-            )}
-            {view.value.coverageDetail.unmatched.length > 0 && (
-                <Text isMuted size="xs">
-                    Nothing here covers: {view.value.coverageDetail.unmatched.join(', ')}
-                </Text>
-            )}
-        </Stack>
-    );
-};
 
 export const SourceList = ({
     downloadDisabled,
@@ -202,7 +104,7 @@ export const SourceList = ({
                             type="button"
                         >
                             <Text fw={600} size="sm">
-                                {source.rank || source.id + 1}
+                                {sourceRank(source)}
                             </Text>
                             <Stack gap="xs">
                                 <Group gap="xs">
@@ -214,9 +116,7 @@ export const SourceList = ({
                                         size="xs"
                                         variant={source.albumMatchOk ? 'default' : 'filled'}
                                     >
-                                        {source.albumMatchOk
-                                            ? 'Matches album title'
-                                            : 'Different album?'}
+                                        {verdictLine(source)}
                                     </Badge>
                                     {/* B-019 (ruling R4): the uploader isn't a
                                     MusicBrainz-credited artist for this release
@@ -233,7 +133,7 @@ export const SourceList = ({
                                         size="xs"
                                         variant={source.coverageFull ? 'default' : 'outline'}
                                     >
-                                        {coverageText(source)}
+                                        {coverageLine(source)}
                                     </Badge>
                                     {source.recommended && (
                                         <Badge size="xs" variant="outline">
@@ -250,10 +150,10 @@ export const SourceList = ({
                                     {source.folder}
                                 </Text>
                                 <Text isMuted size="xs">
-                                    {qualityText(source) || 'format unknown'}
+                                    {qualityLine(source) || 'format unknown'}
                                 </Text>
                                 <Text isMuted size="xs">
-                                    {peerText(source)}
+                                    {peerLine(source)}
                                 </Text>
                                 {source.recommendation && (
                                     <Text isMuted size="xs">
@@ -297,7 +197,7 @@ export const SourceList = ({
                             </Group>
                         )}
 
-                        {view && <SourceFiles view={view} />}
+                        {view && <SourceFileListing view={view} />}
                     </div>
                 );
             })}
