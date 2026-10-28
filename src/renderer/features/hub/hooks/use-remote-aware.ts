@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { generatePath, useNavigate } from 'react-router';
 
 import { api } from '/@/renderer/api';
+import { remoteNextIndex } from '/@/renderer/features/hub/utils/remote-next';
 import {
     hubAcksActs,
     isRemoteSessionActive,
@@ -179,11 +180,22 @@ export const useRemoteAwarePlayerSong = (): QueueSong | undefined => {
     return hubTrackToQueueSong(remote, serverId ?? '', resolved);
 };
 
-/** The next song — remote session's when remote-active, else local. */
+/**
+ * The next song: the remote session's when remote-active, else local. The remote one walks the
+ * session's play order and honours its repeat (remoteNextIndex), as the local player does.
+ */
 export const useRemoteAwareNextSong = (): QueueSong | undefined => {
     const isRemote = useHubIsRemoteActive();
     const { nextSong } = usePlayerData();
-    const next = useHubStore((state) => state.remoteQueue[state.remoteQueueIndex + 1]);
+    const next = useHubStore((state) => {
+        const nextIndex = remoteNextIndex({
+            index: state.remoteQueueIndex,
+            length: state.remoteQueue.length,
+            order: state.remoteOrder,
+            repeat: state.remoteRepeat,
+        });
+        return nextIndex === null ? undefined : state.remoteQueue[nextIndex];
+    });
     const serverId = useCurrentServerId();
 
     if (!isRemote) return nextSong;
