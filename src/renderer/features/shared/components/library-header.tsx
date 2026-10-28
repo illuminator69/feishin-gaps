@@ -273,6 +273,7 @@ export const LibraryHeader = forwardRef(
 
                         <h1
                             className={styles.title}
+                            data-hero-title
                             style={hero ? undefined : { fontSize: calculateTitleSize(title) }}
                         >
                             {titleTo ? (

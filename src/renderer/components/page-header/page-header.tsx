@@ -7,6 +7,11 @@ import { createPortal } from 'react-dom';
 import styles from './page-header.module.css';
 
 import { useLibraryFrame } from '/@/renderer/features/library/hooks/use-library-frame';
+import {
+    BAR_FADE_SPAN,
+    headerBarLine,
+    headerBarProgress,
+} from '/@/renderer/features/shared/components/header-bar-progress';
 import { LibraryBackgroundOverlay } from '/@/renderer/features/shared/components/library-background-overlay';
 import { useShouldPadTitlebar } from '/@/renderer/hooks';
 import { useWindowSettings } from '/@/renderer/store/settings.store';
@@ -20,6 +25,11 @@ export interface PageHeaderProps extends Omit<
     animated?: boolean;
     backgroundColor?: string;
     children?: ReactNode;
+    /**
+     * The album and artist pages: the bar fades in with the scroll as the hero's title (`target`'s
+     * `[data-hero-title]`) passes under it, instead of appearing past a pixel offset.
+     */
+    fadeWithTitle?: boolean;
     height?: string;
     isHidden?: boolean;
     position?: string;
@@ -43,6 +53,7 @@ const BasePageHeader = ({
     animated,
     backgroundColor,
     children,
+    fadeWithTitle,
     height,
     isHidden,
     position,
@@ -59,6 +70,7 @@ const BasePageHeader = ({
     });
 
     useEffect(() => {
+        if (fadeWithTitle) return undefined;
         const headerElement = ref.current as HTMLElement | null;
         const scrollContainer = scrollContainerRef?.current;
 
@@ -97,12 +109,66 @@ const BasePageHeader = ({
         });
 
         return () => observer.disconnect();
-    }, [isInView, scrollContainerRef, isHidden]);
+    }, [fadeWithTitle, isInView, scrollContainerRef, isHidden]);
+
+    // The scroll-linked fade: one read of two rects per frame at most, written to a CSS variable on
+    // the bar, never to React state (the R7 frame budget). Reduced motion makes the span 0, a step.
+    useEffect(() => {
+        if (!fadeWithTitle) return undefined;
+        const bar = ref.current as HTMLElement | null;
+        const host = scrollContainerRef?.current;
+        if (!bar || !host) return undefined;
+
+        const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+        let frame = 0;
+
+        const update = () => {
+            frame = 0;
+            const hero = target?.current;
+            const title = hero?.querySelector<HTMLElement>('[data-hero-title]') ?? hero;
+            const scroller =
+                host.querySelector<HTMLElement>('[data-overlayscrollbars-viewport]') ?? host;
+            let progress = 0;
+            // At the top of the page the bar never shows, whatever the title's geometry.
+            if (title && scroller.scrollTop > 0) {
+                const span = reduce.matches ? 0 : BAR_FADE_SPAN;
+                const titleBottom = title.getBoundingClientRect().bottom;
+                const barBottom = headerBarLine({
+                    barBottom: bar.getBoundingClientRect().bottom,
+                    restTitleBottom: titleBottom + scroller.scrollTop,
+                    span,
+                });
+                progress = headerBarProgress({ barBottom, span, titleBottom });
+            }
+            bar.style.setProperty('--bar-progress', String(progress));
+            bar.setAttribute('data-visible', progress >= 1 ? 'true' : 'false');
+            bar.toggleAttribute('data-fading', progress > 0 && progress < 1);
+        };
+
+        const schedule = () => {
+            if (!frame) frame = requestAnimationFrame(update);
+        };
+
+        // Capture: the scroll happens on OverlayScrollbars' viewport inside the host, and scroll does
+        // not bubble. A restored scroll position (Back) arrives as a scroll too, so it lands in the
+        // state that position implies, with no fade on arrival.
+        host.addEventListener('scroll', schedule, { capture: true, passive: true });
+        window.addEventListener('resize', schedule);
+        reduce.addEventListener('change', schedule);
+        schedule();
+
+        return () => {
+            host.removeEventListener('scroll', schedule, { capture: true });
+            window.removeEventListener('resize', schedule);
+            reduce.removeEventListener('change', schedule);
+            if (frame) cancelAnimationFrame(frame);
+        };
+    }, [fadeWithTitle, scrollContainerRef, target]);
 
     return (
         <>
             <Flex
-                className={styles.container}
+                className={clsx(styles.container, { [styles.fade]: fadeWithTitle })}
                 data-visible="false"
                 ref={ref}
                 style={{ height, position: position as CSSProperties['position'] }}

@@ -22,6 +22,28 @@
     opacity: 1;
 }
 
+/*
+ * The album and artist pages' bar (B-220): its opacity follows the hero title's scroll position through
+ * `--bar-progress` (0 to 1), written by PageHeader on scroll. Opaque once shown (the container's own
+ * background); while it fades nothing in it takes the pointer.
+ */
+.container.fade {
+    opacity: var(--bar-progress, 0);
+}
+
+.container.fade[data-fading] {
+    visibility: visible;
+}
+
+.container.fade[data-visible='true'] {
+    opacity: 1;
+}
+
+.container.fade[data-fading] .header,
+.container.fade[data-fading] .header * {
+    pointer-events: none;
+}
+
 .header {
     position: relative;
     z-index: 15;

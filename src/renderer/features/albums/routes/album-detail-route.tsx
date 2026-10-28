@@ -68,7 +68,8 @@ const AlbumDetailRoute = () => {
                             <LibraryHeaderBar.Title>{detailQuery.data.name}</LibraryHeaderBar.Title>
                         </LibraryHeaderBar>
                     ),
-                    offset: 200,
+                    // The bar follows the hero's title, not a pixel offset (B-220).
+                    fadeWithTitle: true,
                     target: headerRef,
                 }}
                 ref={scrollAreaRef}
