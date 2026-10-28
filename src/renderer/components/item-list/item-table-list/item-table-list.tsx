@@ -931,6 +931,7 @@ const ItemTableListStickyUI = memo(
             containerRef,
             shouldShowStickyHeader,
             stickyHeaderRef,
+            top: stickyTop,
         });
 
         const {
@@ -954,6 +955,7 @@ const ItemTableListStickyUI = memo(
             containerRef,
             shouldRenderStickyGroupRow,
             stickyGroupRowRef,
+            top: stickyGroupTop,
         });
 
         const StickyHeader = useMemo(() => {
@@ -972,13 +974,7 @@ const ItemTableListStickyUI = memo(
                 .reduce((sum, width) => sum + width, 0);
 
             return (
-                <div
-                    className={styles.stickyHeader}
-                    ref={stickyHeaderRef}
-                    style={{
-                        top: `${stickyTop}px`,
-                    }}
-                >
+                <div className={styles.stickyHeader} ref={stickyHeaderRef}>
                     <div className={styles.stickyHeaderRow}>
                         {pinnedLeftColumnCount > 0 && (
                             <div
@@ -1108,7 +1104,6 @@ const ItemTableListStickyUI = memo(
         }, [
             shouldShowStickyHeader,
             enableHeader,
-            stickyTop,
             calculatedColumnWidths,
             pinnedLeftColumnCount,
             pinnedRightColumnCount,
@@ -1166,16 +1161,8 @@ const ItemTableListStickyUI = memo(
                 .reduce((sum, width) => sum + width, 0);
 
             const totalTableWidth = calculatedColumnWidths.reduce((sum, width) => sum + width, 0);
-            const actualStickyTop = stickyGroupTop;
-
             return (
-                <div
-                    className={styles.stickyGroupRow}
-                    ref={stickyGroupRowRef}
-                    style={{
-                        top: `${actualStickyTop}px`,
-                    }}
-                >
+                <div className={styles.stickyGroupRow} ref={stickyGroupRowRef}>
                     <div className={styles.stickyGroupRowContent}>
                         {pinnedLeftColumnCount > 0 && (
                             <div
@@ -1239,7 +1226,6 @@ const ItemTableListStickyUI = memo(
             pinnedRightColumnCount,
             totalColumnCount,
             groupRowHeight,
-            stickyGroupTop,
         ]);
 
         return (

@@ -16,3 +16,44 @@ export const shellPinnedTop = (style: Pick<CSSStyleDeclaration, 'getPropertyValu
         (sum, name) => sum + (Number.parseFloat(style.getPropertyValue(name)) || 0),
         0,
     );
+
+/** The pinned header's bottom border: the disc row starts below it. */
+const PINNED_HEADER_BORDER = 1;
+
+/**
+ * The viewport lines the pinned rows sit under (B-221): the header under `pinLine` (the bar's bottom,
+ * `shellPinnedTop`), the disc row directly under the header when the header is pinned, else under
+ * `pinLine` itself.
+ */
+export const pinnedRowTops = ({
+    headerHeight,
+    headerShown,
+    pinLine,
+}: {
+    headerHeight: number;
+    headerShown: boolean;
+    pinLine: number;
+}): { group: number; header: number } => ({
+    group: headerShown ? pinLine + headerHeight + PINNED_HEADER_BORDER : pinLine,
+    header: pinLine,
+});
+
+/**
+ * Where to write a pinned row, a `position: fixed` element, so it sits at viewport `top` across the
+ * table. `blockOrigin` is the viewport position of the block it is fixed to: (0, 0) for the viewport,
+ * the page's own corner while an ancestor carries a transform (the arrival animation leaves one on
+ * `<main>`), which turns that ancestor into the containing block.
+ */
+export const pinnedRowBox = ({
+    blockOrigin,
+    table,
+    top,
+}: {
+    blockOrigin: { x: number; y: number };
+    table: { left: number; width: number };
+    top: number;
+}): { left: number; top: number; width: number } => ({
+    left: table.left - blockOrigin.x,
+    top: top - blockOrigin.y,
+    width: table.width,
+});

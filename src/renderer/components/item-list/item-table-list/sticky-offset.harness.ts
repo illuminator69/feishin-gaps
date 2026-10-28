@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { SHELL_PINNED_TOP_VARS, shellPinnedTop } from './utils/shell-pinned-top.ts';
+import {
+    pinnedRowBox,
+    pinnedRowTops,
+    SHELL_PINNED_TOP_VARS,
+    shellPinnedTop,
+} from './utils/shell-pinned-top.ts';
 
 /**
  * R3 Task 3 (L5-01):  node --test src/renderer/components/item-list/item-table-list/sticky-offset.harness.ts
@@ -75,4 +80,76 @@ test('the pinned top is the window bar, the top bar and the title row', () => {
     assert.equal(shellPinnedTop(style({ ...linux, '--window-bar-height': ' 30px' })), 147);
     assert.equal(shellPinnedTop(style({ ...linux, '--top-bar-height': '0px' })), 65);
     assert.equal(shellPinnedTop(style({})), 0);
+});
+
+/**
+ * Sticky headers, Task 3 (B-221): the pinned header and disc row are `position: fixed`, but the page's
+ * arrival animation leaves a transform on `<main>`, which makes `<main>` their containing block. Their
+ * tops and left were viewport px, so on the VM they landed 82 px under the bar and 248 px to the right
+ * (the panel's offset), with rows readable between and the right end cut by the panel. The rule: the
+ * tops are viewport lines (the bar's bottom, then the header's bottom), written relative to whatever
+ * block the rows are fixed to, and the box spans the table's own left and right edges.
+ */
+
+const BAR_BOTTOM = 147; // the VM's Windows-style bar: 30 + 52 + 65
+const HEADER = 40; // the table's header row; the pinned header adds a 1 px border
+
+test('oneDiscPinsTheHeaderUnderTheBar', () => {
+    const tops = pinnedRowTops({ headerHeight: HEADER, headerShown: true, pinLine: BAR_BOTTOM });
+    assert.equal(tops.header, 147);
+});
+
+test('twoDiscsPinTheDiscRowDirectlyUnderTheHeader', () => {
+    const tops = pinnedRowTops({ headerHeight: HEADER, headerShown: true, pinLine: BAR_BOTTOM });
+    // The VM with reduced motion (no containing block): header 147..188, Disc 1 from 188.
+    assert.equal(tops.group, 188);
+});
+
+test('theDiscRowTakesTheBarLineWhenTheHeaderIsNotPinned', () => {
+    const tops = pinnedRowTops({ headerHeight: HEADER, headerShown: false, pinLine: BAR_BOTTOM });
+    assert.equal(tops.group, 147);
+});
+
+test('aTransformedPageIsSubtracted', () => {
+    // `<main>` at (248, 82) is the containing block: the row is written at (28, 65) inside it, which
+    // is (276, 147) on screen, the table's left edge and the bar's bottom.
+    const box = pinnedRowBox({
+        blockOrigin: { x: 248, y: 82 },
+        table: { left: 276, width: 1076 },
+        top: BAR_BOTTOM,
+    });
+    assert.deepEqual(box, { left: 28, top: 65, width: 1076 });
+});
+
+test('theViewportAsBlockChangesNothing', () => {
+    const box = pinnedRowBox({
+        blockOrigin: { x: 0, y: 0 },
+        table: { left: 276, width: 1076 },
+        top: BAR_BOTTOM,
+    });
+    assert.deepEqual(box, { left: 276, top: 147, width: 1076 });
+});
+
+test('theQueueOpenChangesNothingVertical', () => {
+    const origin = { x: 248, y: 82 };
+    const closed = pinnedRowBox({
+        blockOrigin: origin,
+        table: { left: 276, width: 1076 },
+        top: 188,
+    });
+    const open = pinnedRowBox({ blockOrigin: origin, table: { left: 276, width: 760 }, top: 188 });
+    assert.equal(open.top, closed.top);
+    assert.equal(open.width, 760);
+});
+
+test('theRowsAreNotPlacedFromTheRender', () => {
+    // The hooks own top, left and width (they know the containing block); a `top` in the JSX would be
+    // written in viewport px by React on the next render and put the rows back where they were.
+    const source = read('item-table-list.tsx');
+    for (const cls of ['styles.stickyHeader}', 'styles.stickyGroupRow}']) {
+        const at = source.indexOf(`className={${cls}`);
+        assert.ok(at > 0, `${cls} not found`);
+        const tag = source.slice(at, source.indexOf('>', at));
+        assert.ok(!/\btop:/.test(tag), `${cls} still sets top in the render`);
+    }
 });
