@@ -17,8 +17,6 @@ interface ClampFoldProps {
     children: ReactNode;
     /** The text's own type (font size and line height), on the element the lines are counted in. */
     className?: string;
-    /** Room the folded text may fill with more whole lines (`clampHeight`). */
-    fillPx?: number;
     initialOpen?: boolean;
     lines?: number;
     /** The test hook, `data-clamp`. */
@@ -38,7 +36,6 @@ interface ClampFoldProps {
 export const ClampFold = ({
     children,
     className,
-    fillPx,
     initialOpen = false,
     lines = ABOUT_LINES,
     name,
@@ -63,7 +60,6 @@ export const ClampFold = ({
         const measure = () => {
             const style = getComputedStyle(el.firstElementChild ?? el);
             const collapsed = clampHeight({
-                fillPx,
                 lineHeight: lineHeightPx(style.lineHeight, style.fontSize),
                 lines,
             });
@@ -76,7 +72,7 @@ export const ClampFold = ({
         const observer = new ResizeObserver(measure);
         observer.observe(el);
         return () => observer.disconnect();
-    }, [fillPx, lines]);
+    }, [lines]);
 
     // After a toggle: from the height drawn at the press (mid-move included) to the new one.
     useLayoutEffect(() => {

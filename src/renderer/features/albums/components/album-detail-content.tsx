@@ -5,7 +5,7 @@ import type {
 
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ReactNode, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ReactNode, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { generatePath, Link, useParams } from 'react-router';
 
@@ -375,15 +375,13 @@ export const AlbumDetailContent = () => {
     });
     const showAbout = row === 'two' || row === 'about-only';
     const showSide = row === 'two' || row === 'side-only';
-    // The tags column, for the About beside it to fill its height (B-243).
-    const [sideColumn, setSideColumn] = useState<HTMLDivElement | null>(null);
 
     return (
         <div className={styles.contentContainer}>
             <div className={styles.detailContainer}>
-                {/* The board's `.two` row: About on the left, the genres, tags, record label and
-                    links on the right; one column when only one side has anything, nothing when
-                    neither does (album-page-layout.ts). */}
+                {/* The About row, in the artist page's order (R13, B-243): the text folded to five
+                    lines, then the genres, the tags with the record label, and the links, full
+                    width under it; nothing when neither side has anything (album-page-layout.ts). */}
                 {row !== 'none' && (
                     <div className={styles.aboutRow} data-about-row={row}>
                         {/* ONE description, and the slot is filled by the response
@@ -415,7 +413,6 @@ export const AlbumDetailContent = () => {
                             ) : (
                                 <AlbumAbout
                                     albumId={albumId}
-                                    beside={showSide ? sideColumn : null}
                                     // lb-bot's prose carries its CC BY-SA attribution and
                                     // its links, outside the clamp, so collapsing never
                                     // hides them.
@@ -451,7 +448,7 @@ export const AlbumDetailContent = () => {
                                 </AlbumAbout>
                             ))}
                         {showSide && (
-                            <div className={styles.side} ref={setSideColumn}>
+                            <div className={styles.side}>
                                 <ChipLine chips={chips.genres} />
                                 <ChipLine chips={chips.tags} />
                                 {links.length > 0 && (
@@ -501,57 +498,25 @@ export const AlbumDetailContent = () => {
 const aboutOpen = new Set<string>();
 
 /**
- * The About column (R13, B-243): the board's `.lbl` label, then the text at 14 px / 1.55, 62ch wide,
+ * The About (R13, B-243): the board's `.lbl` label, then the text at 14 px / 1.55, 62ch wide,
  * folded like the artist page's About (`ClampFold`: five lines, the arrow at the cut, the fold's
- * motion). Beside a taller tags column the folded text fills that column's height with whole lines,
- * so the row has no empty band under it; with the columns stacked it folds to five.
+ * motion). The tags and links sit under it, so a folded About leaves no empty band beside them.
  */
 const AlbumAbout = ({
     albumId,
-    beside,
     children,
     footer,
 }: {
     albumId: string;
-    /** The tags and links column, when the row has one. */
-    beside: HTMLElement | null;
     children: ReactNode;
     footer?: ReactNode;
 }) => {
     const { t } = useTranslation();
-    const sectionRef = useRef<HTMLElement>(null);
-    const [fillPx, setFillPx] = useState(0);
-
-    // The room beside the text: the side column's height less this column's label, arrow and
-    // footer (the section's height less its text box, which does not depend on the fold).
-    useLayoutEffect(() => {
-        const section = sectionRef.current;
-        if (!section || !beside) {
-            setFillPx(0);
-            return undefined;
-        }
-        const measure = () => {
-            const text = section.querySelector<HTMLElement>('[data-clamp-box]');
-            const side = beside.getBoundingClientRect();
-            const own = section.getBoundingClientRect();
-            const sideBySide = Math.abs(side.top - own.top) < 2;
-            const rest = own.height - (text?.getBoundingClientRect().height ?? own.height);
-            const next = sideBySide ? Math.max(0, Math.floor(side.height - rest)) : 0;
-            setFillPx((prev) => (prev === next ? prev : next));
-        };
-        measure();
-        const observer = new ResizeObserver(measure);
-        observer.observe(beside);
-        observer.observe(section);
-        return () => observer.disconnect();
-    }, [beside]);
-
     return (
-        <section className={styles.about} ref={sectionRef}>
+        <section className={styles.about}>
             <div className={styles.label}>{t('page.albumDetail.about')}</div>
             <ClampFold
                 className={styles.aboutText}
-                fillPx={fillPx}
                 initialOpen={aboutOpen.has(albumId)}
                 name="album-about"
                 onOpenChange={(open) => {

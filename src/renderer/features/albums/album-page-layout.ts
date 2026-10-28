@@ -1,9 +1,10 @@
 /**
- * The owned album page's About row (board `Album.dc.html` `.two`): About on the left, genres,
- * tags, record label and links on the right. Pure, so the harness pins it.
+ * The owned album page's About row: About, then the genres, tags, record label and links under it
+ * (R13, B-243: the artist page's order; the board's `.two` put them side by side). Pure, so the
+ * harness pins it.
  *
- * - `two`: both sides have something; the board's grid, `minmax(0, 1fr) 300px`.
- * - `about-only` / `side-only`: one side has something; one column, no empty 300 px column.
+ * - `two`: both have something; About, then the tags and links.
+ * - `about-only` / `side-only`: one has something; only that one.
  * - `none`: neither; the row is not rendered and the toolbar moves up.
  *
  * A pending About (the album's notes not read yet, or lb-bot's prose on its way with nothing

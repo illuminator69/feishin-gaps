@@ -19,16 +19,9 @@ test('the line height in pixels', () => {
     assert.equal(lineHeightPx('normal', ''), 0);
 });
 
-test('folded height: whole lines, or more whole lines when there is room beside it', () => {
+test('folded height: whole lines', () => {
     // The artist page: five lines of 16 px / 1.55 (the old 124 px).
     assert.equal(clampHeight({ lineHeight: 24.8, lines: 5 }), 124);
-    // Beside a column shorter than five lines: still five.
-    assert.equal(clampHeight({ fillPx: 60, lineHeight: 21.7, lines: 5 }), 5 * 21.7);
-    // Beside a 250 px column: eleven whole lines (238.7), never a half line.
-    assert.equal(clampHeight({ fillPx: 250, lineHeight: 21.7, lines: 5 }), 11 * 21.7);
-    // A fill a subpixel short of a whole line still counts that line.
-    assert.equal(clampHeight({ fillPx: 6 * 21.7 - 0.5, lineHeight: 21.7, lines: 5 }), 6 * 21.7);
-    assert.equal(clampHeight({ fillPx: -40, lineHeight: 20, lines: 5 }), 100);
     assert.equal(clampHeight({ lineHeight: 0, lines: 5 }), 0);
 });
 

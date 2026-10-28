@@ -20,24 +20,14 @@ export const lineHeightPx = (lineHeight: string, fontSize: string): number => {
     return size > 0 ? size * 1.55 : 0;
 };
 
-/**
- * The folded height: `lines` whole lines, or as many whole lines as fit in `fillPx` when that is
- * more (the album's About beside its taller tags column, which would otherwise leave an empty band
- * under the folded text). Zero when the line height is unknown.
- */
+/** The folded height: `lines` whole lines; zero when the line height is unknown. */
 export const clampHeight = ({
-    fillPx = 0,
     lineHeight,
     lines,
 }: {
-    fillPx?: number;
     lineHeight: number;
     lines: number;
-}): number => {
-    if (!(lineHeight > 0)) return 0;
-    const fill = Math.floor((Math.max(0, fillPx) + ON_THE_LINE_PX) / lineHeight);
-    return Math.max(lines, fill) * lineHeight;
-};
+}): number => (lineHeight > 0 ? lines * lineHeight : 0);
 
 /** Whether the text runs past the folded height, so it folds and shows the arrow. */
 export const clampFolds = (fullPx: number, collapsedPx: number): boolean =>

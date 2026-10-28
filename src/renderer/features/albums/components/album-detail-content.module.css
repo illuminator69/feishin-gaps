@@ -12,22 +12,14 @@
 }
 
 /*
- * The board's `.two`: About on the left, the side column 300 px on the right, 32 px apart. One
- * column when only one side has anything (`about-only`, `side-only`), and one column in a narrow
- * content area, where the side column follows About.
+ * The About row, in the artist page's order (R13, B-243): the folded text, then the genres, tags
+ * and links, full width under it, 16 px apart (the artist About's gap). Side by side, a folded
+ * About beside a taller tags column left an empty band under the text (the owner's shot 01).
  */
 .about-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
     gap: 16px;
-    align-items: start;
-
-    @container (min-width: $mantine-breakpoint-sm) {
-        &[data-about-row='two'] {
-            grid-template-columns: minmax(0, 1fr) 300px;
-            gap: 32px;
-        }
-    }
 }
 
 .about {
