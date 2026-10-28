@@ -242,15 +242,6 @@ export const sortItems = (items: DiscographyItem[], view: DiscographyView): Disc
     return [...owned, ...rest];
 };
 
-/**
- * Call 4: the album ids a view shows (its kind chip, ownership filter and sort), owned and partly
- * owned albums only, in the order the view draws them. A missing release has nothing to play.
- */
-export const viewPlayIds = (items: DiscographyItem[], view: DiscographyView): string[] =>
-    sortItems(filterItems(items, view), view).flatMap((item) =>
-        item.albumId && isOwned(item) ? [item.albumId] : [],
-    );
-
 /** A chip's count: the releases of that kind before any filter. Kinds with none are absent. */
 export const chipCounts = (
     items: DiscographyItem[],

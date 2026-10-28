@@ -1,5 +1,5 @@
 import { useSuspenseQueries } from '@tanstack/react-query';
-import { Suspense, useCallback, useMemo, useRef } from 'react';
+import { Suspense, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { generatePath, useParams } from 'react-router';
 
@@ -8,12 +8,9 @@ import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/nati
 import { useNativeScrollPersist } from '/@/renderer/components/native-scroll-area/use-native-scroll-persist';
 import { albumQueries } from '/@/renderer/features/albums/api/album-api';
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
+import artistStyles from '/@/renderer/features/artists/components/album-artist-detail-content.module.css';
 import { LbBotDiscographyPrefetch } from '/@/renderer/features/artists/components/lbbot-discography-prefetch';
-import { usePlayArtistReleases } from '/@/renderer/features/artists/hooks/use-play-artist-releases';
 import { Discography } from '/@/renderer/features/discography/components/discography';
-import { viewPlayIds } from '/@/renderer/features/discography/discography-model';
-import { useDiscographyItems } from '/@/renderer/features/discography/hooks/use-discography-items';
-import { useDiscographyView } from '/@/renderer/features/discography/hooks/use-discography-view';
 import { LbBotIndexButton } from '/@/renderer/features/lbbot/components/lbbot-index-button';
 import {
     useEffectiveArtistMbid,
@@ -26,19 +23,11 @@ import { LibraryContainer } from '/@/renderer/features/shared/components/library
 import { LibraryHeader } from '/@/renderer/features/shared/components/library-header';
 import { LibraryHeaderBar } from '/@/renderer/features/shared/components/library-header-bar';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
-import {
-    PlayTextButton,
-    WideShuffleButton,
-} from '/@/renderer/features/shared/components/play-button';
-import { LONG_PRESS_PLAY_BEHAVIOR } from '/@/renderer/features/shared/components/play-button-group';
-import { usePlayButtonClick } from '/@/renderer/features/shared/hooks/use-play-button-click';
 import { AppRoute } from '/@/renderer/router/routes';
 import { useCurrentServer, useCurrentServerId } from '/@/renderer/store';
 import { useCoverHeaderWash } from '/@/renderer/themes/cover/use-cover-header-wash';
-import { Group } from '/@/shared/components/group/group';
 import { Spinner } from '/@/shared/components/spinner/spinner';
 import { Album, AlbumListSort, LibraryItem, SortOrder } from '/@/shared/types/domain-types';
-import { Play } from '/@/shared/types/types';
 
 const NO_ALBUMS: Album[] = [];
 
@@ -53,8 +42,9 @@ const useArtistRouteIds = () => {
 
 /**
  * R2: an artist's full discography (F7's `<Discography>`, unchanged) on its own page, under a compact
- * hero, so the artist page itself can stay short. Play and Shuffle play what the discography shows:
- * its kind chip, ownership filter and sort, read from the same URL view (Call 4).
+ * hero, so the artist page itself can stay short. R13 (B-247, B-248): the body keeps the artist
+ * page's margins (its content container), and the hero has no Play or Shuffle, so the name has the
+ * row; the artist page plays the artist.
  */
 const ArtistDiscographyRouteContent = () => {
     const { t } = useTranslation();
@@ -91,21 +81,8 @@ const ArtistDiscographyRouteContent = () => {
     // I-019: Navidrome's tag unless the user chose a MusicBrainz artist; the menu needs both.
     const tagMbid = detailQuery.data?.mbz;
     const artistMbid = useEffectiveArtistMbid(routeId, tagMbid);
-    // Read here for the menu and the play ids; the discography reads the same entries itself.
+    // Read here for the menu; the discography reads the same entries itself.
     const discographyQuery = useLbBotDiscography(routeId, artistMbid);
-    const { items } = useDiscographyItems({ artistMbid, ndId: routeId, owned });
-    const { view } = useDiscographyView();
-    const playIds = useMemo(() => viewPlayIds(items, view), [items, view]);
-
-    const playReleases = usePlayArtistReleases({ routeId });
-    const handlePlay = useCallback(
-        (type?: Play) => playReleases(playIds, type),
-        [playReleases, playIds],
-    );
-    const playClick = usePlayButtonClick({
-        onClick: () => handlePlay(Play.NOW),
-        onLongPress: () => handlePlay(LONG_PRESS_PLAY_BEHAVIOR[Play.NOW]),
-    });
 
     const artistLink = artistId
         ? generatePath(AppRoute.LIBRARY_ARTISTS_DETAIL, { artistId })
@@ -123,8 +100,6 @@ const ArtistDiscographyRouteContent = () => {
         serverId: detailQuery.data?._serverId,
         src: imageUrl || detailQuery.data?.imageUrl,
     });
-
-    const nothingToPlay = playIds.length === 0;
 
     return (
         <AnimatedPage key={`artist-discography-${routeId}`}>
@@ -158,36 +133,26 @@ const ArtistDiscographyRouteContent = () => {
                         ref={headerRef}
                         title={artistName}
                         titleTo={artistLink}
-                    >
-                        <Group gap="sm" wrap="wrap">
-                            <PlayTextButton
-                                aria-label={t('player.play')}
-                                {...playClick.handlers}
-                                {...playClick.props}
-                                disabled={nothingToPlay || playClick.props.disabled}
-                            />
-                            <WideShuffleButton
-                                aria-label={t('action.shuffle')}
-                                disabled={nothingToPlay}
-                                onClick={() => handlePlay(Play.SHUFFLE)}
-                            />
-                        </Group>
-                    </LibraryHeader>
-                    <Discography
-                        artistMbid={artistMbid}
-                        artistName={artistName}
-                        menu={
-                            <LbBotIndexButton
+                    />
+                    <div className={artistStyles.contentContainer}>
+                        <div className={artistStyles.detailContainer}>
+                            <Discography
                                 artistMbid={artistMbid}
                                 artistName={artistName}
-                                discography={discographyQuery.data}
+                                menu={
+                                    <LbBotIndexButton
+                                        artistMbid={artistMbid}
+                                        artistName={artistName}
+                                        discography={discographyQuery.data}
+                                        ndId={routeId}
+                                        tagMbid={tagMbid}
+                                    />
+                                }
                                 ndId={routeId}
-                                tagMbid={tagMbid}
+                                owned={owned}
                             />
-                        }
-                        ndId={routeId}
-                        owned={owned}
-                    />
+                        </div>
+                    </div>
                 </LibraryContainer>
             </NativeScrollArea>
         </AnimatedPage>
