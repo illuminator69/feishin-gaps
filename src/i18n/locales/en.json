@@ -522,7 +522,15 @@
             "songs_one": "{{count}} song",
             "songs_other": "{{count}} songs",
             "songsAndMinutes_one": "{{count}} song, {{minutes}} min",
-            "songsAndMinutes_other": "{{count}} songs, {{minutes}} min"
+            "songsAndMinutes_other": "{{count}} songs, {{minutes}} min",
+            "about": "About",
+            "aboutSource": "From {{name}} ({{license}}).",
+            "readMore": "Read more",
+            "recordLabelChip": "Record label: {{label}}",
+            "searchTracks": "Search tracks",
+            "sortChip": "Sort: {{value}}",
+            "sortTrackNumber": "Track number",
+            "tableSettings": "Table settings"
         },
         "albumList": {
             "artistAlbums": "Albums by {{artist}}",
