@@ -258,7 +258,7 @@ export const LibraryHeader = forwardRef(
                             <Text
                                 className={styles.itemType}
                                 component={Link}
-                                fw={600}
+                                fw={hero ? undefined : 600}
                                 isLink
                                 size="md"
                                 to={item.route}
