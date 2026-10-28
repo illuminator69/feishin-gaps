@@ -2639,18 +2639,19 @@ export const gapIsBusy = (gap: LbBotGap | null | undefined): boolean => {
     return gap.tracks.some((track) => track.state === 'downloading' || track.state === 'queued');
 };
 
-/**
- * One review group, polled while something is on screen to show it.
- *
- * Polls unconditionally rather than trying to be clever about when to stop: the
- * expensive mistake on this API is settling *early* (see `gapIsBusy`), the modal
- * only exists while the user is looking at it, and five seconds is the floor
- * lb-bot's single process and process-wide lock can afford anyway.
- */
 /** A gap read as the box's query keeps it: when failing reads began rides along (0: answered).
  *  The app-root watcher writes the same key without it, which reads as answered or just failing. */
 type GapRead = LbBotResult<LbBotGap> & { failingSince?: number };
 
+/**
+ * One review group, polled while something is on screen to show it.
+ *
+ * Without a `poll` predicate it polls for as long as it is enabled: the expensive
+ * mistake on this API is settling *early* (see `gapIsBusy`), and five seconds is
+ * the floor lb-bot's single process and process-wide lock can afford anyway. The
+ * album page's gaps box, which sits on the page for the whole visit, passes one
+ * (`gapPolls`): it reads once, then polls while something moves.
+ */
 export const useLbBotGap = (
     groupId: null | string,
     enabled: boolean,

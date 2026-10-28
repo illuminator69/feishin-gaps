@@ -759,7 +759,7 @@ export interface LbBotGapTrack {
 export type LbBotGapTrackState =
     /** B-004 (Feishin): the track's own fetch was cancelled — terminal, but
      *  neither a success nor a failure. See `SETTLED_TRACK_STATES` in
-     *  use-lbbot.ts and `TRACK_LABEL` in gap-fill-modal.tsx. */
+     *  gap-stage.ts and `useTrackLabel` in gap-box.tsx (`common.cancelled`). */
     | 'cancelled'
     | 'done'
     | 'downloaded'
