@@ -21,11 +21,12 @@ import { ItemListHandle } from '/@/renderer/components/item-list/types';
 import { lyricsQueries } from '/@/renderer/features/lyrics/api/lyrics-api';
 import { Lyrics } from '/@/renderer/features/lyrics/lyrics';
 import { Fold } from '/@/renderer/features/motion/fold';
-import { GROW_MS } from '/@/renderer/features/motion/grow';
+import { GROW_MS_TALL } from '/@/renderer/features/motion/grow';
 import { DockedSimilarSongs } from '/@/renderer/features/now-playing/components/docked-similar-songs';
 import { PlayQueue } from '/@/renderer/features/now-playing/components/play-queue';
 import { QueuePanelHeader } from '/@/renderer/features/now-playing/components/queue-panel-header';
 import { QueueSheetTab } from '/@/renderer/features/now-playing/components/queue-sheet-tabs';
+import { movePanel } from '/@/renderer/features/now-playing/utils/panel-order';
 import { AppRoute } from '/@/renderer/router/routes';
 import {
     useCombinedLyricsAndVisualizer,
@@ -375,7 +376,7 @@ const QueueLyricsStrip = ({
             };
         }
         const close = requestAnimationFrame(() => setShown(false));
-        const unmount = window.setTimeout(() => setMounted(false), GROW_MS + 50);
+        const unmount = window.setTimeout(() => setMounted(false), GROW_MS_TALL + 50);
         return () => {
             cancelAnimationFrame(close);
             window.clearTimeout(unmount);
@@ -396,7 +397,8 @@ const QueueLyricsStrip = ({
                 <span className={styles.stripLabel}>{label}</span>
                 <Icon className={styles.stripChevron} icon={open ? 'arrowDownS' : 'arrowUpS'} />
             </button>
-            <Fold name="queue-lyrics" open={shown}>
+            {/* Tall: the area is usually more than the kit's GROW_TALL_PX (up to 320 px). */}
+            <Fold name="queue-lyrics" open={shown} tall>
                 {mounted && <div className={styles.stripArea}>{children}</div>}
             </Fold>
         </div>
@@ -409,43 +411,20 @@ const PanelReorderControls = ({ panelType }: { panelType: 'lyrics' | 'visualizer
     const sidebarPanelOrder = useSidebarPanelOrder();
     const combinedLyricsAndVisualizer = useCombinedLyricsAndVisualizer();
 
-    const currentIndex = sidebarPanelOrder.indexOf(panelType);
-    const canMoveUp = currentIndex > 0;
-    const canMoveDown = currentIndex < sidebarPanelOrder.length - 1;
+    // R6 (B-207): the arrows order lyrics and the visualiser between themselves, and show only
+    // when both are on; the queue's place is the strip's, so a move past it did nothing.
+    const panels = useSidebarPanels();
+    const bothShown = panels.includes('lyrics') && panels.includes('visualizer');
+    const movedUp = movePanel(sidebarPanelOrder, panelType, 'up');
+    const movedDown = movePanel(sidebarPanelOrder, panelType, 'down');
 
     const handleMoveUp = useCallback(() => {
-        if (!canMoveUp) return;
-
-        const newOrder = [...sidebarPanelOrder];
-        const targetIndex = currentIndex - 1;
-
-        [newOrder[currentIndex], newOrder[targetIndex]] = [
-            newOrder[targetIndex],
-            newOrder[currentIndex],
-        ];
-
-        setSettings({
-            general: {
-                sidebarPanelOrder: newOrder,
-            },
-        });
-    }, [canMoveUp, currentIndex, sidebarPanelOrder, setSettings]);
+        if (movedUp) setSettings({ general: { sidebarPanelOrder: movedUp } });
+    }, [movedUp, setSettings]);
 
     const handleMoveDown = useCallback(() => {
-        if (!canMoveDown) return;
-
-        const newOrder = [...sidebarPanelOrder];
-        [newOrder[currentIndex], newOrder[currentIndex + 1]] = [
-            newOrder[currentIndex + 1],
-            newOrder[currentIndex],
-        ];
-
-        setSettings({
-            general: {
-                sidebarPanelOrder: newOrder,
-            },
-        });
-    }, [canMoveDown, currentIndex, sidebarPanelOrder, setSettings]);
+        if (movedDown) setSettings({ general: { sidebarPanelOrder: movedDown } });
+    }, [movedDown, setSettings]);
 
     const handleClose = useCallback(() => {
         if (combinedLyricsAndVisualizer && panelType === 'lyrics') {
@@ -473,28 +452,32 @@ const PanelReorderControls = ({ panelType }: { panelType: 'lyrics' | 'visualizer
     return (
         <div className={styles.panelReorderControls}>
             <ActionIconGroup>
-                <ActionIcon
-                    disabled={!canMoveUp}
-                    icon="arrowUp"
-                    iconProps={{ size: 'sm' }}
-                    onClick={handleMoveUp}
-                    size="xs"
-                    tooltip={{
-                        label: t('action.moveUp'),
-                    }}
-                    variant="subtle"
-                />
-                <ActionIcon
-                    disabled={!canMoveDown}
-                    icon="arrowDown"
-                    iconProps={{ size: 'sm' }}
-                    onClick={handleMoveDown}
-                    size="xs"
-                    tooltip={{
-                        label: t('action.moveDown'),
-                    }}
-                    variant="subtle"
-                />
+                {bothShown && (
+                    <>
+                        <ActionIcon
+                            disabled={!movedUp}
+                            icon="arrowUp"
+                            iconProps={{ size: 'sm' }}
+                            onClick={handleMoveUp}
+                            size="xs"
+                            tooltip={{
+                                label: t('action.moveUp'),
+                            }}
+                            variant="subtle"
+                        />
+                        <ActionIcon
+                            disabled={!movedDown}
+                            icon="arrowDown"
+                            iconProps={{ size: 'sm' }}
+                            onClick={handleMoveDown}
+                            size="xs"
+                            tooltip={{
+                                label: t('action.moveDown'),
+                            }}
+                            variant="subtle"
+                        />
+                    </>
+                )}
                 <ActionIcon
                     icon="x"
                     iconProps={{ size: 'sm' }}
