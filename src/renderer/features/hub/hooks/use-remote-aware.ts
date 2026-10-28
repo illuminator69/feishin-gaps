@@ -44,10 +44,19 @@ import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types
 // (cached; in-flight deduped across the components that call the hook).
 const remoteDetailCache = new Map<string, Song>();
 const remoteDetailInflight = new Map<string, Promise<null | Song>>();
+// A lookup that failed (an error, or no song) is not asked again for a minute. The side queue
+// resolves each mounted remote row (useRemoteRowArtists), and rows remount while scrolling:
+// without this, a failing server was asked again for every row on every remount.
+const REMOTE_DETAIL_RETRY_MS = 60_000;
+const remoteDetailFailedAt = new Map<string, number>();
 
 const resolveRemoteDetail = (serverId: string, id: string): Promise<null | Song> => {
     const cached = remoteDetailCache.get(id);
     if (cached) return Promise.resolve(cached);
+    const failedAt = remoteDetailFailedAt.get(id);
+    if (failedAt !== undefined && Date.now() - failedAt < REMOTE_DETAIL_RETRY_MS) {
+        return Promise.resolve(null);
+    }
     let inflight = remoteDetailInflight.get(id);
     if (!inflight) {
         inflight = api.controller
@@ -57,6 +66,11 @@ const resolveRemoteDetail = (serverId: string, id: string): Promise<null | Song>
                 return (song as Song) ?? null;
             })
             .catch(() => null)
+            .then((song) => {
+                if (song) remoteDetailFailedAt.delete(id);
+                else remoteDetailFailedAt.set(id, Date.now());
+                return song;
+            })
             .finally(() => remoteDetailInflight.delete(id));
         remoteDetailInflight.set(id, inflight);
     }
