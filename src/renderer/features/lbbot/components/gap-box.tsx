@@ -28,6 +28,7 @@ import {
     heldTracks,
     missingTracks,
 } from '/@/renderer/features/lbbot/gap-stage';
+import { useKeepTopInView } from '/@/renderer/features/lbbot/hooks/use-keep-top-in-view';
 import {
     allowMp3ForAlbum,
     autoFillGap,
@@ -45,6 +46,7 @@ import {
     useLbBotGap,
     useLbBotWebUrl,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { gapBoxShrinks } from '/@/renderer/features/lbbot/keep-top';
 import {
     useActiveFillsActions,
     useActiveGap,
@@ -490,6 +492,9 @@ const GapBox = ({
     const progress = gapProgress(gap);
     const open = stage.kind === 'tracks';
     const family = gapStageFamily(stage);
+    // B-236: Request swaps the tall sources for the short transfer while the page keeps its scroll;
+    // the box's top comes back under the sticky bar, once, if it went above it.
+    useKeepTopInView(root, family, gapBoxShrinks);
     const missingCount =
         stage.kind === 'folded' ? stage.missing : missing.length || mirroredMissing;
     const selected =

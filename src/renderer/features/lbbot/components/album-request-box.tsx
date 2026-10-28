@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { generatePath, useNavigate } from 'react-router';
 
@@ -12,7 +12,9 @@ import { RequestSteps } from '/@/renderer/features/lbbot/components/request-step
 import { describeFill, SHORT_STATE } from '/@/renderer/features/lbbot/fill-vocabulary';
 import { type AlbumRequest } from '/@/renderer/features/lbbot/hooks/use-album-request';
 import { useFillActions } from '/@/renderer/features/lbbot/hooks/use-fill-actions';
+import { useKeepTopInView } from '/@/renderer/features/lbbot/hooks/use-keep-top-in-view';
 import { useAdoptRemoteFill } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { albumBoxKey, albumBoxShrinks } from '/@/renderer/features/lbbot/keep-top';
 import { requestSteps } from '/@/renderer/features/lbbot/request-steps';
 import {
     ActiveFill,
@@ -81,6 +83,10 @@ export const AlbumRequestBox = ({
         starting: request.starting,
     });
     const running = shown === 'fill' && !!fill && !fill.settled;
+    // B-236: Download swaps the tall cards for the short steps while the page keeps its scroll; the
+    // box's top comes back under the sticky bar, once, if it went above it.
+    const boxRef = useRef<HTMLDivElement>(null);
+    useKeepTopInView(boxRef, albumBoxKey(shown, stage), albumBoxShrinks);
     return (
         <Fold name="request" open={shown !== 'none'} tall>
             <GrowBox name="request">
@@ -89,6 +95,7 @@ export const AlbumRequestBox = ({
                     data-request-box=""
                     data-request-stage={shown === 'fill' ? stage : undefined}
                     data-request-view={shown}
+                    ref={boxRef}
                 >
                     {/* Keyed by the view, so a change of kind fades in and a progress tick does not. */}
                     <div className={styles.view} key={shown}>
