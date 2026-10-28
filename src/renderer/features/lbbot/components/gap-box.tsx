@@ -284,31 +284,42 @@ const GapBox = ({
 
     // The tracklist follows a fill that lands during the visit (Navic's `watchGapLanding`): the
     // album is read again a few seconds on, and again while it holds fewer songs than lb-bot counts.
+    // The re-reads are kept apart from the record (review minor 5): a later poll changing the gap
+    // must not cancel them; only a new landing or leaving the page does, as Navic's job.
     const queryClient = useQueryClient();
     const server = useCurrentServer();
     const landed = gap ? gapFillLanded(gap, fill) : false;
     const held = gap ? heldTracks(gap) : 0;
     const before = useRef<boolean | null>(null);
     const songs = useRef(songCount);
+    const heldNow = useRef(held);
+    const landing = useRef<number[]>([]);
     useEffect(() => {
         songs.current = songCount;
-    }, [songCount]);
+        heldNow.current = held;
+    }, [songCount, held]);
     useEffect(() => {
-        if (!gap) return undefined;
+        if (!gap) return;
         const was = before.current;
         before.current = landed;
-        if (was !== false || !landed) return undefined;
+        if (was !== false || !landed) return;
         const queryKey = albumQueries.detail({
             query: { id: albumId },
             serverId: server.id,
         }).queryKey;
-        const timers = LANDED_REFRESH_MS.map((ms) =>
+        landing.current.forEach((timer) => window.clearTimeout(timer));
+        landing.current = LANDED_REFRESH_MS.map((ms) =>
             window.setTimeout(() => {
-                if (songs.current < held) void queryClient.invalidateQueries({ queryKey });
+                if (songs.current < heldNow.current) {
+                    void queryClient.invalidateQueries({ queryKey });
+                }
             }, ms),
         );
-        return () => timers.forEach((timer) => window.clearTimeout(timer));
-    }, [albumId, gap, held, landed, queryClient, server.id]);
+    }, [albumId, gap, landed, queryClient, server.id]);
+    useEffect(() => {
+        const timers = landing;
+        return () => timers.current.forEach((timer) => window.clearTimeout(timer));
+    }, []);
 
     /** Every write goes through here so a refusal is shown in the box, never swallowed. */
     const act = async (
