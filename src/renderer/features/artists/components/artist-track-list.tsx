@@ -314,6 +314,16 @@ const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: 
                         <Rating
                             busy={controls.ratingBusy}
                             className={song.userRating ? undefined : styles.hoverOnly}
+                            // Each star names its song: five rows of "1" to "5" read alike. The
+                            // first input is Mantine's "no rating".
+                            getSymbolLabel={(count) =>
+                                count === 0
+                                    ? t('page.albumArtistDetail.rateSongNone', { title: song.name })
+                                    : t('page.albumArtistDetail.rateSong', {
+                                          count,
+                                          title: song.name,
+                                      })
+                            }
                             onChange={(rating) => controls.onRate(song, rating)}
                             size="xs"
                             value={song.userRating || 0}
@@ -326,7 +336,10 @@ const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: 
                     // Not `disabled` while a save is in flight, which would drop the keyboard focus.
                     aria-disabled={controls.favoriteBusy || undefined}
                     aria-label={t(
-                        song.userFavorite ? 'action.removeFromFavorites' : 'action.addToFavorites',
+                        song.userFavorite
+                            ? 'page.albumArtistDetail.unfavoriteSong'
+                            : 'page.albumArtistDetail.favoriteSong',
+                        { title: song.name },
                     )}
                     aria-pressed={song.userFavorite}
                     className={song.userFavorite ? undefined : styles.hoverOnly}
