@@ -8,6 +8,7 @@ import {
     initialSelection,
     isSafeSource,
     refusalSaysListIsStale,
+    refusalUnder,
     shownSelection,
     sourceKey,
     sourceRank,
@@ -142,4 +143,17 @@ test('a refusal says the list is stale by its code, else by its status, never by
     assert.equal(refusalSaysListIsStale({ status: 410 }), true);
     assert.equal(refusalSaysListIsStale({ status: 200 }), false);
     assert.equal(refusalSaysListIsStale({ status: 400 }), false);
+});
+
+test('a refusal stays with the folder it was asked for, not with its place in the list', () => {
+    // Review F3: a search started elsewhere replaces the cards while the box stays on its sources,
+    // and index 0 is now another folder. lb-bot's "no longer in the list" must not show under it.
+    const refused = {
+        message: 'Source index out of range',
+        sourceKey: sourceKey(source({ folder: 'A', id: 0, peer: 'p' })),
+        stale: true,
+    };
+    assert.equal(refusalUnder(refused, source({ folder: 'B', id: 0, peer: 'q' })), null);
+    assert.equal(refusalUnder(refused, source({ folder: 'A', id: 3, peer: 'p' })), refused);
+    assert.equal(refusalUnder(null, source({ folder: 'A', id: 0, peer: 'p' })), null);
 });

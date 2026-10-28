@@ -13,7 +13,9 @@ import { RequestSteps } from '/@/renderer/features/lbbot/components/request-step
 import { SourceCards, SourceRefusal } from '/@/renderer/features/lbbot/components/source-cards';
 import {
     refusalSaysListIsStale,
+    refusalUnder,
     shownSelection,
+    sourceKey,
 } from '/@/renderer/features/lbbot/components/source-cards-model';
 import {
     GAP_RESULT_HOLD_MS,
@@ -221,7 +223,7 @@ const GapBox = ({
     // A refused Request, shown under that card's button (B-238), not at the box's foot.
     const [refused, setRefused] = useState<null | {
         message: string;
-        sourceId: number;
+        sourceKey: string;
         stale: boolean;
     }>(null);
     const [picked, setPicked] = useState<null | number>(null);
@@ -438,7 +440,7 @@ const GapBox = ({
             if (!result.ok) {
                 setRefused({
                     message: result.error || t('naviConnect.gapBox.refused'),
-                    sourceId: source.id,
+                    sourceKey: sourceKey(source),
                     stale: refusalSaysListIsStale(result),
                 });
                 return;
@@ -732,29 +734,34 @@ const GapBox = ({
                                 disabled={working}
                                 files={sourceFiles.view}
                                 onSelect={choose}
-                                renderUnderSelected={(source) => (
-                                    <div className={styles.underCard}>
-                                        <Button
-                                            data-gap-request=""
-                                            disabled={working}
-                                            loading={working}
-                                            onClick={() => void request(source)}
-                                            variant="filled"
-                                        >
-                                            {t('naviConnect.gapBox.requestTracks', {
-                                                count: wanted,
-                                            })}
-                                        </Button>
-                                        {refused?.sourceId === source.id && (
-                                            <SourceRefusal
-                                                message={refused.message}
-                                                onSearchAgain={
-                                                    refused.stale ? () => void search() : undefined
-                                                }
-                                            />
-                                        )}
-                                    </div>
-                                )}
+                                renderUnderSelected={(source) => {
+                                    const refusal = refusalUnder(refused, source);
+                                    return (
+                                        <div className={styles.underCard}>
+                                            <Button
+                                                data-gap-request=""
+                                                disabled={working}
+                                                loading={working}
+                                                onClick={() => void request(source)}
+                                                variant="filled"
+                                            >
+                                                {t('naviConnect.gapBox.requestTracks', {
+                                                    count: wanted,
+                                                })}
+                                            </Button>
+                                            {refusal && (
+                                                <SourceRefusal
+                                                    message={refusal.message}
+                                                    onSearchAgain={
+                                                        refusal.stale
+                                                            ? () => void search()
+                                                            : undefined
+                                                    }
+                                                />
+                                            )}
+                                        </div>
+                                    );
+                                }}
                                 selected={selected}
                                 sources={stage.sources}
                             />

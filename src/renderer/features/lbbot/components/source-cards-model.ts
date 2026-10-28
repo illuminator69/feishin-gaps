@@ -123,3 +123,14 @@ export const refusalSaysListIsStale = ({
     code?: string;
     status: number;
 }): boolean => (code ? STALE_LIST_CODES.has(code) : status === 410);
+
+/**
+ * R12 (review F3): the refusal a card shows under its button, matched by the folder it was asked for
+ * (`sourceKey`), never by the card's index: lb-bot numbers cards by their place in the current list,
+ * so after a search started elsewhere index 0 can be another folder, and lb-bot's "no longer in the
+ * list" must not land under a valid one.
+ */
+export const refusalUnder = <R extends { sourceKey: string }>(
+    refusal: null | R,
+    source: Pick<LbBotGapSource, 'folder' | 'peer'>,
+): null | R => (refusal && refusal.sourceKey === sourceKey(source) ? refusal : null);

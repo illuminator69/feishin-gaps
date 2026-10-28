@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import {
     refusalSaysListIsStale,
     shownSelection,
+    sourceKey,
 } from '/@/renderer/features/lbbot/components/source-cards-model';
 import {
     startAlbumDownload,
@@ -97,7 +98,7 @@ export const useAlbumRequest = ({
     // A refused Download, shown under that card's button (R12, B-238) instead of a toast.
     const [refusal, setRefusal] = useState<null | {
         message: string;
-        sourceId: number;
+        sourceKey: string;
         stale: boolean;
     }>(null);
     // A session lives as long as its answer can be cached (five minutes): after that, reopening the
@@ -257,7 +258,7 @@ export const useAlbumRequest = ({
                     // lb-bot's own sentence, verbatim, under the button that was pressed.
                     setRefusal({
                         message: result.error || 'lb-bot could not start the download',
-                        sourceId: source.id,
+                        sourceKey: sourceKey(source),
                         stale: refusalSaysListIsStale(result),
                     });
                     return;
