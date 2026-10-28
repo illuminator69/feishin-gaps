@@ -285,13 +285,12 @@
  * R14 (B-249): as wide as its label and one text line tall whatever it holds. The sorted column's bar
  * is drawn on this box's bottom edge: it spanned the whole column, and on an icon header (the heart,
  * the star: a box only the icon's 1em tall) it was drawn across the icon's lower part. Now every
- * label has a text line (the zero-width space below), an icon stands on that line's baseline as the
- * capitals of a word do, and the bar sits under it at the offset it has under a word (measured on
- * the VM: 3 px under the star, 2.5 px under TITLE; it was 0.5 px, across the icon's tips).
+ * label has a full text line (the zero-width space below) and the icon stays centred on it, as before,
+ * so the bar sits under the icon a little lower than under a word, never across it.
  */
 .header-content {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     width: fit-content;
     max-width: 100%;
     overflow: hidden;

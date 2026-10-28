@@ -6,8 +6,9 @@ import test from 'node:test';
  * R14 (B-249):  node --test src/renderer/components/item-list/item-table-list/header-underline.harness.ts
  *
  * The sorted column's bar is drawn on the header label's bottom edge. Pinned: that box is as wide
- * as its label (not the column) and always holds a text line whose baseline an icon stands on, so
- * on an icon header the bar sits under the icon instead of across it, at the offset of a word.
+ * as its label (not the column) and always one text line tall, so on an icon header the bar sits
+ * under the icon instead of across it. Icons stay centred on that line as they were before R14
+ * (on the baseline every header's icons rose about 2.5 px above the words beside them).
  */
 
 const css = readFileSync(new URL('./item-table-list-column.module.css', import.meta.url), 'utf8');
@@ -24,10 +25,11 @@ test('theBarIsDrawnOnTheLabelBox', () => {
 
 test('theLabelBoxIsTheLabelsWidthOnATextLine', () => {
     const box = block('\n.header-content {');
-    for (const rule of ['width: fit-content;', 'max-width: 100%;', 'align-items: baseline;']) {
+    for (const rule of ['width: fit-content;', 'max-width: 100%;', 'align-items: center;']) {
         assert.ok(box.includes(rule), rule);
     }
-    // The line an icon stands on: a zero-width space, so a label with no text still has one.
+    assert.ok(!box.includes('baseline'), 'icons centred, not on the baseline');
+    // A zero-width space, so a label with no text (an icon) still has a full text line.
     assert.match(block('.header-content::before {'), /content: '\\200b';/);
 });
 
