@@ -1,8 +1,7 @@
 import { useInView } from 'motion/react';
 import { useEffect, useMemo, useState } from 'react';
 
-import { useWindowSettings } from '/@/renderer/store/settings.store';
-import { Platform } from '/@/shared/types/types';
+import { useShellPinnedTop } from '/@/renderer/components/item-list/item-table-list/hooks/use-shell-pinned-top';
 
 export interface GroupRowInfo {
     groupIndex: number;
@@ -28,13 +27,11 @@ export const useStickyTableGroupRows = ({
     shouldShowStickyHeader?: boolean;
     stickyHeaderTop?: number;
 }) => {
-    const { windowBarStyle } = useWindowSettings();
     const [stickyGroupIndex, setStickyGroupIndex] = useState<null | number>(null);
 
-    const topMargin =
-        windowBarStyle === Platform.WINDOWS || windowBarStyle === Platform.MACOS
-            ? '-130px'
-            : '-100px';
+    // The same line the pinned header uses: the bottom of the page's sticky title row (L5-01).
+    const shellTop = useShellPinnedTop(containerRef);
+    const topMargin = `${-(shellTop + headerHeight)}px` as const;
 
     const isTableInView = useInView(containerRef, {
         margin: `${topMargin} 0px 0px 0px`,
@@ -46,8 +43,8 @@ export const useStickyTableGroupRows = ({
         if (shouldShowStickyHeader && stickyHeaderTop !== undefined) {
             return stickyHeaderTop + headerHeight + 1;
         }
-        return windowBarStyle === Platform.WINDOWS || windowBarStyle === Platform.MACOS ? 95 : 65;
-    }, [windowBarStyle, shouldShowStickyHeader, stickyHeaderTop, headerHeight]);
+        return shellTop;
+    }, [shellTop, shouldShowStickyHeader, stickyHeaderTop, headerHeight]);
 
     // Calculate group row indexes
     const groupRowIndexes = useMemo(() => {

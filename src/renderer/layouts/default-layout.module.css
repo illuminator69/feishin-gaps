@@ -4,6 +4,9 @@
     --top-bar-height: 52px;
     --player-bar-height: 90px;
 
+    /* A page's sticky title row (PageHeader); a pinned table header sits under it. */
+    --page-header-height: 65px;
+
     /* The sidebar, the page and the queue panel are cards this far apart, with this radius. */
     --panel-gap: 8px;
     --panel-radius: 10px;
