@@ -1,6 +1,7 @@
 import formatDuration from 'format-duration';
 import { type KeyboardEvent, type MouseEvent, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 
 import styles from './artist-track-list.module.css';
 
@@ -50,6 +51,8 @@ interface ArtistTrackListProps {
     max?: number;
     /** Plays from that row; the caller decides the queue (the whole list, as the table did). */
     onPlay: (song: Song) => void;
+    /** The full list's own page, offered as "Show all" once the list is unfolded. */
+    showAllTo?: string;
     songs: Song[];
 }
 
@@ -58,13 +61,14 @@ interface ArtistTrackListProps {
  * playing row, a play button on hover), a 40 px cover, the title with the other artists under it, the
  * play count when there is one, the duration and the row menu. Its own columns: nothing here reads
  * the Songs library's table settings, so the library's columns and filters never reach it. Folded
- * to `initial` rows, "See more" shows up to `max`.
+ * to `initial` rows, "See more" shows up to `max`, and then "Show all" opens the full list's page.
  */
 export const ArtistTrackList = ({
     artistId,
     initial = 5,
     max = 10,
     onPlay,
+    showAllTo,
     songs,
 }: ArtistTrackListProps) => {
     const { t } = useTranslation();
@@ -92,16 +96,27 @@ export const ArtistTrackList = ({
                 })}
             </ol>
             {toggle && (
-                <button
-                    className={styles.toggle}
-                    onClick={() => setExpanded(toggle === 'more')}
-                    onKeyDown={keepKeys}
-                    type="button"
-                >
-                    {toggle === 'more'
-                        ? t('page.albumArtistDetail.seeMore')
-                        : t('page.albumArtistDetail.showLess')}
-                </button>
+                <div className={styles.footer}>
+                    <button
+                        className={styles.toggle}
+                        onClick={() => setExpanded(toggle === 'more')}
+                        onKeyDown={keepKeys}
+                        type="button"
+                    >
+                        {toggle === 'more'
+                            ? t('page.albumArtistDetail.seeMore')
+                            : t('page.albumArtistDetail.showLess')}
+                    </button>
+                    {toggle === 'less' && showAllTo && (
+                        <Link
+                            className={`${styles.toggle} ${styles.showAll}`}
+                            onKeyDown={keepKeys}
+                            to={showAllTo}
+                        >
+                            {t('page.albumArtistDetail.showAll')}
+                        </Link>
+                    )}
+                </div>
             )}
         </div>
     );

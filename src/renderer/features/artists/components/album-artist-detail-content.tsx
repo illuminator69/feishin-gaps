@@ -19,6 +19,7 @@ import {
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { usePlayer } from '/@/renderer/features/player/context/player-context';
 import { useGenreRoute } from '/@/renderer/hooks/use-genre-route';
+import { AppRoute } from '/@/renderer/router/routes';
 import {
     ArtistItem,
     useCurrentServer,
@@ -96,6 +97,7 @@ const SongSection = ({
     empty,
     isLoading,
     name,
+    showAllTo,
     songs,
     title,
 }: {
@@ -105,6 +107,8 @@ const SongSection = ({
     empty: string;
     isLoading: boolean;
     name: string;
+    /** The full list's page (the top-songs or favourite-songs route), its only way in. */
+    showAllTo: string;
     songs: Song[];
     title: string;
 }) => {
@@ -127,18 +131,46 @@ const SongSection = ({
             ) : songs.length === 0 ? (
                 <p className={styles.empty}>{empty}</p>
             ) : (
-                <ArtistTrackList artistId={artistId} onPlay={onPlay} songs={songs} />
+                <ArtistTrackList
+                    artistId={artistId}
+                    onPlay={onPlay}
+                    showAllTo={showAllTo}
+                    songs={songs}
+                />
             )}
         </section>
+    );
+};
+
+/** The full songs pages, under the route the artist page itself is on (artist or album artist). */
+const songsPagePath = (
+    page: 'favorite' | 'top',
+    { albumArtistId, artistId }: { albumArtistId?: string; artistId?: string },
+): string => {
+    if (artistId) {
+        return generatePath(
+            page === 'top'
+                ? AppRoute.LIBRARY_ARTISTS_DETAIL_TOP_SONGS
+                : AppRoute.LIBRARY_ARTISTS_DETAIL_FAVORITE_SONGS,
+            { artistId },
+        );
+    }
+    return generatePath(
+        page === 'top'
+            ? AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_TOP_SONGS
+            : AppRoute.LIBRARY_ALBUM_ARTISTS_DETAIL_FAVORITE_SONGS,
+        { albumArtistId: albumArtistId ?? '' },
     );
 };
 
 const ArtistPopular = ({
     detailQuery,
     routeId,
+    showAllTo,
 }: {
     detailQuery: UseSuspenseQueryResult<AlbumArtistDetailResponse, Error>;
     routeId: string;
+    showAllTo: string;
 }) => {
     const { t } = useTranslation();
     const [type, setType] = useLocalStorage<'community' | 'personal'>({
@@ -169,6 +201,7 @@ const ArtistPopular = ({
             empty={t('page.albumArtistDetail.noPlaysYet')}
             isLoading={isLoading}
             name="popular"
+            showAllTo={showAllTo}
             songs={songs}
             title={t('page.albumArtistDetail.popular')}
         >
@@ -185,7 +218,7 @@ const ArtistPopular = ({
     );
 };
 
-const ArtistFavouriteSongs = ({ routeId }: { routeId: string }) => {
+const ArtistFavouriteSongs = ({ routeId, showAllTo }: { routeId: string; showAllTo: string }) => {
     const { t } = useTranslation();
     const [type, setType] = useLocalStorage<'favorite' | 'rating'>({
         defaultValue: 'favorite',
@@ -219,6 +252,7 @@ const ArtistFavouriteSongs = ({ routeId }: { routeId: string }) => {
             empty={t('page.albumArtistDetail.noRatedSongs')}
             isLoading={isLoading}
             name="favorite-songs"
+            showAllTo={showAllTo}
             songs={songs}
             title={t('page.albumArtistDetail.favoriteSongs')}
         >
@@ -596,6 +630,7 @@ export const AlbumArtistDetailContent = ({
         artistId?: string;
     };
     const routeId = (artistId || albumArtistId) as string;
+    const params = { albumArtistId, artistId };
 
     const enabled = useMemo(() => {
         const map: { [key in ArtistItem]?: boolean } = {};
@@ -612,8 +647,19 @@ export const AlbumArtistDetailContent = ({
     return (
         <div className={styles.contentContainer}>
             <div className={styles.detailContainer}>
-                {enabled.topSongs && <ArtistPopular detailQuery={detailQuery} routeId={routeId} />}
-                {enabled.favoriteSongs && <ArtistFavouriteSongs routeId={routeId} />}
+                {enabled.topSongs && (
+                    <ArtistPopular
+                        detailQuery={detailQuery}
+                        routeId={routeId}
+                        showAllTo={songsPagePath('top', params)}
+                    />
+                )}
+                {enabled.favoriteSongs && (
+                    <ArtistFavouriteSongs
+                        routeId={routeId}
+                        showAllTo={songsPagePath('favorite', params)}
+                    />
+                )}
                 {/* "Recent albums" in the owner's list is the releases' switch. */}
                 {enabled.recentAlbums !== false && (
                     <ArtistShelves

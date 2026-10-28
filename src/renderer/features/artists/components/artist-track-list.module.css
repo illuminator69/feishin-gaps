@@ -177,7 +177,14 @@
     opacity: 1;
 }
 
-/* "See more" / "Show less", Spotify's: a muted bold word under the number column. */
+/* "See more" / "Show less", then (unfolded) "Show all" to the full list's page. */
+.footer {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+/* Spotify's: a muted bold word under the number column. */
 .toggle {
     padding: 8px;
     margin-top: 4px;
@@ -198,6 +205,10 @@
         outline: 2px solid var(--theme-colors-primary);
         outline-offset: 1px;
     }
+}
+
+.show-all {
+    text-decoration: none;
 }
 
 /* Narrow: the play count goes first. */
