@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { createArrivedEntries } from './arrived-entries.ts';
+import { createArrivedEntries, settleVisit } from './arrived-entries.ts';
 
 /**
  * R4:  node --test src/shared/components/animations/arrived-entries.harness.ts
@@ -106,4 +107,52 @@ test('releasingTwiceDoesNotGoNegative', () => {
     assert.equal(record.arrives('a', 'list'), true);
     other();
     assert.equal(record.arrives('a', 'list'), false);
+});
+
+test('aReplaceUnderAMountedPageMarksTheNewEntry', () => {
+    // The Library writes its search term into the URL (a replace) while the list stays mounted: the
+    // entry in history is now K2, and Back to it must find it arrived. Settling runs again per key.
+    const record = createArrivedEntries(10);
+    let release = settleVisit(record, 'k1', 'list', true);
+    release();
+    release = settleVisit(record, 'k2', 'list', true);
+    assert.equal(record.has('k1', 'list'), true);
+    assert.equal(record.has('k2', 'list'), true);
+    release();
+    assert.equal(record.arrives('k2', 'list'), false);
+});
+
+test('aSkippedMountStillMarksTheEntryItIsOn', () => {
+    // Back to an arrived entry leaves the window closed (opened = false); a replace from there must
+    // still mark the new entry, and a skipped mount holds nothing.
+    const record = createArrivedEntries(10);
+    record.mark('k1', 'list');
+    const release = settleVisit(record, 'k2', 'list', false);
+    assert.equal(record.has('k2', 'list'), true);
+    assert.equal(record.arrives('k2', 'list'), false);
+    release();
+    assert.equal(record.arrives('k2', 'list'), false);
+});
+
+test('theHoldMovesWithTheEntryAndOnlyForAnOpenedWindow', () => {
+    const record = createArrivedEntries(10);
+    const first = settleVisit(record, 'k1', '', true);
+    assert.equal(record.arrives('k1', ''), true);
+    first();
+    const second = settleVisit(record, 'k2', '', true);
+    assert.equal(record.arrives('k1', ''), false);
+    assert.equal(record.arrives('k2', ''), true);
+    second();
+    assert.equal(record.arrives('k2', ''), false);
+});
+
+test('theHookSettlesOnEveryEntryChange', () => {
+    // The rule lives in the hook's effect too: it must depend on the live entry and run for any decided
+    // mount, not only the pair a window opened under.
+    const src = readFileSync(
+        new URL('../../../renderer/features/motion/use-arrival.ts', import.meta.url),
+        'utf8',
+    );
+    assert.match(src, /settleVisit\(arrivedEntries, entry, listKey, opened\)/);
+    assert.match(src, /\[decided, opened, entry, listKey\]/);
 });

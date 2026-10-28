@@ -8,6 +8,11 @@
  * the first to open marks the pair, and a sibling that fills later in the same visit must still
  * arrive, so `arrives` stays true while any list that opened under that pair is mounted. Back to the
  * entry later has no holders, so nothing arrives.
+ *
+ * Marks follow `location.key`: a replace (the Library writing its search term into the URL, a click on
+ * the page you are on) gives the same mounted page a new key, and the entry now in history is the one
+ * Back will return to, so `settleVisit` marks the CURRENT entry every time the key changes, for every
+ * mount that has decided (opened or skipped), and holds only for an opened window.
  */
 
 export type ArrivedEntries = {
@@ -57,6 +62,21 @@ export const createArrivedEntries = (limit: number): ArrivedEntries => {
         },
         size: () => marked.size,
     };
+};
+
+/**
+ * What a decided mount does under its current entry: mark the pair, and hold it only when this mount
+ * opened an arrival window. Returns the release (a no-op for a mount that only skipped). Run again for
+ * every new entry, so the mark follows the page across replaces.
+ */
+export const settleVisit = (
+    record: ArrivedEntries,
+    entry: string,
+    list: string,
+    opened: boolean,
+): (() => void) => {
+    record.mark(entry, list);
+    return opened ? record.hold(entry, list) : () => {};
 };
 
 /** The app's record: the newest 200 history entries. */
