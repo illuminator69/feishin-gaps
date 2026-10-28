@@ -65,3 +65,9 @@ test('kitTokensMatchTheCssKit', async () => {
         ),
     );
 });
+
+test('barHasNoLayoutProjection', () => {
+    const bar = read('renderer/features/player/components/left-controls.tsx');
+    assert.ok(!bar.includes('LayoutGroup'));
+    assert.ok(!bar.includes('layout='));
+});
