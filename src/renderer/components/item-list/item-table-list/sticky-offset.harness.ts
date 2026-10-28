@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { shellPinnedTop } from './utils/shell-pinned-top.ts';
+import { SHELL_PINNED_TOP_VARS, shellPinnedTop } from './utils/shell-pinned-top.ts';
 
 /**
  * R3 Task 3 (L5-01):  node --test src/renderer/components/item-list/item-table-list/sticky-offset.harness.ts
@@ -37,6 +37,28 @@ test('the pinned header and disc row take their top from the shell, not from lit
     const helper = read('utils/shell-pinned-top.ts');
     for (const name of ['--window-bar-height', '--top-bar-height', '--page-header-height']) {
         assert.ok(helper.includes(name), `the helper does not read ${name}`);
+    }
+});
+
+test('both layouts define the three heights the pin reads', () => {
+    // At a window width of 768 px or less the responsive layout swaps in MobileLayout; a variable it
+    // leaves unset reads as 0, and the pinned header lands at the window's top behind the title row.
+    const layouts = {
+        default: '../../../layouts/default-layout.module.css',
+        mobile: '../../../layouts/mobile-layout/mobile-layout.module.css',
+    };
+    for (const [name, path] of Object.entries(layouts)) {
+        const css = read(path);
+        for (const variable of SHELL_PINNED_TOP_VARS) {
+            assert.ok(
+                new RegExp(`\\.layout\\s*\\{[^}]*${variable}\\s*:`).test(css),
+                `the ${name} layout's .layout does not define ${variable}`,
+            );
+        }
+        assert.ok(
+            /\.windows,\s*\.macos\s*\{[^}]*--window-bar-height\s*:\s*30px/.test(css),
+            `the ${name} layout does not set --window-bar-height under the Windows / macOS bars`,
+        );
     }
 });
 
