@@ -132,6 +132,8 @@ emulation at dpr 1 as for the base. Screenshots are in `.superpowers/sdd/PLAN-fe
 - The fix is for the implementer (one CSS line, likely `flex-shrink: 0` on the hero, or dropping its `min-height: 0`). The header
   checks below were read from computed styles, and the look from the diagnostic shots.
 
+**After the fix (`af9d7a80`, dev app, 1440 x 900 emulated, VM numbers).** `flex-shrink: 0` on the hero rule restores the header. Before: header box 46 px, image top -58 px, h1 top -38 px on the artist page. After: header box 214 px (top 82), image 168 x 168 circle at top 110 (fully visible), h1 54 px, first release tile top 345 px, as the board draws it. The discography page's compact hero is now 142 px tall with its 96 px image at top 110 and a 34 px title, the first tile at 408 px. Screenshots `repair-r2-fix-artist.png` and `repair-r2-fix-discography.png` were read back; the image region (x 280..440, y 115..270) differs from the page background in 374 of 400 sampled points on the artist page and 400 of 400 on the discography page. The discography Play and Shuffle buttons now carry `aria-label` "Play" and "Shuffle".
+
 ### The artist page, "The Long Players" (62 owned, 320 releases)
 
 - Header, computed: image 168 x 168, `border-radius: 50%`; title h1 54 px, weight 800, line-height 54 px; kicker "ARTIST" 12 px,
