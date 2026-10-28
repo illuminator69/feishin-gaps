@@ -165,6 +165,53 @@
     }
 }
 
+/* The tabs and the count line: two rows, as if this wrapper were not there, until a short window. */
+.tabs-row {
+    display: contents;
+}
+
+/*
+ * R6 (B-207): a short window. At 1280 x 600 the panel (the `queue-panel` size container) is about
+ * 420 px and this header took 236 of it, leaving three rows. Below 580 px of panel the header keeps
+ * the title with the Autoplay switch and one row of tabs and count: about 82 px, six rows and more
+ * with the lyrics strip folded. The "Playing from" lines, the status line and the characters come
+ * back in a taller window; nothing above 580 px changes.
+ */
+@container queue-panel (max-height: 580px) {
+    .root {
+        gap: 8px;
+        padding: 8px 14px;
+    }
+
+    .from {
+        align-items: center;
+    }
+
+    /* Two classes on the characters: Mantine's own rule for a full-width control sets its display. */
+    .from-caption,
+    .sentence,
+    .status,
+    .segments.characters,
+    .length {
+        display: none;
+    }
+
+    .tabs-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        min-width: 0;
+    }
+
+    .tabs {
+        flex: none;
+    }
+
+    .count-line {
+        flex: 1;
+    }
+}
+
 /* Mantine's own thumb slide and label colour fade ignore reduced motion; in this header they stop. */
 @media (prefers-reduced-motion: reduce) {
     .switch-thumb,

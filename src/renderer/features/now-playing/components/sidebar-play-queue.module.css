@@ -19,6 +19,9 @@
 .queue-only {
     flex: 1;
     min-height: 0;
+
+    /* R6 (B-207): the header folds its lines away when this is short (queue-panel-header.module.css). */
+    container: queue-panel / size;
 }
 
 .queue-only-content {
@@ -132,7 +135,7 @@
 
 /*
  * R6 (B-207): the queue with the lyrics/visualiser strip under it. A size container, so the open
- * area can be at most 40 % of the panel's height.
+ * area can be at most 40 % of the panel's height, and the header can fold its lines in a short window.
  */
 .panels-with-strip {
     container: queue-panel / size;
@@ -191,7 +194,14 @@
 .strip-area {
     display: flex;
     flex-direction: column;
-    height: min(320px, 40cqh);
+
+    /*
+     * At most 320 px and 40 % of the panel, and never so much that the queue drops below three
+     * rows: 280 px is the short header (about 82), the strip's row (41) and three 48 px rows plus
+     * a little. It only bites below a 467 px panel (1280 x 600 gives 420: 140 px of lyrics, three
+     * rows of queue); above that the area is exactly what it was.
+     */
+    height: min(320px, 40cqh, calc(100cqh - 280px));
 }
 
 .strip-panel {

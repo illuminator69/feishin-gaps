@@ -143,13 +143,17 @@ export const QueuePanelHeader = ({
                 <div className={styles.fromText}>
                     {from.title && (
                         <>
-                            <span className={styles.caption}>
+                            <span className={clsx(styles.caption, styles.fromCaption)}>
                                 {t('naviConnect.queue.playingFrom')}
                             </span>
                             <Tooltip label={from.title} multiline openDelay={500} w={320}>
                                 <span className={styles.title}>{from.title}</span>
                             </Tooltip>
-                            {sentence && <span className={styles.caption}>{sentence}</span>}
+                            {sentence && (
+                                <span className={clsx(styles.caption, styles.sentence)}>
+                                    {sentence}
+                                </span>
+                            )}
                         </>
                     )}
                 </div>
@@ -173,7 +177,9 @@ export const QueuePanelHeader = ({
             )}
             {characters.length > 0 && (
                 <SegmentedControl
-                    className={clsx(styles.segments, { [styles.dimmed]: !autoplayOn })}
+                    className={clsx(styles.segments, styles.characters, {
+                        [styles.dimmed]: !autoplayOn,
+                    })}
                     classNames={{ label: styles.segmentLabel }}
                     data={characters.map((chip) => {
                         const description = words.characters.find(
@@ -199,45 +205,48 @@ export const QueuePanelHeader = ({
                     withItemsBorders={false}
                 />
             )}
-            <SegmentedControl
-                className={styles.segments}
-                classNames={{ label: styles.segmentLabel }}
-                data={[
-                    { label: t('page.fullscreenPlayer.upNext'), value: 'queue' },
-                    { label: t('page.fullscreenPlayer.related'), value: 'related' },
-                ]}
-                fullWidth
-                onChange={(tab) => onTabChange(tab as QueueSheetTab)}
-                value={activeTab}
-                withItemsBorders={false}
-            />
-            {activeTab === 'queue' && (
-                <div className={styles.countLine}>
-                    <span className={styles.count}>
-                        {t('naviConnect.queue.songs', { count: size.count })}
-                        <span className={styles.length}>, {length}</span>
-                    </span>
-                    <SearchInput
-                        enableHotkey={false}
-                        fillContainer
-                        onChange={(e) => onSearch(e.target.value)}
-                        value={searchTerm}
-                    />
-                    <QueueActionsMenu
-                        actions={actions}
-                        listKey={listKey}
-                        sections={MENU_SECTIONS}
-                    />
-                    <Button
-                        className={styles.clear}
-                        onClick={actions.clearQueue}
-                        size="compact-sm"
-                        variant="subtle"
-                    >
-                        {t('common.clear')}
-                    </Button>
-                </div>
-            )}
+            {/* One row in a short window (R6), two rows otherwise: `display: contents` until then. */}
+            <div className={styles.tabsRow}>
+                <SegmentedControl
+                    className={clsx(styles.segments, styles.tabs)}
+                    classNames={{ label: styles.segmentLabel }}
+                    data={[
+                        { label: t('page.fullscreenPlayer.upNext'), value: 'queue' },
+                        { label: t('page.fullscreenPlayer.related'), value: 'related' },
+                    ]}
+                    fullWidth
+                    onChange={(tab) => onTabChange(tab as QueueSheetTab)}
+                    value={activeTab}
+                    withItemsBorders={false}
+                />
+                {activeTab === 'queue' && (
+                    <div className={styles.countLine}>
+                        <span className={styles.count}>
+                            {t('naviConnect.queue.songs', { count: size.count })}
+                            <span className={styles.length}>, {length}</span>
+                        </span>
+                        <SearchInput
+                            enableHotkey={false}
+                            fillContainer
+                            onChange={(e) => onSearch(e.target.value)}
+                            value={searchTerm}
+                        />
+                        <QueueActionsMenu
+                            actions={actions}
+                            listKey={listKey}
+                            sections={MENU_SECTIONS}
+                        />
+                        <Button
+                            className={styles.clear}
+                            onClick={actions.clearQueue}
+                            size="compact-sm"
+                            variant="subtle"
+                        >
+                            {t('common.clear')}
+                        </Button>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };
