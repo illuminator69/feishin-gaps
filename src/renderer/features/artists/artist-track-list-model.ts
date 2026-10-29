@@ -100,3 +100,60 @@ export const staticStarsMask = (rating: number): string => {
     const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 24'>${paths}</svg>`;
     return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 };
+
+/**
+ * B-266: Popular's order and membership for one visit. The rows in `held`'s order, each taken from
+ * `fresh` by id (its rating, heart and play count are the fresh ones); a held row missing from
+ * `fresh` keeps its last known row. Nothing held takes `fresh` as served.
+ */
+export const holdOrder = <T>(
+    held: readonly T[],
+    fresh: readonly T[],
+    id: (row: T) => string,
+): T[] => {
+    if (held.length === 0) return [...fresh];
+    const byId = new Map(fresh.map((row) => [id(row), row]));
+    return held.map((row) => byId.get(id(row)) ?? row);
+};
+
+/** What Popular shows for one visit and one Everyone / Yours choice (`key`). */
+export interface HeldRows<T> {
+    key: string;
+    rows: T[];
+    /** The visit's first fetch has settled: from here on the order holds. */
+    settled: boolean;
+}
+
+/**
+ * The next rows Popular shows. A new visit (`prev` null: the page mounted again, Back included) or
+ * a new `key` (the Everyone / Yours switch) takes the rows as served, and so does an arrival on
+ * cached rows until the visit's own fetch settles. After that a refetch (a counted play, a rating,
+ * a favourite) updates each row's fields in place and never its order or membership.
+ */
+export const nextHeldRows = <T>(
+    prev: HeldRows<T> | null,
+    next: { fetching: boolean; fresh: T[]; key: string },
+    id: (row: T) => string,
+): HeldRows<T> => {
+    if (!prev || prev.key !== next.key || !prev.settled) {
+        return { key: next.key, rows: next.fresh, settled: !next.fetching };
+    }
+    return { key: next.key, rows: holdOrder(prev.rows, next.fresh, id), settled: true };
+};
+
+/**
+ * B-265: a row draws the full Rating while pointed at or focused, and a drawn row keeps it while a
+ * rating save is in flight (R13's `busy`: the keyboard focus must not drop mid-save). Otherwise its
+ * stars are one element again, so the page keeps R10's node count after an edit.
+ */
+export const nextStarsDrawn = ({
+    busy,
+    drawn,
+    focus,
+    pointer,
+}: {
+    busy: boolean;
+    drawn: boolean;
+    focus: boolean;
+    pointer: boolean;
+}): boolean => pointer || focus || (drawn && busy);

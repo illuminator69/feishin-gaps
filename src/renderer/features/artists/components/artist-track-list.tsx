@@ -1,5 +1,12 @@
 import formatDuration from 'format-duration';
-import { type CSSProperties, type KeyboardEvent, type MouseEvent, useMemo, useState } from 'react';
+import {
+    type CSSProperties,
+    type FocusEvent,
+    type KeyboardEvent,
+    type MouseEvent,
+    useMemo,
+    useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 
@@ -13,6 +20,7 @@ import {
 } from '/@/renderer/features/albums/components/joined-artists';
 import {
     hasOtherArtists,
+    nextStarsDrawn,
     staticStarsMask,
     TRACK_LIST_NARROW_PX,
     trackColumns,
@@ -208,10 +216,18 @@ interface TrackRowProps {
 
 const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: TrackRowProps) => {
     const { t } = useTranslation();
-    // The five stars are drawn once the row is pointed at or focused: until then a rated row shows
-    // its stars as one element and an unrated row shows none, so the page keeps R10's node count.
-    const [starsDrawn, setStarsDrawn] = useState(false);
-    const drawStars = () => setStarsDrawn(true);
+    // The five stars are drawn while the row is pointed at or focused, and while a rating save is
+    // in flight (B-265: they stayed drawn until the page was left). Otherwise a rated row shows its
+    // stars as one element and an unrated row shows none, so the page keeps R10's node count.
+    const [pointer, setPointer] = useState(false);
+    const [focus, setFocus] = useState(false);
+    const [drawn, setDrawn] = useState(false);
+    const starsDrawn = nextStarsDrawn({ busy: controls.ratingBusy, drawn, focus, pointer });
+    if (starsDrawn !== drawn) setDrawn(starsDrawn);
+    // Focus moving between the row's own controls (star to star, star to heart) is not a leave.
+    const onBlur = (event: FocusEvent<HTMLLIElement>) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocus(false);
+    };
     const openMenu = (event: MouseEvent<HTMLElement>) => {
         event.preventDefault();
         event.stopPropagation();
@@ -248,11 +264,13 @@ const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: 
             className={styles.row}
             data-active={active || undefined}
             data-dragging={isDragging || undefined}
+            onBlur={onBlur}
             onContextMenu={openMenu}
             onDoubleClick={() => onPlay(song)}
-            onFocus={drawStars}
+            onFocus={() => setFocus(true)}
             onKeyDown={onKeyDown}
-            onPointerEnter={drawStars}
+            onPointerEnter={() => setPointer(true)}
+            onPointerLeave={() => setPointer(false)}
             ref={ref}
             tabIndex={0}
         >

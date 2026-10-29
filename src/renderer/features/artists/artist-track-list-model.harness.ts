@@ -4,6 +4,9 @@ import test from 'node:test';
 
 import {
     hasOtherArtists,
+    holdOrder,
+    nextHeldRows,
+    nextStarsDrawn,
     staticStarsMask,
     TRACK_LIST_NARROW_PX,
     TRACK_LIST_NARROWER_PX,
@@ -144,4 +147,139 @@ test('staticStarsMask: filled up to the rating, the rest outlined, clamped to 0 
     assert.equal(svg(2).split('<path').length - 1, 5);
     // Mantine's star (its 24-unit path), five across.
     assert.ok(svg(1).includes("viewBox='0 0 120 24'"));
+});
+
+/*
+ * B-266: Popular's order and membership hold for one visit and one Everyone / Yours choice; each
+ * row's fields (rating, heart, play count) come from the fresh data.
+ */
+
+interface Row {
+    id: string;
+    plays: number;
+}
+const row = (id: string, plays = 0): Row => ({ id, plays });
+const rowId = (r: Row) => r.id;
+
+test('holdOrderKeepsTheHeldOrderWithFreshFields', () => {
+    const held = [row('a', 9), row('b', 8), row('c', 7)];
+    const fresh = [row('a', 9), row('c', 9), row('b', 8)];
+    const out = holdOrder(held, fresh, rowId);
+    assert.deepEqual(
+        out.map((r) => r.id),
+        ['a', 'b', 'c'],
+    );
+    assert.equal(out[2], fresh[1], 'the row object is the fresh one');
+    assert.equal(out[2].plays, 9);
+});
+
+test('holdOrderKeepsAMissingRowAsLastKnown', () => {
+    const held = [row('a'), row('b'), row('c')];
+    const fresh = [row('a'), row('c'), row('d')];
+    const out = holdOrder(held, fresh, rowId);
+    assert.deepEqual(
+        out.map((r) => r.id),
+        ['a', 'b', 'c'],
+    );
+    assert.equal(out[1], held[1]);
+});
+
+test('holdOrderWithNothingHeldTakesFresh', () => {
+    const fresh = [row('c'), row('a')];
+    assert.deepEqual(holdOrder([], fresh, rowId), fresh);
+});
+
+test('aVisitHoldsOnceItsFirstFetchSettles', () => {
+    const cached = [row('a'), row('b'), row('c')];
+    const refetched = [row('a'), row('c'), row('b')];
+    // Arrival on cached data while the visit's own fetch runs: what it brings is still taken.
+    let held = nextHeldRows(null, { fetching: true, fresh: cached, key: 'x:personal' }, rowId);
+    assert.equal(held.settled, false);
+    held = nextHeldRows(held, { fetching: false, fresh: refetched, key: 'x:personal' }, rowId);
+    assert.deepEqual(
+        held.rows.map((r) => r.id),
+        ['a', 'c', 'b'],
+    );
+    assert.equal(held.settled, true);
+    // A counted play refetches: the order holds, the fields are fresh.
+    const later = [row('b', 5), row('a', 1), row('c', 1)];
+    held = nextHeldRows(held, { fetching: true, fresh: held.rows, key: 'x:personal' }, rowId);
+    held = nextHeldRows(held, { fetching: false, fresh: later, key: 'x:personal' }, rowId);
+    assert.deepEqual(
+        held.rows.map((r) => r.id),
+        ['a', 'c', 'b'],
+    );
+    assert.equal(held.rows[2].plays, 5);
+});
+
+test('switchingEveryoneAndYoursShowsTheNewOrder', () => {
+    let held = nextHeldRows(
+        null,
+        { fetching: false, fresh: [row('a'), row('b')], key: 'x:personal' },
+        rowId,
+    );
+    held = nextHeldRows(
+        held,
+        { fetching: false, fresh: [row('b'), row('a')], key: 'x:community' },
+        rowId,
+    );
+    assert.deepEqual(
+        held.rows.map((r) => r.id),
+        ['b', 'a'],
+    );
+    assert.equal(held.key, 'x:community');
+});
+
+test('aNewVisitShowsTheNewOrder', () => {
+    // A new visit starts from nothing held (the page mounts again, Back included).
+    const held = nextHeldRows(
+        null,
+        { fetching: false, fresh: [row('c'), row('a')], key: 'x:personal' },
+        rowId,
+    );
+    assert.deepEqual(
+        held.rows.map((r) => r.id),
+        ['c', 'a'],
+    );
+});
+
+test('anEmptyHeldListTakesTheFirstRows', () => {
+    // "Yours" empty on arrival, then a play is counted: nothing to jump under, the rows show.
+    let held = nextHeldRows(null, { fetching: false, fresh: [], key: 'x:personal' }, rowId);
+    held = nextHeldRows(held, { fetching: false, fresh: [row('a')], key: 'x:personal' }, rowId);
+    assert.deepEqual(
+        held.rows.map((r) => r.id),
+        ['a'],
+    );
+});
+
+/*
+ * B-265: a row draws the full Rating while pointed at or focused, and keeps it while a rating save
+ * is in flight (the keyboard focus must not drop mid-save); otherwise its stars are one element.
+ */
+
+test('starsDrawOnPointerOrFocus', () => {
+    assert.equal(nextStarsDrawn({ busy: false, drawn: false, focus: false, pointer: true }), true);
+    assert.equal(nextStarsDrawn({ busy: false, drawn: false, focus: true, pointer: false }), true);
+    assert.equal(
+        nextStarsDrawn({ busy: false, drawn: false, focus: false, pointer: false }),
+        false,
+    );
+});
+
+test('starsReturnToOneElementWhenPointerAndFocusLeave', () => {
+    // Pointer left, focus still in the row: drawn.
+    assert.equal(nextStarsDrawn({ busy: false, drawn: true, focus: true, pointer: false }), true);
+    // Focus left, pointer still on it: drawn.
+    assert.equal(nextStarsDrawn({ busy: false, drawn: true, focus: false, pointer: true }), true);
+    // Both left, nothing saving: one element again.
+    assert.equal(nextStarsDrawn({ busy: false, drawn: true, focus: false, pointer: false }), false);
+});
+
+test('aSaveInFlightKeepsADrawnRowDrawn', () => {
+    assert.equal(nextStarsDrawn({ busy: true, drawn: true, focus: false, pointer: false }), true);
+    // A row never drawn does not draw because another row is saving.
+    assert.equal(nextStarsDrawn({ busy: true, drawn: false, focus: false, pointer: false }), false);
+    // The save settles: back to one element.
+    assert.equal(nextStarsDrawn({ busy: false, drawn: true, focus: false, pointer: false }), false);
 });

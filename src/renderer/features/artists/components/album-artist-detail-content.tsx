@@ -1,11 +1,12 @@
 import { useQuery, UseSuspenseQueryResult } from '@tanstack/react-query';
-import { type KeyboardEvent, useCallback, useMemo } from 'react';
+import { type KeyboardEvent, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { generatePath, Link, useParams } from 'react-router';
 
 import styles from './album-artist-detail-content.module.css';
 
 import { artistsQueries } from '/@/renderer/features/artists/api/artists-api';
+import { HeldRows, nextHeldRows } from '/@/renderer/features/artists/artist-track-list-model';
 import { AlbumArtistGridCarousel } from '/@/renderer/features/artists/components/album-artist-grid-carousel';
 import { ArtistShelves } from '/@/renderer/features/artists/components/artist-shelves';
 import {
@@ -147,6 +148,27 @@ const topSongsPath = ({
               albumArtistId: albumArtistId ?? '',
           });
 
+const songId = (song: Song) => song.id;
+
+/**
+ * B-266: Popular's rows for one visit and one Everyone / Yours choice (`key`): a refetch (a counted
+ * play, a rating, a favourite) updates each row in place and never reorders the list under the
+ * user. A new visit (the page mounts again, Back included) or a new `key` shows the new order.
+ */
+const useHeldRows = (fresh: Song[], fetching: boolean, key: string): Song[] => {
+    const [held, setHeld] = useState<HeldRows<Song> | null>(null);
+    const next = nextHeldRows(held, { fetching, fresh, key }, songId);
+    if (!sameHeldRows(held, next)) setHeld(next);
+    return next.rows;
+};
+
+const sameHeldRows = (a: HeldRows<Song> | null, b: HeldRows<Song>): boolean =>
+    !!a &&
+    a.key === b.key &&
+    a.settled === b.settled &&
+    a.rows.length === b.rows.length &&
+    a.rows.every((row, i) => row === b.rows[i]);
+
 const ArtistPopular = ({
     detailQuery,
     routeId,
@@ -172,7 +194,11 @@ const ArtistPopular = ({
         }),
         enabled: canStartQuery,
     });
-    const songs = topSongsQuery.data?.items ?? NO_SONGS;
+    const songs = useHeldRows(
+        topSongsQuery.data?.items ?? NO_SONGS,
+        topSongsQuery.isFetching,
+        `${serverId}:${routeId}:${type}`,
+    );
     const isLoading = topSongsQuery.isLoading;
 
     if (!canStartQuery) return null;
