@@ -50,7 +50,6 @@ export const usePlayingFrom = (): PlayingFrom => {
     const engine = words.mode !== 'fallback';
     return playingFrom({
         autoplay: words.autoplay,
-        character: engine ? words.character : null,
         device: isRemote ? deviceName : null,
         engine,
         kind: record?.sourceKind ?? null,

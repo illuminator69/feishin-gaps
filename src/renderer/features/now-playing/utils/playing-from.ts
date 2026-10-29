@@ -2,7 +2,6 @@
 // component builds the sentences with `t()`. No `/@/` import, no store, no React.
 
 export interface PlayingFrom {
-    character: null | string;
     device: null | string;
     kind: null | PlayingFromKind;
     state: PlayingFromState;
@@ -11,7 +10,6 @@ export interface PlayingFrom {
 
 export interface PlayingFromInput {
     autoplay: boolean;
-    character: null | string;
     device: null | string;
     engine: boolean;
     kind: null | string;
@@ -47,7 +45,7 @@ export function playingFrom(input: PlayingFromInput): PlayingFrom {
     else if (input.stationState === 'bound') state = kind === 'radio' ? 'running' : 'continues';
     else state = input.autoplay ? 'continues' : 'off';
 
-    return { character: input.character, device: input.device, kind, state, title };
+    return { device: input.device, kind, state, title };
 }
 
 /**

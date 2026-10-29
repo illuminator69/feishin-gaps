@@ -15,7 +15,6 @@ import { playingFrom, playingFromLine } from './playing-from.ts';
 
 const input = (over: Partial<PlayingFromInput> = {}): PlayingFromInput => ({
     autoplay: true,
-    character: 'balanced',
     device: null,
     engine: true,
     kind: 'album',
@@ -29,7 +28,6 @@ const input = (over: Partial<PlayingFromInput> = {}): PlayingFromInput => ({
 test('anAlbumQueueWithTheStationBoundContinues', () => {
     const out = playingFrom(input({ stationName: 'Lantern Season radio', stationState: 'bound' }));
     assert.deepEqual(out, {
-        character: 'balanced',
         device: null,
         kind: 'album',
         state: 'continues',
@@ -139,7 +137,12 @@ test('aRemoteSessionCarriesTheDeviceName', () => {
     );
     assert.equal(out.device, 'Pixel 8');
     assert.equal(out.title, 'Wren Songs');
-    assert.equal(out.character, 'balanced');
+});
+
+test('theHeaderCarriesNoCharacter', () => {
+    // R15 review M2: the line under the title no longer names the character (the characters row
+    // does), so nothing reads it from here.
+    assert.equal('character' in playingFrom(input()), false);
 });
 
 /*
