@@ -68,6 +68,7 @@ import {
     useIsActiveRow,
     useItemTableListColumnResizeLive,
 } from '/@/renderer/components/item-list/item-table-list/item-table-list-context';
+import { showFullTextWhenCut } from '/@/renderer/components/item-list/item-table-list/utils/full-text-when-cut';
 import { ItemControls, ItemListItem } from '/@/renderer/components/item-list/types';
 import { Flex } from '/@/shared/components/flex/flex';
 import { Icon } from '/@/shared/components/icon/icon';
@@ -825,12 +826,10 @@ export const TableColumnTextContainer = (
             style={clampHeight !== null ? { height: clampHeight } : props.style}
         >
             <Text
-                className={clsx(styles.content, props.className, {
-                    [styles.compact]: props.size === 'compact',
-                    [styles.large]: props.size === 'large',
-                })}
+                className={clsx(styles.content, props.className)}
                 isMuted={!NonMutedColumns.includes(props.type)}
                 isNoSelect
+                onMouseEnter={(event) => showFullTextWhenCut(event.currentTarget)}
             >
                 {props.children}
             </Text>

@@ -13,6 +13,7 @@ import {
     TableColumnContainer,
 } from '/@/renderer/components/item-list/item-table-list/item-table-list-column';
 import { useIsActiveRow } from '/@/renderer/components/item-list/item-table-list/item-table-list-context';
+import { showFullTextWhenCut } from '/@/renderer/components/item-list/item-table-list/utils/full-text-when-cut';
 import { JoinedArtists } from '/@/renderer/features/albums/components/joined-artists';
 import { useRemoteRowArtists } from '/@/renderer/features/hub/hooks/use-remote-aware';
 import { PlayButton } from '/@/renderer/features/shared/components/play-button';
@@ -167,6 +168,7 @@ export const DefaultTitleCombinedColumn = (props: ItemTableListInnerColumn) => {
                             [styles.large]: props.size === 'large',
                         })}
                         isNoSelect
+                        onMouseEnter={(event) => showFullTextWhenCut(event.currentTarget)}
                         size="md"
                         truncate
                         {...titleLinkProps}
@@ -174,7 +176,10 @@ export const DefaultTitleCombinedColumn = (props: ItemTableListInnerColumn) => {
                         <ExplicitIndicator explicitStatus={item?.explicitStatus} />
                         {item.name as string}
                     </Text>
-                    <div className={styles.artists}>
+                    <div
+                        className={styles.artists}
+                        onMouseEnter={(event) => showFullTextWhenCut(event.currentTarget)}
+                    >
                         <JoinedArtists
                             artistName={item.albumArtist}
                             artists={item.albumArtists}
@@ -338,6 +343,7 @@ export const QueueSongTitleCombinedColumn = (props: ItemTableListInnerColumn) =>
                             [styles.title]: true,
                         })}
                         isNoSelect
+                        onMouseEnter={(event) => showFullTextWhenCut(event.currentTarget)}
                         size="md"
                         truncate
                         {...titleLinkProps}
@@ -356,7 +362,11 @@ export const QueueSongTitleCombinedColumn = (props: ItemTableListInnerColumn) =>
                             </span>
                         )}
                     </Text>
-                    <div className={styles.artists} onClick={stopLinkClick}>
+                    <div
+                        className={styles.artists}
+                        onClick={stopLinkClick}
+                        onMouseEnter={(event) => showFullTextWhenCut(event.currentTarget)}
+                    >
                         <JoinedArtists
                             artistName={item.artistName}
                             artists={rowArtists}
@@ -402,6 +412,7 @@ export const QueueSongTitleCombinedColumn = (props: ItemTableListInnerColumn) =>
                 <Text
                     className={styles.title}
                     isNoSelect
+                    onMouseEnter={(event) => showFullTextWhenCut(event.currentTarget)}
                     size="md"
                     truncate
                     {...titleLinkProps}
