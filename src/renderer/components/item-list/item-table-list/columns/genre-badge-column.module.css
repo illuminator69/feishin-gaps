@@ -15,27 +15,29 @@
 }
 
 /* A badge shrinks only to its own padding, so at the 40 px floor two badges were empty pills, the
-   second cut through by the cell, with no ellipsis. Each width step shows only as many badges as
-   can each keep a readable label (about 30 px); the rest are hidden whole and named by the
-   tooltip. The narrowest step keeps one badge with tighter padding, so its label ends in an
-   ellipsis. */
-@container (width < 136px) {
+   second cut through by the cell, with no ellipsis. Each width step draws only as many badges as
+   can each keep about 20 px of label (a badge of about 38 px plus the 4 px gap: 80, 122 and 164 px
+   of content, measured on the VM); the rest are hidden whole and named by the tooltip. Below 64 px
+   the one badge left has tighter padding, so its label still ends in an ellipsis. */
+@container (width < 164px) {
     .group > :nth-child(n + 4) {
         display: none;
     }
 }
 
-@container (width < 100px) {
+@container (width < 122px) {
     .group > :nth-child(n + 3) {
         display: none;
     }
 }
 
-@container (width < 64px) {
+@container (width < 80px) {
     .group > :nth-child(n + 2) {
         display: none;
     }
+}
 
+@container (width < 64px) {
     .cell .group > * {
         padding-inline: 2px;
     }

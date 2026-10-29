@@ -94,12 +94,13 @@ test('everyTextCellShowsItsFullTextWhenCut', () => {
 test('genreBadgesHideWholeInsteadOfCuttingThrough', () => {
     const css = read('./columns/genre-badge-column.module.css');
     assert.match(block(css, '.cell {'), /container-type: inline-size;/);
-    const narrowest = block(css, '@container (width < 64px)');
-    assert.match(narrowest, /\.group > :nth-child\(n \+ 2\)/);
-    assert.match(narrowest, /display: none;/);
-    assert.match(narrowest, /padding-inline:/);
-    assert.match(css, /@container \(width < 100px\)[\s\S]*?\.group > :nth-child\(n \+ 3\)/);
-    assert.match(css, /@container \(width < 136px\)[\s\S]*?\.group > :nth-child\(n \+ 4\)/);
+    // Each drawn badge keeps about 20 px of label: 1, 2, 3 badges below 80, 122, 164 px of content.
+    const one = block(css, '@container (width < 80px)');
+    assert.match(one, /\.group > :nth-child\(n \+ 2\)/);
+    assert.match(one, /display: none;/);
+    assert.match(block(css, '@container (width < 64px)'), /padding-inline:/);
+    assert.match(css, /@container \(width < 122px\)[\s\S]*?\.group > :nth-child\(n \+ 3\)/);
+    assert.match(css, /@container \(width < 164px\)[\s\S]*?\.group > :nth-child\(n \+ 4\)/);
     const source = read('./columns/genre-badge-column.tsx');
     assert.match(source, /className=\{styles\.cell\}/);
 });
