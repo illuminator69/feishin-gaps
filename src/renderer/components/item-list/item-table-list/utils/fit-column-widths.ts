@@ -173,12 +173,49 @@ export function ownWidthForResize(
 }
 
 /**
+ * B-267: the columns that keep their floor in the shrink band, by `TableColumn` id. A number, a
+ * duration, a date, a size, a count or a short code reads wrong when it is cut ("3:45" at 22 px
+ * of text showed "3:..."); the row index, the heart, the cover and the row controls are icons or
+ * numbers too, even dragged wider than an icon. Rating is kept apart (`RATING_ID`).
+ */
+const KEEPS_ITS_FLOOR_IDS: ReadonlySet<string> = new Set([
+    // Icons and row controls.
+    'actions',
+    // Numbers, durations, dates, sizes, counts, codes.
+    'albumCount',
+    'bitDepth',
+    'bitRate',
+    'bpm',
+    'channels',
+    'container',
+    'createdAt',
+    'date',
+    'discNumber',
+    'duration',
+    'imageUrl',
+    'lastPlayedAt',
+    'playCount',
+    'playlistReorder',
+    'releaseDate',
+    'releaseYear',
+    'rowIndex',
+    'sampleRate',
+    'size',
+    'skip',
+    'songCount',
+    'trackNumber',
+    'userFavorite',
+    'year',
+]);
+
+/**
  * B-267: whether a column gives px when the floors overflow by less than one column's minimum.
- * Rating does not (its stars stay whole), nor do the icon columns on the `MIN_SCALE` floor (the
- * row index, the heart, the cover); Title and every other column do.
+ * Only text columns do (Title, Album, Artist, Album artist, Genre, Composer, Path, Comment and any
+ * custom text column). Rating keeps its floor (its stars stay whole), so do the columns in
+ * `KEEPS_ITS_FLOOR_IDS` and any other column on the `MIN_SCALE` floor (narrower than 100 px).
  */
 function givesInTheBand(column: FitColumn): boolean {
-    if (column.id === RATING_ID) return false;
+    if (column.id === RATING_ID || KEEPS_ITS_FLOOR_IDS.has(column.id)) return false;
     if (TITLE_IDS.has(column.id)) return true;
     return column.width * MIN_SCALE >= GENERIC_MIN_WIDTH;
 }
@@ -186,8 +223,9 @@ function givesInTheBand(column: FitColumn): boolean {
 /**
  * B-267: floors that overflow by less than one column's minimum made the grid scroll by a sliver
  * (12 px on Library Tracks, cutting the fifth star). Inside that band the table fits exactly: the
- * overflow is taken from the columns that give (`givesInTheBand`), in proportion to their floored
- * widths, so Title, the widest, gives the most. The integer px go by largest remainder (ties to
+ * overflow is taken from the columns that give (`givesInTheBand`, text only), in proportion to
+ * their floored widths, so Title, the widest, gives the most. With no text column to give, the
+ * table scrolls as it does above the threshold. The integer px go by largest remainder (ties to
  * the wider column, then the earlier one), so the total is the container. At one column's minimum
  * or more nothing changes: every column stays at its floor and the grid scrolls by the whole
  * overflow, so a sideways scroll is always at least a column's worth.

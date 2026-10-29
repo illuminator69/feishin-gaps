@@ -267,9 +267,10 @@ test('aSmallOverflowFitsTheContainer', () => {
         const widths = fitColumnWidths(columns, container);
         assert.equal(sum(widths), container, `${name}: ${widths.join(' ')}`);
     }
-    // The measured case, column by column: Title gives the most, the stars stay whole.
-    assert.deepEqual(fitColumnWidths(TRACKS, 516), [24, 194, 38, 39, 39, 39, 39, 24, 80]);
-    assert.deepEqual(fitColumnWidths(SONG_DEFAULTS, 375), [24, 177, 37, 37, 38, 38, 24]);
+    // The measured case, column by column: Title gives the most, the stars stay whole, the
+    // numbers keep their floor (below).
+    assert.deepEqual(fitColumnWidths(TRACKS, 516), [24, 192, 40, 38, 38, 40, 40, 24, 80]);
+    assert.deepEqual(fitColumnWidths(SONG_DEFAULTS, 375), [24, 173, 40, 37, 37, 40, 24]);
 });
 
 test('ratingAndIconColumnsDoNotShrinkInTheBand', () => {
@@ -328,7 +329,8 @@ test('titleGivesTheMostButNoMoreThanItsShare', () => {
         const title = at(TRACKS, widths, 'titleCombined');
         const overflow = 528 - container;
         assert.ok(title < TITLE_MIN_WIDTH, `${container}: ${title}`);
-        assert.ok(title >= TITLE_MIN_WIDTH - Math.ceil((overflow * 200) / 400), `${container}`);
+        // Title, Album and Genre give (280 px of floors); the numbers do not.
+        assert.ok(title >= TITLE_MIN_WIDTH - Math.ceil((overflow * 200) / 280), `${container}`);
         widths.forEach((w, i) => assert.ok(w <= title || i === 1, `${container}`));
     }
 });
@@ -339,11 +341,12 @@ test('aResizeInTheBandKeepsTheDraggedWidth', () => {
     for (const [id, dragged] of [
         ['album', 45],
         ['album', 50],
-        ['album', 60],
+        ['album', 55],
         ['duration', 42],
+        ['year', 60],
         ['genres', 55],
-        ['titleCombined', 197],
-        ['titleCombined', 205],
+        ['titleCombined', 195],
+        ['titleCombined', 198],
     ] as Array<[string, number]>) {
         const after = resized(TRACKS, container, id, dragged);
         const widths = fitColumnWidths(after, container);
@@ -390,15 +393,117 @@ test('aClickOnTheHandleInTheBandChangesNothing', () => {
 
 test('aDragIntoTheJumpEndsAtTheNearestWidthTheTableCanShow', () => {
     // The strict threshold: a column that gives in the band shows its floor less its share just
-    // below one column's minimum of overflow, and its whole floor at it. Title at 516 shows 206 at
+    // below one column's minimum of overflow, and its whole floor at it. Title at 516 shows 198 at
     // most in the band and 228 at least past it; a drag between ends at the nearer of the two.
     for (const [dragged, shown] of [
-        [210, 206],
-        [216, 206],
-        [217, 228],
+        [205, 198],
+        [212, 198],
+        [214, 228],
         [225, 228],
     ] as Array<[number, number]>) {
         const after = resized(TRACKS, 516, 'titleCombined', dragged);
         assert.equal(at(after, fitColumnWidths(after, 516), 'titleCombined'), shown, `${dragged}`);
     }
+});
+
+/*
+ * B-267, controller ruling on the review of the shrink: a number, a duration, a date, a size or a
+ * count reads wrong when it is cut ("3:45" at 22 px of text showed "3:..."), so in the band those
+ * columns keep their floor, like Rating and the icon columns; only text columns give.
+ */
+
+const NUMERIC_IDS = [
+    'actions',
+    'albumCount',
+    'bitDepth',
+    'bitRate',
+    'bpm',
+    'channels',
+    'container',
+    'createdAt',
+    'date',
+    'discNumber',
+    'duration',
+    'lastPlayedAt',
+    'playCount',
+    'releaseDate',
+    'releaseYear',
+    'rowIndex',
+    'sampleRate',
+    'size',
+    'songCount',
+    'trackNumber',
+    'userFavorite',
+    'year',
+];
+
+test('numericColumnsDoNotGiveInTheBand', () => {
+    // Library Tracks at 516: Duration, Year and Bitrate stay at 40; Title, Album, Genre give.
+    const tracks = fitColumnWidths(TRACKS, 516);
+    for (const id of ['duration', 'year', 'bitRate']) {
+        assert.equal(at(TRACKS, tracks, id), GENERIC_MIN_WIDTH, `${id}: ${tracks.join(' ')}`);
+    }
+    assert.equal(sum(tracks), 516);
+    // Every such column, at its own default width or a dragged one, beside text columns: a
+    // table wide enough (over 400 px) for Title's floor to be its full 200.
+    for (const id of NUMERIC_IDS) {
+        for (const width of [100, 150, 300]) {
+            const columns = [
+                col('titleCombined', 300),
+                col('album', 300),
+                col('genres', 300),
+                col('path', 300),
+                col(id, width),
+                col('userRating', 100),
+            ];
+            const floors = floorsTotal(columns, 1000);
+            for (const container of [floors - 1, floors - 20, floors - 39]) {
+                assert.equal(floorsTotal(columns, container), floors, `${id} ${container}`);
+                const widths = fitColumnWidths(columns, container);
+                assert.equal(
+                    widths[4],
+                    Math.round(columnMinWidth(columns[4], container)),
+                    `${id} ${width} in ${container}: ${widths.join(' ')}`,
+                );
+                assert.equal(sum(widths), container, `${id} ${width} in ${container}`);
+            }
+        }
+    }
+});
+
+test('textColumnsGiveInProportionToTheirFloors', () => {
+    for (const id of [
+        'album',
+        'albumArtists',
+        'artists',
+        'genres',
+        'composer',
+        'path',
+        'comment',
+    ]) {
+        const columns = [
+            col('titleCombined', 300),
+            col(id, 300),
+            col('duration', 100),
+            col('userRating', 100),
+            col('year', 200),
+            col('bitRate', 100),
+            col('size', 100),
+        ];
+        // 480 px of floors in 466: 14 px, from Title and the text column alone (200 : 40).
+        assert.deepEqual(fitColumnWidths(columns, 466), [188, 38, 40, 80, 40, 40, 40], id);
+    }
+});
+
+test('withNoTextColumnTheBandScrolls', () => {
+    // Nothing can give: the table scrolls by the overflow, as it does above the threshold.
+    const columns = [
+        col('rowIndex', 60),
+        col('duration', 100),
+        col('year', 200),
+        col('userRating', 100),
+    ];
+    const widths = fitColumnWidths(columns, 180);
+    assert.deepEqual(widths, [24, 40, 40, 80]);
+    assert.equal(sum(widths) - 180, 4);
 });
