@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 /**
@@ -79,5 +79,73 @@ test('everyTextCellShowsItsFullTextWhenCut', () => {
         './columns/title-artist-column.tsx',
     ]) {
         assert.match(read(path), /showFullTextWhenCut/, path);
+    }
+});
+
+/*
+ * R16 review M1: at the Genre (badge) column's 40 px floor the badges could only shrink to their
+ * own padding, so two badges showed as empty pills, the second cut through by the cell, with no
+ * ellipsis. Now the cell is a size container: at a width too narrow for another readable badge
+ * the badges past it are hidden whole, and the one left has tighter padding, so its label ends in
+ * an ellipsis. The tooltip names every genre (it listed the first four) and shows whenever a genre
+ * is not fully on screen.
+ */
+
+test('genreBadgesHideWholeInsteadOfCuttingThrough', () => {
+    const css = read('./columns/genre-badge-column.module.css');
+    assert.match(block(css, '.cell {'), /container-type: inline-size;/);
+    const narrowest = block(css, '@container (width < 64px)');
+    assert.match(narrowest, /\.group > :nth-child\(n \+ 2\)/);
+    assert.match(narrowest, /display: none;/);
+    assert.match(narrowest, /padding-inline:/);
+    assert.match(css, /@container \(width < 100px\)[\s\S]*?\.group > :nth-child\(n \+ 3\)/);
+    assert.match(css, /@container \(width < 136px\)[\s\S]*?\.group > :nth-child\(n \+ 4\)/);
+    const source = read('./columns/genre-badge-column.tsx');
+    assert.match(source, /className=\{styles\.cell\}/);
+});
+
+test('theGenreBadgeTooltipNamesEveryGenre', () => {
+    const source = read('./columns/genre-badge-column.tsx');
+    const handler = source.slice(source.indexOf('onMouseEnter'), source.indexOf('wrap="nowrap"'));
+    assert.doesNotMatch(handler, /slice\(0, MAX_GENRES\)/);
+    assert.match(handler, /genres\.length > MAX_GENRES/);
+});
+
+/*
+ * R16 review M2: the playable row index wore a native tooltip of its own number beside its play
+ * popover. A row number is not text cut mid-word; the index cell does not wire the full text.
+ */
+
+test('theRowIndexGetsNoFullTextTooltip', () => {
+    const source = read('./item-table-list-column.tsx');
+    const container = source.slice(
+        source.indexOf('export const TableColumnTextContainer'),
+        source.indexOf('export const TableColumnContainer'),
+    );
+    assert.match(container, /props\.type === TableColumn\.ROW_INDEX\s*\?\s*undefined/);
+});
+
+/*
+ * R16 review M3: the branch deleted `.content.compact` / `.content.large`, so `styles.compact` and
+ * `styles.large` were undefined and cells got a literal "undefined" class. Every class a cell
+ * names must exist in its module.
+ */
+
+test('everyCellClassExistsInItsModule', () => {
+    const files = [
+        './item-table-list-column.tsx',
+        ...readdirSync(new URL('./columns/', import.meta.url))
+            .filter((name) => name.endsWith('.tsx'))
+            .map((name) => `./columns/${name}`),
+    ];
+    for (const path of files) {
+        const source = read(path);
+        const module = /from '(\.\/[a-z-]+\.module\.css)'/.exec(source)?.[1];
+        if (!module) continue;
+        const css = read(new URL(module, new URL(path, import.meta.url)).href);
+        for (const [, key] of source.matchAll(/styles\.([a-zA-Z]+)/g)) {
+            const kebab = key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+            assert.match(css, new RegExp(`\\.${kebab}(?![\\w-])`), `${path}: styles.${key}`);
+        }
     }
 });

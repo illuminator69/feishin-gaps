@@ -78,3 +78,15 @@ test('anEmptyCellGetsNoTitle', () => {
     showFullTextWhenCut(empty);
     assert.equal(empty.attributes.has('title'), false);
 });
+
+test('aHiddenPartCountsAsCut', () => {
+    // R16 review M1: genre badges past the ones that fit are hidden whole (and a song can have
+    // more genres than the cell draws): nothing on screen is cut, yet a genre is not shown.
+    const badges = target(box(24, 24), 'Indie', [box(20, 20)]);
+    showFullTextWhenCut(badges, 'Indie, Rock, Shoegaze', true);
+    assert.equal(badges.attributes.get('title'), 'Indie, Rock, Shoegaze');
+    const all = target(box(200, 200), 'IndieRock', [box(40, 40), box(40, 40)]);
+    all.attributes.set('title', 'stale');
+    showFullTextWhenCut(all, 'Indie, Rock', false);
+    assert.equal(all.attributes.has('title'), false);
+});

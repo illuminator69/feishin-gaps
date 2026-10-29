@@ -177,11 +177,15 @@ export function ownWidthForResize(
  * duration, a date, a size, a count or a short code reads wrong when it is cut ("3:45" at 22 px
  * of text showed "3:..."); the row index, the heart, the cover and the row controls are icons or
  * numbers too, even dragged wider than an icon. Rating is kept apart (`RATING_ID`).
+ *
+ * One alphabetical list of both kinds: numbers, durations, dates, sizes, counts and codes, and the
+ * icon and row-control columns (`actions`, `imageUrl`, `playlistReorder`, `rowIndex`, `skip`,
+ * `userFavorite`). The ids are string literals because this helper is pure; a new `TableColumn`
+ * id fails `everyTableColumnIsClassifiedForTheBand` in the harness until it is listed here or
+ * there as a column that gives.
  */
 const KEEPS_ITS_FLOOR_IDS: ReadonlySet<string> = new Set([
-    // Icons and row controls.
     'actions',
-    // Numbers, durations, dates, sizes, counts, codes.
     'albumCount',
     'bitDepth',
     'bitRate',

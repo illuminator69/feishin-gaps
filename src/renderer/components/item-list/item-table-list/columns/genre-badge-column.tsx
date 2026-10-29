@@ -33,17 +33,19 @@ const GenreBadgeColumn = (props: ItemTableListInnerColumn) => {
 
     if (Array.isArray(row)) {
         return (
-            <TableColumnContainer {...props}>
-                {/* One row of badges (B-267); a badge cut by the cell ellipsises its own label. */}
+            <TableColumnContainer {...props} className={styles.cell}>
+                {/* One row of badges (B-267); a badge cut by the cell ellipsises its own label, and
+                    the badges past the ones the cell's width can show are hidden whole (the CSS). */}
                 <Group
                     className={styles.group}
                     onMouseEnter={(event) =>
                         showFullTextWhenCut(
                             event.currentTarget,
-                            genres
-                                .slice(0, MAX_GENRES)
-                                .map((genre) => genre.name)
-                                .join(', '),
+                            genres.map((genre) => genre.name).join(', '),
+                            genres.length > MAX_GENRES ||
+                                Array.from(event.currentTarget.children).some(
+                                    (badge) => badge.getClientRects().length === 0,
+                                ),
                         )
                     }
                     wrap="nowrap"

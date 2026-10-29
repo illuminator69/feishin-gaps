@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import type { FitColumn } from './fit-column-widths.ts';
@@ -506,4 +507,66 @@ test('withNoTextColumnTheBandScrolls', () => {
     const widths = fitColumnWidths(columns, 180);
     assert.deepEqual(widths, [24, 40, 40, 80]);
     assert.equal(sum(widths) - 180, 4);
+});
+
+/*
+ * R16 review M4: `KEEPS_ITS_FLOOR_IDS` is string literals (the helper is pure and cannot import
+ * `TableColumn`), so a numeric column added to the enum later would give in the band silently.
+ * Every `TableColumn` id is listed here as keeping its floor or giving, and the behaviour is
+ * checked for each: a new id fails this test until it is classified (in `KEEPS_ITS_FLOOR_IDS`
+ * when its cell is a number, a date, a size, a count, a code or an icon).
+ */
+
+const KEEPS_ITS_FLOOR = [...NUMERIC_IDS, 'imageUrl', 'playlistReorder', 'skip', 'userRating'];
+
+const GIVES = [
+    '__layoutFill',
+    'album',
+    'albumArtists',
+    'albumGroup',
+    'artists',
+    'biography',
+    'comment',
+    'composer',
+    'genreBadge',
+    'genres',
+    'id',
+    'name',
+    'path',
+    'titleArtist',
+    'titleCombined',
+    'username',
+];
+
+test('everyTableColumnIsClassifiedForTheBand', () => {
+    const types = readFileSync(
+        new URL('../../../../../shared/types/types.ts', import.meta.url),
+        'utf8',
+    );
+    const start = types.indexOf('export enum TableColumn {');
+    const body = types.slice(start, types.indexOf('\n}', start));
+    const ids = [...body.matchAll(/= '([^']+)'/g)].map((match) => match[1]);
+    assert.ok(ids.length > 40, `${ids.length} ids`);
+    assert.deepEqual(
+        ids.filter((id) => !KEEPS_ITS_FLOOR.includes(id) && !GIVES.includes(id)),
+        [],
+        'unclassified TableColumn ids',
+    );
+    // The behaviour: a 300 px column beside text columns, 15 px of overflow (a table over 400 px,
+    // so Title's floor is its full 200): it gives, or it keeps its floor.
+    for (const id of ids.filter((id) => !['name', 'titleArtist', 'titleCombined'].includes(id))) {
+        const columns = [
+            col('titleCombined', 300),
+            col('album', 300),
+            col('genres', 300),
+            col('path', 300),
+            col(id, 300),
+            col('userRating', 100),
+        ];
+        const container = floorsTotal(columns, 1000) - 15;
+        assert.ok(container > 400, `${id}: ${container}`);
+        const widths = fitColumnWidths(columns, container);
+        const kept = widths[4] === Math.round(columnMinWidth(columns[4], container));
+        assert.equal(kept, KEEPS_ITS_FLOOR.includes(id), `${id}: ${widths.join(' ')}`);
+    }
 });

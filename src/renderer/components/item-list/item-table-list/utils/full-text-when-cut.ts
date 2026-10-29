@@ -28,10 +28,17 @@ export function isCut(box: CutBox): boolean {
  * tooltip), so a cell gets the native `title` attribute: it costs no node per cell, unlike a
  * tooltip component, and is set when the pointer enters, only when the cell (or a box inside it,
  * such as a genre badge) is cut. `fullText` names the text when the cell's own text does not read
- * as one line (badges have no separator between them).
+ * as one line (badges have no separator between them). `partHidden` says that some of the text is
+ * not drawn at all (genre badges past the ones that fit, or past the four a cell draws), which no
+ * box measure shows.
  */
-export function showFullTextWhenCut(element: FullTextTarget, fullText?: string): void {
-    const cut = isCut(element) || Array.from(element.querySelectorAll('*')).some(isCut);
+export function showFullTextWhenCut(
+    element: FullTextTarget,
+    fullText?: string,
+    partHidden = false,
+): void {
+    const cut =
+        partHidden || isCut(element) || Array.from(element.querySelectorAll('*')).some(isCut);
     const text = (fullText ?? element.textContent ?? '').replace(/\s+/g, ' ').trim();
     if (cut && text) element.setAttribute('title', text);
     else element.removeAttribute('title');

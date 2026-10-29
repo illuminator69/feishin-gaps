@@ -796,10 +796,8 @@ export const TableColumnTextContainer = (
                 [styles.alternateRowOdd]:
                     props.enableAlternateRowColors && isDataRow && dataIndex % 2 === 1,
                 [styles.center]: props.columns[props.columnIndex].align === 'center',
-                [styles.compact]: props.size === 'compact',
                 [styles.dataRow]: isDataRow,
                 [styles.dragging]: isDataRow && isDragging,
-                [styles.large]: props.size === 'large',
                 [styles.left]: props.columns[props.columnIndex].align === 'start',
                 [styles.noHorizontalPadding]: isNoHorizontalPaddingColumn(props.type),
                 [styles.paddingLg]: props.cellPadding === 'lg',
@@ -829,7 +827,12 @@ export const TableColumnTextContainer = (
                 className={clsx(styles.content, props.className)}
                 isMuted={!NonMutedColumns.includes(props.type)}
                 isNoSelect
-                onMouseEnter={(event) => showFullTextWhenCut(event.currentTarget)}
+                // A row number is not text cut mid-word, and its play popover sits there (R16 M2).
+                onMouseEnter={
+                    props.type === TableColumn.ROW_INDEX
+                        ? undefined
+                        : (event) => showFullTextWhenCut(event.currentTarget)
+                }
             >
                 {props.children}
             </Text>
@@ -967,10 +970,8 @@ export const TableColumnContainer = (
                 [styles.alternateRowOdd]:
                     props.enableAlternateRowColors && isDataRow && dataIndex % 2 === 1,
                 [styles.center]: props.columns[props.columnIndex].align === 'center',
-                [styles.compact]: props.size === 'compact',
                 [styles.dataRow]: isDataRow,
                 [styles.dragging]: isDataRow && isDragging,
-                [styles.large]: props.size === 'large',
                 [styles.left]: props.columns[props.columnIndex].align === 'start',
                 [styles.noHorizontalPadding]: isNoHorizontalPaddingColumn(props.type),
                 [styles.noVerticalPadding]:
