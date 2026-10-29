@@ -55,22 +55,23 @@ const at = (columns: FitColumn[], widths: number[], id: string) =>
     widths[columns.findIndex((c) => c.id === id)];
 
 test('titleKeepsItsMinimum', () => {
-    for (const container of [400, 490, 600, 790]) {
+    // Outside the shrink band (B-267, below): 528 px of floors in 400 or 480 px overflow by 40 or more.
+    for (const container of [400, 480, 600, 790]) {
         const widths = fitColumnWidths(TRACKS, container);
         assert.ok(
             at(TRACKS, widths, 'titleCombined') >= Math.min(TITLE_MIN_WIDTH, container / 2),
             `${container}: ${widths.join(' ')}`,
         );
     }
-    assert.ok(at(TRACKS, fitColumnWidths(TRACKS, 490), 'titleCombined') >= TITLE_MIN_WIDTH);
+    assert.ok(at(TRACKS, fitColumnWidths(TRACKS, 480), 'titleCombined') >= TITLE_MIN_WIDTH);
 });
 
 test('overflowScrollsInsteadOfCrushing', () => {
-    const widths = fitColumnWidths(TRACKS, 490);
+    const widths = fitColumnWidths(TRACKS, 480);
     // Wider than the container: the grid scrolls sideways.
-    assert.ok(sum(widths) > 490, widths.join(' '));
+    assert.ok(sum(widths) > 480, widths.join(' '));
     TRACKS.forEach((column, i) => {
-        assert.ok(widths[i] >= columnMinWidth(column, 490), `${column.id} ${widths[i]}`);
+        assert.ok(widths[i] >= columnMinWidth(column, 480), `${column.id} ${widths[i]}`);
     });
 });
 
@@ -236,4 +237,168 @@ test('aDragWiderNeverShowsNarrower', () => {
 test('aPinnedColumnResizesToThePxDragged', () => {
     const columns = [col('rowIndex', 60, 'left'), ...TRACKS.slice(1)];
     assert.equal(ownWidthForResize(columns, 490, 0, 90), 90);
+});
+
+/*
+ * B-267: when the floors overflowed by less than one column's minimum the grid scrolled sideways by
+ * a sliver (Library Tracks with the queue docked and Filters open: 528 px of floors in 516, a 12 px
+ * scroll that cut the fifth star; 36 px at 1100 x 700; the playlist and Now Playing at 375 px by
+ * 21 px). Inside that band the table now fits its container exactly: the overflow is taken from
+ * the columns other than Rating and the icon columns, in proportion to their floored widths.
+ */
+
+const floorsTotal = (columns: FitColumn[], container: number) =>
+    columns.reduce(
+        (total, c) =>
+            total + (c.pinned !== null ? c.width : Math.round(columnMinWidth(c, container))),
+        0,
+    );
+
+test('aSmallOverflowFitsTheContainer', () => {
+    const cases: Array<[string, FitColumn[], number]> = [
+        ['Library Tracks, 1440 x 900, queue docked and Filters open', TRACKS, 516],
+        ['Library Tracks, 1100 x 700', TRACKS, 492],
+        ['the playlist at 375 px', SONG_DEFAULTS, 375],
+        ['the Now Playing page at 375 px', SONG_DEFAULTS, 375],
+    ];
+    for (const [name, columns, container] of cases) {
+        const overflow = floorsTotal(columns, container) - container;
+        assert.ok(overflow > 0 && overflow < GENERIC_MIN_WIDTH, `${name}: overflow ${overflow}`);
+        const widths = fitColumnWidths(columns, container);
+        assert.equal(sum(widths), container, `${name}: ${widths.join(' ')}`);
+    }
+    // The measured case, column by column: Title gives the most, the stars stay whole.
+    assert.deepEqual(fitColumnWidths(TRACKS, 516), [24, 194, 38, 39, 39, 39, 39, 24, 80]);
+    assert.deepEqual(fitColumnWidths(SONG_DEFAULTS, 375), [24, 177, 37, 37, 38, 38, 24]);
+});
+
+test('ratingAndIconColumnsDoNotShrinkInTheBand', () => {
+    const withCover = [TRACKS[0], col('image', 70), ...TRACKS.slice(1)];
+    for (const columns of [TRACKS, withCover]) {
+        const floors = floorsTotal(columns, 1000);
+        for (let container = floors - GENERIC_MIN_WIDTH + 1; container < floors; container++) {
+            const widths = fitColumnWidths(columns, container);
+            for (const id of ['rowIndex', 'image', 'userFavorite', 'userRating']) {
+                const index = columns.findIndex((c) => c.id === id);
+                if (index < 0) continue;
+                assert.equal(
+                    widths[index],
+                    Math.round(columnMinWidth(columns[index], container)),
+                    `${container} ${id}: ${widths.join(' ')}`,
+                );
+            }
+            assert.equal(at(columns, widths, 'userRating'), RATING_MIN_WIDTH, `${container}`);
+        }
+    }
+});
+
+test('anOverflowOfOneColumnStillScrolls', () => {
+    // 528 px of floors: 488 overflows by exactly one column's minimum, 340 by far more.
+    for (const container of [488, 470, 340]) {
+        const widths = fitColumnWidths(TRACKS, container);
+        assert.equal(sum(widths), floorsTotal(TRACKS, container), `${container}`);
+        assert.ok(sum(widths) - container >= GENERIC_MIN_WIDTH, `${container}`);
+        TRACKS.forEach((column, i) => {
+            assert.equal(widths[i], Math.round(columnMinWidth(column, container)), column.id);
+        });
+    }
+});
+
+test('theBandTotalIsExactlyTheContainer', () => {
+    // Every width a window passes through: never a sideways scroll under one column's minimum.
+    for (const columns of [TRACKS, SONG_DEFAULTS, FULL_SCREEN, QUEUE]) {
+        for (let container = 150; container <= 900; container++) {
+            const widths = fitColumnWidths(columns, container);
+            const scroll = sum(widths) - container;
+            assert.ok(
+                scroll === 0 || scroll >= GENERIC_MIN_WIDTH,
+                `${container}: scrolls ${scroll} (${widths.join(' ')})`,
+            );
+            assert.ok(
+                widths.every((w) => w >= 1),
+                `${container}: ${widths.join(' ')}`,
+            );
+        }
+    }
+});
+
+test('titleGivesTheMostButNoMoreThanItsShare', () => {
+    for (let container = 489; container < 528; container++) {
+        const widths = fitColumnWidths(TRACKS, container);
+        const title = at(TRACKS, widths, 'titleCombined');
+        const overflow = 528 - container;
+        assert.ok(title < TITLE_MIN_WIDTH, `${container}: ${title}`);
+        assert.ok(title >= TITLE_MIN_WIDTH - Math.ceil((overflow * 200) / 400), `${container}`);
+        widths.forEach((w, i) => assert.ok(w <= title || i === 1, `${container}`));
+    }
+});
+
+test('aResizeInTheBandKeepsTheDraggedWidth', () => {
+    // Tracks at 516: the floors overflow 12 px, inside the band.
+    const container = 516;
+    for (const [id, dragged] of [
+        ['album', 45],
+        ['album', 50],
+        ['album', 60],
+        ['duration', 42],
+        ['genres', 55],
+        ['titleCombined', 197],
+        ['titleCombined', 205],
+    ] as Array<[string, number]>) {
+        const after = resized(TRACKS, container, id, dragged);
+        const widths = fitColumnWidths(after, container);
+        assert.equal(sum(widths), container, `${id} ${dragged}: ${widths.join(' ')}`);
+        assert.equal(at(after, widths, id), dragged, `${id} ${dragged}: ${widths.join(' ')}`);
+    }
+});
+
+test('aResizeAcrossTheBandKeepsTheDraggedWidth', () => {
+    // Out of the band into a scroll (the dragged column alone overflows by 40 or more).
+    for (const [container, id, dragged] of [
+        [516, 'album', 90],
+        [516, 'titleCombined', 260],
+        [516, 'year', 120],
+        [492, 'genres', 100],
+    ] as Array<[number, string, number]>) {
+        const after = resized(TRACKS, container, id, dragged);
+        const widths = fitColumnWidths(after, container);
+        assert.ok(sum(widths) - container >= GENERIC_MIN_WIDTH, `${id} ${widths.join(' ')}`);
+        assert.equal(at(after, widths, id), dragged, `${container} ${id}: ${widths.join(' ')}`);
+    }
+    // From a fitting table into the band and on: a wider drag never shows narrower.
+    for (const container of [516, 492, 560]) {
+        const before = fitColumnWidths(TRACKS, container);
+        TRACKS.forEach((column, i) => {
+            for (const extra of [5, 15, 30, 60]) {
+                const wider = resized(TRACKS, container, column.id, before[i] + extra);
+                const shown = at(wider, fitColumnWidths(wider, container), column.id);
+                assert.ok(shown > before[i], `${container} ${column.id} +${extra}: ${shown}`);
+            }
+        });
+    }
+});
+
+test('aClickOnTheHandleInTheBandChangesNothing', () => {
+    for (const container of [516, 492]) {
+        const before = fitColumnWidths(TRACKS, container);
+        TRACKS.forEach((column, i) => {
+            const same = resized(TRACKS, container, column.id, before[i]);
+            assert.deepEqual(fitColumnWidths(same, container), before, `${container} ${column.id}`);
+        });
+    }
+});
+
+test('aDragIntoTheJumpEndsAtTheNearestWidthTheTableCanShow', () => {
+    // The strict threshold: a column that gives in the band shows its floor less its share just
+    // below one column's minimum of overflow, and its whole floor at it. Title at 516 shows 206 at
+    // most in the band and 228 at least past it; a drag between ends at the nearer of the two.
+    for (const [dragged, shown] of [
+        [210, 206],
+        [216, 206],
+        [217, 228],
+        [225, 228],
+    ] as Array<[number, number]>) {
+        const after = resized(TRACKS, 516, 'titleCombined', dragged);
+        assert.equal(at(after, fitColumnWidths(after, 516), 'titleCombined'), shown, `${dragged}`);
+    }
 });

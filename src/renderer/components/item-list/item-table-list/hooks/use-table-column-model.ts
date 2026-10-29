@@ -21,8 +21,9 @@ export const useTableColumnModel = ({
         const baseWidths = parsedColumns.map((c) => c.width);
 
         // When autoSizeColumns is enabled, treat unpinned widths as proportions and scale to fit
-        // the container, never below a column's minimum (B-264): when the minimums do not fit,
-        // the table scrolls sideways. Pinned columns keep their base width.
+        // the container, never below a column's minimum (B-264): when the minimums overflow by
+        // one column's minimum or more, the table scrolls sideways; by less, it shrinks to fit
+        // (B-267). Pinned columns keep their base width.
         if (autoFitColumns) {
             return fitColumnWidths(parsedColumns, totalContainerWidth);
         }
