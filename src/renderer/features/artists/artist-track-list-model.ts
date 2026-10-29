@@ -142,9 +142,44 @@ export const nextHeldRows = <T>(
 };
 
 /**
- * B-265: a row draws the full Rating while pointed at or focused, and a drawn row keeps it while a
- * rating save is in flight (R13's `busy`: the keyboard focus must not drop mid-save). Otherwise its
- * stars are one element again, so the page keeps R10's node count after an edit.
+ * How a row holds the focus, as its stars care about it (R15 review I3). A click focuses the row
+ * itself (the `<li>` is the nearest focusable), which the swap to one element does not touch, so
+ * only focus reached from the keyboard (`:focus-visible`, so Tab can go on into the stars) or
+ * focus inside the stars (which the swap would drop) keeps them drawn.
+ */
+export interface RowFocus {
+    inStars: boolean;
+    visible: boolean;
+}
+
+export const NO_ROW_FOCUS: RowFocus = { inStars: false, visible: false };
+
+export const rowFocusOf = ({
+    focusVisible,
+    inStars,
+}: {
+    focusVisible: boolean;
+    inStars: boolean;
+}): RowFocus => ({ inStars, visible: focusVisible });
+
+/**
+ * R15 review I4: a blur keeps the row's focus when it moves within the row (star to star, star to
+ * heart) or when the window lost the focus (Alt-Tab, another app): the star is still the page's
+ * active element then and gets the focus back on return, so its Rating must stay.
+ */
+export const blurKeepsRowFocus = ({
+    toInsideRow,
+    windowFocused,
+}: {
+    toInsideRow: boolean;
+    windowFocused: boolean;
+}): boolean => toInsideRow || !windowFocused;
+
+/**
+ * B-265: a row draws the full Rating while pointed at or focused (see `RowFocus`), and a drawn row
+ * keeps it while a rating save is in flight (R13's `busy`: the keyboard focus must not drop
+ * mid-save). Otherwise its stars are one element again, so the page keeps R10's node count after
+ * an edit.
  */
 export const nextStarsDrawn = ({
     busy,
@@ -154,6 +189,6 @@ export const nextStarsDrawn = ({
 }: {
     busy: boolean;
     drawn: boolean;
-    focus: boolean;
+    focus: RowFocus;
     pointer: boolean;
-}): boolean => pointer || focus || (drawn && busy);
+}): boolean => pointer || focus.visible || focus.inStars || (drawn && busy);

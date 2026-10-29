@@ -3,10 +3,12 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
+    blurKeepsRowFocus,
     hasOtherArtists,
     holdOrder,
     nextHeldRows,
     nextStarsDrawn,
+    rowFocusOf,
     staticStarsMask,
     TRACK_LIST_NARROW_PX,
     TRACK_LIST_NARROWER_PX,
@@ -258,28 +260,80 @@ test('anEmptyHeldListTakesTheFirstRows', () => {
  * is in flight (the keyboard focus must not drop mid-save); otherwise its stars are one element.
  */
 
+// How the row holds the focus, as the stars care about it.
+const NONE = { inStars: false, visible: false };
+const KEYBOARD = { inStars: false, visible: true };
+const IN_STARS = { inStars: true, visible: false };
+// A click focuses the row itself (the `<li>` is the nearest focusable): not from the keyboard,
+// not inside the stars.
+const CLICKED = { inStars: false, visible: false };
+
 test('starsDrawOnPointerOrFocus', () => {
-    assert.equal(nextStarsDrawn({ busy: false, drawn: false, focus: false, pointer: true }), true);
-    assert.equal(nextStarsDrawn({ busy: false, drawn: false, focus: true, pointer: false }), true);
+    assert.equal(nextStarsDrawn({ busy: false, drawn: false, focus: NONE, pointer: true }), true);
     assert.equal(
-        nextStarsDrawn({ busy: false, drawn: false, focus: false, pointer: false }),
-        false,
+        nextStarsDrawn({ busy: false, drawn: false, focus: KEYBOARD, pointer: false }),
+        true,
     );
+    assert.equal(
+        nextStarsDrawn({ busy: false, drawn: false, focus: IN_STARS, pointer: false }),
+        true,
+    );
+    assert.equal(nextStarsDrawn({ busy: false, drawn: false, focus: NONE, pointer: false }), false);
 });
 
 test('starsReturnToOneElementWhenPointerAndFocusLeave', () => {
-    // Pointer left, focus still in the row: drawn.
-    assert.equal(nextStarsDrawn({ busy: false, drawn: true, focus: true, pointer: false }), true);
+    // Pointer left, keyboard focus still in the row: drawn.
+    assert.equal(
+        nextStarsDrawn({ busy: false, drawn: true, focus: KEYBOARD, pointer: false }),
+        true,
+    );
     // Focus left, pointer still on it: drawn.
-    assert.equal(nextStarsDrawn({ busy: false, drawn: true, focus: false, pointer: true }), true);
+    assert.equal(nextStarsDrawn({ busy: false, drawn: true, focus: NONE, pointer: true }), true);
     // Both left, nothing saving: one element again.
-    assert.equal(nextStarsDrawn({ busy: false, drawn: true, focus: false, pointer: false }), false);
+    assert.equal(nextStarsDrawn({ busy: false, drawn: true, focus: NONE, pointer: false }), false);
 });
 
 test('aSaveInFlightKeepsADrawnRowDrawn', () => {
-    assert.equal(nextStarsDrawn({ busy: true, drawn: true, focus: false, pointer: false }), true);
+    assert.equal(nextStarsDrawn({ busy: true, drawn: true, focus: NONE, pointer: false }), true);
     // A row never drawn does not draw because another row is saving.
-    assert.equal(nextStarsDrawn({ busy: true, drawn: false, focus: false, pointer: false }), false);
+    assert.equal(nextStarsDrawn({ busy: true, drawn: false, focus: NONE, pointer: false }), false);
     // The save settles: back to one element.
-    assert.equal(nextStarsDrawn({ busy: false, drawn: true, focus: false, pointer: false }), false);
+    assert.equal(nextStarsDrawn({ busy: false, drawn: true, focus: NONE, pointer: false }), false);
+});
+
+/*
+ * R15 review I3: a mouse click (a star, or the double-click that plays the row) focuses the `<li>`,
+ * so a row edited with the mouse kept its full Rating after the pointer left. Focus counts only
+ * when reached from the keyboard or inside the stars, where the swap would drop it.
+ */
+test('aMouseFocusedRowReturnsToOneElement', () => {
+    // Rated with the mouse: drawn while pointed at.
+    assert.equal(nextStarsDrawn({ busy: false, drawn: true, focus: CLICKED, pointer: true }), true);
+    // The pointer leaves, the row keeps the click's focus: one element again.
+    assert.equal(
+        nextStarsDrawn({ busy: false, drawn: true, focus: CLICKED, pointer: false }),
+        false,
+    );
+    // A star that does hold the focus is kept drawn, however it was reached.
+    assert.equal(
+        nextStarsDrawn({ busy: false, drawn: true, focus: IN_STARS, pointer: false }),
+        true,
+    );
+    assert.deepEqual(rowFocusOf({ focusVisible: false, inStars: false }), CLICKED);
+    assert.deepEqual(rowFocusOf({ focusVisible: true, inStars: false }), KEYBOARD);
+    assert.deepEqual(rowFocusOf({ focusVisible: false, inStars: true }), IN_STARS);
+});
+
+/*
+ * R15 review I4: switching windows (Alt-Tab, another app) blurs the focused star with no related
+ * target. That is not a leave: the star is still the page's active element and gets the focus back
+ * on return, so the Rating must not unmount under it.
+ */
+test('aWindowSwitchKeepsTheStarsFocus', () => {
+    // The window lost the focus: kept.
+    assert.equal(blurKeepsRowFocus({ toInsideRow: false, windowFocused: false }), true);
+    // Star to star, star to heart: kept.
+    assert.equal(blurKeepsRowFocus({ toInsideRow: true, windowFocused: true }), true);
+    // Focus went elsewhere on the page (another row, the page itself): a leave.
+    assert.equal(blurKeepsRowFocus({ toInsideRow: false, windowFocused: true }), false);
 });

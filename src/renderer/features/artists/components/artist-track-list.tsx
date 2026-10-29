@@ -5,6 +5,7 @@ import {
     type KeyboardEvent,
     type MouseEvent,
     useMemo,
+    useRef,
     useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -19,8 +20,12 @@ import {
     JoinedArtists,
 } from '/@/renderer/features/albums/components/joined-artists';
 import {
+    blurKeepsRowFocus,
     hasOtherArtists,
     nextStarsDrawn,
+    NO_ROW_FOCUS,
+    type RowFocus,
+    rowFocusOf,
     staticStarsMask,
     TRACK_LIST_NARROW_PX,
     trackColumns,
@@ -220,13 +225,30 @@ const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: 
     // in flight (B-265: they stayed drawn until the page was left). Otherwise a rated row shows its
     // stars as one element and an unrated row shows none, so the page keeps R10's node count.
     const [pointer, setPointer] = useState(false);
-    const [focus, setFocus] = useState(false);
+    const [focus, setFocus] = useState<RowFocus>(NO_ROW_FOCUS);
     const [drawn, setDrawn] = useState(false);
+    const ratingRef = useRef<HTMLDivElement>(null);
     const starsDrawn = nextStarsDrawn({ busy: controls.ratingBusy, drawn, focus, pointer });
     if (starsDrawn !== drawn) setDrawn(starsDrawn);
-    // Focus moving between the row's own controls (star to star, star to heart) is not a leave.
+    // A click focuses the row itself and does not keep the stars drawn; Tab (focus-visible) or a
+    // star holding the focus does (R15 review I3).
+    const onFocus = (event: FocusEvent<HTMLLIElement>) => {
+        const target = event.target as HTMLElement;
+        setFocus(
+            rowFocusOf({
+                focusVisible: target.matches(':focus-visible'),
+                inStars: ratingRef.current?.contains(target) ?? false,
+            }),
+        );
+    };
+    // Focus moving between the row's own controls (star to star, star to heart) is not a leave, and
+    // neither is the window losing the focus (R15 review I4: Alt-Tab with a star focused).
     const onBlur = (event: FocusEvent<HTMLLIElement>) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocus(false);
+        const keep = blurKeepsRowFocus({
+            toInsideRow: event.currentTarget.contains(event.relatedTarget as Node | null),
+            windowFocused: document.hasFocus(),
+        });
+        if (!keep) setFocus(NO_ROW_FOCUS);
     };
     const openMenu = (event: MouseEvent<HTMLElement>) => {
         event.preventDefault();
@@ -267,7 +289,7 @@ const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: 
             onBlur={onBlur}
             onContextMenu={openMenu}
             onDoubleClick={() => onPlay(song)}
-            onFocus={() => setFocus(true)}
+            onFocus={onFocus}
             onKeyDown={onKeyDown}
             onPointerEnter={() => setPointer(true)}
             onPointerLeave={() => setPointer(false)}
@@ -328,7 +350,7 @@ const TrackRow = ({ active, artistId, controls, index, onPlay, playing, song }: 
                 )}
             </div>
             {controls.rating && (
-                <div className={styles.rating} onDoubleClick={stopDoubleClick}>
+                <div className={styles.rating} onDoubleClick={stopDoubleClick} ref={ratingRef}>
                     {!starsDrawn && song.userRating ? (
                         // Until the row is pointed at or focused, a rated row's stars are one
                         // element (R13 review M5: five Mantine stars are ~36 nodes a row).
