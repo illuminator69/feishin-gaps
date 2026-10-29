@@ -299,6 +299,14 @@
     white-space: nowrap;
 }
 
+/* B-264: a label wider than its column ends in an ellipsis. Centred in a flex box it overflowed
+   both sides and was clipped through ("BITRATE" read "'RA"). */
+.header-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .header-content::before {
     content: '\200b';
 }
@@ -489,4 +497,11 @@
     right: 4px;
     border-top-right-radius: 8px;
     border-bottom-right-radius: 8px;
+}
+
+/* B-264: the stars stay inside their cell when the column is narrower than they are (a width the
+   user set); they drew over the heart beside them. Clipped across only: a drop line above or below
+   the row still shows. */
+.rating-cell {
+    overflow-x: clip;
 }
