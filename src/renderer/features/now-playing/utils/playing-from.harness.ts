@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import type { PlayingFromInput } from './playing-from.ts';
 
-import { playingFrom } from './playing-from.ts';
+import { playingFrom, playingFromLine } from './playing-from.ts';
 
 /**
  * node --test --test-reporter=tap src/renderer/features/now-playing/utils/playing-from.harness.ts
@@ -140,4 +140,60 @@ test('aRemoteSessionCarriesTheDeviceName', () => {
     assert.equal(out.device, 'Pixel 8');
     assert.equal(out.title, 'Wren Songs');
     assert.equal(out.character, 'balanced');
+});
+
+/*
+ * The line under the title (B-251 follow-up): what the queue IS, never the autoplay state. The
+ * Autoplay switch beside the title says on / off, so toggling it must not add or remove the line.
+ */
+
+const KIND_CASES: ReadonlyArray<null | string> = [
+    null,
+    'album',
+    'journey',
+    'manual',
+    'moodFlow',
+    'playlist',
+    'radio',
+];
+
+const AUTOPLAY_CASES: ReadonlyArray<Partial<PlayingFromInput>> = [
+    { autoplay: false, engine: true, stationState: 'absent' },
+    { autoplay: true, engine: true, stationState: 'absent' },
+    { autoplay: true, engine: true, stationState: 'bound' },
+    { autoplay: false, engine: true, stationState: 'stopped' },
+    { autoplay: true, engine: false, stationState: 'absent' },
+    { autoplay: false, engine: false, stationState: 'absent' },
+];
+
+test('noKindHasNoSentence', () => {
+    for (const over of AUTOPLAY_CASES) {
+        const from = playingFrom(input({ ...over, kind: null, name: 'R8 scratch queue' }));
+        assert.equal(playingFromLine(from), null, JSON.stringify(over));
+    }
+});
+
+test('autoplayDoesNotChangeTheSentence', () => {
+    for (const kind of KIND_CASES) {
+        for (const device of [null, 'Pixel 8']) {
+            const lines = AUTOPLAY_CASES.map((over) =>
+                playingFromLine(playingFrom(input({ ...over, device, kind }))),
+            );
+            for (const line of lines) assert.deepEqual(line, lines[0], `${kind} ${device}`);
+        }
+    }
+});
+
+test('aKindNamesTheKind', () => {
+    assert.deepEqual(playingFromLine(playingFrom(input({ kind: 'album' }))), { kind: 'album' });
+    assert.deepEqual(playingFromLine(playingFrom(input({ kind: 'radio' }))), { kind: 'radio' });
+    assert.equal(playingFromLine(playingFrom(input({ kind: 'manual' }))), null);
+});
+
+test('deviceQueueNamesTheDevice', () => {
+    for (const kind of KIND_CASES) {
+        assert.deepEqual(playingFromLine(playingFrom(input({ device: 'Pixel 8', kind }))), {
+            device: 'Pixel 8',
+        });
+    }
 });

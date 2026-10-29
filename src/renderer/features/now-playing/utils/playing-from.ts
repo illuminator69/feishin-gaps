@@ -29,6 +29,9 @@ const KINDS: readonly string[] = ['album', 'journey', 'moodFlow', 'playlist', 'r
 
 const text = (value: null | string): null | string => (value?.trim() ? value : null);
 
+/** The line under the header's title: the device that plays the queue, or else its kind. */
+export type PlayingFromLine = null | { device: string } | { kind: PlayingFromKind };
+
 export function playingFrom(input: PlayingFromInput): PlayingFrom {
     const kind = KINDS.includes(input.kind ?? '') ? (input.kind as PlayingFromKind) : null;
 
@@ -45,4 +48,14 @@ export function playingFrom(input: PlayingFromInput): PlayingFrom {
     else state = input.autoplay ? 'continues' : 'off';
 
     return { character: input.character, device: input.device, kind, state, title };
+}
+
+/**
+ * What the queue IS, never the autoplay state (B-251): the Autoplay switch beside the title says
+ * on / off, so the line exists for a queue or does not, and the switch never adds or removes it.
+ * The character shows in the characters row, a bound station in its own line.
+ */
+export function playingFromLine(from: PlayingFrom): PlayingFromLine {
+    if (from.device) return { device: from.device };
+    return from.kind ? { kind: from.kind } : null;
 }

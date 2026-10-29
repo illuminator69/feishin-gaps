@@ -1984,7 +1984,6 @@
         },
         "queue": {
             "autoplay": "Autoplay",
-            "autoplayContinues": "autoplay continues after it",
             "endOfQueue": "End of queue",
             "group": {
                 "autoplay": "Autoplay",
@@ -2010,7 +2009,6 @@
             "show": "Show queue",
             "songs_one": "{{count}} song",
             "songs_other": "{{count}} songs",
-            "stopped": "stopped",
             "strip": {
                 "lyrics": "Lyrics",
                 "resize": "Drag to resize, double-click for the default height",

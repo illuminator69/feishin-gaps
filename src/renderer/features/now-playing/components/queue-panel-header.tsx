@@ -15,7 +15,7 @@ import { QueueSheetTab } from '/@/renderer/features/now-playing/components/queue
 import { usePlayingFrom } from '/@/renderer/features/now-playing/hooks/use-playing-from';
 import { useToggleQueuePanel } from '/@/renderer/features/now-playing/hooks/use-queue-panel-toggle';
 import { usePlayingRowId } from '/@/renderer/features/now-playing/hooks/use-queue-rows';
-import { PlayingFrom } from '/@/renderer/features/now-playing/utils/playing-from';
+import { playingFromLine } from '/@/renderer/features/now-playing/utils/playing-from';
 import { queueLength } from '/@/renderer/features/now-playing/utils/queue-grouping';
 import {
     autoplayIsOn,
@@ -139,9 +139,12 @@ export const QueuePanelHeader = ({
               })
             : t('naviConnect.queue.lengthMinutes', { minutes });
 
-    const sentence = playingFromSentence(from, t, (id) =>
-        words.characterLabel(id as StationCharacterId),
-    );
+    const line = playingFromLine(from);
+    const sentence = !line
+        ? null
+        : 'device' in line
+          ? t('naviConnect.queue.playingOn', { device: line.device })
+          : t(`naviConnect.queue.kind.${line.kind}`);
 
     return (
         <div className={styles.root} data-queue-header>
@@ -155,15 +158,13 @@ export const QueuePanelHeader = ({
                             <Tooltip label={from.title} multiline openDelay={500} w={320}>
                                 <span className={styles.title}>{from.title}</span>
                             </Tooltip>
-                            {/* Always a line, empty when there is nothing to say (autoplay off on
-                                a queue of no kind): it came and went with the switch and moved the
-                                list. A zero-width space holds the line's height. */}
-                            <span
-                                aria-hidden={!sentence}
-                                className={clsx(styles.caption, styles.sentence)}
-                            >
-                                {sentence ?? '\u200b'}
-                            </span>
+                            {/* What the queue is, not the autoplay state (B-251): the switch
+                                beside it says on / off, so toggling it never adds this line. */}
+                            {sentence && (
+                                <span className={clsx(styles.caption, styles.sentence)}>
+                                    {sentence}
+                                </span>
+                            )}
                         </>
                     )}
                 </div>
@@ -269,31 +270,4 @@ export const QueuePanelHeader = ({
             </div>
         </div>
     );
-};
-
-/**
- * The line under the title: the kind (or the device that plays) and the autoplay state,
- * "Album · autoplay continues after it, Blend", "Station · stopped", "Playing on Pixel 8 · Blend".
- */
-const playingFromSentence = (
-    from: PlayingFrom,
-    t: (key: string, options?: Record<string, unknown>) => string,
-    characterLabel: (id: string) => string,
-): null | string => {
-    const lead = from.device
-        ? t('naviConnect.queue.playingOn', { device: from.device })
-        : from.kind
-          ? t(`naviConnect.queue.kind.${from.kind}`)
-          : null;
-    const character = from.character ? characterLabel(from.character) : null;
-    let state: null | string = null;
-    if (from.state === 'continues') {
-        state = from.device
-            ? character
-            : [t('naviConnect.queue.autoplayContinues'), character].filter(Boolean).join(', ');
-    } else if (from.state === 'running') state = character;
-    else if (from.state === 'stopped') state = t('naviConnect.queue.stopped');
-    else if (from.state === 'autoDj') state = t('setting.autoDJ');
-    const parts = [lead, state].filter((part): part is string => Boolean(part));
-    return parts.length > 0 ? parts.join(' · ') : null;
 };
