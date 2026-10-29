@@ -1105,6 +1105,8 @@ const ColumnResizeHandle = ({
         event.stopPropagation();
         setIsDragging(true);
         startWidthRef.current = initialWidth;
+        // A click with no drag ends at the width it started from, not at the last drag's width.
+        finalWidthRef.current = initialWidth;
         startXRef.current = event.clientX;
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';

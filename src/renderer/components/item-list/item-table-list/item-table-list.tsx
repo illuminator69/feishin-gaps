@@ -68,6 +68,7 @@ import {
     createTableScrollShadowStore,
     type TableScrollShadowStore,
 } from '/@/renderer/components/item-list/item-table-list/table-scroll-shadow-store';
+import { ownWidthForResize } from '/@/renderer/components/item-list/item-table-list/utils/fit-column-widths';
 import {
     ItemControls,
     ItemListHandle,
@@ -1718,9 +1719,36 @@ const BaseItemTableList = ({
         scrollToTableOffset,
     });
 
+    // A drag ends where the user let go (R15 review I1): under autoFit a column's saved width is a
+    // proportion, so the dragged px are turned into the own width that fits back to them. A click
+    // on the handle, which ends where it started, saves nothing.
+    const onColumnResizedAt = useMemo(() => {
+        if (!onColumnResized) return undefined;
+        return (columnId: TableColumn, width: number) => {
+            const index = parsedColumns.findIndex((column) => column.id === columnId);
+            if (index < 0) {
+                onColumnResized(columnId, width);
+                return;
+            }
+            if (Math.round(width) === calculatedColumnWidths[index]) return;
+            onColumnResized(
+                columnId,
+                autoFitColumns
+                    ? ownWidthForResize(parsedColumns, totalContainerWidth, index, width)
+                    : width,
+            );
+        };
+    }, [
+        autoFitColumns,
+        calculatedColumnWidths,
+        onColumnResized,
+        parsedColumns,
+        totalContainerWidth,
+    ]);
+
     const controls = useDefaultItemListControls({
         onColumnReordered,
-        onColumnResized,
+        onColumnResized: onColumnResizedAt,
         overrides: overrideControls,
     });
 

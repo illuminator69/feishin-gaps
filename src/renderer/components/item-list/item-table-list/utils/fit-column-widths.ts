@@ -7,8 +7,18 @@ export interface FitColumn {
 }
 
 /**
- * B-264: no column is scaled below this share of its own width. The side queue at its narrowest
- * (a 250 px panel) runs at about 0.44, so this floor leaves it as it was.
+ * B-264, R15 review I2: the floor of a column other than Title and Rating: a duration ("3:45" is
+ * about 24 px at the table's size) inside the `sm` cell padding (2 x 8 px). Small and absolute, so
+ * a table scrolls sideways only when Title, Rating and these do not fit; a share of each column's
+ * own width (0.4 x 300 px for Album or Genre) made the playlist, Now Playing and full-screen tables
+ * scroll by slivers.
+ */
+export const GENERIC_MIN_WIDTH = 40;
+
+/**
+ * A column narrower than that by default (the row index, the heart, the cover, 60 to 70 px) keeps
+ * this share of its own width as its floor instead: the side queue at its narrowest (a 250 px
+ * panel) runs at about 0.44, so it stays as it was.
  */
 export const MIN_SCALE = 0.4;
 
@@ -25,17 +35,24 @@ export const RATING_MIN_WIDTH = 80;
  */
 export const TITLE_MIN_WIDTH = 200;
 
+/**
+ * R15 review I1: a column the user dragged wider than the widest default (300 px of proportion)
+ * raises its own floor with it, at the scale the widest default column has on the generic floor
+ * (40 / 300). Without it every column sits on an absolute floor once the table overflows, and a
+ * drag there would spring back. Default widths never reach this term.
+ */
+const RESIZED_SCALE = GENERIC_MIN_WIDTH / 300;
+
 const TITLE_IDS: ReadonlySet<string> = new Set(['name', 'titleArtist', 'titleCombined']);
 const RATING_ID = 'userRating';
 
 /** The narrowest an unpinned column may be scaled to in a table `containerWidth` wide. */
 export function columnMinWidth(column: FitColumn, containerWidth: number): number {
-    const own = column.width * MIN_SCALE;
-    if (TITLE_IDS.has(column.id)) {
-        return Math.min(Math.max(own, TITLE_MIN_WIDTH), containerWidth / 2);
-    }
-    if (column.id === RATING_ID) return Math.max(own, RATING_MIN_WIDTH);
-    return own;
+    let floor: number;
+    if (TITLE_IDS.has(column.id)) floor = Math.min(TITLE_MIN_WIDTH, containerWidth / 2);
+    else if (column.id === RATING_ID) floor = RATING_MIN_WIDTH;
+    else floor = Math.min(GENERIC_MIN_WIDTH, column.width * MIN_SCALE);
+    return Math.max(floor, column.width * RESIZED_SCALE);
 }
 
 /**
@@ -96,4 +113,38 @@ export function fitColumnWidths(columns: readonly FitColumn[], containerWidth: n
     }
 
     return scaledWidths;
+}
+
+/**
+ * R15 review I1: the own width to save when the user drags column `index` to `draggedWidth` px.
+ * Under autoFit a column's own width is a proportion, not px, so saving the dragged px made a drag
+ * wider show narrower in an overflowing table and a click on the handle shrink the column. This
+ * finds the own width that fits back to the dragged px (the column's fitted width only grows with
+ * its own width, so a search over it is exact up to rounding). A pinned column keeps px.
+ */
+export function ownWidthForResize(
+    columns: readonly FitColumn[],
+    containerWidth: number,
+    index: number,
+    draggedWidth: number,
+): number {
+    const target = Math.round(draggedWidth);
+    const column = columns[index];
+    if (!column || column.pinned !== null || containerWidth <= 0) return target;
+
+    const shownAt = (own: number) =>
+        fitColumnWidths(
+            columns.map((c, i) => (i === index ? { ...c, width: own } : c)),
+            containerWidth,
+        )[index];
+
+    // At this own width the column's floor alone is the target, so it shows at least that.
+    let high = Math.max(1, Math.ceil(target / RESIZED_SCALE));
+    let low = 1;
+    while (low < high) {
+        const mid = Math.floor((low + high) / 2);
+        if (shownAt(mid) >= target) high = mid;
+        else low = mid + 1;
+    }
+    return low;
 }
