@@ -1949,6 +1949,10 @@
             "unreachable": "Can't reach lb-bot, so this may be out of date.",
             "wrongEdition": "Wrong edition?"
         },
+        "indexProgress": {
+            "counts": "Indexing your library · {{left}} of {{total}} artists left",
+            "countsWithCurrent": "Indexing your library · {{left}} of {{total}} artists left · {{current}}"
+        },
         "libraryMatches": {
             "intro": "What lb-bot holds on your behalf: the MusicBrainz matches you chose, the ones worth a look, and the tag changes it can undo.",
             "title": "Library Matches"
