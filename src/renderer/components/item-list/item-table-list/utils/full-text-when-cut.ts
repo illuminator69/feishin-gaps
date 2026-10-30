@@ -8,18 +8,18 @@ export interface CutBox {
     scrollWidth: number;
 }
 
+/** A box's horizontal edges in the viewport (a DOMRect has them). */
+export interface Edges {
+    left: number;
+    right: number;
+}
+
 /** The cell element the pointer entered (an HTMLElement in the app). */
 export interface FullTextTarget extends CutBox {
     querySelectorAll(selectors: string): ArrayLike<CutBox>;
     removeAttribute(name: string): void;
     setAttribute(name: string, value: string): void;
     textContent: null | string;
-}
-
-/** A number cell's box against the cell it sits in (an HTMLElement's offset measures). */
-export interface OffsetBox {
-    offsetLeft: number;
-    offsetWidth: number;
 }
 
 /** Whether a box's content runs past it: wider (one line) or taller (a clamped title). */
@@ -29,12 +29,15 @@ export function isCut(box: CutBox): boolean {
 }
 
 /**
- * B-271: whether a number cell's box runs past its cell's padding box (`cellWidth`, the cell's
- * `clientWidth`). A number keeps its min-content width and may use the cell's padding; wider than
- * the cell, it is clipped at the cell's border, outside its own box, which `isCut` cannot see.
+ * B-271: whether a number cell's box runs past its cell's padding box (from `from`, `width` wide:
+ * the cell's left edge plus its `clientLeft`, and its `clientWidth`). A number may use the cell's
+ * padding and ends in an ellipsis inside it, so this is a guard: a box past the padding box would be
+ * clipped by the cell, outside the box, where `isCut` cannot see it. Rects, not offsets (R17
+ * review M-2): they do not depend on the offsetParent and they include the shift into the other
+ * side's padding. Under half a px is rounding.
  */
-export function runsPastItsCell(content: OffsetBox, cellWidth: number): boolean {
-    return content.offsetLeft < 0 || content.offsetLeft + content.offsetWidth > cellWidth;
+export function runsPastItsCell(content: Edges, from: number, width: number): boolean {
+    return content.left < from - 0.5 || content.right > from + width + 0.5;
 }
 
 /**

@@ -1,4 +1,6 @@
-.full-size-content {
+/* R17 review M-4: doubled, so the playable track number's own display wins over the number cell's
+   rule (.number-content, another module) by specificity, not by the bundle's CSS order. */
+.full-size-content.full-size-content {
     display: flex;
     align-items: center;
     justify-content: center;

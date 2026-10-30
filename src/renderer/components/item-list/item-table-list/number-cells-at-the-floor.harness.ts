@@ -192,23 +192,125 @@ test('numberCellsAndTheFloorListAgree', () => {
 });
 
 /*
- * R16's tooltip rule: a number still cut after using its padding gets its full text. A number
- * wider than the cell is clipped by the cell (`.number-cell`), not by its own box, so the box
- * measure does not show it; its box running past the cell's padding box does.
+ * R16's tooltip rule: a number still cut after using its padding gets its full text. It ends in an
+ * ellipsis inside its own box (below), so the box measure shows it; `runsPastItsCell` stays as the
+ * guard for a box that would still run past the cell, measured with rects (R17 review M-2: the
+ * box's offsets are from its offsetParent, and they leave out the shift that keeps it inside).
  */
 
 test('aNumberPastItsCellShowsItsFullText', () => {
     assert.equal(typeof fullText.runsPastItsCell, 'function', 'runsPastItsCell is exported');
     const past = fullText.runsPastItsCell;
-    // Centred "1:02:03" (46 px) in a 39 px padding box: 4 px out on each side.
-    assert.equal(past({ offsetLeft: -4, offsetWidth: 46 }, 39), true);
-    // Start-aligned "12,345" (41 px) from the 8 px padding: past the right edge.
-    assert.equal(past({ offsetLeft: 8, offsetWidth: 41 }, 39), true);
-    // Centred "0:03" (29 px) uses the padding and fits.
-    assert.equal(past({ offsetLeft: 5, offsetWidth: 29 }, 39), false);
-    assert.equal(past({ offsetLeft: 0, offsetWidth: 39 }, 39), false);
+    // A padding box from x = 100, 39 px wide.
+    assert.equal(past({ left: 96, right: 142 }, 100, 39), true);
+    assert.equal(past({ left: 108, right: 149 }, 100, 39), true);
+    assert.equal(past({ left: 105, right: 134 }, 100, 39), false);
+    assert.equal(past({ left: 100, right: 139 }, 100, 39), false);
+    // Under half a px is rounding, not a cut.
+    assert.equal(past({ left: 99.6, right: 139.4 }, 100, 39), false);
+    const source = container();
+    assert.match(source, /runsPastItsCell\(\s*content\.getBoundingClientRect\(\),/);
+    assert.match(
+        source,
+        /cell\.getBoundingClientRect\(\)\.left \+ cell\.clientLeft,\s+cell\.clientWidth,/,
+    );
+    assert.doesNotMatch(source, /offsetLeft/);
+});
+
+/*
+ * R17 review I-1 and I-2, one mechanism. A number cell is a size container whose padding is named
+ * by `--number-cell-padding`. Its box may be as wide as the cell's padding box; a number wider than
+ * that ends in an ellipsis inside it, the start readable. A start or end aligned box that does not
+ * fit on its aligned side shifts into the other side's padding, by exactly what it lacks: the
+ * shift is 0 for a number that fits its side, so it keeps its alignment. No guessed threshold: the
+ * only edge is the cell's own padding box (`100cqw` is the content box, plus the padding).
+ */
+
+const rules = (css: string, selector: string) => block(css, `\n${selector} {`);
+
+test('aNumberWiderThanItsCellEndsInAnEllipsisInsideIt', () => {
+    const css = read(CSS);
+    assert.match(rules(css, '.number-cell'), /container-type: inline-size;/);
+    assert.match(
+        rules(css, '.number-cell > .number-content'),
+        /max-width: calc\(100% \+ 2 \* var\(--number-cell-padding\)\);/,
+    );
+    // The base rule's own ellipsis does the cutting, at the box's edge.
+    const base = rules(css, '.number-content');
+    assert.match(base, /overflow: hidden;/);
+    assert.match(base, /text-overflow: ellipsis;/);
+});
+
+test('aNumberUsesTheOtherSidesPaddingBeforeItIsCut', () => {
+    const css = read(CSS);
+    // The table's data cells reach their start alignment as the module's `left` class.
     assert.match(
         container(),
-        /isNumber &&\s+content\.parentElement !== null &&\s+runsPastItsCell\(content, content\.parentElement\.clientWidth\)/,
+        /\[styles\.left\]: props\.columns\[props\.columnIndex\]\.align === 'start',/,
     );
+    const start = rules(css, '.number-cell.left > .number-content');
+    assert.match(start, /align-self: flex-start;/);
+    assert.match(start, /translate: min\(0px, 100cqw \+ var\(--number-cell-padding\) - 100%\);/);
+    assert.match(
+        rules(css, '.number-cell.right > .number-content'),
+        /translate: max\(0px, 100% - 100cqw - var\(--number-cell-padding\)\);/,
+    );
+    // Centred, a box no wider than the padding box already stays inside it: no shift.
+    assert.ok(!/\n\.number-cell\.center > \.number-content \{/.test(css));
+});
+
+test('theNumberCellPaddingIsTheCellsOwn', () => {
+    const css = read(CSS);
+    assert.match(rules(css, '.number-cell'), /--number-cell-padding: 0px;/);
+    for (const size of ['xs', 'sm', 'md', 'lg', 'xl']) {
+        const padding = /padding: (\S+) (\S+);|padding: (\S+);/.exec(
+            rules(css, `.container.padding-${size}`),
+        );
+        assert.ok(padding, size);
+        const horizontal = padding[2] ?? padding[3];
+        assert.match(
+            rules(css, `.number-cell.padding-${size}`),
+            new RegExp(`--number-cell-padding: ${horizontal.replace(/[()]/g, '\\$&')};`),
+            size,
+        );
+    }
+    // Last, so it wins over a padding size on the same cell.
+    const none = css.indexOf('\n.number-cell.no-horizontal-padding {');
+    assert.ok(none > css.indexOf('\n.number-cell.padding-xl {'), 'no horizontal padding last');
+    assert.match(rules(css, '.number-cell.no-horizontal-padding'), /--number-cell-padding: 0px;/);
+});
+
+// R17 review M-3: a new number cell component's column left off the floor list.
+const NUMBER_CELLS = [
+    'AbsoluteDateColumn',
+    'BitRateColumn',
+    'CountColumn',
+    'DateColumn',
+    'DurationColumn',
+    'NumericColumn',
+    'RelativeDateColumn',
+    'ReleaseYearColumn',
+    'SizeColumn',
+    'TrackDateColumn',
+    'TrackNumberColumn',
+    'YearColumn',
+];
+
+test('everyNumberCellComponentsColumnKeepsItsFloor', () => {
+    const ids = [...CELL_OF].filter(([, cell]) => NUMBER_CELLS.includes(cell)).map(([id]) => id);
+    assert.ok(ids.length >= 18, `${ids.length} number ids`);
+    for (const id of ids) assert.ok(fit.keepsItsFloor(id), `${id} renders a number cell`);
+    for (const cell of NUMBER_CELLS) {
+        assert.ok([...CELL_OF.values()].includes(cell), `${cell} is in the registry`);
+    }
+});
+
+// R17 review M-4: the playable track number's own display wins over the number rule by
+// specificity, not by which module's CSS the bundle puts last.
+test('thePlayableTrackNumberDoesNotDependOnCssOrder', () => {
+    const css = read('./columns/row-index-column.module.css');
+    assert.ok(!/(^|\n)\.full-size-content \{/.test(css), 'a single-class .full-size-content rule');
+    const rule = block(css, '.full-size-content.full-size-content {');
+    assert.match(rule, /display: flex;/);
+    assert.match(rule, /overflow: visible;/);
 });

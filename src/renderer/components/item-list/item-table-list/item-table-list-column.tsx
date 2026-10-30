@@ -846,11 +846,16 @@ export const TableColumnTextContainer = (
                         ? undefined
                         : (event) => {
                               const content = event.currentTarget;
-                              // A number wider than its cell is clipped by the cell (B-271).
+                              const cell = content.parentElement;
+                              // A number past its cell would be clipped by the cell (B-271).
                               const pastItsCell =
                                   isNumber &&
-                                  content.parentElement !== null &&
-                                  runsPastItsCell(content, content.parentElement.clientWidth);
+                                  cell !== null &&
+                                  runsPastItsCell(
+                                      content.getBoundingClientRect(),
+                                      cell.getBoundingClientRect().left + cell.clientLeft,
+                                      cell.clientWidth,
+                                  );
                               showFullTextWhenCut(content, undefined, pastItsCell);
                           }
                 }

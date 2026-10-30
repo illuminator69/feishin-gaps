@@ -531,7 +531,58 @@
 
 /* B-271: a number uses its cell's padding but stops at the cell's own border. With the base's rule
    a number wider than the cell ("1:02:03", 46 px, at a 40 px column) drew over the next cell's
-   text. Clipped across only, as the rating cell. */
+   text. Clipped across only, as the rating cell. The cell is a size container and names its side
+   padding, so the number's box can be measured against the cell's padding box (below). */
 .number-cell {
+    --number-cell-padding: 0px;
+
+    container-type: inline-size;
     overflow-x: clip;
+}
+
+.number-cell.padding-xs {
+    --number-cell-padding: var(--theme-spacing-xs);
+}
+
+.number-cell.padding-sm {
+    --number-cell-padding: var(--theme-spacing-sm);
+}
+
+.number-cell.padding-md {
+    --number-cell-padding: var(--theme-spacing-md);
+}
+
+.number-cell.padding-lg {
+    --number-cell-padding: var(--theme-spacing-lg);
+}
+
+.number-cell.padding-xl {
+    --number-cell-padding: var(--theme-spacing-xl);
+}
+
+.number-cell.no-horizontal-padding {
+    --number-cell-padding: 0px;
+}
+
+/* R17: a number's box is at most the cell's padding box (39 px at a 40 px column). A number wider
+   than that ends in the base rule's ellipsis inside it, the start of the value readable, instead of
+   being clipped mid-glyph at the border, and gets its full text on hover. */
+.number-cell > .number-content {
+    max-width: calc(100% + 2 * var(--number-cell-padding));
+}
+
+/* R17: a start or end aligned number that does not fit on its aligned side moves into the other
+   side's padding by exactly what it lacks, so "10:03" reads whole instead of "0:03". The shift is 0
+   for a number that fits its side, which keeps its alignment. 100cqw is the cell's content box and
+   100% the box's own width, so the only edge is the padding box: no threshold to guess. Centred, a
+   box no wider than the padding box already stays inside it. The table's data cells reach start
+   alignment as `left` (`.container.start` is never set on them), so a number cell names it here. */
+.number-cell.left > .number-content {
+    align-self: flex-start;
+    text-align: left;
+    translate: min(0px, 100cqw + var(--number-cell-padding) - 100%);
+}
+
+.number-cell.right > .number-content {
+    translate: max(0px, 100% - 100cqw - var(--number-cell-padding));
 }
