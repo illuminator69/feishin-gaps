@@ -1,8 +1,15 @@
-import type { MouseEvent } from 'react';
-
+import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 
+import {
+    heroActionsMode,
+    type HeroActionsMode,
+    type HeroActionsWidths,
+    naturalRowWidth,
+    rememberWidth,
+} from './hero-actions-fit';
 import styles from './hero-actions.module.css';
 
 import { useIsMutatingCreateFavorite } from '/@/renderer/features/shared/mutations/create-favorite-mutation';
@@ -12,12 +19,14 @@ import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { AppIconSelection, Icon } from '/@/shared/components/icon/icon';
 import { Rating } from '/@/shared/components/rating/rating';
 import { Spinner } from '/@/shared/components/spinner/spinner';
+import { Tooltip } from '/@/shared/components/tooltip/tooltip';
 
 /** One labelled button in the row: a link when it has `to`, a button otherwise. */
 export interface HeroAction {
     /** Disabled with a spinner in place of its icon (the player fetching a radio). */
     busy?: boolean;
-    icon?: AppIconSelection;
+    /** Required: a narrow column folds the button to it (B-284). */
+    icon: AppIconSelection;
     key: string;
     label: string;
     onClick?: () => void;
@@ -37,8 +46,14 @@ interface HeroActionsProps {
 
 /**
  * The board's action row under a hero header (`.cta`): the round Play on the accent, the labelled
- * buttons, then rating, favourite and more at the right. It wraps onto a second line in a narrow
- * column rather than overflow.
+ * buttons, then rating, favourite and more at the right.
+ *
+ * B-284: it keeps one line as long as it can, because the hero sits its photo on the text column's
+ * bottom edge and a second line hangs the photo below the title. A column narrower than the row
+ * folds the labelled buttons to their icons (the label stays their name and their tooltip); only a
+ * column narrower than that wraps, the end group then starting its line at the left. The mode comes
+ * from the row's own measured widths (`hero-actions-fit.ts`), re-measured whenever the row or an
+ * item changes size, and set before paint, so a resize never shows a wrapped row first.
  */
 export const HeroActions = ({
     actions,
@@ -55,8 +70,61 @@ export const HeroActions = ({
     const isMutatingDeleteFavorite = useIsMutatingDeleteFavorite();
     const isMutatingFavorite = isMutatingCreateFavorite || isMutatingDeleteFavorite;
 
+    // What the row holds: a change (a language, the rating switched on) invalidates both widths.
+    const contentKey = JSON.stringify([
+        actions.map((action) => [action.label, action.icon]),
+        !!onRating,
+        !!onFavorite,
+        !!onMore,
+    ]);
+    const rowRef = useRef<HTMLDivElement>(null);
+    const [fit, setFit] = useState<{ mode: HeroActionsMode; widths: HeroActionsWidths }>(() => ({
+        mode: 'full',
+        widths: { key: contentKey },
+    }));
+    const { mode } = fit;
+    const folded = mode !== 'full';
+
+    // Measures what is on screen (the mode last committed) and decides again. Read from effects
+    // only, through a ref, so the observer below always runs the latest one.
+    const measureRef = useRef<() => void>(() => {});
+    useLayoutEffect(() => {
+        measureRef.current = () => {
+            const row = rowRef.current;
+            if (!row) return;
+            const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+            const items = Array.from(row.children, (item) => item.getBoundingClientRect().width);
+            const available = row.getBoundingClientRect().width;
+            setFit((previous) => {
+                const widths = rememberWidth(
+                    previous.widths,
+                    contentKey,
+                    previous.mode,
+                    naturalRowWidth(items, gap),
+                );
+                const next = heroActionsMode(available, widths);
+                return widths === previous.widths && next === previous.mode
+                    ? previous
+                    : { mode: next, widths };
+            });
+        };
+        // Every render: a new mode or new contents is measured before the browser paints it.
+        measureRef.current();
+    });
+
+    useEffect(() => {
+        const row = rowRef.current;
+        if (!row) return undefined;
+        // The column resizing, and an item resizing (a font arriving, the rating appearing).
+        // Flushed at once so the new mode is laid out in the same frame as the resize.
+        const observer = new ResizeObserver(() => flushSync(() => measureRef.current()));
+        observer.observe(row);
+        for (const item of Array.from(row.children)) observer.observe(item);
+        return () => observer.disconnect();
+    }, [contentKey]);
+
     return (
-        <div className={styles.row}>
+        <div className={styles.row} data-mode={mode} ref={rowRef}>
             <button
                 aria-label={t('player.play')}
                 className={styles.play}
@@ -71,33 +139,37 @@ export const HeroActions = ({
                         {action.busy ? (
                             <Spinner size={16} />
                         ) : (
-                            action.icon && <Icon icon={action.icon} size={16} />
+                            <Icon icon={action.icon} size={16} />
                         )}
-                        {action.label}
+                        <span className={styles.label}>{action.label}</span>
                     </>
                 );
-                return action.to ? (
-                    <Link
-                        className={styles.button}
-                        data-variant={action.variant}
-                        key={action.key}
-                        onClick={action.onClick}
-                        to={action.to}
-                    >
-                        {content}
-                    </Link>
-                ) : (
-                    <button
-                        aria-busy={action.busy || undefined}
-                        className={styles.button}
-                        data-variant={action.variant}
-                        disabled={action.busy}
-                        key={action.key}
-                        onClick={action.onClick}
-                        type="button"
-                    >
-                        {content}
-                    </button>
+                return (
+                    <Tooltip disabled={!folded} key={action.key} label={action.label}>
+                        {action.to ? (
+                            <Link
+                                aria-label={folded ? action.label : undefined}
+                                className={styles.button}
+                                data-variant={action.variant}
+                                onClick={action.onClick}
+                                to={action.to}
+                            >
+                                {content}
+                            </Link>
+                        ) : (
+                            <button
+                                aria-busy={action.busy || undefined}
+                                aria-label={folded ? action.label : undefined}
+                                className={styles.button}
+                                data-variant={action.variant}
+                                disabled={action.busy}
+                                onClick={action.onClick}
+                                type="button"
+                            >
+                                {content}
+                            </button>
+                        )}
+                    </Tooltip>
                 );
             })}
             {(onRating || onFavorite || onMore) && (

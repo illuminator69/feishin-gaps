@@ -1,6 +1,9 @@
 /*
  * The board's `.cta` row under a hero header: Play 52 px round on the accent, buttons 36 px tall
- * (`.btn`, `.btn.out`), rating, favourite and more pushed to the right. It wraps in a narrow column.
+ * (`.btn`, `.btn.out`), rating, favourite and more pushed to the right. `data-mode` (B-284, set
+ * from the row's measured widths): `full`; `icons`, the labelled buttons folded to 36 px squares;
+ * `stacked`, the icon row wrapped with the end group starting its line at the left. The wrap stays
+ * on in every mode, so a row that has not been measured yet wraps rather than overflows.
  */
 .row {
     display: flex;
@@ -74,4 +77,19 @@
     gap: 8px;
     align-items: center;
     margin-left: auto;
+}
+
+/* Folded: the icon alone, in a square the row's own height; the label names it (aria-label). */
+.row:not([data-mode='full']) .button {
+    width: 36px;
+    padding: 0;
+}
+
+.row:not([data-mode='full']) .label {
+    display: none;
+}
+
+/* Even the icon row does not fit: the end group starts its own line at the left, under Play. */
+.row[data-mode='stacked'] .end {
+    margin-left: 0;
 }

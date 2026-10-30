@@ -224,12 +224,14 @@ export const AlbumDetailHeader = forwardRef<HTMLDivElement>((_props, ref) => {
             <HeroActions
                 actions={[
                     {
+                        icon: 'mediaPlayNext',
                         key: 'next',
                         label: t('page.albumDetail.playNext'),
                         onClick: () => handlePlay(Play.NEXT),
                         variant: 'filled',
                     },
                     {
+                        icon: 'mediaPlayLast',
                         key: 'queue',
                         label: t('page.albumDetail.addToQueue'),
                         onClick: () => handlePlay(Play.LAST),
