@@ -1,0 +1,68 @@
+/**
+ * The sentence a failed lb-bot request shows, and which failures are lb-bot P1's refusals.
+ * Pure and import-free (tested by `lbbot-failure.harness.ts`); moved out of the main lb-bot
+ * client unchanged, so its old sentences are byte-for-byte what they were.
+ */
+
+/** The two refusals the main client tells the renderer about (`lbbot-refusal`). */
+export type LbRefusalCode = 'downloads_off' | 'signin_required';
+
+type Json = Record<string, unknown>;
+
+/**
+ * Whether a failure is one of lb-bot P1's refusals: 409 `downloads_off` (downloading is not set
+ * up) or 401 `signin_required` (lb-bot refused this hub: an older hub sends no bearer, B-263).
+ */
+export const refusalCode = (status: number, body: Json | null): LbRefusalCode | null => {
+    if (status === 409 && body?.code === 'downloads_off') return 'downloads_off';
+    if (status === 401 && body?.code === 'signin_required') return 'signin_required';
+    return null;
+};
+
+/**
+ * Turn a non-2xx into a sentence worth showing.
+ *
+ * Two of these are not what their status code normally means, and getting either
+ * wrong wastes a debugging round:
+ *
+ * - **404 is not "not found".** Every route here is a hub whitelist entry, so a
+ *   404 means *the hub proxies no such route* — it is older than this app and
+ *   needs restarting. `hub.py` is a long-running process; editing it changes
+ *   nothing until it restarts, which alone accounted for a whole round of "the
+ *   button does nothing" on the Navic side.
+ * - **502 is usually "busy", not "refused".** Every lb-bot route takes its
+ *   process-wide `_review_lock`, and the hub's default 20s proxy timeout is the
+ *   only thing separating slow from failed. The hub's own body reads
+ *   `{"error": "lb-bot unreachable"}`, which taken literally is misleading while
+ *   a large search holds that lock.
+ *
+ * Anything else prefers lb-bot's own `error`, which it writes for humans - except P1's two
+ * refusals, whose sentences are the client's (Navic's words for the first).
+ */
+export const describeFailure = (status: number, body: Json | null): string => {
+    const refusal = refusalCode(status, body);
+    if (refusal === 'downloads_off') return "This server isn't set up to get albums.";
+    if (refusal === 'signin_required') {
+        return "lb-bot refused this hub. Update the hub, or check that its HUB_TOKEN matches lb-bot's LB_BOT_HUB_TOKEN.";
+    }
+    const upstream = typeof body?.error === 'string' ? body.error : '';
+    // lb-bot's own 404 (I-019: `unknown_mbid`, `no_override`) carries a `code`; the
+    // hub's "no such route" 404 does not. Only the first is a sentence to relay.
+    if (status === 404 && typeof body?.code === 'string' && upstream) return upstream;
+    // lb-bot's own 502 for a MusicBrainz outage says so and that nothing was stored.
+    if (status === 502 && body?.retryable === true && upstream) return upstream;
+    // An lb-bot older than the hub answers an unknown POST with 405 "The method
+    // is not allowed" (its catch-all route is GET-only), where an unknown GET is
+    // a 404. Same condition; never relay the raw text.
+    if (status === 405) {
+        return 'This lb-bot is older than the hub and does not have that route yet.';
+    }
+    if (status === 404) {
+        return 'This hub does not know that route — restart the hub to pick up its newer lb-bot features.';
+    }
+    if (status === 502 || status === 504) {
+        return 'lb-bot is busy or unreachable. It handles one request at a time while searching; try again in a moment.';
+    }
+    if (status === 0) return 'Could not reach the hub.';
+    return upstream || `Request failed (${status})`;
+};

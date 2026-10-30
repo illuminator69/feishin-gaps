@@ -1,3 +1,5 @@
+import type { LbDownloads } from '/@/shared/utils/lbbot-mode';
+
 /**
  * lb-bot wire shapes, shared by the main-process client, the preload bridge and
  * the renderer. lb-bot speaks snake_case; the main process normalizes to these
@@ -11,14 +13,20 @@
  * MusicBrainz failed looked exactly like one that found nothing.
  */
 export interface LbBotArtistScan {
+    /** Worbus P1: release groups read so far, out of `total`. 0 with `total` 0 when lb-bot
+     *  sends no counts (an older lb-bot, or a scan that has not listed the discography yet). */
+    done: number;
     /** lb-bot's own sentence, shown verbatim. Empty unless `failed`. */
     error: string;
     /** Epoch seconds; 0 while running. */
     finishedAt: number;
     startedAt: number;
     state: 'done' | 'failed' | 'running';
-    /** The scan task this record belongs to — what the rescan that started it matches on. */
+    /** The scan task this record belongs to — what the rescan that started it matches on.
+     *  `auto-index` is lb-bot's background worker (Worbus P1), which has no task row. */
     taskId: string;
+    /** See `done`. */
+    total: number;
 }
 
 export interface LbBotDiscography {
@@ -31,6 +39,9 @@ export interface LbBotDiscography {
     scannedAt: number;
     /** Index older than lb-bot's TTL, or built by an older scan version. */
     stale: boolean;
+    /** Worbus P1: indexed, but lb-bot found no MusicBrainz artist for it. Absent when not
+     *  indexed and from an older lb-bot; absent means false. */
+    unresolved?: boolean;
 }
 
 export interface LbBotDownloadResult {
@@ -181,6 +192,9 @@ export interface LbBotResult<T> {
  *  advertise — assume supported rather than hiding working features. */
 export interface LbBotStatus {
     available: boolean;
+    /** Worbus P1: whether lb-bot can download (`SLSKD_API_KEY` set). Absent from an older hub
+     *  or lb-bot, which means on (`lbbot-mode.ts`). */
+    downloads?: LbDownloads;
     routes: string[];
     /** lb-bot's own web UI, for sending the user to its workspace — "" when the
      *  hub doesn't say (an older hub, or the proxy is off). Only ever http(s). */

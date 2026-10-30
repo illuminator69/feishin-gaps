@@ -670,6 +670,14 @@ export const onIndexFrame = (seq: number, epoch: string): void => {
     else requestIndexSync('index');
 };
 
+/**
+ * Worbus P1: what the mirror has pulled up to, for telling a progress-only `index` frame from a
+ * head move (`isProgressOnlyFrame`) - the same comparison {@link onIndexFrame} skips on. Null
+ * before the stored mirror is read.
+ */
+export const indexMirrorCursor = (): null | { epoch: string; seq: number } =>
+    loaded ? { epoch: meta.epoch, seq: meta.cursor } : null;
+
 /** Mount once (from `useHub`): reads the stored mirror at startup and runs the
  *  15-minute backstop sync. */
 export const useLbBotIndexSync = (): void => {

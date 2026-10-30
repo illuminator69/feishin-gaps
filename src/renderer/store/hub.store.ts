@@ -1,4 +1,5 @@
 import type { LbBotStatus } from '/@/shared/types/lbbot-types';
+import type { LbIndexProgress } from '/@/shared/utils/lbbot-mode';
 
 import { shallow } from 'zustand/shallow';
 import { createWithEqualityFn } from 'zustand/traditional';
@@ -118,6 +119,18 @@ interface HubState {
      * instead (`useLbBotStatus`). Kept across a disconnect, like the probe's
      * cached answer was: the next welcome replaces it.
      */
+    /**
+     * Worbus P1: lb-bot's index build countdown, from `welcome.lbIndex.progress` and each
+     * `index` frame's. Null when the last one carried none (an older peer, or the build is
+     * long over). Read only by the Home bar (`useLbBotIndexProgress`). Not persisted.
+     */
+    lbProgress: LbIndexProgress | null;
+    /**
+     * Worbus P1 (B-263): lb-bot answered this connection 401 `signin_required` - it refused
+     * the hub, which sends no bearer (an older hub) or the wrong one. lb-bot is then treated as
+     * unavailable (`useLbBotAvailable`) until the next `welcome` clears it.
+     */
+    lbRefused: boolean;
     lbStatus: LbBotStatus | null;
     myDeviceId: null | string;
     /** Whether the remote session is currently playing. */
@@ -153,6 +166,8 @@ const initialState: HubState = {
     connected: false,
     devices: [],
     features: [],
+    lbProgress: null,
+    lbRefused: false,
     lbStatus: null,
     myDeviceId: null,
     remoteIsPlaying: false,

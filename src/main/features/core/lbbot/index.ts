@@ -81,6 +81,7 @@ import { BrowserWindow, ipcMain, Notification } from 'electron';
 import { getHubConfig } from '../hub';
 import { albumSourcesParams } from './album-sources-params';
 
+import { getMainWindow } from '/@/main/index';
 import {
     albumDownloadBody,
     mergePreviewParams,
@@ -94,6 +95,7 @@ import {
     toPreview,
     toSiblingGroups,
 } from '/@/shared/utils/lbbot-album-wire';
+import { describeFailure, refusalCode } from '/@/shared/utils/lbbot-failure';
 import { hasMetaFields, normalizeLbBotWebUrl } from '/@/shared/utils/lbbot-wire';
 
 /**
@@ -132,47 +134,7 @@ const authHeaders = (): Record<string, string> => ({
 
 type Json = Record<string, unknown>;
 
-/**
- * Turn a non-2xx into a sentence worth showing.
- *
- * Two of these are not what their status code normally means, and getting either
- * wrong wastes a debugging round:
- *
- * - **404 is not "not found".** Every route here is a hub whitelist entry, so a
- *   404 means *the hub proxies no such route* — it is older than this app and
- *   needs restarting. `hub.py` is a long-running process; editing it changes
- *   nothing until it restarts, which alone accounted for a whole round of "the
- *   button does nothing" on the Navic side.
- * - **502 is usually "busy", not "refused".** Every lb-bot route takes its
- *   process-wide `_review_lock`, and the hub's default 20s proxy timeout is the
- *   only thing separating slow from failed. The hub's own body reads
- *   `{"error": "lb-bot unreachable"}`, which taken literally is misleading while
- *   a large search holds that lock.
- *
- * Anything else prefers lb-bot's own `error`, which it writes for humans.
- */
-const describeFailure = (status: number, body: Json | null): string => {
-    const upstream = typeof body?.error === 'string' ? body.error : '';
-    // lb-bot's own 404 (I-019: `unknown_mbid`, `no_override`) carries a `code`; the
-    // hub's "no such route" 404 does not. Only the first is a sentence to relay.
-    if (status === 404 && typeof body?.code === 'string' && upstream) return upstream;
-    // lb-bot's own 502 for a MusicBrainz outage says so and that nothing was stored.
-    if (status === 502 && body?.retryable === true && upstream) return upstream;
-    // An lb-bot older than the hub answers an unknown POST with 405 "The method
-    // is not allowed" (its catch-all route is GET-only), where an unknown GET is
-    // a 404. Same condition; never relay the raw text.
-    if (status === 405) {
-        return 'This lb-bot is older than the hub and does not have that route yet.';
-    }
-    if (status === 404) {
-        return 'This hub does not know that route — restart the hub to pick up its newer lb-bot features.';
-    }
-    if (status === 502 || status === 504) {
-        return 'lb-bot is busy or unreachable. It handles one request at a time while searching; try again in a moment.';
-    }
-    if (status === 0) return 'Could not reach the hub.';
-    return upstream || `Request failed (${status})`;
-};
+// `describeFailure` lives in `/@/shared/utils/lbbot-failure` (pure, with a harness).
 
 const failed = <T>(
     status: number,
@@ -256,6 +218,12 @@ const request = async <T = Json>(
         // Logged unconditionally: a button that does nothing, with nothing in the
         // console either, is the bug this whole result type exists to prevent.
         console.error(`[lbbot] ${method} ${path} → ${res.status}`);
+        // Worbus P1: THE one place lb-bot's two refusals are noticed, whichever route got them
+        // and whether or not its handler passes `code` on. A 409 `downloads_off` turns every
+        // download surface off; a 401 `signin_required` (an older hub sends no bearer, B-263)
+        // marks lb-bot refused for this connection. The renderer applies both (`useLbBotRefusals`).
+        const refusal = refusalCode(res.status, body);
+        if (refusal) getMainWindow()?.webContents.send('lbbot-refusal', { code: refusal });
         // The hub's own oversize-body 502 (B-013), not lb-bot's — see LbBotResult.tooLarge.
         return failed(res.status, describeFailure(res.status, body), body?.tooLarge === true, {
             code: typeof body?.code === 'string' ? body.code : undefined,
@@ -296,8 +264,11 @@ const num = (value: unknown): number => {
 // doesn't advertise: assume supported rather than hiding working features.
 ipcMain.handle('lbbot-status', async (): Promise<LbBotStatus> => {
     const data = await get('/lb/status');
+    // Worbus P1: lb-bot's downloads mode, relayed by a P1 hub; absent from an older one.
+    const downloads = data?.downloads === 'on' || data?.downloads === 'off' ? data.downloads : null;
     return {
         available: data?.configured === true && data?.upstreamReachable === true,
+        ...(downloads ? { downloads } : {}),
         routes: Array.isArray(data?.routes)
             ? data.routes.filter((route): route is string => typeof route === 'string')
             : [],
@@ -357,12 +328,16 @@ const toScan = (raw: unknown): LbBotArtistScan | null => {
     const scan = raw as Record<string, unknown>;
     const state = str(scan.state);
     if (!SCAN_STATES.has(state)) return null;
+    // Worbus P1: the counts, when lb-bot sends them (an older lb-bot sends none: 0 of 0).
+    const total = Math.max(0, Math.floor(num(scan.total)));
     return {
+        done: total ? Math.min(total, Math.max(0, Math.floor(num(scan.done)))) : 0,
         error: str(scan.error),
         finishedAt: num(scan.finishedAt),
         startedAt: num(scan.startedAt),
         state: state as LbBotArtistScan['state'],
         taskId: str(scan.taskId),
+        total,
     };
 };
 
@@ -480,7 +455,9 @@ ipcMain.handle(
                 year: args.year ?? '',
             },
         });
-        if (!result.ok) return failed<boolean>(result.status, result.error);
+        if (!result.ok) {
+            return failed<boolean>(result.status, result.error, false, { code: result.code });
+        }
         const ok = result.data?.ok === true;
         return {
             data: ok,
@@ -1445,7 +1422,9 @@ ipcMain.handle(
             if (args.releaseMbid) params.release_mbid = args.releaseMbid;
         }
         const result = await request('GET', `/lb/meta/${args.kind}`, { params });
-        if (!result.ok) return failed<LbBotMeta>(result.status, result.error);
+        if (!result.ok) {
+            return failed<LbBotMeta>(result.status, result.error, false, { code: result.code });
+        }
         // A 200 whose body held nothing (empty / unparseable -> `{}`) is not an
         // answer: null data, so the caller keeps what it shows.
         const body = result.data ?? {};
@@ -2166,7 +2145,9 @@ ipcMain.handle(
         const result = await request('GET', '/lb/album/sources', {
             params: albumSourcesParams({ ...args, refresh: args.refresh === true }),
         });
-        if (!result.ok) return failed(result.status, result.error);
+        if (!result.ok) {
+            return failed(result.status, result.error, false, { code: result.code });
+        }
         const rows = Array.isArray(result.data?.sources) ? result.data.sources : [];
         return { data: rows.flatMap(toSource), error: '', ok: true, status: result.status };
     },
@@ -2248,7 +2229,9 @@ ipcMain.handle(
             params: { group_id: args.groupId },
             timeoutMs: POLL_TIMEOUT_MS,
         });
-        if (!result.ok) return failed(result.status, result.error);
+        if (!result.ok) {
+            return failed(result.status, result.error, false, { code: result.code });
+        }
         return {
             data: toGap(result.data ?? {}, args.groupId),
             error: '',
@@ -2274,7 +2257,9 @@ ipcMain.handle(
         const result = await request('GET', '/lb/gap/source-files', {
             params: { group_id: args.groupId, source_index: String(args.sourceIndex) },
         });
-        if (!result.ok) return failed(result.status, result.error);
+        if (!result.ok) {
+            return failed(result.status, result.error, false, { code: result.code });
+        }
         const d = result.data ?? {};
         return {
             data: {

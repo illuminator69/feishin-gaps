@@ -57,6 +57,17 @@ import { ipcRenderer } from 'electron';
 
 const status = (): Promise<LbBotStatus> => ipcRenderer.invoke('lbbot-status');
 
+/**
+ * Worbus P1: lb-bot refused a request, whichever route it was - `downloads_off` (409) or
+ * `signin_required` (401, an older hub that sends no bearer). Sent by the main client's one
+ * request function; returns a disposer for THIS listener only.
+ */
+const onRefusal = (cb: (refusal: { code: string }) => void): (() => void) => {
+    const handler = (_event: unknown, refusal: { code: string }) => cb(refusal);
+    ipcRenderer.on('lbbot-refusal', handler);
+    return () => ipcRenderer.removeListener('lbbot-refusal', handler);
+};
+
 const discography = (ndId: string, mbid?: string): Promise<LbBotDiscography | null> =>
     ipcRenderer.invoke('lbbot-discography', { mbid, ndId });
 
@@ -431,6 +442,7 @@ export const lbBot = {
     metaArtist,
     metaRefresh,
     notify,
+    onRefusal,
     overrideRemove,
     overrides,
     overrideSet,

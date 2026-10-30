@@ -89,6 +89,10 @@ import {
     useActiveFillsStore,
     useActiveGap,
 } from '/@/renderer/features/lbbot/stores/active-fills.store';
+import {
+    lbBotModeActions,
+    useLbBotModeValue,
+} from '/@/renderer/features/lbbot/stores/lbbot-mode.store';
 import { nextFillExtras } from '/@/renderer/features/lbbot/utils/album-download';
 import {
     fieldedAlbumQuery,
@@ -131,6 +135,7 @@ import { useCurrentServerId } from '/@/renderer/store';
 import { useHubConnected, useHubStore } from '/@/renderer/store/hub.store';
 import { toast } from '/@/shared/components/toast/toast';
 import { AlbumArtistListSort, AlbumListSort, SortOrder } from '/@/shared/types/domain-types';
+import { downloadsShown, isP1Peer, LbIndexProgress, LbMode } from '/@/shared/utils/lbbot-mode';
 import { normalizeLbBotWebUrl, routeAdvertised } from '/@/shared/utils/lbbot-wire';
 
 /**
@@ -185,7 +190,13 @@ const useLbBotStatus = (): LbBotStatus | undefined => {
     const probe = useQuery({
         enabled: !!lbBot && !advertised,
         gcTime: Infinity,
-        queryFn: () => lbBot!.status(),
+        queryFn: async () => {
+            const status = await lbBot!.status();
+            // Worbus P1: a `/lb/status` read moves the downloads mode like an `lb` frame does
+            // (only when it carries the key). Behind an older hub it never does.
+            lbBotModeActions().applyFrame(status);
+            return status;
+        },
         queryKey: ['lbbot', 'status'],
         // The hub gaining an LBBOT_URL doesn't restart this app, so don't cache
         // "off" forever — but don't re-probe on every artist page either.
@@ -388,8 +399,56 @@ export const invalidateLbBotOwnership = (indexHint?: unknown): void => {
     });
 };
 
-/** Whether the lb-bot layer is reachable at all. */
-export const useLbBotAvailable = (): boolean => useLbBotStatus()?.available === true;
+/**
+ * Whether the lb-bot layer is reachable at all. Worbus P1 (B-263): lb-bot refusing this hub
+ * (`lbRefused`, a 401 `signin_required`) reads as unreachable - lb-bot surfaces render nothing,
+ * the index mirror still renders its local data - until the next `welcome` clears it.
+ */
+export const useLbBotAvailable = (): boolean => {
+    const refused = useHubStore((state) => state.lbRefused);
+    return useLbBotStatus()?.available === true && !refused;
+};
+
+/**
+ * lb-bot's downloads mode (Worbus P1): `on`, `off`, or `unknown` for an older peer, which
+ * behaves as today. See `lbbot-mode.ts` for how it moves.
+ */
+export const useLbBotMode = (): LbMode => useLbBotModeValue();
+
+/** Whether download actions are offered: always, except when lb-bot said downloading is off. */
+export const useLbBotDownloadsShown = (): boolean => downloadsShown(useLbBotModeValue());
+
+/** A peer from Worbus P1 on (it reported the mode): the P1-only offers (Scan now without an
+ *  MBID, the 3 s scan poll, following a worker's scan) are made only to one. */
+export const useIsP1Peer = (): boolean => isP1Peer(useLbBotModeValue());
+
+/** lb-bot's index build countdown, or null - always null while lb-bot is not available (the
+ *  hub keeps the last progress while lb-bot is gone; a bar for a gone lb-bot never ends). */
+export const useLbBotIndexProgress = (): LbIndexProgress | null => {
+    const available = useLbBotAvailable();
+    const progress = useHubStore((state) => state.lbProgress);
+    return available ? progress : null;
+};
+
+/**
+ * Mount once (beside `useLbBotIndexSync`): apply lb-bot's refusals, whichever route got them.
+ * The main client's one request function sends `lbbot-refusal`; a 409 `downloads_off` turns the
+ * mode off, a 401 `signin_required` marks lb-bot refused for this connection.
+ */
+export const useLbBotRefusals = (): void => {
+    useEffect(() => {
+        if (!lbBot?.onRefusal) return undefined;
+        return lbBot.onRefusal(({ code }) => {
+            if (code === 'signin_required') {
+                if (!useHubStore.getState().lbRefused) {
+                    useHubStore.getState().actions.setStore({ lbRefused: true });
+                }
+                return;
+            }
+            lbBotModeActions().applyRefusal(code);
+        });
+    }, []);
+};
 
 /**
  * lb-bot's own web UI, when the hub says where it is ("" otherwise) — for the
