@@ -8,31 +8,65 @@ import styles from './discover-row.module.css';
 import { DiscoverTile } from './discover-tile';
 
 import { AcquireButton } from '/@/renderer/features/lbbot/components/acquire-button';
-import { useLbBotFreshReleases } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import {
+    useLbBotAvailable,
+    useLbBotFreshReleases,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import {
+    useFreshDays,
+    useFreshScope,
+    useFreshSort,
+    useFreshType,
+} from '/@/renderer/features/lbbot/stores/fresh-filters.store';
 import { externalAlbumPath } from '/@/renderer/features/lbbot/utils/external-paths';
+import {
+    freshScopeInEffect,
+    freshShelf,
+    freshShelfReason,
+} from '/@/renderer/features/lbbot/utils/fresh-order';
 import { useLibraryContextMenu } from '/@/renderer/features/shared/hooks/use-library-context-menu';
 import { AppRoute } from '/@/renderer/router/routes';
 import { LibraryItem } from '/@/shared/types/domain-types';
 
 /** The Fresh feed as a row, which is what `DESIGN-lbbot-client-integration.md`
- *  specified in the first place — the whole tab came first and the row never
+ *  specified in the first place - the whole tab came first and the row never
  *  followed. The tab stays: this is the glance, `/fresh` is the full feed with
  *  its filters.
  *
- *  Scoped to `artistOwned`, i.e. new records by artists you already listen to.
- *  That is the half with a real reason line; the site-wide half is a chart, and
- *  a chart belongs behind "See all" rather than at the top of Discover. The two
- *  scopes are never conflated — that rule is lb-bot's, enforced in its own
- *  route docstring. */
+ *  B-286: the glance is the page's first rows. It reads the page's persisted
+ *  filters (window, scope, type, sort) and the page's order (`fresh-order.ts`),
+ *  from the same query key as the page, so visiting one after the other fetches
+ *  nothing new, and the reason line follows the scope: the site-wide scope is a
+ *  chart and never says "already in your library" (lb-bot's rule that the two
+ *  scopes are never conflated). A filter leaving nothing renders nothing. */
 export const FreshRow = ({ title }: { title: string }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const openMenu = useLibraryContextMenu();
-    const { data, isLoading } = useLbBotFreshReleases(30);
+    const days = useFreshDays();
+    const storedScope = useFreshScope();
+    const sort = useFreshSort();
+    const type = useFreshType();
+
+    const available = useLbBotAvailable();
+    const query = useLbBotFreshReleases(days);
+    // As on the page: a placeholder is the previous window's answer, held dimmed while this
+    // window's loads, and dropped when lb-bot cannot answer at all.
+    const switching = query.isPlaceholderData;
+    const data = switching && !available ? undefined : query.data;
+    const loading = available && (query.isLoading || switching);
+    const scope = freshScopeInEffect(data?.releases, storedScope);
 
     const releases = useMemo(
-        () => (data?.releases ?? []).filter((r) => r.artistOwned).slice(0, 20),
-        [data],
+        () =>
+            freshShelf(
+                data?.releases,
+                { scope, sort, type },
+                // The page's clock rule: read when the rows or the filters change.
+                // eslint-disable-next-line react-hooks/purity
+                Date.now(),
+            ),
+        [data, scope, sort, type],
     );
 
     const cards = useMemo(
@@ -67,6 +101,7 @@ export const FreshRow = ({ title }: { title: string }) => {
                         }
                         badgePlacement="top-start"
                         imageUrl={release.coverUrl}
+                        isStale={switching}
                         isUnowned={!release.releaseOwned}
                         itemType={LibraryItem.ALBUM}
                         // An owned release opens the library album directly.
@@ -97,15 +132,15 @@ export const FreshRow = ({ title }: { title: string }) => {
                 ),
                 id: `${release.releaseGroupMbid || release.releaseMbid}-${release.artist}`,
             })),
-        [navigate, openMenu, releases, t],
+        [navigate, openMenu, releases, switching, t],
     );
 
     return (
         <DiscoverRow
-            because="New releases from artists already in your library"
+            because={freshShelfReason(scope, days)}
             cards={cards}
             isEmpty={cards.length === 0}
-            isLoading={isLoading}
+            isLoading={loading}
             seeAll={{ label: 'See all', to: AppRoute.FRESH }}
             title={title}
         />

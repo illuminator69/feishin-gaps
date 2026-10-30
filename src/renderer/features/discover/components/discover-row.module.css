@@ -27,6 +27,18 @@
 .wrapper {
     position: relative;
     height: 100%;
+    transition: opacity 160ms ease;
+}
+
+/* A tile held from the previous answer while the new one loads (`isStale`). */
+.stale {
+    opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wrapper {
+        transition: none;
+    }
 }
 
 /* A poster card, as ItemCard draws one in the Home and album-page carousels and
