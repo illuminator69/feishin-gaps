@@ -90,6 +90,7 @@ import {
     useActiveGap,
 } from '/@/renderer/features/lbbot/stores/active-fills.store';
 import {
+    getLbBotMode,
     lbBotModeActions,
     useLbBotModeValue,
 } from '/@/renderer/features/lbbot/stores/lbbot-mode.store';
@@ -421,6 +422,10 @@ export const useLbBotDownloadsShown = (): boolean => downloadsShown(useLbBotMode
 /** A peer from Worbus P1 on (it reported the mode): the P1-only offers (Scan now without an
  *  MBID, the 3 s scan poll, following a worker's scan) are made only to one. */
 export const useIsP1Peer = (): boolean => isP1Peer(useLbBotModeValue());
+
+/** Worbus P1: downloading is known to be off - the ledger's and the acquire path's non-hook
+ *  functions refuse locally then, without a request. */
+const downloadsOffNow = (): boolean => getLbBotMode() === 'off';
 
 /** lb-bot's index build countdown, or null - always null while lb-bot is not available (the
  *  hub keeps the last progress while lb-bot is gone; a bar for a gone lb-bot never ends). */
@@ -2355,6 +2360,8 @@ export const startAlbumDownload = async (
  */
 export type AcquireOutcome =
     | { format: string; kind: 'started'; peer: string; result: LbBotDownloadResult }
+    /** Worbus P1: lb-bot's downloading is off (known, or a 409 `downloads_off` just said so). */
+    | { kind: 'off' }
     | {
           kind: 'review';
           reason:
@@ -2425,6 +2432,7 @@ export const useAcquireAlbum = () => {
             title?: string;
         }): Promise<AcquireOutcome> => {
             if (!lbBot || !release.rgid) return { kind: 'review', reason: 'unavailable' };
+            if (downloadsOffNow()) return { kind: 'off' };
 
             // The editions read is `useLbBotAlbumReleases`' own query, so it
             // is usually cached (and persisted) already; fail-soft to lb-bot's
@@ -2445,6 +2453,9 @@ export const useAcquireAlbum = () => {
                 queryKey: ['lbbot', 'album-sources', release.rgid, edition?.releaseMbid ?? ''],
                 staleTime: 60 * 1000,
             });
+            // A stale "on" (an older hub, the first seconds after a restart): the 409 is the answer,
+            // not "lb-bot would not answer". The refusal has already turned every surface off.
+            if (answer && !answer.ok && answer.code === 'downloads_off') return { kind: 'off' };
             const sources = answer?.ok ? (answer.data ?? []) : null;
             if (!sources) return { kind: 'review', reason: 'unavailable' };
 
@@ -2475,6 +2486,7 @@ export const useAcquireAlbum = () => {
                 undefined,
                 { album: release.title, artist: release.artist },
             );
+            if (!result.ok && result.code === 'downloads_off') return { kind: 'off' };
             return { format: top.format, kind: 'started', peer: top.peer, result };
         },
         [queryClient],
@@ -2891,6 +2903,8 @@ export const retryFill = async (
     row: { isGap: boolean; key: string; otherSourceExcludes?: string[] },
     options: { allowMp3?: boolean; anotherSource?: boolean } = {},
 ): Promise<boolean> => {
+    // Worbus P1: nothing is fetched while downloading is off; refused here, with no request.
+    if (downloadsOffNow()) return false;
     const { actions, fills } = useActiveFillsStore.getState();
     if (row.isGap) {
         const result = await searchGapSources(row.key, true);
@@ -3014,6 +3028,7 @@ export const allowMp3AndRetry = async (row: {
     isGap: boolean;
     key: string;
 }): Promise<boolean> => {
+    if (downloadsOffNow()) return false;
     if (row.groupId) {
         if (!(await allowMp3ForAlbum(row.groupId))) return false;
         return retryFill(row);

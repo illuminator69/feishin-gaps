@@ -1794,6 +1794,7 @@
             "autoPick": "Pick the best source for me",
             "chooseSource": "Choose a source: none is safe to pick for you, so nothing downloads until you do.",
             "downloadFromHere": "Download from here",
+            "downloadsOff": "This server isn't set up to get albums.",
             "editionsUnread": "Could not load this album's editions. Finding sources still works: lb-bot picks the release itself.",
             "fallback": "lb-bot tries this source first and falls back to the others if it stalls or disappears.",
             "findSources": "Find sources",

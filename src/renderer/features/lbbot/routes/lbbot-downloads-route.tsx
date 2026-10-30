@@ -7,7 +7,11 @@ import { ResolveLinkBox } from '/@/renderer/features/lbbot/components/resolve-li
 import { WishlistList } from '/@/renderer/features/lbbot/components/wishlist-list';
 import { describeFill } from '/@/renderer/features/lbbot/fill-vocabulary';
 import { useFillActions } from '/@/renderer/features/lbbot/hooks/use-fill-actions';
-import { caaCoverUrl, useLbBotWishlist } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import {
+    caaCoverUrl,
+    useLbBotDownloadsShown,
+    useLbBotWishlist,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { LedgerRow, useFillLedger } from '/@/renderer/features/lbbot/stores/active-fills.store';
 import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
@@ -47,7 +51,7 @@ const useNow = (): number => {
 
 const FillRow = ({ now, row }: { now: number; row: LedgerRow }) => {
     // F7: the same actions as the album page's request box, so one row offers the same buttons.
-    const { busy, label, run } = useFillActions(row);
+    const { busy, label, run, shown } = useFillActions(row);
     const view = describeFill(row, now);
     const failed = row.settled && row.outcome !== 'done';
 
@@ -92,7 +96,7 @@ const FillRow = ({ now, row }: { now: number; row: LedgerRow }) => {
                 )}
             </Stack>
             <Group gap="xs">
-                {view.buttons.map((button) => (
+                {shown(view.buttons).map((button) => (
                     <Button
                         disabled={busy && button !== 'dismiss'}
                         key={button}
@@ -153,6 +157,9 @@ export const LbBotDownloadsPage = ({
     const filter: LedgerFilter = section === 'wishlist' ? 'all' : section;
     const shown = rows.filter(MATCHES[filter]);
     const now = useNow();
+    // Worbus P1: with downloading off the ledger is history to read: no paste-a-link box (a pasted
+    // link is an acquisition); the rows lose their fetching buttons (`useFillActions`).
+    const downloadsShown = useLbBotDownloadsShown();
 
     const chips = (
         <Group gap="xs">
@@ -194,7 +201,7 @@ export const LbBotDownloadsPage = ({
                         here rather than on Discover because a pasted link is an
                         acquisition, and this is the page acquisitions are
                         tracked on. */}
-                    <ResolveLinkBox />
+                    {downloadsShown && <ResolveLinkBox />}
                     {rows.length === 0 ? (
                         <Text isMuted>
                             Nothing yet. Albums you ask lb-bot to fetch show up here while they

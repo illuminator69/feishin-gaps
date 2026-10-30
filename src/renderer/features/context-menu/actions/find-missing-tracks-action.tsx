@@ -7,6 +7,7 @@ import {
     useHubSupports,
     useLbBotAvailable,
     useLbBotDiscography,
+    useLbBotDownloadsShown,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { AppRoute } from '/@/renderer/router/routes';
 import { ContextMenu } from '/@/shared/components/context-menu/context-menu';
@@ -40,13 +41,15 @@ export const FindMissingTracksAction = ({ album }: FindMissingTracksActionProps)
     const supported = useHubSupports('POST /lb/gap/search');
     // The same gate as the album page's box, so the entry never opens a page with no box on it.
     const available = useLbBotAvailable();
+    // Worbus P1: the box it opens fills nothing while downloading is off, so it is not offered.
+    const downloadsShown = useLbBotDownloadsShown();
 
     const release = useMemo(
         () => (album ? gapsByAlbumId(discographyQuery.data).get(album.id) : undefined),
         [discographyQuery.data, album],
     );
 
-    if (!album || !release?.groupId || !supported || !available) return null;
+    if (!album || !release?.groupId || !supported || !available || !downloadsShown) return null;
 
     // lb-bot already knows the count, so the label says it rather than making the
     // user open a modal to find out whether it is worth opening.

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import type { SidebarContext, SidebarEntry, SidebarGroup } from './sidebar-groups.ts';
 
+import { downloadsShown } from '../../../../shared/utils/lbbot-mode.ts';
 import { attentionCount, sidebarGroups } from './sidebar-groups.ts';
 
 /**
@@ -47,6 +48,7 @@ const librarySelectedRoutes = ['/library', '/library/albums', '/library/songs', 
 
 const ctx = (patch: Partial<SidebarContext> = {}): SidebarContext => ({
     attentionCount: 0,
+    downloadsShown: true,
     lbBotAvailable: false,
     libraryItems: storedItems(),
     librarySelectedRoutes,
@@ -269,4 +271,51 @@ test('attentionCountIgnoresGaveUpCancelledAndRunning', () => {
     assert.equal(attentionCount([{ outcome: 'running', settled: false }]), 0);
     assert.equal(attentionCount([{ outcome: 'done', settled: true }]), 0);
     assert.equal(attentionCount([]), 0);
+});
+
+// Worbus P1 (F2): lb-bot's downloads mode. Off: no Activity, and Needs attention only while the
+// ledger holds failures from an earlier "on" period. On and unknown (an older peer): as before.
+
+test('sidebar_off_has_no_activity', () => {
+    const { groups } = sidebarGroups(
+        ctx({ downloadsShown: downloadsShown('off'), lbBotAvailable: true }),
+    );
+    assert.deepEqual(shape(groups), [
+        'main: home, library, fresh',
+        'listening: savedQueues',
+        'app: settings',
+    ]);
+});
+
+test('sidebar_off_keeps_attention_only_with_failures', () => {
+    const { groups } = sidebarGroups(
+        ctx({ attentionCount: 2, downloadsShown: downloadsShown('off'), lbBotAvailable: true }),
+    );
+    const you = group(groups, 'you')!;
+    assert.deepEqual(ids(you.entries), ['needsAttention']);
+    assert.equal(you.entries[0].badge, 2);
+    assert.equal(you.entries[0].route, '/downloads');
+});
+
+test('sidebar_on_unchanged', () => {
+    for (const attentionCount of [0, 3]) {
+        const on = sidebarGroups(
+            ctx({ attentionCount, downloadsShown: downloadsShown('on'), lbBotAvailable: true }),
+        );
+        const before = sidebarGroups(ctx({ attentionCount, lbBotAvailable: true }));
+        assert.deepEqual(on, before);
+        assert.deepEqual(ids(group(on.groups, 'you')!.entries), ['needsAttention', 'activity']);
+    }
+});
+
+test('sidebar_unknown_unchanged', () => {
+    const unknown = sidebarGroups(
+        ctx({ downloadsShown: downloadsShown('unknown'), lbBotAvailable: true }),
+    );
+    assert.deepEqual(shape(unknown.groups), [
+        'main: home, library, fresh',
+        'you: needsAttention, activity',
+        'listening: savedQueues',
+        'app: settings',
+    ]);
 });

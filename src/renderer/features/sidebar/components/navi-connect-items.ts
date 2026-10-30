@@ -1,6 +1,7 @@
 import { useDiscoverCapabilities } from '/@/renderer/features/discover/use-discover-capabilities';
 import {
     useLbBotAvailable,
+    useLbBotDownloadsShown,
     useListeningSupported,
     useOverridesSupported,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
@@ -24,6 +25,8 @@ import { SidebarItemType } from '/@/renderer/store/settings.store';
  */
 export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
     const lbBotAvailable = useLbBotAvailable();
+    // Worbus P1: with downloading off there is nothing to track, so no Downloads item.
+    const downloadsShown = useLbBotDownloadsShown();
     const hubConnected = useHubConnected();
     const listeningSupported = useListeningSupported();
     const overridesSupported = useOverridesSupported();
@@ -55,10 +58,15 @@ export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
         route: AppRoute.SAVED_QUEUES,
     });
     if (lbBotAvailable) {
-        items.push(
-            { disabled: false, id: 'Fresh', label: 'Fresh', route: AppRoute.FRESH },
-            { disabled: false, id: 'Downloads', label: 'Downloads', route: AppRoute.DOWNLOADS },
-        );
+        items.push({ disabled: false, id: 'Fresh', label: 'Fresh', route: AppRoute.FRESH });
+        if (downloadsShown) {
+            items.push({
+                disabled: false,
+                id: 'Downloads',
+                label: 'Downloads',
+                route: AppRoute.DOWNLOADS,
+            });
+        }
         // I-024: Library Matches, under the gate its lists already use - the hub
         // advertises the artist-override routes (`useOverridesSupported`). Each
         // section inside then hides itself for an lb-bot that lacks its list.

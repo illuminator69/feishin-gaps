@@ -7,6 +7,11 @@
 
 export interface SidebarContext {
     attentionCount: number;
+    /**
+     * Worbus P1: lb-bot can download (its mode is not "off"; unknown = an older peer = true).
+     * While false there is no Activity, and Needs attention shows only with failed ledger rows.
+     */
+    downloadsShown: boolean;
     lbBotAvailable: boolean;
     /** The persisted `sidebarItems`: only their opt-in Now Playing and Search entries are rows now. */
     libraryItems: { disabled: boolean; id: string; label: string; route: string }[];
@@ -83,18 +88,21 @@ export const sidebarGroups = (
     ];
     if (lb) main.push({ id: 'fresh', label: 'Fresh', route: routes.fresh });
 
-    const you: SidebarEntry[] = lb
-        ? [
-              {
-                  id: 'needsAttention',
-                  label: 'Needs attention',
-                  route: routes.activity,
-                  selectedRoute: '',
-                  ...(ctx.attentionCount > 0 ? { badge: ctx.attentionCount } : {}),
-              },
-              { id: 'activity', label: 'Activity', route: routes.activity },
-          ]
-        : [];
+    const you: SidebarEntry[] = [];
+    // Downloading off: nothing new is fetched, so Activity goes; Needs attention stays only for
+    // the failures an earlier "on" period left in the ledger (Feishin's page is that ledger).
+    if (lb && (ctx.downloadsShown || ctx.attentionCount > 0)) {
+        you.push({
+            id: 'needsAttention',
+            label: 'Needs attention',
+            route: routes.activity,
+            selectedRoute: '',
+            ...(ctx.attentionCount > 0 ? { badge: ctx.attentionCount } : {}),
+        });
+    }
+    if (lb && ctx.downloadsShown) {
+        you.push({ id: 'activity', label: 'Activity', route: routes.activity });
+    }
 
     const listening: SidebarEntry[] = [];
     if (ctx.listeningSupported) {

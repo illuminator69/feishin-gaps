@@ -2,7 +2,7 @@ import { Fragment, Suspense, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { generatePath, Link, Navigate, useParams, useSearchParams } from 'react-router';
 
-import { albumPageState } from '/@/renderer/features/discography/album-page-state';
+import { albumPageOffer, albumPageState } from '/@/renderer/features/discography/album-page-state';
 import { AlbumRequestBox } from '/@/renderer/features/lbbot/components/album-request-box';
 import { NotOwnedAlbum } from '/@/renderer/features/lbbot/components/not-owned-album';
 import ghostStyles from '/@/renderer/features/lbbot/components/not-owned-album.module.css';
@@ -17,6 +17,7 @@ import {
     useLbBotAlbumReleases,
     useLbBotAvailable,
     useLbBotDiscography,
+    useLbBotDownloadsShown,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { ForkDetailPage } from '/@/renderer/features/shared/components/fork-detail-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
@@ -136,6 +137,9 @@ const LbBotExternalAlbumRoute = () => {
         releasesRead,
         routeOlder,
     });
+    // Worbus P1: with downloading off the page offers the wishlist and one plain line, never Find
+    // sources, the request box or its quality picker (and so never a slskd search).
+    const offer = albumPageOffer(state, useLbBotDownloadsShown());
 
     // `release_mbid` is not sent: it only saves lb-bot resolving the canonical release.
     const meta = useLbBotAlbumMeta(rgid).data;
@@ -182,7 +186,7 @@ const LbBotExternalAlbumRoute = () => {
                             </Fragment>
                         ))}
                     </Group>
-                    {state === 'ready' && rgid && (
+                    {offer === 'sources' && rgid && (
                         <Group gap="sm">
                             <Button
                                 data-find-sources=""
@@ -199,6 +203,16 @@ const LbBotExternalAlbumRoute = () => {
                             </Button>
                             <WishlistButton artist={artistName} rgid={rgid} title={title} />
                         </Group>
+                    )}
+                    {offer === 'wishlistOnly' && rgid && (
+                        <Stack gap="xs">
+                            <Group gap="sm">
+                                <WishlistButton artist={artistName} rgid={rgid} title={title} />
+                            </Group>
+                            <Text data-downloads-off="" isMuted size="sm">
+                                {t('naviConnect.albumPage.downloadsOff')}
+                            </Text>
+                        </Stack>
                     )}
                 </Stack>
             }
@@ -220,14 +234,16 @@ const LbBotExternalAlbumRoute = () => {
                     meta={meta}
                     request={request}
                     requestBox={
-                        <AlbumRequestBox
-                            artist={artistName}
-                            coverUrl={caaCoverUrl(rgid)}
-                            ownedAlbumId={ownedAlbumId ?? null}
-                            request={request}
-                            rgid={rgid}
-                            title={title}
-                        />
+                        offer === 'sources' && (
+                            <AlbumRequestBox
+                                artist={artistName}
+                                coverUrl={caaCoverUrl(rgid)}
+                                ownedAlbumId={ownedAlbumId ?? null}
+                                request={request}
+                                rgid={rgid}
+                                title={title}
+                            />
+                        )
                     }
                     rgid={rgid}
                 />

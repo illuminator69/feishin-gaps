@@ -7,6 +7,7 @@ import styles from './sidebar-groups.module.css';
 
 import {
     useLbBotAvailable,
+    useLbBotDownloadsShown,
     useListeningSupported,
     useOverridesSupported,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
@@ -85,6 +86,7 @@ export const useSidebarModel = (options?: {
     const narrowQuery = useMediaQuery('(max-width: 1100px)');
     const narrow = options?.fold ?? narrowQuery;
     const lbBotAvailable = useLbBotAvailable();
+    const downloadsShown = useLbBotDownloadsShown();
     const listeningSupported = useListeningSupported();
     const overridesSupported = useOverridesSupported();
     const ledger = useFillLedger();
@@ -100,6 +102,7 @@ export const useSidebarModel = (options?: {
         });
         const model = sidebarGroups({
             attentionCount: count,
+            downloadsShown,
             lbBotAvailable,
             libraryItems: sidebarItems ?? [],
             librarySelectedRoutes: LIBRARY_FRAME_ROUTES,
@@ -116,7 +119,16 @@ export const useSidebarModel = (options?: {
             })),
             more: model.more.map(relabel),
         };
-    }, [count, lbBotAvailable, listeningSupported, narrow, overridesSupported, sidebarItems, t]);
+    }, [
+        count,
+        downloadsShown,
+        lbBotAvailable,
+        listeningSupported,
+        narrow,
+        overridesSupported,
+        sidebarItems,
+        t,
+    ]);
 };
 
 /** Whether a path selects an entry: one of its `selectedRoutes` (the Library row), or its one route. */
