@@ -23,6 +23,7 @@ const routes = {
     listening: '/listening',
     savedQueues: '/saved-queues',
     settings: '/settings',
+    wishlist: '/wishlist',
 };
 
 // The persisted defaults' shape: Now Playing, Search, Playlists and Settings start disabled.
@@ -56,6 +57,7 @@ const ctx = (patch: Partial<SidebarContext> = {}): SidebarContext => ({
     narrow: false,
     overridesSupported: false,
     routes,
+    wishlistSupported: false,
     ...patch,
 });
 
@@ -318,4 +320,36 @@ test('sidebar_unknown_unchanged', () => {
         'listening: savedQueues',
         'app: settings',
     ]);
+});
+
+// Worbus P1 (F3): the Wishlist is a page of its own in the You group, in both modes, while lb-bot is
+// there and the hub proxies the wishlist.
+
+test('wishlist_in_sidebar_both_modes', () => {
+    for (const shown of [true, false]) {
+        const { groups } = sidebarGroups(
+            ctx({ downloadsShown: shown, lbBotAvailable: true, wishlistSupported: true }),
+        );
+        const you = group(groups, 'you')!;
+        assert.ok(ids(you.entries).includes('wishlist'), `downloadsShown ${shown}`);
+        const wishlist = you.entries.find((entry) => entry.id === 'wishlist')!;
+        assert.equal(wishlist.route, '/wishlist');
+        assert.equal(wishlist.label, 'Wishlist');
+    }
+    // On: after Needs attention and Activity.
+    const on = sidebarGroups(ctx({ lbBotAvailable: true, wishlistSupported: true })).groups;
+    assert.deepEqual(ids(group(on, 'you')!.entries), ['needsAttention', 'activity', 'wishlist']);
+    // Off with no failures: the Wishlist alone.
+    const off = sidebarGroups(
+        ctx({ downloadsShown: false, lbBotAvailable: true, wishlistSupported: true }),
+    ).groups;
+    assert.deepEqual(ids(group(off, 'you')!.entries), ['wishlist']);
+});
+
+test('wishlist_absent_when_route_unsupported', () => {
+    const unsupported = sidebarGroups(ctx({ lbBotAvailable: true, wishlistSupported: false }));
+    assert.ok(!ids(group(unsupported.groups, 'you')!.entries).includes('wishlist'));
+    // And without lb-bot, whatever the hub advertises.
+    const down = sidebarGroups(ctx({ wishlistSupported: true }));
+    assert.equal(group(down.groups, 'you'), undefined);
 });

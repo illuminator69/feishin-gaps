@@ -6,6 +6,7 @@ import { Link, useLocation } from 'react-router';
 import styles from './sidebar-groups.module.css';
 
 import {
+    useHubSupports,
     useLbBotAvailable,
     useLbBotDownloadsShown,
     useListeningSupported,
@@ -37,6 +38,7 @@ const ROUTES: SidebarRoutes = {
     listening: AppRoute.LISTENING,
     savedQueues: AppRoute.SAVED_QUEUES,
     settings: AppRoute.SETTINGS,
+    wishlist: AppRoute.WISHLIST,
 };
 
 // Entry and group ids to their keys.
@@ -64,6 +66,7 @@ const LABEL_KEYS: Record<string, string> = {
     settings: 'page.sidebar.settings',
     statistics: 'page.sidebar.statistics',
     Tracks: 'page.sidebar.tracks',
+    wishlist: 'page.sidebar.wishlist',
     you: 'page.sidebar.you',
 };
 
@@ -89,6 +92,7 @@ export const useSidebarModel = (options?: {
     const downloadsShown = useLbBotDownloadsShown();
     const listeningSupported = useListeningSupported();
     const overridesSupported = useOverridesSupported();
+    const wishlistSupported = useHubSupports('GET /lb/wishlist');
     const ledger = useFillLedger();
     const sidebarItems = useSidebarItems();
     const count = useMemo(() => attentionCount(ledger), [ledger]);
@@ -110,6 +114,7 @@ export const useSidebarModel = (options?: {
             narrow,
             overridesSupported,
             routes: ROUTES,
+            wishlistSupported,
         });
         return {
             groups: model.groups.map((g) => ({
@@ -128,6 +133,7 @@ export const useSidebarModel = (options?: {
         overridesSupported,
         sidebarItems,
         t,
+        wishlistSupported,
     ]);
 };
 

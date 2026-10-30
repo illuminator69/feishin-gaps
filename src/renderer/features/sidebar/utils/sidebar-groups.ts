@@ -21,6 +21,8 @@ export interface SidebarContext {
     narrow: boolean;
     overridesSupported: boolean;
     routes: SidebarRoutes;
+    /** Worbus P1 (F3): the hub proxies `GET /lb/wishlist`. */
+    wishlistSupported: boolean;
 }
 
 export interface SidebarEntry {
@@ -51,6 +53,7 @@ export interface SidebarRoutes {
     listening: string;
     savedQueues: string;
     settings: string;
+    wishlist: string;
 }
 
 // F6: the Library items are the Library frame's chips; these two opt-in pages are not, and stay rows.
@@ -102,6 +105,10 @@ export const sidebarGroups = (
     }
     if (lb && ctx.downloadsShown) {
         you.push({ id: 'activity', label: 'Activity', route: routes.activity });
+    }
+    // The Wishlist in both modes: while off it is where a missing album is kept for later.
+    if (lb && ctx.wishlistSupported) {
+        you.push({ id: 'wishlist', label: 'Wishlist', route: routes.wishlist });
     }
 
     const listening: SidebarEntry[] = [];

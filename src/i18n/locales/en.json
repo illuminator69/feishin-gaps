@@ -852,6 +852,7 @@
             "fresh": "Fresh",
             "needsAttention": "Needs attention",
             "activity": "Activity",
+            "wishlist": "Wishlist",
             "statistics": "Statistics",
             "savedQueues": "Saved queues",
             "libraryMatches": "Library Matches",
@@ -2078,6 +2079,19 @@
             "radioOf": "{{name}} radio",
             "viaNavidrome": "via Navidrome",
             "yourMix": "Your mix"
+        },
+        "wishlist": {
+            "emptyEvery": "Nothing on the wishlist. When a download fails because nobody is sharing an album, you can put it here and lb-bot will keep looking every {{hours}} hours.",
+            "emptyOff": "Nothing on the wishlist. Add a missing album to keep it here.",
+            "emptyPeriodically": "Nothing on the wishlist. When a download fails because nobody is sharing an album, you can put it here and lb-bot will keep looking periodically.",
+            "open": "Open",
+            "readFailed": "Could not read the wishlist from lb-bot.",
+            "remove": "Remove",
+            "savedForLater": "Saved for when your server can get albums",
+            "stillLooking_one": "Still looking - {{count}} search so far",
+            "stillLooking_other": "Still looking - {{count}} searches so far",
+            "title": "Wishlist",
+            "waitingFirst": "Waiting for the first re-search"
         }
     }
 }

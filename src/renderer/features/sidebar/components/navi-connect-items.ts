@@ -1,5 +1,6 @@
 import { useDiscoverCapabilities } from '/@/renderer/features/discover/use-discover-capabilities';
 import {
+    useHubSupports,
     useLbBotAvailable,
     useLbBotDownloadsShown,
     useListeningSupported,
@@ -30,6 +31,7 @@ export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
     const hubConnected = useHubConnected();
     const listeningSupported = useListeningSupported();
     const overridesSupported = useOverridesSupported();
+    const wishlistSupported = useHubSupports('GET /lb/wishlist');
     const { hasSources } = useDiscoverCapabilities();
 
     const items: SidebarItemType[] = [];
@@ -65,6 +67,15 @@ export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
                 id: 'Downloads',
                 label: 'Downloads',
                 route: AppRoute.DOWNLOADS,
+            });
+        }
+        // Worbus P1 (F3): the Wishlist page, in both modes.
+        if (wishlistSupported) {
+            items.push({
+                disabled: false,
+                id: 'Wishlist',
+                label: 'Wishlist',
+                route: AppRoute.WISHLIST,
             });
         }
         // I-024: Library Matches, under the gate its lists already use - the hub
