@@ -68,7 +68,11 @@ import {
     useIsActiveRow,
     useItemTableListColumnResizeLive,
 } from '/@/renderer/components/item-list/item-table-list/item-table-list-context';
-import { showFullTextWhenCut } from '/@/renderer/components/item-list/item-table-list/utils/full-text-when-cut';
+import { keepsItsFloor } from '/@/renderer/components/item-list/item-table-list/utils/fit-column-widths';
+import {
+    runsPastItsCell,
+    showFullTextWhenCut,
+} from '/@/renderer/components/item-list/item-table-list/utils/full-text-when-cut';
 import { ItemControls, ItemListItem } from '/@/renderer/components/item-list/types';
 import { Flex } from '/@/shared/components/flex/flex';
 import { Icon } from '/@/shared/components/icon/icon';
@@ -702,6 +706,11 @@ export const TableColumnTextContainer = (
     // The side queue's playing row (F4) wears a container painted on each of its cells.
     const isQueueActive = useIsActiveRow(props.markActiveRow ? itemRowId || undefined : undefined);
     const clampHeight = getAlbumGroupClampHeight(props);
+    // B-271: a number cell (a column that keeps its floor in the shrink band; the row index stays
+    // as R16 M2 left it) renders by the base's rule: its box keeps its min-content width, so a
+    // short number uses the cell's padding and reads whole at a 40 px column, and wraps or clamps
+    // by row size. Text cells keep one line with an ellipsis (B-267).
+    const isNumber = props.type !== TableColumn.ROW_INDEX && keepsItsFloor(props.type);
 
     const isDragging = props.isDragging ?? false;
     const mergedRef = useMergedRef(containerRef, props.dragRef ?? null);
@@ -800,6 +809,7 @@ export const TableColumnTextContainer = (
                 [styles.dragging]: isDataRow && isDragging,
                 [styles.left]: props.columns[props.columnIndex].align === 'start',
                 [styles.noHorizontalPadding]: isNoHorizontalPaddingColumn(props.type),
+                [styles.numberCell]: isNumber,
                 [styles.paddingLg]: props.cellPadding === 'lg',
                 [styles.paddingMd]: props.cellPadding === 'md',
                 [styles.paddingSm]: props.cellPadding === 'sm',
@@ -824,14 +834,25 @@ export const TableColumnTextContainer = (
             style={clampHeight !== null ? { height: clampHeight } : props.style}
         >
             <Text
-                className={clsx(styles.content, props.className)}
+                className={clsx(isNumber ? styles.numberContent : styles.content, props.className, {
+                    [styles.compact]: isNumber && props.size === 'compact',
+                    [styles.large]: isNumber && props.size === 'large',
+                })}
                 isMuted={!NonMutedColumns.includes(props.type)}
                 isNoSelect
                 // A row number is not text cut mid-word, and its play popover sits there (R16 M2).
                 onMouseEnter={
                     props.type === TableColumn.ROW_INDEX
                         ? undefined
-                        : (event) => showFullTextWhenCut(event.currentTarget)
+                        : (event) => {
+                              const content = event.currentTarget;
+                              // A number wider than its cell is clipped by the cell (B-271).
+                              const pastItsCell =
+                                  isNumber &&
+                                  content.parentElement !== null &&
+                                  runsPastItsCell(content, content.parentElement.clientWidth);
+                              showFullTextWhenCut(content, undefined, pastItsCell);
+                          }
                 }
             >
                 {props.children}

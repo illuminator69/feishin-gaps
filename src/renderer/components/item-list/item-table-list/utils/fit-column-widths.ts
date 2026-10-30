@@ -213,13 +213,22 @@ const KEEPS_ITS_FLOOR_IDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * B-271: whether a column keeps its floor in the shrink band (`KEEPS_ITS_FLOOR_IDS`). The table's
+ * number cells are these too (`TableColumnTextContainer`): one list, so a numeric column cannot
+ * keep its floor and render as text, or the reverse.
+ */
+export function keepsItsFloor(id: string): boolean {
+    return KEEPS_ITS_FLOOR_IDS.has(id);
+}
+
+/**
  * B-267: whether a column gives px when the floors overflow by less than one column's minimum.
  * Only text columns do (Title, Album, Artist, Album artist, Genre, Composer, Path, Comment and any
  * custom text column). Rating keeps its floor (its stars stay whole), so do the columns in
  * `KEEPS_ITS_FLOOR_IDS` and any other column on the `MIN_SCALE` floor (narrower than 100 px).
  */
 function givesInTheBand(column: FitColumn): boolean {
-    if (column.id === RATING_ID || KEEPS_ITS_FLOOR_IDS.has(column.id)) return false;
+    if (column.id === RATING_ID || keepsItsFloor(column.id)) return false;
     if (TITLE_IDS.has(column.id)) return true;
     return column.width * MIN_SCALE >= GENERIC_MIN_WIDTH;
 }

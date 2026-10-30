@@ -16,10 +16,25 @@ export interface FullTextTarget extends CutBox {
     textContent: null | string;
 }
 
+/** A number cell's box against the cell it sits in (an HTMLElement's offset measures). */
+export interface OffsetBox {
+    offsetLeft: number;
+    offsetWidth: number;
+}
+
 /** Whether a box's content runs past it: wider (one line) or taller (a clamped title). */
 export function isCut(box: CutBox): boolean {
     if (box.clientWidth <= 0) return false;
     return box.scrollWidth > box.clientWidth || box.scrollHeight > box.clientHeight;
+}
+
+/**
+ * B-271: whether a number cell's box runs past its cell's padding box (`cellWidth`, the cell's
+ * `clientWidth`). A number keeps its min-content width and may use the cell's padding; wider than
+ * the cell, it is clipped at the cell's border, outside its own box, which `isCut` cannot see.
+ */
+export function runsPastItsCell(content: OffsetBox, cellWidth: number): boolean {
+    return content.offsetLeft < 0 || content.offsetLeft + content.offsetWidth > cellWidth;
 }
 
 /**

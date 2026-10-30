@@ -82,6 +82,31 @@
     white-space: nowrap;
 }
 
+/* B-271: a number cell keeps the base's rule (the shared container's before R16). Its box keeps
+   its min-content width, so a short number runs into the cell's padding and reads whole at a
+   40 px column ("0:03", "2026"); with R16's one-line rule it was cut to the 23 px content box
+   ("0:..."). A number with a space wraps, clamped by row size ("320 / kbps" at the default). */
+.number-content {
+    position: relative;
+    z-index: 2;
+    display: -webkit-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.number-content.compact {
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+}
+
+.number-content.large {
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+}
+
 .container.data-row {
     cursor: default;
 }
@@ -501,5 +526,12 @@
    user set); they drew over the heart beside them. Clipped across only: a drop line above or below
    the row still shows. */
 .rating-cell {
+    overflow-x: clip;
+}
+
+/* B-271: a number uses its cell's padding but stops at the cell's own border. With the base's rule
+   a number wider than the cell ("1:02:03", 46 px, at a 40 px column) drew over the next cell's
+   text. Clipped across only, as the rating cell. */
+.number-cell {
     overflow-x: clip;
 }
