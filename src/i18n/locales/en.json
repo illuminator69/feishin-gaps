@@ -28,6 +28,8 @@
         "moveItems": "Move items",
         "shuffle": "Shuffle",
         "shuffleAll": "Shuffle all",
+        "scrollLeft": "Scroll left",
+        "scrollRight": "Scroll right",
         "shuffleSelected": "Shuffle selected",
         "refresh": "$t(common.refresh)",
         "removeFromFavorites": "Remove from $t(entity.favorite, {\"count\": 2})",

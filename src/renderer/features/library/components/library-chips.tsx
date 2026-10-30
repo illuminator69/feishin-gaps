@@ -5,6 +5,7 @@ import { Link, useLocation } from 'react-router';
 
 import styles from './library-chips.module.css';
 
+import { SidewaysRow } from '/@/renderer/components/sideways-row/sideways-row';
 import { useDiscoverCapabilities } from '/@/renderer/features/discover/use-discover-capabilities';
 import { useMirrorShown } from '/@/renderer/features/lbbot/index-mirror/index-mirror';
 import { LIBRARY_TAB_ROUTES } from '/@/renderer/features/library/library-routes';
@@ -67,7 +68,8 @@ const Chip = ({ selected, tab }: { selected: boolean; tab: LibraryTab }) => (
 /**
  * The Library's sections as a row of chips (design brief 7.2): Artists, Albums, Tracks, a divider,
  * then Mixes, Playlists, Genres, Folders, Radio stations, and More. Each chip is a link to its page;
- * the row never wraps and scrolls sideways when it does not fit.
+ * the row never wraps and scrolls sideways when it does not fit, by the mouse wheel too: it sits in
+ * the frame's fixed head, where a wheel has nothing else to scroll (B-285).
  */
 export const LibraryChips = () => {
     const { t } = useTranslation();
@@ -88,7 +90,13 @@ export const LibraryChips = () => {
     };
 
     return (
-        <nav aria-label={t('page.library.sections')} className={styles.row} data-library-chips>
+        <SidewaysRow
+            aria-label={t('page.library.sections')}
+            as="nav"
+            className={styles.row}
+            data-library-chips
+            wheel="chrome"
+        >
             {tabs.primary.map((tab) => (
                 <Chip key={tab.id} selected={selected === tab.id} tab={tab} />
             ))}
@@ -132,6 +140,6 @@ export const LibraryChips = () => {
                     </DropdownMenu.Dropdown>
                 </DropdownMenu>
             )}
-        </nav>
+        </SidewaysRow>
     );
 };

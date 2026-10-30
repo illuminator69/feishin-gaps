@@ -8,6 +8,7 @@ import { DataRow } from '/@/renderer/components/item-card/item-card';
 import { useDefaultItemListControls } from '/@/renderer/components/item-list/helpers/item-list-controls';
 import { useGridRows } from '/@/renderer/components/item-list/helpers/use-grid-rows';
 import { ItemControls } from '/@/renderer/components/item-list/types';
+import { SidewaysRow } from '/@/renderer/components/sideways-row/sideways-row';
 import { useArtistChipStore } from '/@/renderer/features/discography/artist-chip.store';
 import {
     chipRow,
@@ -139,10 +140,11 @@ export const ArtistShelves = ({ artistMbid, artistName, ndId, owned }: ArtistShe
                                     {t('page.albumArtistDetail.showAll')}
                                 </Link>
                             </div>
-                            <div
+                            <SidewaysRow
                                 aria-label={t('page.albumArtistDetail.discographyKicker')}
                                 className={styles.chips}
                                 role="group"
+                                wheel="page"
                             >
                                 {chips.map((chip) => (
                                     <button
@@ -157,7 +159,7 @@ export const ArtistShelves = ({ artistMbid, artistName, ndId, owned }: ArtistShe
                                         {chipLabel(chip)}
                                     </button>
                                 ))}
-                            </div>
+                            </SidewaysRow>
                             <Row itemsPerRow={itemsPerRow}>
                                 {row.map((item, index) => (
                                     <Slot

@@ -2,13 +2,15 @@ import { useTranslation } from 'react-i18next';
 
 import styles from './mood-chips.module.css';
 
+import { SidewaysRow } from '/@/renderer/components/sideways-row/sideways-row';
 import { Icon } from '/@/shared/components/icon/icon';
 import { MoodEntry } from '/@/shared/types/mood-types';
 
 /**
  * Home's mood chips: the hub's home moods in its order, and a clear chip first while one is
  * selected. A group of buttons (Tab through them, Enter or Space selects); the row scrolls sideways
- * under a soft mask instead of clipping.
+ * instead of clipping (`SidewaysRow`). It sits in Home's scrolling page, so the plain wheel stays
+ * the page's; Shift+wheel and the edge buttons move the row.
  */
 export const MoodChips = ({
     moods,
@@ -23,11 +25,12 @@ export const MoodChips = ({
 }) => {
     const { t } = useTranslation();
     return (
-        <div
+        <SidewaysRow
             aria-label={t('naviConnect.moods.label')}
             className={styles.row}
             data-mood-chips
             role="group"
+            wheel="page"
         >
             {selected && (
                 <button
@@ -53,6 +56,6 @@ export const MoodChips = ({
                     {mood.label}
                 </button>
             ))}
-        </div>
+        </SidewaysRow>
     );
 };

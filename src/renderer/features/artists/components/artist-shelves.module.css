@@ -67,25 +67,9 @@
     padding: 4px 0 8px;
 }
 
-/* The chip row's edge fades, driven by its own sideways scroll (below). */
-@property --chips-fade-start {
-    inherits: false;
-    initial-value: 0;
-    syntax: '<length>';
-}
-
-@property --chips-fade-end {
-    inherits: false;
-    initial-value: 32px;
-    syntax: '<length>';
-}
-
 /* Spotify's chips under the Discography heading, in the Library's chip style (the selected one
-   filled). One line that scrolls sideways rather than wraps; the padding is room for the focus ring.
-   With no scrollbar, an edge fades where chips are cut off, so they read as there: the trailing
-   edge from the start, the leading one once scrolled. The fades follow the row's own scroll
-   timeline; a row that fits has no timeline, so nothing moves and its last chip sits clear of the
-   trailing fade unless it reaches the edge. */
+   filled). One line that scrolls sideways rather than wraps (`SidewaysRow`: its edge fades and
+   buttons, no scrollbar; the page keeps the plain wheel); the padding is room for the focus ring. */
 .chips {
     display: flex;
     flex-wrap: nowrap;
@@ -93,29 +77,6 @@
     align-items: center;
     padding: 4px 2px 8px;
     margin: -4px -2px 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-    mask-image: linear-gradient(
-        to right,
-        transparent,
-        #000 var(--chips-fade-start),
-        #000 calc(100% - var(--chips-fade-end)),
-        transparent
-    );
-    animation: chips-fade linear both;
-    animation-timeline: scroll(self inline);
-}
-
-@keyframes chips-fade {
-    from {
-        --chips-fade-start: 0;
-        --chips-fade-end: 32px;
-    }
-
-    to {
-        --chips-fade-start: 32px;
-        --chips-fade-end: 0;
-    }
 }
 
 .chip {

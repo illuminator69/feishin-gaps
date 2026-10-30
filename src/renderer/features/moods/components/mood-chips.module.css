@@ -1,4 +1,4 @@
-/* The chips row: one line that scrolls sideways under a soft mask at its end (no scrollbar). */
+/* The chips row: one line that scrolls sideways (`SidewaysRow`: its fades, buttons, no scrollbar). */
 .row {
     display: flex;
     flex-wrap: nowrap;
@@ -7,9 +7,6 @@
     /* Room for the focus ring, which the scrolling row would otherwise clip. */
     padding: 4px;
     margin: -4px;
-    overflow-x: auto;
-    scrollbar-width: none;
-    mask: linear-gradient(90deg, var(--theme-colors-foreground) 88%, transparent);
 }
 
 .chip,

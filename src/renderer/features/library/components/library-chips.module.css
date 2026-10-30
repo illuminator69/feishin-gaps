@@ -1,4 +1,4 @@
-/* The chip row (the Library board): 30 px chips, one line that scrolls sideways under a soft mask. */
+/* The chip row (the Library board): 30 px chips, one line that scrolls sideways (`SidewaysRow`). */
 .row {
     display: flex;
     flex: none;
@@ -8,9 +8,6 @@
 
     /* Room for the focus ring, which the scrolling row would otherwise clip. */
     padding: 8px 28px;
-    overflow-x: auto;
-    scrollbar-width: none;
-    mask: linear-gradient(90deg, var(--theme-colors-foreground) 94%, transparent);
 }
 
 .chip {
