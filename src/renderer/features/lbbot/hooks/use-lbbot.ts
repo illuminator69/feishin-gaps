@@ -113,6 +113,7 @@ import {
 import {
     describeOverrideFailure,
     effectiveArtistMbid,
+    isNavidromeArtistId,
     isOlderLbBot,
     OverrideFailure,
     overrideKind,
@@ -233,7 +234,7 @@ export const adoptLbBotWelcome = (lb: unknown): void => {
     // "This lb-bot is older" was learned from the lb-bot of the last connection; an
     // upgraded one must be asked again. The album and merge flags have no successful
     // read to clear them (unlike the override list's), so a welcome does.
-    for (const key of [ALBUM_OVERRIDE_OLDER_KEY, MERGE_OLDER_KEY]) {
+    for (const key of [ALBUM_OVERRIDE_OLDER_KEY, MERGE_OLDER_KEY, SCAN_NEEDS_MBID_KEY]) {
         if (queryClient.getQueryData(key)) queryClient.setQueryData(key, false);
     }
 };
@@ -644,9 +645,36 @@ export const useLbBotArtistSearch = (term: string) => {
     });
 };
 
-/** Trigger the (slow, rate-limited) MusicBrainz scan for one artist. */
+/**
+ * Worbus P1 (F6): an lb-bot answered Scan now without an MBID 400 "mbid is required" - it is older
+ * than P1 after all, and an artist needs an MBID to scan again. Cleared by the next welcome.
+ */
+const SCAN_NEEDS_MBID_KEY = ['lbbot', 'scan-needs-mbid'] as const;
+
+export const useScanNeedsMbid = (): boolean =>
+    useQuery<boolean>({
+        enabled: false,
+        gcTime: Infinity,
+        initialData: false,
+        queryFn: () => false,
+        queryKey: SCAN_NEEDS_MBID_KEY,
+        staleTime: Infinity,
+    }).data;
+
+/** How long a scan's follow polls before giving up (a scan that retries MusicBrainz can take a
+ *  few minutes; the record says when it is really over). */
+const SCAN_FOLLOW_MS = 5 * 60 * 1000;
+
+/**
+ * Trigger the (slow, rate-limited) MusicBrainz scan for one artist. Worbus P1: with no MBID, a P1
+ * peer scans by the Navidrome id alone ("Scan now"), polls every 3 s instead of 5, and follows a
+ * scan that was already running (`running: true`, possibly the worker's `auto-index`) through the
+ * discography's `scan` record - never a task route.
+ */
 export const useIndexArtist = (ndId: string) => {
     const queryClient = useQueryClient();
+    const p1Peer = useIsP1Peer();
+    const needsMbid = useScanNeedsMbid();
     const [pending, setPending] = useState(false);
     const [error, setError] = useState('');
     // Not a failure: lb-bot started no scan because another library artist holds
@@ -654,8 +682,10 @@ export const useIndexArtist = (ndId: string) => {
     const [note, setNote] = useState('');
 
     const indexArtist = useCallback(
-        async (mbid: string, name: string) => {
-            if (!lbBot || !mbid || !name) return false;
+        async (mbid: string | undefined, name: string) => {
+            if (!lbBot) return false;
+            const byNdId = !mbid && p1Peer && !needsMbid && isNavidromeArtistId(ndId);
+            if (mbid ? !name : !byNdId) return false;
             setPending(true);
             setError('');
             setNote('');
@@ -677,7 +707,14 @@ export const useIndexArtist = (ndId: string) => {
                 before?.scannedAt ?? 0,
                 getMirrorArtistByNdId(ndId, mbid)?.scannedAt ?? 0,
             );
-            const plan = planIndexStart(await lbBot.indexArtist(ndId, mbid, name));
+            const answer = await lbBot.indexArtist(ndId, mbid || undefined, name);
+            if (answer?.olderLbBot) {
+                // Not a failure to shout about: the page goes back to "needs an MBID", as before P1.
+                queryClient.setQueryData(SCAN_NEEDS_MBID_KEY, true);
+                setPending(false);
+                return false;
+            }
+            const plan = planIndexStart(answer);
             if (plan.kind === 'covered') {
                 // Nothing was started, so there is nothing to wait on: no spinner.
                 setPending(false);
@@ -698,6 +735,7 @@ export const useIndexArtist = (ndId: string) => {
             // Rather than polling a task, re-read the index a few times and let the
             // shelf appear when it appears — a miss just means "not yet".
             let attempts = 0;
+            const everyMs = p1Peer ? 3000 : 5000;
             const tick = window.setInterval(async () => {
                 attempts += 1;
                 const data = await queryClient.fetchQuery({
@@ -712,9 +750,17 @@ export const useIndexArtist = (ndId: string) => {
                 // Matched by task id, not time: lb-bot's clock is not this one.
                 const failed = scan?.state === 'failed' && scan.taskId === taskId;
                 if (failed) setError(scan.error || 'The discography scan failed.');
+                // Worbus P1: a followed scan (the worker's, or one started elsewhere) can end
+                // without moving `scannedAt` past what this page saw; its record says it ended.
+                const finished = scan?.state === 'done' && scan.taskId === taskId;
                 // A scan that retries MusicBrainz can take a few minutes; the
                 // scan record says when it is really over, so waiting is cheap.
-                if ((data?.indexed && rescanned) || failed || attempts >= 60) {
+                if (
+                    (data?.indexed && rescanned) ||
+                    failed ||
+                    finished ||
+                    attempts * everyMs >= SCAN_FOLLOW_MS
+                ) {
                     window.clearInterval(tick);
                     setPending(false);
                     // The page reads this artist from the mirror, which the
@@ -728,12 +774,12 @@ export const useIndexArtist = (ndId: string) => {
                     // latter is dropped while a retry is pending, and this poll
                     // has just had lb-bot answer — whatever back-off the sync
                     // earned is over, so it is reset and the pull goes now.
-                    if (data?.indexed && rescanned) onLbBotAvailable();
+                    if (data?.indexed && (rescanned || finished)) onLbBotAvailable();
                 }
-            }, 5000);
+            }, everyMs);
             return true;
         },
-        [ndId, queryClient],
+        [ndId, needsMbid, p1Peer, queryClient],
     );
 
     return { error, indexArtist, note, pending };

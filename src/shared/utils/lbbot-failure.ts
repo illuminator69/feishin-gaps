@@ -66,3 +66,11 @@ export const describeFailure = (status: number, body: Json | null): string => {
     if (status === 0) return 'Could not reach the hub.';
     return upstream || `Request failed (${status})`;
 };
+
+/**
+ * Worbus P1 (F6): Scan now without an MBID refused by an lb-bot from before P1, which answers
+ * `POST /lb/artist/discography {nd_id}` 400 "mbid is required". Only that sentence reads as an older
+ * lb-bot (Navic ruling 4); any other 400 is an ordinary failure.
+ */
+export const isOlderScanRefusal = (status: number, error: string | undefined): boolean =>
+    status === 400 && error === 'mbid is required';

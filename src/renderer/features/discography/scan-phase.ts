@@ -7,7 +7,15 @@
  * therefore running until a record carrying its own task id says it ended, or five minutes pass.
  */
 
-export type ScanPhase = 'empty' | 'failed' | 'idle' | 'never' | 'running' | 'unavailable';
+/** `unresolved` (Worbus P1): lb-bot indexed the artist but found no MusicBrainz artist for it. */
+export type ScanPhase =
+    | 'empty'
+    | 'failed'
+    | 'idle'
+    | 'never'
+    | 'running'
+    | 'unavailable'
+    | 'unresolved';
 
 /** How long a scan this session started counts as running without a record that ends it. */
 export const SCAN_WAIT_MS = 5 * 60 * 1000;
@@ -29,15 +37,22 @@ export interface ScanInput {
     releaseCount: number;
     /** From the network read only: the index mirror carries no scan record. */
     scan: null | ScanRecord;
-    /** lb-bot needs the artist's MBID and name to scan. */
+    /** lb-bot can scan this artist (`scanScannable`). */
     scannable: boolean;
     started: null | { atMs: number; taskId: string };
+    /** Worbus P1, from the network read only: indexed with no MusicBrainz match. Absent from an
+     *  older lb-bot, which reads as false. */
+    unresolved?: boolean;
 }
 
 export interface ScanRecord {
+    /** Worbus P1: release groups read so far, of `total`; 0 of 0 when lb-bot sends no counts. */
+    done?: number;
     error: string;
     state: 'done' | 'failed' | 'running';
+    /** `auto-index` is lb-bot's background worker, which has no task row. */
     taskId: string;
+    total?: number;
 }
 
 export const scanPhase = (input: ScanInput): ScanPhase => {
@@ -58,10 +73,44 @@ export const scanPhase = (input: ScanInput): ScanPhase => {
     // Not known yet is not "never scanned": nothing is said or offered until the read answers.
     if (!input.indexed && input.loading) return 'unavailable';
     if (!input.indexed) return input.available ? 'never' : 'unavailable';
+    // Shown even when library albums fill the page (Navic ruling 6): lb-bot has nothing to add.
+    if (input.unresolved) return 'unresolved';
     return input.releaseCount === 0 ? 'empty' : 'idle';
 };
 
-export const scanPollMs = (phase: ScanPhase): null | number => (phase === 'running' ? 5000 : null);
+/** The poll while a scan runs: every 3 s for a P1 peer (its lb-bot sends counts), else 5 s. */
+export const scanPollMs = (phase: ScanPhase, p1Peer = false): null | number =>
+    phase === 'running' ? (p1Peer ? 3000 : 5000) : null;
+
+/**
+ * Whether lb-bot can scan this artist. An MBID and a name, as always; or, for a P1 peer, the
+ * Navidrome artist id alone (Scan now by `nd_id`) - unless its lb-bot answered that it needs an
+ * MBID after all (`isOlderScanRefusal`). The virtual `mb:` page has no Navidrome id to send.
+ */
+export const scanScannable = (input: {
+    mbid: null | string | undefined;
+    name: string;
+    ndId: string;
+    olderLbBot: boolean;
+    p1Peer: boolean;
+}): boolean => {
+    if (input.mbid && input.name) return true;
+    return (
+        !input.mbid &&
+        input.p1Peer &&
+        !input.olderLbBot &&
+        !!input.ndId &&
+        !input.ndId.startsWith('mb:')
+    );
+};
+
+const counts = new Intl.NumberFormat('en-US');
+
+/** "6 of 10 done" while a scan with counts runs; null for the indeterminate bar. */
+export const scanCountsText = (scan: null | ScanRecord): null | string =>
+    scan?.state === 'running' && (scan.total ?? 0) > 0
+        ? `${counts.format(Math.min(scan.done ?? 0, scan.total!))} of ${counts.format(scan.total!)} done`
+        : null;
 
 const DAY_MS = 86_400_000;
 
@@ -78,7 +127,11 @@ const describeScan = (scannedAtMs: number, nowMs: number): string => {
 export const scanLine = (
     phase: ScanPhase,
     input: {
+        /** Worbus P1: the running scan sends counts, so the bar says them. */
+        counted?: boolean;
         error: string;
+        /** A scan ran and ended during this visit: the idle line says so. */
+        justScanned?: boolean;
         nowMs: number;
         scannable?: boolean;
         scannedAtMs: null | number;
@@ -91,6 +144,7 @@ export const scanLine = (
         case 'failed':
             return input.error || 'The discography scan failed.';
         case 'idle':
+            if (input.justScanned) return 'Updated just now';
             if (!input.scannedAtMs) return '';
             return `${describeScan(input.scannedAtMs, input.nowMs)}${input.stale ? ' · out of date' : ''}`;
         case 'never':
@@ -98,7 +152,11 @@ export const scanLine = (
                 ? "lb-bot needs this artist's MusicBrainz id and name to look up its releases."
                 : 'Not scanned yet. Find missing albums looks up every release on MusicBrainz.';
         case 'running':
-            return 'Looking up every release on MusicBrainz. This can take a minute and the count is unknown until it ends. You can leave this page; the scan keeps going.';
+            return input.counted
+                ? 'Looking up every release on MusicBrainz. You can leave this page; the scan keeps going.'
+                : 'Looking up every release on MusicBrainz. This can take a minute and the count is unknown until it ends. You can leave this page; the scan keeps going.';
+        case 'unresolved':
+            return "lb-bot couldn't find this artist on MusicBrainz.";
         default:
             return '';
     }

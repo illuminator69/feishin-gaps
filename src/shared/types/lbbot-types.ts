@@ -792,6 +792,12 @@ export type LbBotGapTrackState =
  *  nothing because another library artist holds this discography. */
 export interface LbBotIndexStart {
     covered: boolean;
+    /** Worbus P1: an lb-bot from before P1 refused a scan without an MBID (400 "mbid is
+     *  required"). Nothing was started; the artist needs an MBID to scan. */
+    olderLbBot?: boolean;
+    /** Worbus P1: a scan of this artist was already running (`taskId` is that scan's, possibly
+     *  the worker's `auto-index`); it is followed, not started twice. */
+    running?: boolean;
     taskId: string;
 }
 

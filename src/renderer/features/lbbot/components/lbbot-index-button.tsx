@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 
+import { scanScannable } from '/@/renderer/features/discography/scan-phase';
 import { openMbidMatchModal } from '/@/renderer/features/lbbot/components/mbid-match-modal';
 import {
     refreshArtistMeta,
     useArtistOverrideKind,
     useIndexArtist,
+    useIsP1Peer,
     useLbBotAvailable,
     useOverrideControls,
+    useScanNeedsMbid,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { isNavidromeArtistId } from '/@/renderer/features/lbbot/utils/artist-override';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
@@ -58,6 +61,8 @@ export const LbBotIndexButton = ({
     const overridesSupported = useOverrideControls() && isNavidromeArtistId(ndId);
     const kind = useArtistOverrideKind(ndId, tagMbid);
     const [refreshing, setRefreshing] = useState(false);
+    const p1Peer = useIsP1Peer();
+    const needsMbid = useScanNeedsMbid();
 
     // A scan's outcome, said once as it arrives: the menu that started it has closed.
     useEffect(() => {
@@ -79,8 +84,16 @@ export const LbBotIndexButton = ({
 
     // lb-bot's index POST requires BOTH: the MBID is what it scans, the name is what
     // it matches the library against, and it 400s without either. A virtual artist
-    // page reached by a bookmarked URL has the id and not yet the name.
-    const scannable = Boolean(artistMbid && artistName);
+    // page reached by a bookmarked URL has the id and not yet the name. Worbus P1: a P1
+    // lb-bot scans a library artist by its Navidrome id alone, so the "no MusicBrainz
+    // id" sentence is said only to an older peer.
+    const scannable = scanScannable({
+        mbid: artistMbid,
+        name: artistName,
+        ndId,
+        olderLbBot: needsMbid,
+        p1Peer,
+    });
     const openPicker = () =>
         openMbidMatchModal({
             currentMbid: artistMbid,

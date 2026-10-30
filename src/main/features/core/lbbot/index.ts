@@ -96,7 +96,7 @@ import {
     toPreview,
     toSiblingGroups,
 } from '/@/shared/utils/lbbot-album-wire';
-import { describeFailure, refusalCode } from '/@/shared/utils/lbbot-failure';
+import { describeFailure, isOlderScanRefusal, refusalCode } from '/@/shared/utils/lbbot-failure';
 import { hasMetaFields, normalizeLbBotWebUrl } from '/@/shared/utils/lbbot-wire';
 
 /**
@@ -356,6 +356,8 @@ ipcMain.handle(
         });
         if (!data) return null;
         const scan = toScan(data.scan);
+        // Worbus P1: absent when not indexed and from an older lb-bot (both read as false).
+        const unresolved = typeof data.unresolved === 'boolean' ? data.unresolved : undefined;
         if (data.indexed !== true) {
             return {
                 artistName: '',
@@ -378,6 +380,7 @@ ipcMain.handle(
             // button watches to know it is done.
             scannedAt: num(data.scanned_at),
             stale: data.stale === true,
+            ...(unresolved === undefined ? {} : { unresolved }),
         };
     },
 );
@@ -385,22 +388,37 @@ ipcMain.handle(
 // Scanning an artist walks MusicBrainz at one request a second — 10-60s for a
 // large discography — so it is always an explicit user action, never automatic
 // on page open. Returns the background task id, or null if the trigger failed.
+//
+// Worbus P1: with no MBID, lb-bot P1 scans by the Navidrome id alone (`{nd_id}`,
+// "Scan now"), resolving the artist on MusicBrainz itself; a scan already running
+// for the artist answers `running: true` with its task id. An lb-bot from before P1
+// answers that body 400 "mbid is required", told apart as `olderLbBot`.
 ipcMain.handle(
     'lbbot-index-artist',
     async (
         _event,
-        args: { mbid: string; name: string; ndId: string },
+        args: { mbid?: string; name: string; ndId: string },
     ): Promise<LbBotIndexStart | null> => {
-        // lb-bot requires both: the MBID is what it scans, the name is what it
-        // matches the library against. Without an MBID there is nothing to ask.
-        if (!args.mbid || !args.name) return null;
-        const { data } = await request('POST', '/lb/artist/discography', {
-            body: { mbid: args.mbid, name: args.name, nd_id: args.ndId },
+        // With an MBID lb-bot needs both: the MBID is what it scans, the name is
+        // what it matches the library against. Without one, the Navidrome id.
+        if (args.mbid ? !args.name : !args.ndId) return null;
+        const result = await request('POST', '/lb/artist/discography', {
+            body: args.mbid
+                ? { mbid: args.mbid, name: args.name, nd_id: args.ndId }
+                : { nd_id: args.ndId },
         });
+        if (!args.mbid && isOlderScanRefusal(result.status, result.error)) {
+            return { covered: false, olderLbBot: true, taskId: '' };
+        }
+        const { data } = result;
         if (data?.ok !== true) return null;
         // A blank `task_id` with `covered: true` is lb-bot's decision to start
         // nothing: another library artist holds this discography.
-        return { covered: data.covered === true, taskId: str(data.task_id) };
+        return {
+            covered: data.covered === true,
+            ...(data.running === true ? { running: true } : {}),
+            taskId: str(data.task_id),
+        };
     },
 );
 

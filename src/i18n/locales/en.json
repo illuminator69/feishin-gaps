@@ -1882,10 +1882,13 @@
                     "failed": "Retry scan",
                     "idle": "Rescan discography",
                     "never": "Find missing albums",
-                    "running": "Scanning discography"
+                    "running": "Scanning discography",
+                    "unresolved": "Retry scan"
                 },
                 "ghostLabel": "Discography loading",
                 "lbbotDown": "lb-bot cannot be reached right now.",
+                "matchManually": "Match manually",
+                "retry": "Retry",
                 "unscannable": "lb-bot needs this artist's MusicBrainz id and name to scan."
             },
             "showAll": "Show all",

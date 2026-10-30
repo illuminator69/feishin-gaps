@@ -82,8 +82,14 @@ const indexKeys = (): Promise<LbBotResult<LbBotIndexKeys>> =>
     ipcRenderer.invoke('lbbot-index-keys');
 
 /** Null when the request failed. A blank `taskId` with `covered` means lb-bot
- *  started nothing because another library artist holds this discography. */
-const indexArtist = (ndId: string, mbid: string, name: string): Promise<LbBotIndexStart | null> =>
+ *  started nothing because another library artist holds this discography. Worbus P1:
+ *  no `mbid` scans by the Navidrome id alone ("Scan now"); `olderLbBot` is an lb-bot
+ *  that refused that. */
+const indexArtist = (
+    ndId: string,
+    mbid: string | undefined,
+    name: string,
+): Promise<LbBotIndexStart | null> =>
     ipcRenderer.invoke('lbbot-index-artist', { mbid, name, ndId });
 
 /** Add or refresh one release-group in an artist's index — the cheap alternative
