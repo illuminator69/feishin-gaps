@@ -143,6 +143,7 @@ export const ArtistShelves = ({ artistMbid, artistName, ndId, owned }: ArtistShe
                             <SidewaysRow
                                 aria-label={t('page.albumArtistDetail.discographyKicker')}
                                 className={styles.chips}
+                                frameProps={{ className: styles.chipsFrame }}
                                 role="group"
                                 wheel="page"
                             >

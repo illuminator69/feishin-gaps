@@ -94,7 +94,8 @@ export const LibraryChips = () => {
             aria-label={t('page.library.sections')}
             as="nav"
             className={styles.row}
-            data-library-chips
+            // On the frame, the head's own child: the head's short-window rule addresses it there.
+            frameProps={{ 'data-library-chips': true }}
             wheel="chrome"
         >
             {tabs.primary.map((tab) => (

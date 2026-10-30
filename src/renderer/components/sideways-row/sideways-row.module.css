@@ -76,8 +76,10 @@
     }
 }
 
+/* Under the pointer, or with keyboard focus in the row: a mouse click on a chip leaves focus there
+   too, and must not hold the buttons up over the edge chips. */
 .frame:hover > .button:not([inert]),
-.frame:focus-within > .button:not([inert]) {
+.frame:has(:focus-visible) > .button:not([inert]) {
     pointer-events: auto;
     opacity: 1;
 }

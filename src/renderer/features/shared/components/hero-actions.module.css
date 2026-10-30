@@ -2,12 +2,14 @@
  * The board's `.cta` row under a hero header: Play 52 px round on the accent, buttons 36 px tall
  * (`.btn`, `.btn.out`), rating, favourite and more pushed to the right. `data-mode` (B-284, set
  * from the row's measured widths): `full`; `icons`, the labelled buttons folded to 36 px squares;
- * `stacked`, the icon row wrapped with the end group starting its line at the left. The wrap stays
- * on in every mode, so a row that has not been measured yet wraps rather than overflows.
+ * `stacked`, the icon row wrapped with the end group starting its line at the left. The full row
+ * never wraps: it is measured and folded before paint, and folding it then leaves the row's height
+ * alone, which keeps a fold inside the ResizeObserver callback from changing what it observes (the
+ * "ResizeObserver loop" error). A folded row wraps, in layout, when even the icons do not fit.
  */
 .row {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 10px;
     align-items: center;
     width: 100%;
@@ -80,6 +82,10 @@
 }
 
 /* Folded: the icon alone, in a square the row's own height; the label names it (aria-label). */
+.row:not([data-mode='full']) {
+    flex-wrap: wrap;
+}
+
 .row:not([data-mode='full']) .button {
     width: 36px;
     padding: 0;

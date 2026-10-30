@@ -5,10 +5,12 @@ import test from 'node:test';
 import {
     FRESH_SCOPE_WORDS,
     FRESH_SHELF_SIZE,
+    FRESH_TYPE_WORDS,
     freshBuckets,
     freshScopeInEffect,
     freshShelf,
     freshShelfReason,
+    freshTileTarget,
     freshTypeBucket,
     WEEK_BUCKETS,
     weekBucketFor,
@@ -199,33 +201,106 @@ test('nothing: no rows, or a filter leaving none, is no bucket at all', () => {
     assert.deepEqual(freshShelf([], { scope: 'all', sort: 'newest', type: 'all' }, NOW), []);
 });
 
-test('theShelfIsThePagesFirstRows, for every combination of the filters', () => {
-    // A long feed so the shelf's cut matters: 60 rows across the buckets, types and owners.
-    const many: Row[] = Array.from({ length: 60 }, (_, i) =>
-        row(
-            `A${String(i).padStart(2, '0')}`,
-            i % 7 === 0
-                ? ''
-                : `2026-${i % 2 ? '10' : '09'}-${String((i % 28) + 1).padStart(2, '0')}`,
-            {
-                artistOwned: i % 3 !== 0,
-                artistPlays: i % 4 === 0 ? i : undefined,
-                type: ['Album', 'EP', 'Single', '', 'Other'][i % 5],
-            },
+test('theShelfIsThePagesFirstRows, against ids written out by hand', () => {
+    // Each expectation is the page's order read off the FEED above by hand, not computed from
+    // freshBuckets, so a change to the page's order shows here as a change to the shelf.
+    const shelf = (filters: Parameters<typeof freshShelf>[1], size?: number) =>
+        names(freshShelf(FEED, filters, NOW, size));
+    // Defaults (mine, newest, all): owned artists, week buckets newest first.
+    assert.deepEqual(shelf({ scope: 'mine', sort: 'newest', type: 'all' }, 4), [
+        'Upco',
+        'Abel',
+        'Lars',
+        'Twon',
+    ]);
+    // All: the unowned artists join, Zed newest of this week.
+    assert.deepEqual(shelf({ scope: 'all', sort: 'newest', type: 'all' }, 4), [
+        'Upco',
+        'Zed',
+        'Abel',
+        'Thea',
+    ]);
+    // Plays: most played first, rows without plays dropped.
+    assert.deepEqual(shelf({ scope: 'plays', sort: 'newest', type: 'all' }), [
+        'Thea',
+        'Lars',
+        'Earl',
+    ]);
+    // EP, and A-Z, and the empty type under other.
+    assert.deepEqual(shelf({ scope: 'all', sort: 'newest', type: 'ep' }), ['Abel', 'Thea']);
+    assert.deepEqual(shelf({ scope: 'all', sort: 'artist', type: 'all' }, 3), [
+        'Abel',
+        'Earl',
+        'Lars',
+    ]);
+    assert.deepEqual(shelf({ scope: 'mine', sort: 'artist', type: 'single' }), ['Lars', 'Upco']);
+    assert.deepEqual(shelf({ scope: 'all', sort: 'newest', type: 'other' }), [
+        'Zed',
+        'Twon',
+        'Undated',
+    ]);
+    // A filter leaving nothing.
+    assert.deepEqual(shelf({ scope: 'plays', sort: 'newest', type: 'ep' }), ['Thea']);
+    assert.deepEqual(shelf({ scope: 'mine', sort: 'newest', type: 'ep' }), ['Abel']);
+    assert.deepEqual(
+        names(
+            freshShelf(
+                [row('Only', '2026-10-28', { artistOwned: false })],
+                { scope: 'mine', sort: 'newest', type: 'all' },
+                NOW,
+            ),
         ),
+        [],
     );
+
+    // The shelf's cut: 25 rows A-Z from a feed in reverse order, the first 20 written out.
+    const letters = 'YXWVUTSRQPONMLKJIHGFEDCBA'.split('');
+    const long = letters.map((letter) => row(letter, '2026-10-20'));
     assert.equal(FRESH_SHELF_SIZE, 20);
-    for (const scope of ['all', 'mine', 'plays'] as const) {
-        for (const type of ['all', 'album', 'ep', 'single', 'other'] as const) {
-            for (const sort of ['newest', 'artist'] as const) {
-                const filters = { scope, sort, type };
-                const page = flat(freshBuckets(many, filters, NOW));
-                const shelf = freshShelf(many, filters, NOW);
-                assert.deepEqual(shelf, page.slice(0, FRESH_SHELF_SIZE), JSON.stringify(filters));
-                assert.ok(shelf.length <= FRESH_SHELF_SIZE);
-            }
-        }
-    }
+    assert.deepEqual(names(freshShelf(long, { scope: 'mine', sort: 'artist', type: 'all' }, NOW)), [
+        'A',
+        'B',
+        'C',
+        'D',
+        'E',
+        'F',
+        'G',
+        'H',
+        'I',
+        'J',
+        'K',
+        'L',
+        'M',
+        'N',
+        'O',
+        'P',
+        'Q',
+        'R',
+        'S',
+        'T',
+    ]);
+});
+
+test('aTileWithNoReleaseGroupOpensNothing', () => {
+    // The page's guard, now shared: an owned album opens the library album, a release group the
+    // virtual page, and a row with neither opens nothing and offers no acquire (R18 review M-8).
+    assert.deepEqual(freshTileTarget({ releaseAlbumId: 'al-1', releaseGroupMbid: 'rg-1' }), {
+        albumId: 'al-1',
+        kind: 'library',
+    });
+    assert.deepEqual(freshTileTarget({ releaseAlbumId: '', releaseGroupMbid: 'rg-1' }), {
+        kind: 'external',
+        rgid: 'rg-1',
+    });
+    assert.equal(freshTileTarget({ releaseAlbumId: '', releaseGroupMbid: '' }), null);
+    // Both the page and the shelf read it (grep-only).
+    const shelf = read('../../discover/components/fresh-row.tsx');
+    const page = read('../routes/lbbot-fresh-route.tsx');
+    assert.match(shelf, /freshTileTarget\(/);
+    assert.match(page, /freshTileTarget\(/);
+    // The shelf's acquire control and its click both wait for a target (grep-only).
+    assert.match(shelf, /target\?\.kind === 'external' && !release\.releaseOwned \?/);
+    assert.match(shelf, /onClick=\{\s*target\s*\? \(\) =>/);
 });
 
 test('theReasonFollowsTheScopeAndNamesAWindowThatIsNot30Days', () => {
@@ -236,6 +311,20 @@ test('theReasonFollowsTheScopeAndNamesAWindowThatIsNot30Days', () => {
     assert.doesNotMatch(freshShelfReason('mine', 30), /days/);
     assert.match(freshShelfReason('all', 7), /7 days/);
     assert.match(freshShelfReason('plays', 90), /90 days/);
+    // A type filter is named too, so a shelf of EPs says why it has no albums (M-9).
+    assert.equal(freshShelfReason('mine', 30, 'all'), FRESH_SCOPE_WORDS.mine.reason);
+    assert.equal(freshShelfReason('mine', 30, 'ep'), `${FRESH_SCOPE_WORDS.mine.reason} · EPs`);
+    assert.equal(
+        freshShelfReason('all', 7, 'single'),
+        `${FRESH_SCOPE_WORDS.all.reason} in the last 7 days · Singles`,
+    );
+    assert.deepEqual(FRESH_TYPE_WORDS, {
+        album: 'Albums',
+        all: 'All',
+        ep: 'EPs',
+        other: 'Other',
+        single: 'Singles',
+    });
     // The page's scope chips read the same words.
     assert.deepEqual(
         Object.values(FRESH_SCOPE_WORDS)
@@ -249,6 +338,10 @@ test('thePageAndTheShelfReadTheSameFunctionsAndTheSameQuery', () => {
     const page = read('../routes/lbbot-fresh-route.tsx');
     assert.match(page, /freshBuckets\(/);
     assert.match(page, /FRESH_SCOPE_WORDS/);
+    assert.match(page, /FRESH_TYPE_WORDS/);
+    // One spelling of the scope rule: the page asks freshScopeInEffect, as the shelf does (M-11).
+    assert.match(page, /freshScopeInEffect\(data\?\.releases, storedScope\)/);
+    assert.doesNotMatch(page, /scopeInEffect\(storedScope/);
     // The ordering lives in one place now.
     assert.doesNotMatch(page, /const weekBucketFor|const WEEK_BUCKETS|const typeBucket/);
     assert.doesNotMatch(page, /'Your artists'|'Artists you play'/);
@@ -256,7 +349,7 @@ test('thePageAndTheShelfReadTheSameFunctionsAndTheSameQuery', () => {
     const shelf = read('../../discover/components/fresh-row.tsx');
     assert.match(shelf, /freshShelf\(/);
     assert.match(shelf, /freshScopeInEffect\(/);
-    assert.match(shelf, /freshShelfReason\(/);
+    assert.match(shelf, /freshShelfReason\(scope, days, type\)/);
     for (const hook of ['useFreshDays', 'useFreshScope', 'useFreshSort', 'useFreshType']) {
         assert.match(shelf, new RegExp(`${hook}\\(\\)`), hook);
     }

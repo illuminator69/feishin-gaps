@@ -19,8 +19,14 @@ import {
     useFreshType,
 } from '/@/renderer/features/lbbot/stores/fresh-filters.store';
 import { artistLinkPath, externalAlbumPath } from '/@/renderer/features/lbbot/utils/external-paths';
-import { FRESH_SCOPE_WORDS, freshBuckets } from '/@/renderer/features/lbbot/utils/fresh-order';
-import { hasArtistPlays, scopeInEffect } from '/@/renderer/features/lbbot/utils/fresh-scope';
+import {
+    FRESH_SCOPE_WORDS,
+    FRESH_TYPE_WORDS,
+    freshBuckets,
+    freshScopeInEffect,
+    freshTileTarget,
+} from '/@/renderer/features/lbbot/utils/fresh-order';
+import { hasArtistPlays } from '/@/renderer/features/lbbot/utils/fresh-scope';
 import { ForkCardGrid } from '/@/renderer/features/shared/components/fork-card-grid';
 import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
@@ -61,13 +67,9 @@ const DAYS_DATA = [
     { label: '90 days', value: '90' },
 ];
 
-const TYPE_DATA: { label: string; value: FreshType }[] = [
-    { label: 'All', value: 'all' },
-    { label: 'Albums', value: 'album' },
-    { label: 'EPs', value: 'ep' },
-    { label: 'Singles', value: 'single' },
-    { label: 'Other', value: 'other' },
-];
+const TYPE_DATA: { label: string; value: FreshType }[] = (
+    ['all', 'album', 'ep', 'single', 'other'] as const
+).map((value) => ({ label: FRESH_TYPE_WORDS[value], value }));
 
 const SORT_DATA: { label: string; value: FreshSort }[] = [
     { label: 'Newest', value: 'newest' },
@@ -93,11 +95,14 @@ const FreshTile = ({ release }: { release: LbBotFreshRelease }) => {
     // itself has none (placement cannot write them). So a tile badged "In
     // library" opened a download page. The virtual page stays the fallback it
     // was designed to be.
-    const albumTo = release.releaseAlbumId
-        ? generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, { albumId: release.releaseAlbumId })
-        : release.releaseGroupMbid
-          ? externalAlbumPath(release)
-          : undefined;
+    // `freshTileTarget` is this rule, shared with the Fresh shelf.
+    const target = freshTileTarget(release);
+    const albumTo =
+        target?.kind === 'library'
+            ? generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, { albumId: target.albumId })
+            : target
+              ? externalAlbumPath(release)
+              : undefined;
 
     // The app's card, as on Discover's Fresh row: "In library" and the date travel on it,
     // the artist line links to the artist, an absent release is dashed and faded.
@@ -156,7 +161,7 @@ const LbBotFreshRoute = () => {
     // I-006: "Artists you play" exists only while some row carries `artistPlays`
     // (an older lb-bot sends none); a stored `plays` then reads as `mine`.
     const playsAvailable = hasArtistPlays(data?.releases);
-    const scope = scopeInEffect(storedScope, playsAvailable);
+    const scope = freshScopeInEffect(data?.releases, storedScope);
     const scopeData = playsAvailable
         ? [...SCOPE_DATA, { label: FRESH_SCOPE_WORDS.plays.label, value: 'plays' as FreshScope }]
         : SCOPE_DATA;

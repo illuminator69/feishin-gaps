@@ -53,7 +53,9 @@ interface HeroActionsProps {
  * folds the labelled buttons to their icons (the label stays their name and their tooltip); only a
  * column narrower than that wraps, the end group then starting its line at the left. The mode comes
  * from the row's own measured widths (`hero-actions-fit.ts`), re-measured whenever the row or an
- * item changes size, and set before paint, so a resize never shows a wrapped row first.
+ * item changes size, a mode is shown or a web font arrives, and set before paint, so a resize never
+ * shows a wrapped row first. The full row never wraps, so folding it leaves the row's height alone
+ * (no "ResizeObserver loop" error); only a folded row wraps, in layout, when even it does not fit.
  */
 export const HeroActions = ({
     actions,
@@ -70,12 +72,23 @@ export const HeroActions = ({
     const isMutatingDeleteFavorite = useIsMutatingDeleteFavorite();
     const isMutatingFavorite = isMutatingCreateFavorite || isMutatingDeleteFavorite;
 
-    // What the row holds: a change (a language, the rating switched on) invalidates both widths.
+    // A web font arriving after the first measure: the labels' width changes even while they are
+    // hidden (icons), where no observer can see it, so both widths are measured again.
+    const [fontsLoaded, setFontsLoaded] = useState(0);
+    useEffect(() => {
+        const onLoaded = () => setFontsLoaded((count) => count + 1);
+        document.fonts.addEventListener('loadingdone', onLoaded);
+        return () => document.fonts.removeEventListener('loadingdone', onLoaded);
+    }, []);
+
+    // What the row holds: a change (a language, the rating switched on, a font) invalidates both
+    // widths.
     const contentKey = JSON.stringify([
         actions.map((action) => [action.label, action.icon]),
         !!onRating,
         !!onFavorite,
         !!onMore,
+        fontsLoaded,
     ]);
     const rowRef = useRef<HTMLDivElement>(null);
     const [fit, setFit] = useState<{ mode: HeroActionsMode; widths: HeroActionsWidths }>(() => ({
@@ -108,9 +121,10 @@ export const HeroActions = ({
                     : { mode: next, widths };
             });
         };
-        // Every render: a new mode or new contents is measured before the browser paints it.
+        // A new mode or new contents is measured before the browser paints it. Not on every
+        // render: a parent re-rendering (the player) must not force a layout read.
         measureRef.current();
-    });
+    }, [mode, contentKey]);
 
     useEffect(() => {
         const row = rowRef.current;

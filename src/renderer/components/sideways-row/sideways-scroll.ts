@@ -19,9 +19,11 @@ export interface SidewaysMetrics {
 export type SidewaysWheel = 'chrome' | 'page';
 
 export interface WheelInput {
+    ctrlKey: boolean;
     deltaMode: number;
     deltaX: number;
     deltaY: number;
+    metaKey: boolean;
     shiftKey: boolean;
 }
 
@@ -55,7 +57,8 @@ export const scrollStep = (
 
 /**
  * Where a wheel event takes the row, or `null` when the event is not the row's: a `page` row, a
- * Shift+wheel or a mainly sideways delta (a touchpad, a tilt wheel: the browser's own), a row that
+ * Ctrl or Meta wheel (zoom, and a touchpad pinch, which arrives as a Ctrl+wheel), a Shift+wheel
+ * or a mainly sideways delta (a touchpad, a tilt wheel: the browser's own), a row that
  * fits, or a row already at the end the wheel points to (the event goes on to the page). `from` is
  * where a glide in progress is heading, so quick notches add up.
  */
@@ -65,7 +68,7 @@ export const sidewaysWheelTarget = (
     wheel: SidewaysWheel,
     from: number = row.scrollLeft,
 ): null | number => {
-    if (wheel !== 'chrome' || event.shiftKey) return null;
+    if (wheel !== 'chrome' || event.shiftKey || event.ctrlKey || event.metaKey) return null;
     if (Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return null;
     const max = maxScroll(row);
     if (max < EDGE_PX) return null;

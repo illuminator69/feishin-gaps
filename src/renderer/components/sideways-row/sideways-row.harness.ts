@@ -33,9 +33,11 @@ const row = (scrollLeft: number, patch: Partial<SidewaysMetrics> = {}): Sideways
 });
 
 const wheel = (patch: Partial<WheelInput> = {}): WheelInput => ({
+    ctrlKey: false,
     deltaMode: 0,
     deltaX: 0,
     deltaY: 100,
+    metaKey: false,
     shiftKey: false,
     ...patch,
 });
@@ -77,6 +79,16 @@ test('aTouchpadSidewaysSwipeAndShiftWheelAreTheBrowsers', () => {
     assert.equal(sidewaysWheelTarget(row(0), wheel({ shiftKey: true }), 'page'), null);
     // A mainly vertical swipe with a little sideways drift is still a vertical wheel.
     assert.equal(sidewaysWheelTarget(row(0), wheel({ deltaX: 3, deltaY: 40 }), 'chrome'), 40);
+});
+
+test('aCtrlOrMetaWheelIsTheBrowsersZoom', () => {
+    // A Ctrl+wheel and a touchpad pinch (which arrives as a Ctrl+wheel) zoom; never the row's.
+    assert.equal(sidewaysWheelTarget(row(0), wheel({ ctrlKey: true }), 'chrome'), null);
+    assert.equal(
+        sidewaysWheelTarget(row(300), wheel({ ctrlKey: true, deltaY: -3 }), 'chrome'),
+        null,
+    );
+    assert.equal(sidewaysWheelTarget(row(0), wheel({ metaKey: true }), 'chrome'), null);
 });
 
 test('linesAndPagesAreConvertedToPixels', () => {
@@ -185,6 +197,73 @@ test('theRowsMechanism', () => {
     assert.match(block(css, '\n.frame > .button {'), /pointer-events: none;/);
     assert.match(block(css, '\n.frame > .button {'), /opacity: 0;/);
     assert.match(css, /\.frame:hover > \.button/);
-    assert.match(css, /\.frame:focus-within > \.button/);
     assert.match(css, /prefers-reduced-motion: reduce/);
+});
+
+/*
+ * The checks below read source text (grep-only): they pin a spelling, not a behaviour, and the
+ * walk is what shows the behaviour.
+ */
+
+test('theButtonsShowOnHoverAndOnKeyboardFocusOnly (grep-only)', () => {
+    // A mouse click on a chip leaves focus in the row; that must not hold the buttons up.
+    const css = read('./sideways-row.module.css');
+    assert.doesNotMatch(css, /:focus-within/);
+    assert.match(css, /\.frame:has\(:focus-visible\) > \.button:not\(\[inert\]\)/);
+});
+
+// `top right bottom left` from a CSS `padding` / `margin` shorthand, in px.
+const box = (value: string | undefined): [number, number, number, number] => {
+    const parts = (value ?? '0')
+        .trim()
+        .split(/\s+/)
+        .map((part) => parseFloat(part) || 0);
+    const [top, right = top, bottom = top, left = right] = parts;
+    return [top, right, bottom, left];
+};
+
+const declaration = (rule: string, property: string) =>
+    rule.match(new RegExp(`\\n\\s+${property}: ([^;]+);`))?.[1];
+
+test('theButtonsSitOnTheChipsCentre (computed from each row CSS)', () => {
+    // The buttons are centred on the frame, which is the scroller's margin box: the chips' centre
+    // is the frame's when what sits above the chips equals what sits below them.
+    for (const { css, rule } of ROWS) {
+        const own = block(read(css), rule);
+        const [padTop, , padBottom] = box(declaration(own, 'padding'));
+        const [marginTop, , marginBottom] = box(declaration(own, 'margin'));
+        assert.equal(padTop + marginTop, padBottom + marginBottom, `${css}: above vs below`);
+    }
+});
+
+test('theLibraryHeadRuleReachesTheFrame (grep-only)', () => {
+    // A short window lays the Library head out as a row: the chips' element is pushed to grow by
+    // `.head > [data-library-chips]`, which only matches the head's direct child, i.e. the
+    // SidewaysRow frame, not the scroller inside it (I-1, R18 review).
+    const frame = read('../../features/library/components/library-frame.module.css');
+    assert.match(frame, /\.head > \[data-library-chips\] \{/);
+    const chips = read('../../features/library/components/library-chips.tsx');
+    assert.match(chips, /frameProps=\{\{ 'data-library-chips': true \}\}/);
+    assert.doesNotMatch(chips, /\n\s+data-library-chips\n/);
+    const source = read('./sideways-row.tsx');
+    assert.match(source, /return \(\s+<div\s+\{\.\.\.frameProps\}/);
+});
+
+/** Each `useEffect` / `useLayoutEffect` closes with a dependency list: none runs every render. */
+const everyEffectHasDeps = (source: string, path: string) => {
+    const lines = source.split('\n');
+    lines.forEach((line, at) => {
+        const open = line.match(/^(\s*)use(?:Layout)?Effect\(\(\) => \{$/);
+        if (!open) return;
+        const close = lines.slice(at + 1).find((l) => l.startsWith(`${open[1]}}`));
+        assert.ok(close?.startsWith(`${open[1]}}, [`), `${path}:${at + 1} runs every render`);
+    });
+};
+
+test('layoutIsReadOnResizeScrollAndMutationNotEveryRender (grep-only)', () => {
+    const source = read('./sideways-row.tsx');
+    everyEffectHasDeps(source, 'sideways-row.tsx');
+    // Chips come and go: new ones observed, removed ones let go.
+    assert.match(source, /new MutationObserver/);
+    assert.match(source, /\.unobserve\(/);
 });

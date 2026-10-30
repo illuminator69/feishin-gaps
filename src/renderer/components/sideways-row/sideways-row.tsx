@@ -19,9 +19,18 @@ import {
 
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 
+type FrameProps = ComponentPropsWithoutRef<'div'> & {
+    [attribute: `data-${string}`]: boolean | string | undefined;
+};
+
 type SidewaysRowProps = ComponentPropsWithoutRef<'div'> & {
     /** The scrolling element's tag: `nav` for the Library's sections. */
     as?: 'div' | 'nav';
+    /**
+     * For the frame, the row's outermost element: what a parent's layout addresses as its child
+     * (the Library head's short-window rule), and spacing below the row.
+     */
+    frameProps?: FrameProps;
     /** Whether a plain vertical wheel scrolls the row (`sideways-scroll.ts`). */
     wheel: SidewaysWheel;
 };
@@ -33,20 +42,23 @@ const behavior = (): ScrollBehavior =>
 
 /**
  * B-285: one line of chips that scrolls sideways with no scrollbar, the one mechanism every such
- * row uses. A side with hidden content fades out at its edge and, under the pointer or with focus
- * in the row, shows a chevron button that moves the row most of a width that way; a side with
+ * row uses. A side with hidden content fades out at its edge and, under the pointer or with keyboard
+ * focus in the row, shows a chevron button that moves the row most of a width that way; a side with
  * nothing hidden shows neither, so a row that fits looks like a plain row. On a row in fixed chrome
  * (`wheel="chrome"`) a vertical mouse wheel scrolls it sideways until it reaches that end, then
  * goes on to the page; a row in a scrolling page leaves the plain wheel to the page. A touchpad's
  * sideways swipe and Shift+wheel are the browser's own on both. Focus moving to a hidden chip
  * scrolls it into view natively, clear of the buttons (`scroll-padding-inline`).
  *
- * The props other than `as` and `wheel` go to the scrolling element, which holds the chips.
+ * The props other than `as`, `frameProps` and `wheel` go to the scrolling element, which holds the
+ * chips. Layout is read on a scroll, a resize and a chip coming or going, never on a render alone
+ * (the queue's station row re-renders while a track plays).
  */
 export const SidewaysRow = ({
     as: Tag = 'div',
     children,
     className,
+    frameProps,
     wheel,
     ...props
 }: SidewaysRowProps) => {
@@ -55,7 +67,6 @@ export const SidewaysRow = ({
     const [sides, setSides] = useState({ end: false, start: false });
     // Where a glide in progress is heading, so quick notches and presses add up; cleared at its end.
     const goingTo = useRef<null | number>(null);
-    const observer = useRef<null | ResizeObserver>(null);
 
     const measure = () => {
         const row = ref.current;
@@ -74,15 +85,8 @@ export const SidewaysRow = ({
         row.scrollTo({ behavior: how, left });
     };
 
-    // Every render: the chips may have changed. New chips are observed for their own size too.
+    // Before the first paint, so a row that does not fit shows its fade from the start.
     useLayoutEffect(() => {
-        measure();
-        const row = ref.current;
-        if (!row || !observer.current) return;
-        for (const chip of Array.from(row.children)) observer.current.observe(chip);
-    });
-
-    useEffect(() => {
         const row = ref.current;
         if (!row) return undefined;
         const onScroll = () => measure();
@@ -96,12 +100,26 @@ export const SidewaysRow = ({
         const resize = new ResizeObserver(() => measure());
         resize.observe(row);
         for (const chip of Array.from(row.children)) resize.observe(chip);
-        observer.current = resize;
+        // Chips coming and going (a section switched on, Home's clear chip): a new one is
+        // observed for its size, a removed one let go.
+        const mutation = new MutationObserver((records) => {
+            for (const record of records) {
+                for (const node of Array.from(record.removedNodes)) {
+                    if (node instanceof Element) resize.unobserve(node);
+                }
+                for (const node of Array.from(record.addedNodes)) {
+                    if (node instanceof Element) resize.observe(node);
+                }
+            }
+            measure();
+        });
+        mutation.observe(row, { childList: true });
+        measure();
         return () => {
             row.removeEventListener('scroll', onScroll);
             row.removeEventListener('scrollend', onScrollEnd);
             resize.disconnect();
-            observer.current = null;
+            mutation.disconnect();
         };
     }, []);
 
@@ -126,7 +144,8 @@ export const SidewaysRow = ({
 
     return (
         <div
-            className={styles.frame}
+            {...frameProps}
+            className={clsx(styles.frame, frameProps?.className)}
             data-end={sides.end || undefined}
             data-start={sides.start || undefined}
         >
@@ -134,8 +153,8 @@ export const SidewaysRow = ({
                 {children}
             </Tag>
             {/* Pointer buttons: Tab moves through the chips themselves, each scrolled into view. A
-                press leaves focus where it was, so the buttons do not stay up after the pointer
-                leaves. */}
+                press leaves focus where it was, and only keyboard focus holds them up, so they do
+                not stay up after the pointer leaves, a chip click included. */}
             <ActionIcon
                 aria-label={t('action.scrollLeft')}
                 className={styles.button}

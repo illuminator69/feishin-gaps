@@ -69,14 +69,20 @@
 
 /* Spotify's chips under the Discography heading, in the Library's chip style (the selected one
    filled). One line that scrolls sideways rather than wraps (`SidewaysRow`: its edge fades and
-   buttons, no scrollbar; the page keeps the plain wheel); the padding is room for the focus ring. */
+   buttons, no scrollbar; the page keeps the plain wheel); the padding is room for the focus ring.
+   The padding is the same above and below, so the frame's scroll buttons sit on the chips' centre;
+   the space under the row is the frame's. */
 .chips {
     display: flex;
     flex-wrap: nowrap;
     gap: 8px;
     align-items: center;
-    padding: 4px 2px 8px;
-    margin: -4px -2px 0;
+    padding: 4px 2px;
+    margin: -4px -2px;
+}
+
+.chips-frame {
+    margin-bottom: 8px;
 }
 
 .chip {

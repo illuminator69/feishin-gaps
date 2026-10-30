@@ -49,10 +49,46 @@ export const FRESH_SCOPE_WORDS: Record<FreshScopeValue, { label: string; reason:
     plays: { label: 'Artists you play', reason: 'New releases from the artists you play most' },
 };
 
-/** The shelf's reason line: the scope's words, and the window when it is not the default 30 days. */
-export const freshShelfReason = (scope: FreshScopeValue, days: number): string => {
+/** The type filter's words, one source for the page's chips and the shelf's reason line. */
+export const FRESH_TYPE_WORDS: Record<FreshType, string> = {
+    album: 'Albums',
+    all: 'All',
+    ep: 'EPs',
+    other: 'Other',
+    single: 'Singles',
+};
+
+/**
+ * The shelf's reason line: the scope's words, the window when it is not the default 30 days, and
+ * the type when it is not all, so a shelf of EPs says why it shows no albums. The sort is not
+ * named: an order needs no excuse.
+ */
+export const freshShelfReason = (
+    scope: FreshScopeValue,
+    days: number,
+    type: FreshType = 'all',
+): string => {
     const reason = FRESH_SCOPE_WORDS[scope].reason;
-    return days === 30 ? reason : `${reason} in the last ${days} days`;
+    const scoped = days === 30 ? reason : `${reason} in the last ${days} days`;
+    return type === 'all' ? scoped : `${scoped} · ${FRESH_TYPE_WORDS[type]}`;
+};
+
+/**
+ * Where a Fresh tile goes, the page's and the shelf's one rule: an album the library holds opens
+ * the library album; otherwise a release group opens the virtual album page (and can be fetched);
+ * a row with neither opens nothing and offers nothing to fetch, rather than a broken page.
+ */
+export type FreshTileTarget =
+    | { albumId: string; kind: 'library' }
+    | { kind: 'external'; rgid: string };
+
+export const freshTileTarget = (release: {
+    releaseAlbumId: string;
+    releaseGroupMbid: string;
+}): FreshTileTarget | null => {
+    if (release.releaseAlbumId) return { albumId: release.releaseAlbumId, kind: 'library' };
+    if (release.releaseGroupMbid) return { kind: 'external', rgid: release.releaseGroupMbid };
+    return null;
 };
 
 /**

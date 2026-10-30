@@ -23,6 +23,7 @@ import {
     freshScopeInEffect,
     freshShelf,
     freshShelfReason,
+    freshTileTarget,
 } from '/@/renderer/features/lbbot/utils/fresh-order';
 import { useLibraryContextMenu } from '/@/renderer/features/shared/hooks/use-library-context-menu';
 import { AppRoute } from '/@/renderer/router/routes';
@@ -71,73 +72,83 @@ export const FreshRow = ({ title }: { title: string }) => {
 
     const cards = useMemo(
         () =>
-            releases.map((release) => ({
-                content: (
-                    <DiscoverTile
-                        // One tap to fetch it, but never blind: the control
-                        // reviews lb-bot's ranked sources first and opens the
-                        // picker whenever there is anything left to decide.
-                        action={
-                            release.releaseOwned ? undefined : (
-                                <AcquireButton
-                                    artist={release.artist}
-                                    className={styles.action}
-                                    onReview={() => navigate(externalAlbumPath(release))}
-                                    rgid={release.releaseGroupMbid}
-                                    title={release.releaseName}
-                                />
-                            )
-                        }
-                        badge={
-                            <span
-                                className={clsx(
-                                    styles.ownedBadge,
-                                    release.releaseOwned ? styles.owned : styles.notOwned,
-                                )}
-                                data-owned-badge={release.releaseOwned ? 'owned' : 'not-owned'}
-                            >
-                                {release.releaseOwned ? t('common.owned') : t('common.notOwned')}
-                            </span>
-                        }
-                        badgePlacement="top-start"
-                        imageUrl={release.coverUrl}
-                        isStale={switching}
-                        isUnowned={!release.releaseOwned}
-                        itemType={LibraryItem.ALBUM}
-                        // An owned release opens the library album directly.
-                        // `releaseAlbumId` exists precisely so a tile badged "in
-                        // library" does not have to route through the virtual
-                        // page and wait for its redirect — which cannot fire at
-                        // all for an album lb-bot filled itself.
-                        onClick={() =>
-                            navigate(
-                                release.releaseOwned && release.releaseAlbumId
-                                    ? generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, {
-                                          albumId: release.releaseAlbumId,
-                                      })
-                                    : externalAlbumPath(release),
-                            )
-                        }
-                        onContextMenu={(event) =>
-                            void openMenu(
-                                event,
-                                release.releaseAlbumId
-                                    ? { id: release.releaseAlbumId, kind: 'album' }
-                                    : null,
-                            )
-                        }
-                        subtitle={release.artist}
-                        title={release.releaseName}
-                    />
-                ),
-                id: `${release.releaseGroupMbid || release.releaseMbid}-${release.artist}`,
-            })),
+            releases.map((release) => {
+                // The page's rule: a row with no album and no release group opens nothing and
+                // offers nothing to fetch (the "All" scope brings such rows onto the shelf).
+                const target = freshTileTarget(release);
+                return {
+                    content: (
+                        <DiscoverTile
+                            // One tap to fetch it, but never blind: the control
+                            // reviews lb-bot's ranked sources first and opens the
+                            // picker whenever there is anything left to decide.
+                            action={
+                                target?.kind === 'external' && !release.releaseOwned ? (
+                                    <AcquireButton
+                                        artist={release.artist}
+                                        className={styles.action}
+                                        onReview={() => navigate(externalAlbumPath(release))}
+                                        rgid={target.rgid}
+                                        title={release.releaseName}
+                                    />
+                                ) : undefined
+                            }
+                            badge={
+                                <span
+                                    className={clsx(
+                                        styles.ownedBadge,
+                                        release.releaseOwned ? styles.owned : styles.notOwned,
+                                    )}
+                                    data-owned-badge={release.releaseOwned ? 'owned' : 'not-owned'}
+                                >
+                                    {release.releaseOwned
+                                        ? t('common.owned')
+                                        : t('common.notOwned')}
+                                </span>
+                            }
+                            badgePlacement="top-start"
+                            imageUrl={release.coverUrl}
+                            isStale={switching}
+                            isUnowned={!release.releaseOwned}
+                            itemType={LibraryItem.ALBUM}
+                            // An owned release opens the library album directly.
+                            // `releaseAlbumId` exists precisely so a tile badged "in
+                            // library" does not have to route through the virtual
+                            // page and wait for its redirect, which cannot fire at
+                            // all for an album lb-bot filled itself.
+                            onClick={
+                                target
+                                    ? () =>
+                                          navigate(
+                                              target.kind === 'library'
+                                                  ? generatePath(AppRoute.LIBRARY_ALBUMS_DETAIL, {
+                                                        albumId: target.albumId,
+                                                    })
+                                                  : externalAlbumPath(release),
+                                          )
+                                    : undefined
+                            }
+                            onContextMenu={(event) =>
+                                void openMenu(
+                                    event,
+                                    release.releaseAlbumId
+                                        ? { id: release.releaseAlbumId, kind: 'album' }
+                                        : null,
+                                )
+                            }
+                            subtitle={release.artist}
+                            title={release.releaseName}
+                        />
+                    ),
+                    id: `${release.releaseGroupMbid || release.releaseMbid}-${release.artist}`,
+                };
+            }),
         [navigate, openMenu, releases, switching, t],
     );
 
     return (
         <DiscoverRow
-            because={freshShelfReason(scope, days)}
+            because={freshShelfReason(scope, days, type)}
             cards={cards}
             isEmpty={cards.length === 0}
             isLoading={loading}

@@ -143,7 +143,8 @@ test('everyLabelledHeroButtonHasAnIcon', () => {
             assert.match(entry, /\bicon: '[a-zA-Z]+'/, `${path}: ${entry}`);
     }
     const artist = read('../../artists/components/album-artist-detail-header.tsx');
-    assert.match(artist, /icon: 'itemSong',\s+key: 'tracks'/);
+    // "A list of tracks" (R18 ruling M-7): LuListMusic, not the single note of a song.
+    assert.match(artist, /icon: 'playlist',\s+key: 'tracks'/);
     const album = read('../../albums/components/album-detail-header.tsx');
     assert.match(album, /icon: 'mediaPlayNext',\s+key: 'next'/);
     assert.match(album, /icon: 'mediaPlayLast',\s+key: 'queue'/);
@@ -169,4 +170,43 @@ test('theDecisionComesFromAMeasurementNotAThreshold', () => {
     assert.match(source, /data-mode=\{mode\}/);
     // No guessed breakpoints in the row's CSS.
     assert.doesNotMatch(read('./hero-actions.module.css'), /@container|@media \(max-width/);
+});
+
+/*
+ * The checks below read source text (grep-only): they pin a spelling, not a behaviour; the walk
+ * shows the behaviour (console errors per crossing, labels after a late font).
+ */
+
+test('aFoldNeverChangesTheRowsHeight (grep-only)', () => {
+    // The full row never wraps (it is measured, then folded, before paint): folding inside the
+    // ResizeObserver callback then leaves the row's height alone, which is what keeps Chromium's
+    // "ResizeObserver loop" error away. Only a folded row wraps, and it does so in layout, not in
+    // the callback (R18 review M-2).
+    const css = read('./hero-actions.module.css');
+    assert.match(block(css, '\n.row {'), /flex-wrap: nowrap;/);
+    assert.match(css, /\.row:not\(\[data-mode='full'\]\) \{\s+flex-wrap: wrap;/);
+});
+
+test('aLateFontMeasuresBothModesAgain (grep-only)', () => {
+    // A web font arriving after the first measure changes the labels' width even while they are
+    // hidden (icons): both widths are forgotten, so the labels come back when there is room (M-3).
+    const source = read('./hero-actions.tsx');
+    assert.match(source, /document\.fonts/);
+    assert.match(source, /addEventListener\('loadingdone'/);
+    assert.match(source, /removeEventListener\('loadingdone'/);
+    assert.match(source, /const contentKey = JSON\.stringify\(\[[\s\S]*?fontsLoaded,[\s\S]*?\]\);/);
+});
+
+test('theRowIsMeasuredOnResizeNotEveryRender (grep-only)', () => {
+    // A parent re-rendering (the player's progress) must not force a layout read (M-11).
+    const lines = read('./hero-actions.tsx').split('\n');
+    lines.forEach((line, at) => {
+        const open = line.match(/^(\s*)use(?:Layout)?Effect\(\(\) => \{$/);
+        if (!open) return;
+        const close = lines.slice(at + 1).find((l) => l.startsWith(`${open[1]}}`));
+        assert.ok(
+            close?.startsWith(`${open[1]}}, [`),
+            `hero-actions.tsx:${at + 1} runs every render`,
+        );
+    });
 });

@@ -297,7 +297,7 @@ export const AlbumArtistDetailHeader = forwardRef<HTMLDivElement, AlbumArtistDet
                             variant: 'filled',
                         },
                         {
-                            icon: 'itemSong',
+                            icon: 'playlist',
                             key: 'tracks',
                             label: t('page.albumArtistDetail.allTracks'),
                             to: artistSongsLink,
