@@ -1689,11 +1689,15 @@ export const useLbBotArtistMeta = (mbid?: null | string, name?: null | string) =
     return useShownWithHub(query);
 };
 
+/** The release-groups whose persisted About was re-asked for Find it this session (F4). */
+const findItAsked = new Set<string>();
+
 /** The same for a release-group, plus release credits. `releaseMbid` is an
  *  optimisation, not a requirement: it saves lb-bot resolving the canonical
  *  release at one rate-limited MusicBrainz request per second. */
 export const useLbBotAlbumMeta = (rgid?: null | string, releaseMbid?: null | string) => {
     const available = useLbBotAvailable();
+    const p1Peer = useIsP1Peer();
     const query = useQuery<LbBotMeta | null>({
         enabled: !!lbBot && available && !!rgid,
         gcTime: Infinity,
@@ -1702,6 +1706,16 @@ export const useLbBotAlbumMeta = (rgid?: null | string, releaseMbid?: null | str
         refetchOnWindowFocus: false,
         staleTime: staleUnlessAnswered(Infinity),
     });
+    // Worbus P1 (F4): this body is persisted and never goes stale, so one saved before lb-bot sent
+    // Find it links has no `findIt` key. A P1 peer is asked again for it, once per release-group
+    // per app session - never in a loop when lb-bot legitimately leaves the key out.
+    const { data, refetch } = query;
+    useEffect(() => {
+        if (!p1Peer || !available || !rgid || !data || 'findIt' in data) return;
+        if (findItAsked.has(rgid)) return;
+        findItAsked.add(rgid);
+        void refetch();
+    }, [available, data, p1Peer, refetch, rgid]);
     return useShownWithHub(query);
 };
 

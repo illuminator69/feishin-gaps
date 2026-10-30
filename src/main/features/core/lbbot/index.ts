@@ -82,6 +82,7 @@ import { getHubConfig } from '../hub';
 import { albumSourcesParams } from './album-sources-params';
 
 import { getMainWindow } from '/@/main/index';
+import { toFindIt } from '/@/shared/utils/find-it';
 import {
     albumDownloadBody,
     mergePreviewParams,
@@ -1340,6 +1341,9 @@ const toMeta = (data: Json): LbBotMeta => {
         : [];
     return {
         credits: Array.isArray(data.credits) ? data.credits.flatMap(toMetaCredit) : [],
+        // Worbus P1: kept absent when lb-bot sent no key, so a persisted body can tell "never
+        // asked" from "asked, nothing" (the renderer re-asks the first once per session).
+        ...(Array.isArray(data.findIt) ? { findIt: toFindIt(data.findIt) } : {}),
         found: data.found === true,
         imageUrl: str(data.imageUrl),
         links: Array.isArray(data.links) ? data.links.flatMap(toMetaLink) : [],

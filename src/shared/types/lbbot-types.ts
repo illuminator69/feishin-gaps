@@ -1,3 +1,4 @@
+import type { LbFindItLink } from '/@/shared/utils/find-it';
 import type { LbDownloads } from '/@/shared/utils/lbbot-mode';
 
 /**
@@ -916,6 +917,12 @@ export interface LbBotMergeRow {
 export interface LbBotMeta {
     /** Present only on an album. Producer/engineer/writer, roles collapsed per person. */
     credits: LbBotMetaCredit[];
+    /**
+     * Worbus P1, an album only: where else the record can be found (`find-it.ts`), filtered and
+     * ordered. Absent when lb-bot sent no key (an older lb-bot, a failed browse, nothing to
+     * search) - which is also how a body persisted before P1 reads (`useLbBotAlbumMeta`).
+     */
+    findIt?: LbFindItLink[];
     found: boolean;
     /** Wikipedia's page image, when it has one. Never a cover. */
     imageUrl: string;

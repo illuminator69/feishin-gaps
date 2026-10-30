@@ -1897,6 +1897,9 @@
             },
             "sortChip": "Sort: {{value}}"
         },
+        "findIt": {
+            "title": "Find it"
+        },
         "gapBox": {
             "added_one": "{{count}} track added",
             "added_other": "{{count}} tracks added",

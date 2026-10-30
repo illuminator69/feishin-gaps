@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import styles from './not-owned-album.module.css';
 
 import { AlbumTracklist } from '/@/renderer/features/lbbot/components/album-tracklist';
+import { FindItRow } from '/@/renderer/features/lbbot/components/find-it-row';
 import { MetaAbout } from '/@/renderer/features/lbbot/components/meta-about';
 import { type AlbumRequest } from '/@/renderer/features/lbbot/hooks/use-album-request';
 import { LbBotMeta } from '/@/shared/types/lbbot-types';
@@ -45,6 +46,9 @@ export const NotOwnedAlbum = ({
                         // never as an error.
                         <p className={styles.muted}>{t('naviConnect.albumPage.noAbout')}</p>
                     )}
+                    {/* Worbus P1: a section of its own below About, drawn only once the read
+                        has answered with links, so nothing above it moves. */}
+                    <FindItRow links={meta?.findIt} />
                 </section>
                 <AlbumTracklist artist={artist} request={request} rgid={rgid} />
             </div>
