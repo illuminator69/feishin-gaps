@@ -4,7 +4,7 @@ import { useParams } from 'react-router';
 
 import { useItemImageUrl } from '/@/renderer/components/item-image/item-image';
 import { NativeScrollArea } from '/@/renderer/components/native-scroll-area/native-scroll-area';
-import { useNativeScrollPersist } from '/@/renderer/components/native-scroll-area/use-native-scroll-persist';
+import { useNativeScrollPersist } from '/@/renderer/components/native-scroll-area/use-native-scroll-persist'; // navi-connect (B-228)
 import { albumQueries } from '/@/renderer/features/albums/api/album-api';
 import { AlbumDetailContent } from '/@/renderer/features/albums/components/album-detail-content';
 import { AlbumDetailHeader } from '/@/renderer/features/albums/components/album-detail-header';
@@ -28,7 +28,7 @@ const AlbumDetailRoute = () => {
     const headerRef = useRef<HTMLDivElement>(null);
     const { albumBackground, albumBackgroundBlur } = useAlbumBackground();
 
-    // B-228: Back to an album lands where it was left, as on the artist page.
+    // navi-connect (B-228): Back to an album lands where it was left, as on the artist page.
     useNativeScrollPersist({ enabled: true, scrollRef: scrollAreaRef });
 
     const { albumId } = useParams() as { albumId: string };
