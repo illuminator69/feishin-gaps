@@ -39,7 +39,11 @@ export const IndexProgressBar = () => {
             <div className={styles.slot} data-index-progress="">
                 {shown && line && (
                     <div className={styles.banner}>
-                        <div className={styles.text}>{t(line.key, line.values)}</div>
+                        {/* Said once to assistive tech: as the bar's name (Mantine puts
+                            `aria-label` on the progressbar itself), so the line is hidden. */}
+                        <div aria-hidden="true" className={styles.text}>
+                            {t(line.key, line.values)}
+                        </div>
                         <Progress
                             aria-label={t(line.key, line.values)}
                             size="sm"
