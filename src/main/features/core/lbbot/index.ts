@@ -547,7 +547,8 @@ const toCheckRow = (row: unknown): LbBotToCheck[] => {
 
 ipcMain.handle('lbbot-overrides', async (): Promise<LbBotResult<LbBotOverrideList>> => {
     const result = await request('GET', '/lb/overrides');
-    if (!result.ok) return failed<LbBotOverrideList>(result.status, result.error);
+    if (!result.ok)
+        return failed<LbBotOverrideList>(result.status, result.error, false, { code: result.code });
     // A body without the list is not an empty list: it is not an answer.
     if (!Array.isArray(result.data?.artists)) {
         return failed<LbBotOverrideList>(result.status, 'lb-bot answered with no override list.');
@@ -917,7 +918,10 @@ const nullableNum = (value: unknown): null | number =>
 
 ipcMain.handle('lbbot-listening-status', async (): Promise<LbBotResult<LbBotListeningStatus>> => {
     const result = await request('GET', '/lb/listening/status');
-    if (!result.ok) return failed<LbBotListeningStatus>(result.status, result.error);
+    if (!result.ok)
+        return failed<LbBotListeningStatus>(result.status, result.error, false, {
+            code: result.code,
+        });
     const d: Json = result.data ?? {};
     if (!LISTENING_STATES.has(d.state as LbBotListeningState)) {
         return failed<LbBotListeningStatus>(result.status, 'lb-bot sent no listening state.');
@@ -986,7 +990,10 @@ ipcMain.handle(
         const result = await request('GET', '/lb/listening/summary', {
             params: { period: args.period, tz: args.tz },
         });
-        if (!result.ok) return failed<LbBotListeningSummary>(result.status, result.error);
+        if (!result.ok)
+            return failed<LbBotListeningSummary>(result.status, result.error, false, {
+                code: result.code,
+            });
         const d: Json = result.data ?? {};
         if (!d.totals || typeof d.totals !== 'object') {
             return failed<LbBotListeningSummary>(result.status, 'lb-bot sent no totals.');
@@ -1045,7 +1052,8 @@ ipcMain.handle(
         const result = await request('GET', '/lb/listening/unowned', {
             params: { kind: args.kind, limit: String(args.limit), period: args.period },
         });
-        if (!result.ok) return failed<LbBotUnowned>(result.status, result.error);
+        if (!result.ok)
+            return failed<LbBotUnowned>(result.status, result.error, false, { code: result.code });
         const d: Json = result.data ?? {};
         return {
             data: {
@@ -1082,7 +1090,8 @@ ipcMain.handle(
                 limit: String(args.limit),
             },
         });
-        if (!result.ok) return failed<LbBotRecent>(result.status, result.error);
+        if (!result.ok)
+            return failed<LbBotRecent>(result.status, result.error, false, { code: result.code });
         return {
             data: {
                 nextBefore: nullableNum(result.data?.nextBefore),
@@ -1099,7 +1108,8 @@ ipcMain.handle(
 // ListenBrainz. The caller watches `status` for the state to move.
 ipcMain.handle('lbbot-listening-sync', async (): Promise<LbBotResult<boolean>> => {
     const result = await request('POST', '/lb/listening/sync');
-    if (!result.ok) return failed<boolean>(result.status, result.error);
+    if (!result.ok)
+        return failed<boolean>(result.status, result.error, false, { code: result.code });
     const ok = result.data?.ok === true;
     return {
         data: ok,
@@ -1215,7 +1225,7 @@ ipcMain.handle(
 
 ipcMain.handle('lbbot-index-keys', async (): Promise<LbBotResult<LbBotIndexKeys>> => {
     const result = await request('GET', '/lb/index/keys', { timeoutMs: INDEX_SYNC_TIMEOUT_MS });
-    if (!result.ok) return failed(result.status, result.error);
+    if (!result.ok) return failed(result.status, result.error, false, { code: result.code });
     const d = result.data ?? {};
     const epoch = str(d.epoch);
     if (!epoch || !Array.isArray(d.keys)) {
@@ -1600,7 +1610,10 @@ ipcMain.handle(
         const q = (args.q ?? '').trim();
         if (!q) return { data: [], error: '', ok: true, status: 200 };
         const result = await request('GET', '/lb/artist/lookup', { params: { q } });
-        if (!result.ok) return failed<LbBotArtistCandidate[]>(result.status, result.error);
+        if (!result.ok)
+            return failed<LbBotArtistCandidate[]>(result.status, result.error, false, {
+                code: result.code,
+            });
         if (!Array.isArray(result.data?.candidates)) {
             return failed<LbBotArtistCandidate[]>(result.status, 'lb-bot sent no candidate list.');
         }
@@ -1674,7 +1687,10 @@ ipcMain.handle(
         const q = (args.q ?? '').trim();
         if (!q) return { data: [], error: '', ok: true, status: 200 };
         const result = await request('GET', '/lb/album/lookup', { params: { q } });
-        if (!result.ok) return failed<LbBotAlbumCandidate[]>(result.status, result.error);
+        if (!result.ok)
+            return failed<LbBotAlbumCandidate[]>(result.status, result.error, false, {
+                code: result.code,
+            });
         return {
             data: toAlbumCandidates(result.data),
             error: '',
@@ -1977,7 +1993,7 @@ ipcMain.handle(
             },
             timeoutMs: POLL_TIMEOUT_MS,
         });
-        if (!result.ok) return failed(result.status, result.error);
+        if (!result.ok) return failed(result.status, result.error, false, { code: result.code });
         return { data: toFillStatus(result.data), error: '', ok: true, status: result.status };
     },
 );
@@ -2005,7 +2021,7 @@ ipcMain.handle(
             params: { group_ids: groupIds.join(','), release_mbids: releaseMbids.join(',') },
             timeoutMs: POLL_TIMEOUT_MS,
         });
-        if (!result.ok) return failed(result.status, result.error);
+        if (!result.ok) return failed(result.status, result.error, false, { code: result.code });
         const d = result.data ?? {};
         const albums: Record<string, LbBotFillStatus> = {};
         const rawAlbums = (d.albums ?? {}) as Record<string, Json>;

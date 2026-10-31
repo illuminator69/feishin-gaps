@@ -137,6 +137,7 @@ import { useCurrentServerId } from '/@/renderer/store';
 import { lbBotDownNow, useHubConnected, useHubStore } from '/@/renderer/store/hub.store';
 import { toast } from '/@/shared/components/toast/toast';
 import { AlbumArtistListSort, AlbumListSort, SortOrder } from '/@/shared/types/domain-types';
+import { isLbRefusal } from '/@/shared/utils/lbbot-failure';
 import {
     downloadsShown,
     isP1Peer,
@@ -1359,9 +1360,14 @@ export const useListeningSupported = (): boolean => {
 /** A failed lb-bot read, carrying the HTTP status so a 404 / 405 (lb-bot older
  *  than the hub) can hide the surface instead of being reported as an error. */
 export class LbBotReadError extends Error {
+    code?: string;
+    /** A refusal (`isLbRefusal`): the app-wide query error toast skips it. */
+    quiet: boolean;
     status: number;
-    constructor(result: LbBotResult<unknown>) {
-        super(result.error || 'lb-bot could not answer.');
+    constructor(result: LbBotResult<unknown>, fallback = 'lb-bot could not answer.') {
+        super(result.error || fallback);
+        this.code = result.code;
+        this.quiet = isLbRefusal(result.code);
         this.status = result.status;
     }
 }
@@ -2310,7 +2316,7 @@ export const useFillLedgerWatcher = () => {
             if (!result.ok || !result.data) {
                 const error = result.error || 'Could not reach lb-bot';
                 for (const key of keys) state.actions.noteCheck(key, error);
-                throw new Error(error);
+                throw new LbBotReadError(result, error);
             }
             const albums = result.data.albums;
             const digest = JSON.stringify([
@@ -2373,7 +2379,7 @@ export const useLbBotFillStatus = (releaseMbid: null | string, enabled: boolean,
             if (!result.ok || !result.data) {
                 const error = result.error || 'Could not reach lb-bot';
                 if (rgid) useActiveFillsStore.getState().actions.noteCheck(rgid, error);
-                throw new Error(error);
+                throw new LbBotReadError(result, error);
             }
             const next = result.data;
             const previous = queryClient.getQueryData<LbBotFillStatus>(queryKey);

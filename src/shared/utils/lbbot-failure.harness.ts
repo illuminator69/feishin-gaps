@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { describeFailure, refusalCode } from './lbbot-failure.ts';
+import { describeFailure, isLbRefusal, refusalCode } from './lbbot-failure.ts';
 
 /**
  * Worbus P1, lane F (F1):  node --test src/shared/utils/lbbot-failure.harness.ts
@@ -71,4 +71,15 @@ test('refusal_code_names_only_the_two_refusals', () => {
     assert.equal(refusalCode(401, null), null);
     assert.equal(refusalCode(400, { code: 'downloads_off' }), null);
     assert.equal(refusalCode(403, { code: 'signin_required' }), null);
+});
+
+// F7 walk (B-263): a read that already had data and is then refused (401 signin_required behind an
+// older hub, 409 downloads_off) must not reach the app-wide red error toast: the refused flag or
+// the mode already says it. Anything else still does.
+test('refusal_errors_are_quiet', () => {
+    assert.equal(isLbRefusal('signin_required'), true);
+    assert.equal(isLbRefusal('downloads_off'), true);
+    assert.equal(isLbRefusal('bad_source'), false);
+    assert.equal(isLbRefusal(''), false);
+    assert.equal(isLbRefusal(undefined), false);
 });

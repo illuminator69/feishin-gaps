@@ -20,6 +20,14 @@ export const refusalCode = (status: number, body: Json | null): LbRefusalCode | 
 };
 
 /**
+ * Whether an answer's `code` is one of the two refusals. A read refused this way says nothing the
+ * app has not already shown (the mode is off, or lb-bot reads as unavailable), so its error is
+ * quiet: no app-wide error toast (F7 walk, B-263).
+ */
+export const isLbRefusal = (code: string | undefined): boolean =>
+    code === 'downloads_off' || code === 'signin_required';
+
+/**
  * Turn a non-2xx into a sentence worth showing.
  *
  * Two of these are not what their status code normally means, and getting either
