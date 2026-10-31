@@ -42,7 +42,10 @@ export const isHubConfigured = (s: { enabled: boolean; token: string; url: strin
 export const hubLink = (i: HubLinkInput): HubLink => {
     if (i.enabled && i.connected) return 'connected';
     if (!i.enabled) return isHubConfigured(i) ? 'off' : 'notConfigured';
-    if (i.url.trim() === '') return 'notConfigured';
+    // The untouched default shows as an empty field, so with no token it is not an address yet.
+    if (i.url.trim() === '' || (i.url === DEFAULT_HUB_URL && i.token.trim() === '')) {
+        return 'notConfigured';
+    }
     if (i.authRefused) return 'refused';
     return i.now - i.attemptAt < CONNECT_GRACE_MS ? 'connecting' : 'unreachable';
 };
@@ -54,7 +57,7 @@ export const statusSentence = (link: HubLink, address: string): string => {
         case 'connecting':
             return `Connecting to ${address}...`;
         case 'notConfigured':
-            return "Not set up. Enter your Worbus Server's address and access token, then switch Connect on.";
+            return "Not set up. Enter your Worbus Server's address and access token, with Connect on.";
         case 'off':
             return 'Connect is off.';
         case 'refused':

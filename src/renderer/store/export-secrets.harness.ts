@@ -44,10 +44,11 @@ const state = () => ({
 const get = (obj: any, path: string) =>
     path.split('.').reduce((o, k) => (o === undefined || o === null ? undefined : o[k]), obj);
 
-test('theListNamesTheFiveSecrets', () => {
+test('theListNamesTheFiveSecretsAndTheHubSwitch', () => {
     assert.deepEqual([...EXPORT_SECRET_PATHS].sort(), [
         'audioMuse.token',
         'general.lastfmApiKey',
+        'hub.enabled',
         'hub.token',
         'lyrics.translationApiKey',
         'remote.password',
@@ -75,7 +76,7 @@ test('theRestOfTheStateIsExportedUntouchedAndTheInputIsNotMutated', () => {
     const out: any = omitExportSecrets(input);
     assert.equal(out.hub.url, 'ws://hub.lan:4790');
     assert.equal(out.hub.name, 'Desk');
-    assert.equal(out.hub.enabled, true);
+    assert.equal(out.hub.publicServerUrl, 'https://music.example.com');
     assert.equal(out.audioMuse.url, 'http://muse.lan:8000');
     assert.equal(out.general.theme, 'defaultDark');
     assert.equal(out.remote.port, 4333);
@@ -147,4 +148,21 @@ test('theExportHookAndTheImportModalUseTheList', () => {
         '../components/export-import-settings-modal/export-import-settings-modal.tsx',
     );
     assert.match(modal, /keepCurrentSecrets\(/, 'the import must keep the current secrets');
+});
+
+test('theHubSwitchTravelsNeitherWayAndTheOtherHubFieldsDo', () => {
+    // A fresh profile that imports a file must not land on Connect on with an empty token.
+    const file: any = omitExportSecrets(state());
+    assert.equal(file.hub.enabled, undefined);
+    assert.equal(file.hub.url, 'ws://hub.lan:4790');
+    assert.equal(file.hub.name, 'Desk');
+    assert.equal(file.hub.publicServerUrl, 'https://music.example.com');
+
+    const fresh: any = state();
+    fresh.hub.enabled = false;
+    fresh.hub.token = '';
+    const merged: any = keepCurrentSecrets(file, fresh);
+    assert.equal(merged.hub.enabled, false, "import keeps the profile's own switch");
+    assert.equal(merged.hub.token, '');
+    assert.equal(merged.hub.url, 'ws://hub.lan:4790');
 });

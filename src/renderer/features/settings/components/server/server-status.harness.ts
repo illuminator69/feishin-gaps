@@ -55,6 +55,18 @@ test('theSwitchOnWithNoAddressIsNotConfigured', () => {
     assert.equal(hubLink({ ...on, url: '   ' }), 'notConfigured');
 });
 
+test('theSwitchOnWithTheUntouchedDefaultAddressAndNoTokenIsNotConfiguredNotConnecting', () => {
+    // The field shows empty (placeholder) for the default, so the line must not claim a value.
+    const empty = { ...fresh, attemptAt: NOW - 1_000, enabled: true };
+    assert.equal(hubLink(empty), 'notConfigured');
+    assert.equal(hubLink({ ...empty, attemptAt: NOW - 60_000 }), 'notConfigured');
+    // A token typed, or an address typed, is a real attempt again.
+    assert.equal(hubLink({ ...empty, token: 't' }), 'connecting');
+    assert.equal(hubLink({ ...empty, url: 'ws://192.168.1.10:4790' }), 'connecting');
+    // And a connection that works is shown as one, whatever the address.
+    assert.equal(hubLink({ ...empty, connected: true }), 'connected');
+});
+
 test('connectedNamesTheAddress', () => {
     const link = hubLink({ ...on, connected: true });
     assert.equal(link, 'connected');

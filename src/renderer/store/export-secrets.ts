@@ -1,12 +1,15 @@
 /**
  * Secrets that an exported settings file must never carry (F1, Worbus settings cleanup).
- * Dotted paths into the settings state. One list: `useSettingsForExport` strips it, and the import
+ * Dotted paths into the settings state (the five secrets, plus `hub.enabled`). One list: `useSettingsForExport` strips it, and the import
  * modal fills the same paths back from the current state, so importing a file without them keeps
  * what is set now. `export-secrets.harness.ts` reads the settings schema and fails when a new
  * token, password or API key is not listed here.
  */
 export const EXPORT_SECRET_PATHS: readonly string[] = [
     'hub.token',
+    // Not a secret: connection state. A file that carried it would switch Connect on in a fresh
+    // profile that has no token ("refused"); the address, name and public URL still travel.
+    'hub.enabled',
     'audioMuse.token',
     'remote.password',
     'general.lastfmApiKey',
