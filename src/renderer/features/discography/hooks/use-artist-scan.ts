@@ -5,12 +5,16 @@ import {
     useStartedScan,
 } from '/@/renderer/features/discography/hooks/scan-session';
 import {
+    justScanned,
+    nextScanVisit,
+    SCAN_VISIT_START,
     scanCountsText,
     scanLine,
     type ScanPhase,
     scanPhase,
     scanPollMs,
     scanScannable,
+    type ScanVisit,
 } from '/@/renderer/features/discography/scan-phase';
 import { openMbidMatchModal } from '/@/renderer/features/lbbot/components/mbid-match-modal';
 import {
@@ -31,9 +35,6 @@ export interface ArtistScan {
     /** Worbus P1: "6 of 10 done" and the bar's fill (0..1) while a scan with counts runs; null =
      *  the indeterminate bar. */
     counts: null | { fraction: number; text: string };
-    /** A scan ran during this visit and ended: its block keeps its height for the visit (Navic
-     *  ruling 10), so the discography filling below it does not move the reader. */
-    ended: boolean;
     line: string;
     /** Worbus P1: the unresolved block's Match manually (the existing match modal); null where
      *  the hub offers no artist overrides. */
@@ -101,10 +102,29 @@ export const useArtistScan = (args: {
             ? { fraction: Math.min(1, (scan.done ?? 0) / scan.total), text: countsText }
             : null;
 
-    // A scan seen running during this visit that has now ended (Navic ruling 10).
-    const [sawRunning, setSawRunning] = useState(false);
-    if (phase === 'running' && !sawRunning) setSawRunning(true);
-    const ended = sawRunning && phase !== 'running';
+    // What this visit has seen of the scans (`nextScanVisit`), for "Updated just now": only after a
+    // scan seen running really finished, and only for a P1 peer. Stepped during render (it
+    // converges: the same input twice changes nothing); a different artist starts a new visit.
+    const scannedAtMs = data?.indexed && data.scannedAt > 0 ? data.scannedAt * 1000 : null;
+    const [visit, setVisit] = useState<{ ndId: string; visit: ScanVisit }>(() => ({
+        ndId,
+        visit: SCAN_VISIT_START,
+    }));
+    const nextVisit = nextScanVisit(visit.ndId === ndId ? visit.visit : SCAN_VISIT_START, {
+        answered: data !== undefined,
+        phase,
+        scan,
+        scannedAtMs,
+    });
+    if (
+        visit.ndId !== ndId ||
+        nextVisit.doneBefore !== visit.visit.doneBefore ||
+        nextVisit.firstScannedAtMs !== visit.visit.firstScannedAtMs ||
+        nextVisit.sawDone !== visit.visit.sawDone ||
+        nextVisit.sawRunning !== visit.visit.sawRunning
+    ) {
+        setVisit({ ndId, visit: nextVisit });
+    }
 
     useEffect(() => {
         setPolling(pollMs);
@@ -130,14 +150,13 @@ export const useArtistScan = (args: {
         available,
         busy: phase === 'running',
         counts,
-        ended,
         line: scanLine(phase, {
             counted: counts !== null,
             error: scan?.error ?? '',
-            justScanned: ended,
+            justScanned: justScanned(nextVisit, { p1Peer, phase, scannedAtMs }),
             nowMs: now,
             scannable,
-            scannedAtMs: data?.indexed && data.scannedAt > 0 ? data.scannedAt * 1000 : null,
+            scannedAtMs,
             stale: data?.stale ?? false,
         }),
         matchManually: overrides

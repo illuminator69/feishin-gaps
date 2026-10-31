@@ -112,6 +112,71 @@ export const scanCountsText = (scan: null | ScanRecord): null | string =>
         ? `${counts.format(Math.min(scan.done ?? 0, scan.total!))} of ${counts.format(scan.total!)} done`
         : null;
 
+/**
+ * What one visit to an artist page has seen of its scans (Worbus P1), for "Updated just now".
+ * Stepped once per render by `nextScanVisit`; `justScanned` reads it.
+ */
+export interface ScanVisit {
+    /** The `taskId` of a `done` record read before (or while) this visit saw a scan run: lb-bot
+     *  keeps a record ten minutes, so that one is an older scan's end, not this visit's. */
+    doneBefore: null | string;
+    /** The artist's scannedAt (ms) at the first render after the discography answered; undefined
+     *  until it has answered. */
+    firstScannedAtMs: null | number | undefined;
+    /** A `done` record (not `doneBefore`) was read after the phase left running. */
+    sawDone: boolean;
+    /** The phase read `running` at some point this visit. */
+    sawRunning: boolean;
+}
+
+export const SCAN_VISIT_START: ScanVisit = {
+    doneBefore: null,
+    firstScannedAtMs: undefined,
+    sawDone: false,
+    sawRunning: false,
+};
+
+/** One render's step of the visit. Idempotent: the same input twice changes nothing. */
+export const nextScanVisit = (
+    visit: ScanVisit,
+    input: {
+        /** The discography read has answered (indexed or not). */
+        answered: boolean;
+        phase: ScanPhase;
+        scan: null | ScanRecord;
+        scannedAtMs: null | number;
+    },
+): ScanVisit => {
+    const firstScannedAtMs =
+        visit.firstScannedAtMs !== undefined || !input.answered
+            ? visit.firstScannedAtMs
+            : input.scannedAtMs;
+    const sawRunning = visit.sawRunning || input.phase === 'running';
+    const done = input.scan?.state === 'done' ? input.scan.taskId : null;
+    // A done record read before any scan ran, or while one still runs, is an older scan's.
+    const before = done !== null && (!sawRunning || input.phase === 'running');
+    const doneBefore = before && !visit.sawDone ? done : visit.doneBefore;
+    const sawDone = visit.sawDone || (done !== null && !before && done !== visit.doneBefore);
+    return { doneBefore, firstScannedAtMs, sawDone, sawRunning };
+};
+
+/**
+ * "Updated just now": a scan this visit saw run has REALLY finished - a record read `done`, or the
+ * artist's scannedAt moved past the first value this visit read. Not after a start that failed, a
+ * scan lb-bot lost or a wait that gave up. Only for a P1 peer: an older peer's line is unchanged.
+ */
+export const justScanned = (
+    visit: ScanVisit,
+    input: { p1Peer: boolean; phase: ScanPhase; scannedAtMs: null | number },
+): boolean => {
+    if (!input.p1Peer || !visit.sawRunning || input.phase === 'running') return false;
+    if (visit.sawDone) return true;
+    return (
+        visit.firstScannedAtMs !== undefined &&
+        (input.scannedAtMs ?? 0) > (visit.firstScannedAtMs ?? 0)
+    );
+};
+
 const DAY_MS = 86_400_000;
 
 const describeScan = (scannedAtMs: number, nowMs: number): string => {

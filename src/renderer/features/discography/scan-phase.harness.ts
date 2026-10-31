@@ -3,12 +3,17 @@ import test from 'node:test';
 
 import { isOlderScanRefusal } from '../../../shared/utils/lbbot-failure.ts';
 import {
+    justScanned,
+    nextScanVisit,
+    SCAN_VISIT_START,
     SCAN_WAIT_MS,
     scanCountsText,
     scanLine,
+    type ScanPhase,
     scanPhase,
     scanPollMs,
     scanScannable,
+    type ScanVisit,
 } from './scan-phase.ts';
 
 /**
@@ -270,4 +275,161 @@ test('reload_mid_scan_reads_running', () => {
         scanPhase({ ...base, indexed: false, releaseCount: 0, scan: rec('running', 'auto-index') }),
         'running',
     );
+});
+
+// Worbus P1 (review 4): "Updated just now" only after a scan this visit saw run REALLY finished -
+// its record read `done`, or the artist's scannedAt moved past the first one this visit read - and
+// only for a P1 peer, so an older peer's line is the base's byte for byte.
+
+type Step = {
+    answered?: boolean;
+    phase: ScanPhase;
+    scan?: null | Scan;
+    scannedAtMs?: null | number;
+};
+
+const walk = (steps: Step[]): ScanVisit =>
+    steps.reduce(
+        (visit, step) =>
+            nextScanVisit(visit, {
+                answered: step.answered ?? true,
+                phase: step.phase,
+                scan: step.scan ?? null,
+                scannedAtMs: step.scannedAtMs ?? null,
+            }),
+        SCAN_VISIT_START,
+    );
+
+const just = (steps: Step[], p1Peer = true): boolean => {
+    const last = steps[steps.length - 1];
+    return justScanned(walk(steps), {
+        p1Peer,
+        phase: last.phase,
+        scannedAtMs: last.scannedAtMs ?? null,
+    });
+};
+
+test('just_scanned_after_a_done_record', () => {
+    const before = at(40);
+    assert.equal(
+        just([
+            { phase: 'idle', scannedAtMs: before },
+            { phase: 'running', scan: rec('running', 'p1-9'), scannedAtMs: before },
+            { phase: 'idle', scan: rec('done', 'p1-9'), scannedAtMs: before },
+        ]),
+        true,
+    );
+});
+
+test('just_scanned_after_scannedAt_advanced', () => {
+    // The record expired (or never came): the index moving says the scan landed.
+    assert.equal(
+        just([
+            { phase: 'idle', scannedAtMs: at(40) },
+            { phase: 'running', scannedAtMs: at(40) },
+            { phase: 'idle', scannedAtMs: at(0) },
+        ]),
+        true,
+    );
+    // An artist never scanned before: the first scannedAt is the advance.
+    assert.equal(
+        just([
+            { phase: 'never', scannedAtMs: null },
+            { phase: 'running', scannedAtMs: null },
+            { phase: 'idle', scannedAtMs: at(0) },
+        ]),
+        true,
+    );
+});
+
+test('failed_start_is_not_just_scanned', () => {
+    // Rescan pressed with lb-bot unreachable: running for the start, then idle on the old index.
+    const before = at(40);
+    assert.equal(
+        just([
+            { phase: 'idle', scannedAtMs: before },
+            { phase: 'running', scannedAtMs: before },
+            { phase: 'idle', scannedAtMs: before },
+        ]),
+        false,
+    );
+    // An old `done` record still on file (lb-bot keeps one ten minutes) is not this scan's end.
+    assert.equal(
+        just([
+            { phase: 'idle', scan: rec('done', 'p1-1'), scannedAtMs: before },
+            { phase: 'running', scan: rec('done', 'p1-1'), scannedAtMs: before },
+            { phase: 'idle', scan: rec('done', 'p1-1'), scannedAtMs: before },
+        ]),
+        false,
+    );
+});
+
+test('lost_or_given_up_scan_is_not_just_scanned', () => {
+    const before = at(40);
+    // lb-bot lost it (no record), or the five-minute wait ran out with it still running.
+    assert.equal(
+        just([
+            { phase: 'idle', scannedAtMs: before },
+            { phase: 'running', scan: rec('running', 'p1-3'), scannedAtMs: before },
+            { phase: 'idle', scan: null, scannedAtMs: before },
+        ]),
+        false,
+    );
+    assert.equal(
+        just([
+            { phase: 'running', scan: rec('running', 'p1-3'), scannedAtMs: before },
+            { phase: 'idle', scan: rec('running', 'p1-3'), scannedAtMs: before },
+        ]),
+        false,
+    );
+    // A failed scan never reads "just now" either.
+    assert.equal(
+        just([
+            { phase: 'running', scan: rec('running', 'p1-3'), scannedAtMs: before },
+            { phase: 'failed', scan: rec('failed', 'p1-3'), scannedAtMs: before },
+        ]),
+        false,
+    );
+});
+
+test('a_late_discography_answer_is_not_an_advance', () => {
+    // The first scannedAt counted is the first one read after the discography answered: one
+    // arriving after a failed start is where the visit began, not a scan landing.
+    assert.equal(
+        just([
+            { answered: false, phase: 'running', scannedAtMs: null },
+            { phase: 'idle', scannedAtMs: at(40) },
+        ]),
+        false,
+    );
+});
+
+test('older_peer_never_just_scanned', () => {
+    // An older peer's idle line stays "Scanned today", as before P1.
+    const steps: Step[] = [
+        { phase: 'idle', scannedAtMs: at(40) },
+        { phase: 'running', scan: rec('running', 't1'), scannedAtMs: at(40) },
+        { phase: 'idle', scan: rec('done', 't1'), scannedAtMs: at(0) },
+    ];
+    assert.equal(just(steps, false), false);
+    assert.equal(
+        line('idle', { justScanned: just(steps, false), scannedAtMs: at(0) }),
+        'Scanned today',
+    );
+    assert.equal(
+        line('idle', { justScanned: just(steps, true), scannedAtMs: at(0) }),
+        'Updated just now',
+    );
+});
+
+test('scan_visit_converges', () => {
+    // Applied again to the same input it changes nothing (the hook steps it during render).
+    const input = {
+        answered: true,
+        phase: 'idle' as const,
+        scan: rec('done', 'p1-9'),
+        scannedAtMs: at(0),
+    };
+    const once = nextScanVisit(walk([{ phase: 'running', scannedAtMs: at(40) }]), input);
+    assert.deepEqual(nextScanVisit(once, input), once);
 });

@@ -1882,8 +1882,7 @@
                     "failed": "Retry scan",
                     "idle": "Rescan discography",
                     "never": "Find missing albums",
-                    "running": "Scanning discography",
-                    "unresolved": "Retry scan"
+                    "running": "Scanning discography"
                 },
                 "ghostLabel": "Discography loading",
                 "lbbotDown": "lb-bot cannot be reached right now.",
