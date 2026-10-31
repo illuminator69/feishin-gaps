@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { playerHandoff } from './engine/player-handoff';
-import { replaysSameTrack } from './engine/retry-decision';
+import { replaysSameTrack } from './engine/retry-decision'; // navi-connect (B-138)
 
 import { eventEmitter } from '/@/renderer/events/event-emitter';
 import {
@@ -598,7 +598,8 @@ export function WebPlayer() {
         });
     }, [mediaPause, t]);
 
-    // B-138: a failed track is skipped like an end, unless the next automatic track is itself.
+    // navi-connect (B-138): a failed track is skipped like an end, unless the next automatic
+    // track is itself.
     const wouldReplaySameTrack = useCallback(() => {
         const state = usePlayerStoreBase.getState();
         return replaysSameTrack(state.player.repeat, state.getQueue().items.length);
@@ -628,7 +629,7 @@ export function WebPlayer() {
             src1={player1Url}
             src2={player2Url}
             volume={volume}
-            wouldReplaySameTrack={wouldReplaySameTrack}
+            wouldReplaySameTrack={wouldReplaySameTrack} // navi-connect (B-138)
         />
     );
 }

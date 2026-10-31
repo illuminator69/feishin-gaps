@@ -79,3 +79,20 @@ export const replaysSameTrack = (
     if (repeat === 'all') return playbackLength <= 1;
     return false;
 };
+
+/**
+ * A network retry, and the resume seek it leaves on `loadedmetadata`, still belong to the element
+ * they were set up for only while that element is the playing one AND still holds the source that
+ * failed. The source alone is not enough: under repeat-all over [A, B], a Next during the 2 s wait
+ * plays B on the other element and gives this one A again, with the same URL; a retry that ran
+ * then would pause B and play A under it.
+ *
+ * @param failedOn the element (1 or 2) whose source failed
+ * @param playingNow the element that is the playing one now
+ */
+export const retryStillApplies = (args: {
+    failedOn: 1 | 2;
+    failedSrc: string;
+    playingNow: number;
+    srcNow: string;
+}): boolean => args.failedOn === args.playingNow && args.srcNow === args.failedSrc;

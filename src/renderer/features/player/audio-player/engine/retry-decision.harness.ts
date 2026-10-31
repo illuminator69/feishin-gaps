@@ -7,6 +7,7 @@ import {
     MAX_NETWORK_RETRIES,
     replaysSameTrack,
     retryDecision,
+    retryStillApplies,
 } from './retry-decision.ts';
 
 /**
@@ -68,4 +69,24 @@ test('theNextAutomaticTrackIsTheSameOneOnlyUnderRepeatOneOrAOneTrackRepeatAll', 
     // Repeat off on the last (or only) track stops: no loop.
     assert.equal(replaysSameTrack('none', 1), false);
     assert.equal(replaysSameTrack('none', 10), false);
+});
+
+test('aRetryIsDroppedWhenItsElementIsNoLongerThePlayingOne', () => {
+    const src = 'https://nd/rest/stream?id=a';
+    // Repeat-all over [A, B]: Next during the wait plays B on element 2 and gives element 1 A
+    // again, with the same URL. The src matches; the retry must still not run.
+    assert.equal(
+        retryStillApplies({ failedOn: 1, failedSrc: src, playingNow: 2, srcNow: src }),
+        false,
+    );
+    // Its element was given another track.
+    assert.equal(
+        retryStillApplies({ failedOn: 1, failedSrc: src, playingNow: 1, srcNow: `${src}b` }),
+        false,
+    );
+    // Same element, still playing, same source: the retry runs.
+    assert.equal(
+        retryStillApplies({ failedOn: 1, failedSrc: src, playingNow: 1, srcNow: src }),
+        true,
+    );
 });

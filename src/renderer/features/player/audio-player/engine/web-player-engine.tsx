@@ -3,9 +3,11 @@ import type ReactPlayer from 'react-player';
 
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 
+// navi-connect (B-138): what a media error does is decided in retry-decision.ts.
 import {
     afterFailedTrack,
     retryDecision,
+    retryStillApplies,
 } from '/@/renderer/features/player/audio-player/engine/retry-decision';
 import { AudioPlayer, PlayerOnProgressProps } from '/@/renderer/features/player/audio-player/types';
 import { convertToLogVolume } from '/@/renderer/features/player/audio-player/utils/player-utils';
@@ -43,10 +45,12 @@ interface WebPlayerEngineProps {
     src1: string | undefined;
     src2: string | undefined;
     volume: number;
-    /** B-138: the queue's next automatic track is the current one (repeat-one, or a one-track repeat-all). */
+    // navi-connect (B-138): the queue's next automatic track is the current one (repeat-one, or a
+    // one-track repeat-all).
     wouldReplaySameTrack?: () => boolean;
 }
 
+// navi-connect (B-138): MAX_NETWORK_RETRIES moved to retry-decision.ts.
 const NETWORK_RETRY_DELAY_MS = 2000;
 
 // Store volume is 0-100; clamp the normalized result so HTMLMediaElement.volume
@@ -84,15 +88,19 @@ export const WebPlayerEngine = (props: WebPlayerEngineProps) => {
         src1,
         src2,
         volume,
-        wouldReplaySameTrack,
+        wouldReplaySameTrack, // navi-connect (B-138)
     } = props;
 
     const player1Ref = useRef<null | ReactPlayer>(null);
     const player2Ref = useRef<null | ReactPlayer>(null);
     const networkRetryCount1 = useRef(0);
     const networkRetryCount2 = useRef(0);
+    // navi-connect (B-138): failed tracks in a row; a failure on the element preloading the next
+    // track, kept for that track's turn; and which element is playing, for a retry's timer.
     const failedInARow = useRef(0);
     const failedWhileNext = useRef<Partial<Record<1 | 2, { code?: number; src: string }>>>({});
+    const playerNumRef = useRef(playerNum);
+    playerNumRef.current = playerNum;
     const [ReactPlayerComponent, setReactPlayerComponent] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -202,8 +210,11 @@ export const WebPlayerEngine = (props: WebPlayerEngineProps) => {
         }
     };
 
-    // What a media error does to the playing element (B-138): see retry-decision.ts.
+    // navi-connect (B-138): upstream's handleOnError body, split out so a failure recorded on the
+    // element preloading the next track can be acted on at that track's turn (the effect below).
+    // What each error code does: see retry-decision.ts.
     const actOnError = (
+        which: 1 | 2,
         audio: HTMLAudioElement,
         code: number | undefined,
         onEnded: () => void,
@@ -226,9 +237,17 @@ export const WebPlayerEngine = (props: WebPlayerEngineProps) => {
                 retryCount: networkRetryCountRef.current,
             });
             const failedSrc = audio.src;
+            // The track changed during the wait, or this element is no longer the playing one:
+            // the retry (and its seek) is not for what is playing now.
+            const stillApplies = () =>
+                retryStillApplies({
+                    failedOn: which,
+                    failedSrc,
+                    playingNow: playerNumRef.current,
+                    srcNow: audio.src,
+                });
             setTimeout(() => {
-                // The track changed during the wait: this retry is not for what is loaded now.
-                if (audio.src !== failedSrc) return;
+                if (!stillApplies()) return;
                 pauseBothPlayers();
                 if (decision.resumeAt > 0) {
                     audio.addEventListener(
@@ -237,7 +256,7 @@ export const WebPlayerEngine = (props: WebPlayerEngineProps) => {
                             // A listener left by a retry that failed again must not seek
                             // the next track loaded into this element.
                             if (
-                                audio.src === failedSrc &&
+                                stillApplies() &&
                                 Number.isFinite(audio.duration) &&
                                 decision.resumeAt < audio.duration
                             ) {
@@ -295,6 +314,7 @@ export const WebPlayerEngine = (props: WebPlayerEngineProps) => {
         }
     };
 
+    // navi-connect (B-138): `which` element, and a failure on the one that is not playing waits.
     const handleOnError = (
         which: 1 | 2,
         playerRef: React.RefObject<null | ReactPlayer>,
@@ -321,11 +341,11 @@ export const WebPlayerEngine = (props: WebPlayerEngineProps) => {
                 return;
             }
 
-            actOnError(target, code, onEnded, networkRetryCountRef);
+            actOnError(which, target, code, onEnded, networkRetryCountRef);
         };
     };
 
-    // The next track's element failed while it was loading (above): now that it is the playing
+    // navi-connect (B-138): the next track's element failed while it was loading (above): now that it is the playing
     // one, act on that failure, unless the element has since been given another track. Runs
     // after every render; a failure is only recorded for the element that is not playing, so
     // it is found here on the first render after that element's turn starts.
@@ -337,6 +357,7 @@ export const WebPlayerEngine = (props: WebPlayerEngineProps) => {
         const audio = (which === 1 ? player1Ref : player2Ref).current?.getInternalPlayer();
         if (!(audio instanceof HTMLAudioElement) || audio.src !== failure.src) return;
         actOnError(
+            which,
             audio,
             failure.code,
             which === 1 ? onEndedPlayer1 : onEndedPlayer2,
@@ -344,7 +365,7 @@ export const WebPlayerEngine = (props: WebPlayerEngineProps) => {
         );
     });
 
-    // A track heard playing ends a run of failed tracks.
+    // navi-connect (B-138): a track heard playing ends a run of failed tracks.
     const handleOnPlaying = useCallback(() => {
         failedInARow.current = 0;
     }, []);
@@ -383,7 +404,7 @@ export const WebPlayerEngine = (props: WebPlayerEngineProps) => {
 
     const handleOnReadyPlayer1 = useCallback(
         (player: ReactPlayer) => {
-            failedWhileNext.current[1] = undefined;
+            failedWhileNext.current[1] = undefined; // navi-connect (B-138)
             const internal = player.getInternalPlayer();
             if (internal && internal instanceof HTMLAudioElement) {
                 internal.preservesPitch = preservesPitch;
@@ -395,7 +416,7 @@ export const WebPlayerEngine = (props: WebPlayerEngineProps) => {
 
     const handleOnReadyPlayer2 = useCallback(
         (player: ReactPlayer) => {
-            failedWhileNext.current[2] = undefined;
+            failedWhileNext.current[2] = undefined; // navi-connect (B-138)
             const internal = player.getInternalPlayer();
             if (internal && internal instanceof HTMLAudioElement) {
                 internal.preservesPitch = preservesPitch;
@@ -420,8 +441,9 @@ export const WebPlayerEngine = (props: WebPlayerEngineProps) => {
                 id="web-player-1"
                 loop={loopPlayer1}
                 muted={isMuted}
-                onBufferEnd={handleOnPlaying}
+                onBufferEnd={handleOnPlaying} // navi-connect (B-138)
                 onEnded={src1 && !loopPlayer1 ? () => onEndedPlayer1() : undefined}
+                // navi-connect (B-138)
                 onError={handleOnError(1, player1Ref, () => onEndedPlayer1(), networkRetryCount1)}
                 onProgress={onProgressPlayer1}
                 onReady={handleOnReadyPlayer1}
@@ -442,8 +464,9 @@ export const WebPlayerEngine = (props: WebPlayerEngineProps) => {
                 id="web-player-2"
                 loop={loopPlayer2}
                 muted={isMuted}
-                onBufferEnd={handleOnPlaying}
+                onBufferEnd={handleOnPlaying} // navi-connect (B-138)
                 onEnded={src2 && !loopPlayer2 ? () => onEndedPlayer2() : undefined}
+                // navi-connect (B-138)
                 onError={handleOnError(2, player2Ref, () => onEndedPlayer2(), networkRetryCount2)}
                 onProgress={onProgressPlayer2}
                 onReady={handleOnReadyPlayer2}
