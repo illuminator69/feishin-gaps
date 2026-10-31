@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { SettingsSection } from '/@/renderer/features/settings/components/settings-section';
 import { useRemoteSettings, useSettingsStoreActions } from '/@/renderer/store';
 import { NumberInput } from '/@/shared/components/number-input/number-input';
+import { PasswordInput } from '/@/shared/components/password-input/password-input';
 import { Switch } from '/@/shared/components/switch/switch';
 import { TextInput } from '/@/shared/components/text-input/text-input';
 import { Text } from '/@/shared/components/text/text';
@@ -62,6 +63,7 @@ export const RemoteSettings = memo(() => {
         {
             control: (
                 <Switch
+                    aria-label={t('setting.enableRemote')}
                     defaultChecked={settings.enabled}
                     onChange={async (e) => {
                         const enabled = e.currentTarget.checked;
@@ -71,9 +73,7 @@ export const RemoteSettings = memo(() => {
             ),
             description: (
                 <Text isMuted isNoSelect size="sm">
-                    {t('setting.enableRemote', {
-                        context: 'description',
-                    })}{' '}
+                    {t('setting.browserRemote', { context: 'description' })}{' '}
                     <a href={url} rel="noreferrer noopener" target="_blank">
                         {url}
                     </a>
@@ -85,6 +85,7 @@ export const RemoteSettings = memo(() => {
         {
             control: (
                 <NumberInput
+                    aria-label={t('setting.remotePort')}
                     max={65535}
                     onBlur={async (e) => {
                         if (!e) return;
@@ -103,6 +104,7 @@ export const RemoteSettings = memo(() => {
         {
             control: (
                 <TextInput
+                    aria-label={t('setting.remoteUsername')}
                     defaultValue={settings.username}
                     onBlur={(e) => {
                         const username = e.currentTarget.value;
@@ -124,7 +126,8 @@ export const RemoteSettings = memo(() => {
         },
         {
             control: (
-                <TextInput
+                <PasswordInput
+                    aria-label={t('setting.remotePassword')}
                     defaultValue={settings.password}
                     onBlur={(e) => {
                         const password = e.currentTarget.value;
@@ -146,5 +149,5 @@ export const RemoteSettings = memo(() => {
         },
     ];
 
-    return <SettingsSection options={controlOptions} title={t('page.setting.remote')} />;
+    return <SettingsSection options={controlOptions} title={t('page.setting.browserRemote')} />;
 });

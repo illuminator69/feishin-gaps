@@ -231,7 +231,7 @@ const hubFailureMessage = (msg: any): string =>
             : msg.code === 'not_supported'
               ? (msg.message ?? "That device can't do that while it isn't playing.")
               : msg.code === 'auth'
-                ? 'The hub rejected the token - check your navi-connect settings.'
+                ? 'The Worbus Server refused the access token - check it in Settings, Server.'
                 : (msg.message ?? (msg.code ? `Hub error (${msg.code})` : 'Hub error'));
 
 /**
@@ -1421,6 +1421,9 @@ export const useHub = () => {
 
     // Push config to the main-process transport on mount + whenever it changes.
     useEffect(() => {
+        // F2: the Server tab's "connecting" starts here, and an earlier refusal is the old
+        // token's: the transport tries again with whatever was just pushed.
+        useHubStore.getState().actions.setStore({ attemptAt: Date.now(), authRefused: false });
         hub?.setSettings(settings.enabled, settings.url, settings.token, settings.name).catch(
             () => undefined,
         );
@@ -1472,6 +1475,7 @@ export const useHub = () => {
                     activeDeviceId: activeId.current,
                     // I-031: a pin waits for an ack on the connection its act was sent on.
                     actPins: NO_PINS,
+                    authRefused: false,
                     connected: true,
                     devices: msg.devices ?? [],
                     // Absent from an older hub: no `actAck`, so nothing is pinned.
@@ -1726,6 +1730,7 @@ export const useHub = () => {
             } else if (msg.t === 'error') {
                 // Surface hub-side failures (bad token, target offline, …) — they
                 // were silent, so a wrong token just looked like "never connects".
+                if (msg.code === 'auth') setStore({ authRefused: true });
                 toast.warn({ message: hubFailureMessage(msg) });
             }
         });

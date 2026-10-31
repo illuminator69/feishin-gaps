@@ -811,6 +811,8 @@
             "hotkeysTab": "Hotkeys",
             "playbackTab": "Playback",
             "windowTab": "Window",
+            "serverTab": "Server",
+            "browserRemote": "Browser remote",
             "updates": "Update",
             "cache": "Cache",
             "application": "Application",
@@ -1102,6 +1104,7 @@
         "equalizerSavePreset_description": "Save the current EQ settings as a named preset",
         "equalizerSavePreset": "Save preset",
         "enableRemote_description": "Enables the remote control server to allow other devices to control the application",
+        "browserRemote_description": "Control this app from a phone's browser. Not the same as a Worbus Server. Open",
         "enableRemote": "Enable remote control server",
         "exitToTray_description": "Exit the application to the system tray",
         "exitToTray": "Exit to tray",
@@ -1846,10 +1849,10 @@
             "similar": "Similar artists"
         },
         "audioMuse": {
-            "token": "AudioMuse API token (direct)",
-            "token_description": "Only for reaching AudioMuse-AI with no hub. Leave blank when your navi-connect hub holds it.",
-            "url": "AudioMuse URL (direct)",
-            "url_description": "Only for reaching AudioMuse-AI with no hub, for mood search and mixes. Radio and autoplay always go through the hub. Leave blank when the hub is set up."
+            "token": "AudioMuse access token",
+            "token_description": "Only needed without a Worbus Server, which holds this itself.",
+            "url": "AudioMuse address",
+            "url_description": "Only needed without a Worbus Server. Used for mood search and mixes; radio and autoplay use the server's stations."
         },
         "discography": {
             "collapsedSummary_one": "{{count}} release, collapsed",

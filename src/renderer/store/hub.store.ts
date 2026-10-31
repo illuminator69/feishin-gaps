@@ -103,6 +103,19 @@ interface HubState {
      * and when the socket is lost. Always empty against a hub without `actAck`.
      */
     actPins: ActPins;
+    /**
+     * F2: when this client last pushed its hub settings to the transport (on start and on any
+     * change of the switch, address, token or name). "Connecting" is the first few seconds after
+     * it; after that a link that is still down reads as unreachable (server-status.ts).
+     */
+    attemptAt: number;
+    /**
+     * F2: the hub answered this connection's token with an `auth` error (the same frame that
+     * raises the toast). The transport stands down on it, so nothing else would say why the link
+     * is down: the Server tab reads it for "the server refused the access token". Cleared by
+     * `welcome` and whenever the hub settings are pushed again.
+     */
+    authRefused: boolean;
     connected: boolean;
     devices: HubDevice[];
     /**
@@ -163,6 +176,8 @@ interface HubState {
 const initialState: HubState = {
     activeDeviceId: null,
     actPins: NO_PINS,
+    attemptAt: 0,
+    authRefused: false,
     connected: false,
     devices: [],
     features: [],

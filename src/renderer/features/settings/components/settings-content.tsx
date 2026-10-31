@@ -5,6 +5,7 @@ import { AdvancedTab } from '/@/renderer/features/settings/components/advanced/a
 import { GeneralTab } from '/@/renderer/features/settings/components/general/general-tab';
 import { HotkeysTab } from '/@/renderer/features/settings/components/hotkeys/hotkeys-tab';
 import { PlaybackTab } from '/@/renderer/features/settings/components/playback/playback-tab';
+import { ServerTab } from '/@/renderer/features/settings/components/server/server-tab';
 import { WindowTab } from '/@/renderer/features/settings/components/window/window-tab';
 import { LibraryContainer } from '/@/renderer/features/shared/components/library-container';
 import { useSettingsStore, useSettingsStoreActions } from '/@/renderer/store/settings.store';
@@ -27,6 +28,9 @@ export const SettingsContent = () => {
                     variant="default"
                 >
                     <Tabs.List>
+                        {isElectron() && (
+                            <Tabs.Tab value="server">{t('page.setting.serverTab')}</Tabs.Tab>
+                        )}
                         <Tabs.Tab value="general">{t('page.setting.generalTab')}</Tabs.Tab>
                         <Tabs.Tab value="playback">{t('page.setting.playbackTab')}</Tabs.Tab>
                         <Tabs.Tab value="hotkeys">{t('page.setting.hotkeysTab')}</Tabs.Tab>
@@ -35,6 +39,11 @@ export const SettingsContent = () => {
                         )}
                         <Tabs.Tab value="advanced">{t('page.setting.advanced')}</Tabs.Tab>
                     </Tabs.List>
+                    {isElectron() && (
+                        <Tabs.Panel value="server">
+                            <ServerTab />
+                        </Tabs.Panel>
+                    )}
                     <Tabs.Panel value="general">
                         <GeneralTab />
                     </Tabs.Panel>

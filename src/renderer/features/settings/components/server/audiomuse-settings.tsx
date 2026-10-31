@@ -1,22 +1,22 @@
-import isElectron from 'is-electron';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { SettingsSection } from '/@/renderer/features/settings/components/settings-section';
 import { useAudioMuseSettings, useSettingsStoreActions } from '/@/renderer/store';
+import { PasswordInput } from '/@/shared/components/password-input/password-input';
 import { TextInput } from '/@/shared/components/text-input/text-input';
 
 /**
- * navi-connect: the direct route to AudioMuse-AI's core API, for a setup with no hub (Q-096:
- * it used to sit in the autoplay popover). Through the hub, which holds AudioMuse's address and
- * token itself, both stay blank. Radio and autoplay never use this route: they are the hub's
- * stations (I-040). What still does is CLAP mood search and the mixes played without them.
+ * The direct route to AudioMuse-AI's core API, for a setup with no Worbus Server (Q-096: it used
+ * to sit in the autoplay popover). Through the server, which holds AudioMuse's address and token
+ * itself, both stay blank. Radio and autoplay never use this route: they are the server's
+ * stations (I-040). What still does is CLAP mood search and the mixes played without them. The
+ * Server tab folds it under "Without a Worbus Server".
  */
 export const AudioMuseSettings = memo(() => {
     const { t } = useTranslation();
     const audioMuse = useAudioMuseSettings();
     const { setSettings } = useSettingsStoreActions();
-    const isHidden = !isElectron();
 
     return (
         <SettingsSection
@@ -24,6 +24,7 @@ export const AudioMuseSettings = memo(() => {
                 {
                     control: (
                         <TextInput
+                            aria-label={t('naviConnect.audioMuse.url')}
                             defaultValue={audioMuse.url}
                             onBlur={(e) => {
                                 const url = e.currentTarget.value.trim();
@@ -33,12 +34,12 @@ export const AudioMuseSettings = memo(() => {
                         />
                     ),
                     description: t('naviConnect.audioMuse.url_description'),
-                    isHidden,
                     title: t('naviConnect.audioMuse.url'),
                 },
                 {
                     control: (
-                        <TextInput
+                        <PasswordInput
+                            aria-label={t('naviConnect.audioMuse.token')}
                             defaultValue={audioMuse.token}
                             onBlur={(e) => {
                                 const token = e.currentTarget.value.trim();
@@ -49,11 +50,9 @@ export const AudioMuseSettings = memo(() => {
                         />
                     ),
                     description: t('naviConnect.audioMuse.token_description'),
-                    isHidden,
                     title: t('naviConnect.audioMuse.token'),
                 },
             ]}
-            title="AudioMuse-AI"
         />
     );
 });
