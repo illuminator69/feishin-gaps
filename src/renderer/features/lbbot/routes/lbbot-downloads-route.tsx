@@ -15,6 +15,7 @@ import {
     useLbBotWishlist,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { LedgerRow, useFillLedger } from '/@/renderer/features/lbbot/stores/active-fills.store';
+import { Fold } from '/@/renderer/features/motion/fold';
 import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
 import { Button } from '/@/shared/components/button/button';
@@ -54,7 +55,8 @@ const useNow = (): number => {
 const FillRow = ({ now, row }: { now: number; row: LedgerRow }) => {
     // F7: the same actions as the album page's request box, so one row offers the same buttons.
     const { busy, label, run, shown } = useFillActions(row);
-    const view = describeFill(row, now);
+    const downloadsShown = useLbBotDownloadsShown();
+    const view = describeFill(row, now, downloadsShown);
     const failed = row.settled && row.outcome !== 'done';
 
     return (
@@ -206,7 +208,11 @@ export const LbBotDownloadsPage = ({
                         here rather than on Discover because a pasted link is an
                         acquisition, and this is the page acquisitions are
                         tracked on. */}
-                    {downloadsShown && <ResolveLinkBox />}
+                    {/* Off, it folds away rather than vanishing, so a row acted on below it is
+                        not jumped up (F7 walk). */}
+                    <Fold name="resolve-link" open={downloadsShown}>
+                        <ResolveLinkBox />
+                    </Fold>
                     {rows.length === 0 ? (
                         <Text isMuted>{t(copy.empty.key)}</Text>
                     ) : shown.length === 0 ? (

@@ -54,3 +54,13 @@ export const activityPageCopy = (downloadsShown: boolean): { empty: CopyLine; ti
               empty: { key: 'naviConnect.activityPage.emptyOff' },
               title: { key: 'naviConnect.activityPage.titleActivity' },
           };
+
+/**
+ * Why a failed row offers the wishlist (`describeFill`). While on, lb-bot re-searches a wishlisted
+ * album every few hours; while off it only keeps it, so the sentence promises no search. Plain
+ * English, like the rest of the fill vocabulary (PROTOCOL 15.2).
+ */
+export const failedRowWishlistExplain = (downloadsShown: boolean): string =>
+    downloadsShown
+        ? 'Nobody had it this time. The swarm changes — add it to the wishlist and lb-bot will keep looking every few hours.'
+        : 'Add it to the wishlist to keep it for when your server can get albums.';

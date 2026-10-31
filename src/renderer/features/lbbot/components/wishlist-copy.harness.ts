@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { activityPageCopy, wishlistEmptyLine, wishlistRowLines } from './wishlist-copy.ts';
+import {
+    activityPageCopy,
+    failedRowWishlistExplain,
+    wishlistEmptyLine,
+    wishlistRowLines,
+} from './wishlist-copy.ts';
 
 /**
  * Worbus P1, lane F (F3):  node --test src/renderer/features/lbbot/components/wishlist-copy.harness.ts
@@ -92,5 +97,23 @@ test('activity_copy_on_unchanged', () => {
     assert.equal(
         resolve(on.empty),
         'Nothing yet. Albums you ask lb-bot to fetch show up here while they download, and stay until you dismiss them.',
+    );
+});
+
+// F7 walk: a failed row that offers the wishlist explains it. While on, lb-bot keeps looking for a
+// wishlisted album; while off it only keeps it, and the sentence must not promise a search.
+
+test('failed_row_wishlist_explain_off_has_no_searching_words', () => {
+    const text = failedRowWishlistExplain(false);
+    assert.equal(text, 'Add it to the wishlist to keep it for when your server can get albums.');
+    for (const word of BANNED) {
+        assert.ok(!text.toLowerCase().includes(word), `"${text}" says "${word}"`);
+    }
+});
+
+test('failed_row_wishlist_explain_on_unchanged', () => {
+    assert.equal(
+        failedRowWishlistExplain(true),
+        'Nobody had it this time. The swarm changes — add it to the wishlist and lb-bot will keep looking every few hours.',
     );
 });
