@@ -113,13 +113,6 @@ interface HubState {
      */
     features: string[];
     /**
-     * lb-bot's availability and the hub's proxied routes, as the hub stated them
-     * in its last `welcome` (`welcome.lb`). Null until a welcome carries one —
-     * which an older hub never does, and then the `/lb/status` probe answers
-     * instead (`useLbBotStatus`). Kept across a disconnect, like the probe's
-     * cached answer was: the next welcome replaces it.
-     */
-    /**
      * Worbus P1: lb-bot's index build countdown, from `welcome.lbIndex.progress` and each
      * `index` frame's. Null when the last one carried none (an older peer, or the build is
      * long over). Read only by the Home bar (`useLbBotIndexProgress`). Not persisted.
@@ -131,6 +124,13 @@ interface HubState {
      * unavailable (`useLbBotAvailable`) until the next `welcome` clears it.
      */
     lbRefused: boolean;
+    /**
+     * lb-bot's availability and the hub's proxied routes, as the hub stated them
+     * in its last `welcome` (`welcome.lb`). Null until a welcome carries one —
+     * which an older hub never does, and then the `/lb/status` probe answers
+     * instead (`useLbBotStatus`). Kept across a disconnect, like the probe's
+     * cached answer was: the next welcome replaces it.
+     */
     lbStatus: LbBotStatus | null;
     myDeviceId: null | string;
     /** Whether the remote session is currently playing. */
@@ -208,6 +208,17 @@ export const useHubDevices = () => useHubStore((s) => s.devices, shallow);
 export const useHubActiveDeviceId = () => useHubStore((s) => s.activeDeviceId);
 export const useHubMyDeviceId = () => useHubStore((s) => s.myDeviceId);
 export const useHubConnected = () => useHubStore((s) => s.connected);
+
+/**
+ * Whether lb-bot is known to be out of reach right now, outside React: the hub said it is
+ * unavailable, or (Worbus P1, B-263) lb-bot refused this hub with a 401 `signin_required`. A
+ * background read (the index mirror's pull, the override map, the ownership re-ask) is skipped
+ * then, as it would fail the same way. Unknown (no welcome yet, an older hub) is not "down".
+ */
+export const lbBotDownNow = (): boolean => {
+    const { lbRefused, lbStatus } = useHubStore.getState();
+    return lbStatus?.available === false || lbRefused;
+};
 export const useHubActions = () => useHubStore((s) => s.actions);
 
 /** True when playback is live on ANOTHER device — i.e. show the remote view. */

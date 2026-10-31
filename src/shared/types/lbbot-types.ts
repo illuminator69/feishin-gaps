@@ -187,6 +187,10 @@ export interface LbBotResult<T> {
     tooLarge?: boolean;
     /** The other half of `matched` on a `poor_match`; `files_unreachable` carries it too. */
     total?: number;
+    /** Worbus P1: the failure body's own `error`, verbatim, for a decision that reads lb-bot's
+     *  exact words (`isOlderScanRefusal`) rather than `error`, which is the sentence to show.
+     *  Absent when the body carried none. */
+    upstreamError?: string;
 }
 
 /** What the hub says it can proxy. An empty list means an older hub that doesn't

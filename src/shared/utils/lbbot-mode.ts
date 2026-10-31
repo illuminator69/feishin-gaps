@@ -17,7 +17,7 @@ export type LbDownloads = 'off' | 'on';
 
 /** The index build's countdown (`welcome.lbIndex.progress`, `t:"index"`.progress). */
 export interface LbIndexProgress {
-    /** The artist lb-bot is reading now, "" when it says none. At most 200 characters. */
+    /** The artist lb-bot is reading now, "" when it says none. At most 200 code points. */
     current: string;
     total: number;
     /** Artists lb-bot will still attempt that have no index row yet. */
@@ -45,6 +45,35 @@ export const modeFromFrame = (current: LbMode, frame: unknown): LbMode =>
 /** A refusal from any route: `downloads_off` means off, whatever was believed. */
 export const modeAfterRefusal = (current: LbMode, code: string | undefined): LbMode =>
     code === 'downloads_off' ? 'off' : current;
+
+/**
+ * What this connection believes about lb-bot after a refusal or a welcome: the downloads mode,
+ * and whether lb-bot refused this hub (B-263, a 401 `signin_required`; lb-bot then reads as
+ * unavailable).
+ */
+export interface LbRefusalState {
+    mode: LbMode;
+    refused: boolean;
+}
+
+/**
+ * A refusal from any route: `downloads_off` turns the mode off, `signin_required` marks lb-bot
+ * refused; anything else changes nothing. Idempotent, so the `lbbot-refusal` event and the
+ * renderer's own reading of the same answer can both apply it, in either order.
+ */
+export const stateAfterRefusal = (
+    state: LbRefusalState,
+    code: string | undefined,
+): LbRefusalState => ({
+    mode: modeAfterRefusal(state.mode, code),
+    refused: state.refused || code === 'signin_required',
+});
+
+/** A welcome restates the mode (absent = an older peer) and ends any refusal. */
+export const stateAfterWelcome = (lb: unknown): LbRefusalState => ({
+    mode: modeFromWelcome(lb),
+    refused: false,
+});
 
 /** Whether download actions are offered: everywhere except a known "off". */
 export const downloadsShown = (mode: LbMode): boolean => mode !== 'off';
@@ -85,7 +114,11 @@ export const parseProgress = (raw: unknown): LbIndexProgress | null => {
     if (unindexed === null || total === null) return null;
     const current = record.current;
     if (current !== undefined && current !== null && typeof current !== 'string') return null;
-    return { current: (current ?? '').slice(0, 200), total, unindexed };
+    // Cut by code points, not UTF-16 units: a name with an astral character at the cut must not
+    // keep half a surrogate pair.
+    const name = current ?? '';
+    const cut = name.length > 200 ? Array.from(name).slice(0, 200).join('') : name;
+    return { current: cut, total, unindexed };
 };
 
 /**

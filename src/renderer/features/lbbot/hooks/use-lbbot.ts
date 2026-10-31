@@ -134,10 +134,16 @@ import { staleUnlessAnswered } from '/@/renderer/features/lbbot/utils/persisted-
 import { importFinished } from '/@/renderer/features/listening/listening-logic';
 import { queryClient } from '/@/renderer/lib/react-query';
 import { useCurrentServerId } from '/@/renderer/store';
-import { useHubConnected, useHubStore } from '/@/renderer/store/hub.store';
+import { lbBotDownNow, useHubConnected, useHubStore } from '/@/renderer/store/hub.store';
 import { toast } from '/@/shared/components/toast/toast';
 import { AlbumArtistListSort, AlbumListSort, SortOrder } from '/@/shared/types/domain-types';
-import { downloadsShown, isP1Peer, LbIndexProgress, LbMode } from '/@/shared/utils/lbbot-mode';
+import {
+    downloadsShown,
+    isP1Peer,
+    LbIndexProgress,
+    LbMode,
+    stateAfterRefusal,
+} from '/@/shared/utils/lbbot-mode';
 import { normalizeLbBotWebUrl, routeAdvertised } from '/@/shared/utils/lbbot-wire';
 
 /**
@@ -332,7 +338,7 @@ let overridesTimer: null | number = null;
 export const refreshLbBotOverrides = (delayMs = 0): void => {
     const run = () => {
         overridesTimer = null;
-        const down = useHubStore.getState().lbStatus?.available === false;
+        const down = lbBotDownNow();
         void queryClient.invalidateQueries({
             queryKey: OVERRIDES_KEY,
             refetchType: down ? 'none' : 'active',
@@ -388,7 +394,7 @@ export const invalidateLbBotOwnership = (indexHint?: unknown): void => {
             : null;
     if (head !== null && head === ownershipHead) return;
     ownershipHead = head;
-    const down = useHubStore.getState().lbStatus?.available === false;
+    const down = lbBotDownNow();
     void queryClient.invalidateQueries({
         predicate: (query) => {
             const [scope, kind, feed] = query.queryKey as unknown[];
@@ -444,16 +450,28 @@ export const useLbBotIndexProgress = (): LbIndexProgress | null => {
 export const useLbBotRefusals = (): void => {
     useEffect(() => {
         if (!lbBot?.onRefusal) return undefined;
-        return lbBot.onRefusal(({ code }) => {
-            if (code === 'signin_required') {
-                if (!useHubStore.getState().lbRefused) {
-                    useHubStore.getState().actions.setStore({ lbRefused: true });
-                }
-                return;
-            }
-            lbBotModeActions().applyRefusal(code);
-        });
+        return lbBot.onRefusal(({ code }) => applyLbBotRefusal(code));
     }, []);
+};
+
+/**
+ * Apply one lb-bot refusal code (`stateAfterRefusal`): from the `lbbot-refusal` event, or read off
+ * an action's own answer. Idempotent, so the event and the answer may arrive in either order: an
+ * action applies its answer's code itself before deciding what to say, never relying on the event
+ * having come first.
+ */
+export const applyLbBotRefusal = (code: string | undefined): void => {
+    const hub = useHubStore.getState();
+    const current = { mode: getLbBotMode(), refused: hub.lbRefused };
+    const next = stateAfterRefusal(current, code);
+    if (next.refused !== current.refused) hub.actions.setStore({ lbRefused: next.refused });
+    if (next.mode !== current.mode) lbBotModeActions().adopt(next.mode);
+};
+
+/** An action's answer, with its refusal (if any) applied first: see {@link applyLbBotRefusal}. */
+const withRefusal = <T extends { code?: string; ok: boolean }>(result: T): T => {
+    if (!result.ok) applyLbBotRefusal(result.code);
+    return result;
 };
 
 /**
@@ -1332,7 +1350,10 @@ const LISTENING_ROUTE = 'GET /lb/listening/summary';
  */
 export const useListeningSupported = (): boolean => {
     const status = useLbBotStatus();
-    return !!lbBot && status?.available === true && !!status.routes?.includes(LISTENING_ROUTE);
+    // Worbus P1: a refused lb-bot (B-263) is as gone as an unreachable one, so Statistics leaves
+    // the sidebar, the palette and the route instead of 401ing behind an older hub.
+    const available = useLbBotAvailable();
+    return !!lbBot && available && !!status?.routes?.includes(LISTENING_ROUTE);
 };
 
 /** A failed lb-bot read, carrying the HTTP status so a 404 / 405 (lb-bot older
@@ -1740,10 +1761,20 @@ const findItAsked = new Set<string>();
 
 /** The same for a release-group, plus release credits. `releaseMbid` is an
  *  optimisation, not a requirement: it saves lb-bot resolving the canonical
- *  release at one rate-limited MusicBrainz request per second. */
-export const useLbBotAlbumMeta = (rgid?: null | string, releaseMbid?: null | string) => {
+ *  release at one rate-limited MusicBrainz request per second.
+ *
+ *  `options.findIt`: the page shows Find it links (the not-owned album page). Only there is a
+ *  persisted body without them asked again (F4); an owned page never shows them, and each ask
+ *  can cost lb-bot MusicBrainz requests. */
+export const useLbBotAlbumMeta = (
+    rgid?: null | string,
+    releaseMbid?: null | string,
+    options: { findIt?: boolean } = {},
+) => {
     const available = useLbBotAvailable();
     const p1Peer = useIsP1Peer();
+    const wantsFindIt = options.findIt === true;
+    const queryClient = useQueryClient();
     const query = useQuery<LbBotMeta | null>({
         enabled: !!lbBot && available && !!rgid,
         gcTime: Infinity,
@@ -1754,14 +1785,27 @@ export const useLbBotAlbumMeta = (rgid?: null | string, releaseMbid?: null | str
     });
     // Worbus P1 (F4): this body is persisted and never goes stale, so one saved before lb-bot sent
     // Find it links has no `findIt` key. A P1 peer is asked again for it, once per release-group
-    // per app session - never in a loop when lb-bot legitimately leaves the key out.
-    const { data, refetch } = query;
+    // per app session - never in a loop when lb-bot legitimately leaves the key out. Not a
+    // `refetch()`: the read answers null on any failure, and that null would replace the good
+    // body on screen and on disk. The answer replaces the body only when there is one.
+    const { data } = query;
     useEffect(() => {
-        if (!p1Peer || !available || !rgid || !data || 'findIt' in data) return;
-        if (findItAsked.has(rgid)) return;
+        if (!wantsFindIt || !lbBot || !p1Peer || !available || !rgid) return;
+        if (!data || 'findIt' in data || findItAsked.has(rgid)) return;
         findItAsked.add(rgid);
-        void refetch();
-    }, [available, data, p1Peer, refetch, rgid]);
+        const client = lbBot;
+        void (async () => {
+            try {
+                const fresh = await client.metaAlbum({
+                    releaseMbid: releaseMbid ?? undefined,
+                    rgid,
+                });
+                if (fresh) queryClient.setQueryData(['lbbot', 'meta-album', rgid], fresh);
+            } catch {
+                // Kept as it was: Find it waits for the next session's ask.
+            }
+        })();
+    }, [available, data, p1Peer, queryClient, releaseMbid, rgid, wantsFindIt]);
     return useShownWithHub(query);
 };
 
@@ -2383,14 +2427,8 @@ export const startAlbumDownload = async (
             status: 0,
         };
     }
-    const result = await lbBot.downloadAlbum(
-        rgid,
-        quality,
-        source,
-        edition,
-        excludeUsers,
-        allowMp3,
-        allFiles,
+    const result = withRefusal(
+        await lbBot.downloadAlbum(rgid, quality, source, edition, excludeUsers, allowMp3, allFiles),
     );
     if (result.ok) {
         // Registered here rather than in the sheet: the fill takes minutes, and
@@ -2514,7 +2552,9 @@ export const useAcquireAlbum = () => {
                 staleTime: 60 * 1000,
             });
             // A stale "on" (an older hub, the first seconds after a restart): the 409 is the answer,
-            // not "lb-bot would not answer". The refusal has already turned every surface off.
+            // not "lb-bot would not answer". Applied here, whether or not the refusal event came
+            // first, so every surface is off by the time the caller reads `off`.
+            if (answer) withRefusal(answer);
             if (answer && !answer.ok && answer.code === 'downloads_off') return { kind: 'off' };
             const sources = answer?.ok ? (answer.data ?? []) : null;
             if (!sources) return { kind: 'review', reason: 'unavailable' };
@@ -2724,7 +2764,7 @@ export const useLbBotAlbumSources = (
         queryFn: () => {
             const refresh = refreshNext.current;
             refreshNext.current = false;
-            return lbBot!.albumSources(rgid!, edition, { refresh });
+            return lbBot!.albumSources(rgid!, edition, { refresh }).then(withRefusal);
         },
         // Keyed on the edition too: two pressings of the same group are two
         // different searches, and re-using one's answer for the other is exactly
@@ -2915,19 +2955,19 @@ const NO_CLIENT: LbBotResult<boolean> = {
 };
 
 export const searchGapSources = (groupId: string, force = false): Promise<LbBotResult<boolean>> =>
-    lbBot ? lbBot.gapSearch(groupId, force) : Promise.resolve(NO_CLIENT);
+    lbBot ? lbBot.gapSearch(groupId, force).then(withRefusal) : Promise.resolve(NO_CLIENT);
 
 export const autoFillGap = (groupId: string): Promise<LbBotResult<boolean>> =>
-    lbBot ? lbBot.gapAuto(groupId) : Promise.resolve(NO_CLIENT);
+    lbBot ? lbBot.gapAuto(groupId).then(withRefusal) : Promise.resolve(NO_CLIENT);
 
 export const fetchGapSource = (groupId: string, sourceId: number): Promise<LbBotResult<boolean>> =>
-    lbBot ? lbBot.gapFetch(groupId, sourceId) : Promise.resolve(NO_CLIENT);
+    lbBot ? lbBot.gapFetch(groupId, sourceId).then(withRefusal) : Promise.resolve(NO_CLIENT);
 
 export const cancelGapFill = (groupId: string): Promise<LbBotResult<boolean>> =>
-    lbBot ? lbBot.gapCancel(groupId) : Promise.resolve(NO_CLIENT);
+    lbBot ? lbBot.gapCancel(groupId).then(withRefusal) : Promise.resolve(NO_CLIENT);
 
 export const rescanGapAlbum = (groupId: string): Promise<LbBotResult<boolean>> =>
-    lbBot ? lbBot.gapRescan(groupId) : Promise.resolve(NO_CLIENT);
+    lbBot ? lbBot.gapRescan(groupId).then(withRefusal) : Promise.resolve(NO_CLIENT);
 
 /**
  * A gap fill's last known group, for the page. The ledger watcher polls it
@@ -3036,8 +3076,11 @@ export const cancelFill = async (row: {
         actions.settle(row.key, { outcome: 'cancelled', state: 'cancelled' });
         return true;
     }
-    const { cancelled, ok, status } = await lbBot.cancelAlbum(releaseMbid);
-    if (!ok) return false;
+    const { cancelled, code, ok, status } = await lbBot.cancelAlbum(releaseMbid);
+    if (!ok) {
+        applyLbBotRefusal(code);
+        return false;
+    }
     if (!cancelled) {
         // lb-bot answered, and said no: too late (the files are being placed)
         // or nothing was running. Its status says which — show that, not a

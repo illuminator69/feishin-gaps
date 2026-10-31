@@ -2,14 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 import { useSettingsStore } from '/@/renderer/store/settings.store';
-import {
-    LbDownloads,
-    LbMode,
-    modeAfterRefusal,
-    modeFromFrame,
-    modeFromWelcome,
-    rememberMode,
-} from '/@/shared/utils/lbbot-mode';
+import { LbDownloads, LbMode, modeFromFrame, rememberMode } from '/@/shared/utils/lbbot-mode';
 
 /**
  * Worbus P1: lb-bot's downloads mode for this connection, and the last known one per hub.
@@ -21,12 +14,13 @@ import {
  */
 interface LbBotModeState {
     actions: {
-        /** `welcome.lb`: the whole mode, restated. */
-        adoptWelcome: (lb: unknown) => void;
+        /**
+         * Adopt a mode worked out by the pure rules: a welcome's (`stateAfterWelcome`) or a
+         * refusal's (`stateAfterRefusal`, via `applyLbBotRefusal`).
+         */
+        adopt: (mode: LbMode) => void;
         /** An `lb` frame or a `/lb/status` read: only a valid `downloads` moves the mode. */
         applyFrame: (frame: unknown) => void;
-        /** A refusal from any route (`lbbot-refusal`). */
-        applyRefusal: (code: string | undefined) => void;
         /** The hub was switched off or pointed elsewhere: back to the remembered mode. */
         forgetSession: () => void;
     };
@@ -49,13 +43,8 @@ export const useLbBotModeStore = create<LbBotModeState>()(
             };
             return {
                 actions: {
-                    adoptWelcome: (lb) => setMode(modeFromWelcome(lb)),
+                    adopt: setMode,
                     applyFrame: (frame) => setMode(modeFromFrame(getLbBotMode(), frame)),
-                    applyRefusal: (code) => {
-                        const current = getLbBotMode();
-                        const next = modeAfterRefusal(current, code);
-                        if (next !== current) setMode(next);
-                    },
                     forgetSession: () => set({ session: null }),
                 },
                 byHub: {},

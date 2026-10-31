@@ -95,7 +95,7 @@ import { logger } from '/@/renderer/utils/logger';
 import { toast } from '/@/shared/components/toast/toast';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
-import { isProgressOnlyFrame, parseProgress } from '/@/shared/utils/lbbot-mode';
+import { isProgressOnlyFrame, parseProgress, stateAfterWelcome } from '/@/shared/utils/lbbot-mode';
 import { levelReportStep, NO_LEVEL_REPORT, toLevel } from '/@/shared/utils/level-report';
 
 /**
@@ -1544,10 +1544,11 @@ export const useHub = () => {
                 // Worbus P1: the welcome restates lb-bot's downloads mode (absent = an older
                 // peer) and its index progress, and ends a refusal (B-263): a hub that
                 // reconnected may have been upgraded to send lb-bot its token.
-                lbBotModeActions().adoptWelcome(msg.lb);
+                const lbState = stateAfterWelcome(msg.lb);
+                lbBotModeActions().adopt(lbState.mode);
                 setStore({
                     lbProgress: parseProgress(msg.lbIndex?.progress),
-                    lbRefused: false,
+                    lbRefused: lbState.refused,
                 });
                 // A `library` frame sent while this socket was down is lost, so
                 // every cached lb-bot answer that marks ownership (Fresh, the

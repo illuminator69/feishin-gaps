@@ -142,7 +142,8 @@ const LbBotExternalAlbumRoute = () => {
     const offer = albumPageOffer(state, useLbBotDownloadsShown());
 
     // `release_mbid` is not sent: it only saves lb-bot resolving the canonical release.
-    const meta = useLbBotAlbumMeta(rgid).data;
+    // Find it shows here (and only here), so a persisted About without its links is asked again.
+    const meta = useLbBotAlbumMeta(rgid, undefined, { findIt: true }).data;
 
     if (state === 'redirect' && ownedAlbumId) {
         return (

@@ -10,6 +10,8 @@ import {
     modeFromWelcome,
     parseProgress,
     rememberMode,
+    stateAfterRefusal,
+    stateAfterWelcome,
 } from './lbbot-mode.ts';
 
 /**
@@ -67,6 +69,49 @@ test('downloads_off_409_flips_mode', () => {
     assert.equal(modeAfterRefusal('unknown', 'bad_source'), 'unknown');
     assert.equal(modeAfterRefusal('on', undefined), 'on');
     assert.equal(modeAfterRefusal('on', 'signin_required'), 'on');
+});
+
+test('signin_required_marks_refused', () => {
+    // B-263: lb-bot refused the hub (no bearer, or the wrong one). The mode is untouched.
+    assert.deepEqual(stateAfterRefusal({ mode: 'on', refused: false }, 'signin_required'), {
+        mode: 'on',
+        refused: true,
+    });
+    assert.deepEqual(stateAfterRefusal({ mode: 'unknown', refused: true }, 'signin_required'), {
+        mode: 'unknown',
+        refused: true,
+    });
+    // downloads_off turns the mode off and leaves the refusal as it was.
+    assert.deepEqual(stateAfterRefusal({ mode: 'on', refused: false }, 'downloads_off'), {
+        mode: 'off',
+        refused: false,
+    });
+    assert.deepEqual(stateAfterRefusal({ mode: 'on', refused: true }, 'downloads_off'), {
+        mode: 'off',
+        refused: true,
+    });
+    // Any other code (or none) changes nothing.
+    for (const code of ['bad_source', undefined, '']) {
+        assert.deepEqual(stateAfterRefusal({ mode: 'on', refused: false }, code), {
+            mode: 'on',
+            refused: false,
+        });
+    }
+});
+
+test('welcome_clears_refused', () => {
+    // Every welcome ends a refusal (the hub may have been upgraded to send lb-bot its token) and
+    // restates the mode - absent is an older peer.
+    assert.deepEqual(stateAfterWelcome({ available: true, downloads: 'off' }), {
+        mode: 'off',
+        refused: false,
+    });
+    assert.deepEqual(stateAfterWelcome({ available: true, downloads: 'on' }), {
+        mode: 'on',
+        refused: false,
+    });
+    assert.deepEqual(stateAfterWelcome({ available: true }), { mode: 'unknown', refused: false });
+    assert.deepEqual(stateAfterWelcome(undefined), { mode: 'unknown', refused: false });
 });
 
 test('remember_keeps_four_hubs_drops_oldest', () => {
@@ -131,6 +176,23 @@ test('progress_cuts_current_at_200', () => {
     // A missing or null `current` is an empty one (the hub writes "" for both).
     assert.equal(parseProgress({ total: 10, unindexed: 4 })?.current, '');
     assert.equal(parseProgress({ current: null, total: 10, unindexed: 4 })?.current, '');
+});
+
+test('progress_cut_keeps_surrogate_pairs_whole', () => {
+    // 199 characters then an astral one (two UTF-16 units): a cut by code units would keep half
+    // of it. Cut by code points, the 200th is whole and nothing past it survives.
+    const name = 'x'.repeat(199) + '\u{1F3B5}' + 'tail';
+    const current = parseProgress({ current: name, total: 10, unindexed: 4 })?.current ?? '';
+    assert.equal(Array.from(current).length, 200);
+    assert.equal(current.endsWith('\u{1F3B5}'), true);
+    assert.equal(/[\uD800-\uDBFF]$/.test(current), false);
+    // Astral characters count as one each.
+    const astral = '\u{1F3B5}'.repeat(250);
+    assert.equal(
+        Array.from(parseProgress({ current: astral, total: 1, unindexed: 1 })?.current ?? '')
+            .length,
+        200,
+    );
 });
 
 test('progress_zero_is_kept', () => {

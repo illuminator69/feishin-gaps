@@ -260,7 +260,7 @@ const fills = (releaseMbids: string[], groupIds: string[]): Promise<LbBotResult<
 
 const cancelAlbum = (
     releaseMbid: string,
-): Promise<{ cancelled: boolean; ok: boolean; status: LbBotFillStatus }> =>
+): Promise<{ cancelled: boolean; code?: string; ok: boolean; status: LbBotFillStatus }> =>
     ipcRenderer.invoke('lbbot-cancel-album', { releaseMbid });
 
 const allowMp3 = (groupId: string, allow = true): Promise<boolean> =>

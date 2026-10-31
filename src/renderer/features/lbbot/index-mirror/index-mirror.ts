@@ -19,7 +19,7 @@ import {
 } from '/@/renderer/features/lbbot/index-mirror/mirror-logic';
 import { gapCount } from '/@/renderer/features/library/library-model';
 import { queryClient } from '/@/renderer/lib/react-query';
-import { useHubStore } from '/@/renderer/store/hub.store';
+import { lbBotDownNow, useHubStore } from '/@/renderer/store/hub.store';
 import { useSettingsStore } from '/@/renderer/store/settings.store';
 import { logger } from '/@/renderer/utils/logger';
 import { routeAdvertised } from '/@/shared/utils/lbbot-wire';
@@ -375,7 +375,7 @@ const scheduleRetry = (status: number) => {
     // would fail the same way and log it. lb-bot announces itself when it comes
     // up — its index push at boot reaches this client as an `index` frame — and
     // the next welcome and the 15-min interval still pull.
-    const hubSaysDown = useHubStore.getState().lbStatus?.available === false;
+    const hubSaysDown = lbBotDownNow();
     if (hubSaysDown || !RETRYABLE_STATUSES.has(status) || retryAttempt >= RETRY_DELAYS_MS.length) {
         retryAttempt = 0;
         return;
@@ -564,7 +564,7 @@ const runSync = async (): Promise<void> => {
         feedMissing ||
         !feedAdvertised() ||
         !mirrorShown() ||
-        useHubStore.getState().lbStatus?.available === false
+        lbBotDownNow()
     ) {
         setSyncState({
             id: runId,
@@ -573,9 +573,11 @@ const runSync = async (): Promise<void> => {
                 ? 'not connected to the hub'
                 : !mirrorShown()
                   ? 'the hub is switched off in settings'
-                  : useHubStore.getState().lbStatus?.available === false
-                    ? 'the hub reports lb-bot unavailable'
-                    : 'this hub does not serve the index feed',
+                  : useHubStore.getState().lbRefused
+                    ? 'lb-bot refused this hub'
+                    : useHubStore.getState().lbStatus?.available === false
+                      ? 'the hub reports lb-bot unavailable'
+                      : 'this hub does not serve the index feed',
         });
         return;
     }

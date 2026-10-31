@@ -50,6 +50,9 @@ export const useFillActions = (row: LedgerRow) => {
         const ok = await action();
         setBusy(false);
         // A refusal because downloading turned out to be off is not an error: the buttons go.
+        // Every action here applies its answer's refusal itself before resolving
+        // (`applyLbBotRefusal`), so the mode is already off when this reads it, whether or not the
+        // `lbbot-refusal` event has arrived yet.
         if (!ok && getLbBotMode() !== 'off') {
             toast.error({ message: 'lb-bot would not take that request.' });
         }

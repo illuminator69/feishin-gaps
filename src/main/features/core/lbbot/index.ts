@@ -141,7 +141,13 @@ const failed = <T>(
     status: number,
     error: string,
     tooLarge = false,
-    extra: { code?: string; matched?: number; retryable?: boolean; total?: number } = {},
+    extra: {
+        code?: string;
+        matched?: number;
+        retryable?: boolean;
+        total?: number;
+        upstreamError?: string;
+    } = {},
 ): LbBotResult<T> => ({
     data: null,
     error,
@@ -152,6 +158,7 @@ const failed = <T>(
     ...(typeof extra.matched === 'number' ? { matched: extra.matched } : {}),
     ...(extra.retryable ? { retryable: true } : {}),
     ...(typeof extra.total === 'number' ? { total: extra.total } : {}),
+    ...(extra.upstreamError ? { upstreamError: extra.upstreamError } : {}),
 });
 
 /**
@@ -232,6 +239,7 @@ const request = async <T = Json>(
             matched: typeof body?.matched === 'number' ? body.matched : undefined,
             retryable: body?.retryable === true,
             total: typeof body?.total === 'number' ? body.total : undefined,
+            upstreamError: typeof body?.error === 'string' ? body.error : undefined,
         });
     }
     return { data: (body ?? {}) as T, error: '', ok: true, status: res.status };
@@ -407,7 +415,8 @@ ipcMain.handle(
                 ? { mbid: args.mbid, name: args.name, nd_id: args.ndId }
                 : { nd_id: args.ndId },
         });
-        if (!args.mbid && isOlderScanRefusal(result.status, result.error)) {
+        // lb-bot's own words, not `describeFailure`'s sentence for them.
+        if (!args.mbid && isOlderScanRefusal(result.status, result.upstreamError)) {
             return { covered: false, olderLbBot: true, taskId: '' };
         }
         const { data } = result;
@@ -2026,7 +2035,7 @@ ipcMain.handle(
     async (
         _event,
         args: { releaseMbid: string },
-    ): Promise<{ cancelled: boolean; ok: boolean; status: LbBotFillStatus }> => {
+    ): Promise<{ cancelled: boolean; code?: string; ok: boolean; status: LbBotFillStatus }> => {
         if (!args.releaseMbid) return { cancelled: false, ok: false, status: UNKNOWN_STATUS };
         const result = await request('POST', '/lb/album/cancel', {
             body: { release_mbid: args.releaseMbid },
@@ -2036,6 +2045,8 @@ ipcMain.handle(
             // `false` with `ok` is lb-bot saying "too late" — the files are
             // being placed — or "nothing was running". The status says which.
             cancelled: data?.cancelled === true,
+            // Worbus P1: the refusal's code, so the renderer applies it from this answer too.
+            code: result.code,
             ok: result.ok && data?.ok === true,
             status: toFillStatus((data?.status ?? null) as Json | null),
         };
