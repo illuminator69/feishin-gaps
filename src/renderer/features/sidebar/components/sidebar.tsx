@@ -45,16 +45,18 @@ import { ImageUnloader } from '/@/shared/components/image/image';
 import { ScrollArea } from '/@/shared/components/scroll-area/scroll-area';
 import { Tooltip } from '/@/shared/components/tooltip/tooltip';
 import { useImageHashUrl } from '/@/shared/hooks/use-image-hash-url';
-import { useMediaQuery } from '/@/shared/hooks/use-media-query';
+import { useMediaQuery } from '/@/shared/hooks/use-media-query'; // navi-connect (B-232, B-295)
 import { ExplicitStatus, LibraryItem } from '/@/shared/types/domain-types';
 import { Platform } from '/@/shared/types/types';
 
 /**
- * The window height from which the lower groups (You, Listening, Library tools, App) are pinned
- * under the list. Below it, with every lb-bot group present, the list over them is under about
- * 440 px tall: at 900 px the Playlists header sat on their edge, at 700 px they cut it.
+ * navi-connect (B-232, B-295): the window height from which the lower groups (You, Listening,
+ * Library tools, App) are pinned under the list. Below it, with every lb-bot group present, the
+ * list over them is under about 440 px tall: at 900 px the Playlists header sat on their edge, at
+ * 700 px they cut it. Pinning fits from about 990 px; a custom window bar takes 30 px more.
  */
 const PIN_LOWER_GROUPS_QUERY = '(min-height: 1000px)';
+const PIN_LOWER_GROUPS_QUERY_CUSTOM_BAR = '(min-height: 1030px)';
 
 const SidebarPlaylistSection = () => {
     const isAddDragActive = useSidebarPlaylistAddDragMonitor();
@@ -80,11 +82,16 @@ export const Sidebar = () => {
     const isCustomWindowBar =
         windowBarStyle === Platform.WINDOWS || windowBarStyle === Platform.MACOS;
 
-    // B-232, B-295: pinned under the list, the lower groups left a short window's list too
-    // little room to show the Playlists header and two playlists. There they scroll with it.
-    const pinLowerGroups = useMediaQuery(PIN_LOWER_GROUPS_QUERY, undefined, {
-        getInitialValueInEffect: false,
-    });
+    // navi-connect (B-232, B-295): pinned under the list, the lower groups left a short window's
+    // list too little room to show the Playlists header and two playlists. There they scroll with
+    // it. The sidebar image, pinned below them, takes that room too: with it shown they always
+    // scroll with the list.
+    const tallEnoughToPin = useMediaQuery(
+        isCustomWindowBar ? PIN_LOWER_GROUPS_QUERY_CUSTOM_BAR : PIN_LOWER_GROUPS_QUERY,
+        undefined,
+        { getInitialValueInEffect: false },
+    );
+    const pinLowerGroups = tallEnoughToPin && !showImage;
     const lowerGroupStack = (
         <div className={clsx(styles.groupStack, { [styles.inList]: !pinLowerGroups })}>
             <SidebarGroups groups={lowerGroups} />
@@ -113,9 +120,9 @@ export const Sidebar = () => {
                     <SidebarCollectionList />
                     {sidebarPlaylistList && <SidebarPlaylistSection />}
                 </Accordion>
-                {!pinLowerGroups && lowerGroupStack}
+                {!pinLowerGroups && lowerGroupStack /* navi-connect (B-232, B-295) */}
             </ScrollArea>
-            {pinLowerGroups && lowerGroupStack}
+            {pinLowerGroups && lowerGroupStack /* navi-connect (B-232, B-295) */}
             <AnimatePresence initial={false} mode="popLayout">
                 {showImage && <SidebarImage />}
             </AnimatePresence>

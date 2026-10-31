@@ -47,7 +47,7 @@
     }
 }
 
-/* B-232, B-295: in a short window the lower groups scroll with the list, after the playlists. */
+/* navi-connect (B-232, B-295): in a short window the lower groups scroll with the list, after the playlists. */
 .group-stack.in-list {
     padding: var(--theme-spacing-md) 0 0;
 }
