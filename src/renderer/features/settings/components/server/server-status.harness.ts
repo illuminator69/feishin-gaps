@@ -233,3 +233,46 @@ test('theTokensArePasswordInputsAndEveryControlIsNamed', () => {
         assert.ok(named >= controls, `${file}: ${controls} controls, ${named} aria-labels`);
     }
 });
+
+// --- the component must not diverge from the tested functions ------------------------------------
+// The pure functions above are tested; these pin that the component still routes through them
+// (a reviewer deleted each of these lines and every other test stayed green).
+
+test('theStatusLineReadsTheStoresRefusalAndTheClockAndOnlyDrawsCapabilitiesWhenConnected', () => {
+    const hub = read('./worbus-server-settings.tsx');
+    assert.match(
+        hub,
+        /const libraryRefused = useHubStore\(\(s\) => s\.lbRefused\)/,
+        'the refusal comes from the hub store',
+    );
+    assert.match(
+        hub,
+        /libraryToolsRefused:\s*libraryRefused\b/,
+        'capabilityLines gets the store refusal, not a constant',
+    );
+    assert.match(
+        hub,
+        /useNowAfter\(attemptAt,\s*settings\.enabled && !connected\)/,
+        'the clock runs from the last attempt while switched on and not connected',
+    );
+    assert.match(
+        hub,
+        /link === 'connected'\s*\?\s*capabilityLines\(\{[\s\S]*?\}\)\s*:\s*\[\]/,
+        'the capability lines are drawn only when connected',
+    );
+    assert.match(hub, /hubLink\(\{[\s\S]*?now,[\s\S]*?\}\)/, 'hubLink gets the ticking clock');
+});
+
+test('theDeviceNameAndPublicUrlFieldsShowWhatResolveReturned', () => {
+    const hub = read('./worbus-server-settings.tsx');
+    assert.match(
+        hub,
+        /const result = resolveDeviceName\(name, settings\.name\);\s*setName\(result\.draft\);/,
+        'the device-name field is set to the resolved draft before storing',
+    );
+    assert.match(
+        hub,
+        /const result = resolvePublicServerUrl\([\s\S]*?\);\s*setPublicUrl\(result\.draft\);/,
+        'the public-URL field is set to the resolved draft, also when it was rejected',
+    );
+});

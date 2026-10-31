@@ -141,6 +141,12 @@ test('theSectionAndTheOptionUseTheSearchModuleAndTitlesAreLabels', () => {
     assert.match(section, /sectionRows\(/);
     assert.match(section, /extraShown\(/);
     assert.match(section, /sectionDrawn\(/);
+    assert.match(
+        section,
+        /const drawn = sectionDrawn\(keyword, values\.length, showExtra\);/,
+        'drawn comes from the tested function',
+    );
+    assert.match(section, /if \(!drawn\) return null;/, 'an undrawn section renders nothing');
     assert.doesNotMatch(section, /title\.toLocaleLowerCase\(\)\.includes/);
     const option = read('./settings-option.tsx');
     assert.match(option, /component="label"/);
