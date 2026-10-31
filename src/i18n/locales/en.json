@@ -812,6 +812,7 @@
             "playbackTab": "Playback",
             "windowTab": "Window",
             "serverTab": "Server",
+            "noResults": "No settings match your search.",
             "appearanceTab": "Appearance",
             "desktopTab": "Desktop",
             "colours": "Colours",

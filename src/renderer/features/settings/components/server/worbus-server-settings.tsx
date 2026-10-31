@@ -20,6 +20,7 @@ import {
 import { clapAvailableKey } from '/@/renderer/features/discover/use-discover-capabilities';
 import { useLbBotAvailable } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { useStationMode } from '/@/renderer/features/player/station/station-store';
+import { KEYWORDS } from '/@/renderer/features/settings/components/settings-keywords';
 import { SettingsSection } from '/@/renderer/features/settings/components/settings-section';
 import {
     useAudioMuseSettings,
@@ -133,11 +134,13 @@ export const WorbusServerSettings = memo(() => {
             description:
                 'Control playback on other devices and move the queue between them, ' +
                 'continuing from the same spot.',
+            keywords: KEYWORDS.serverConnect,
             title: 'Connect to a Worbus Server',
         },
         {
             control: <></>,
             description: <ServerStatus />,
+            keywords: KEYWORDS.serverStatus,
             title: 'Status',
         },
         {
@@ -155,6 +158,7 @@ export const WorbusServerSettings = memo(() => {
                 />
             ),
             description: 'The address of your Worbus Server, for example ws://192.168.1.10:4790.',
+            keywords: KEYWORDS.serverAddress,
             title: 'Server address',
         },
         {
@@ -169,6 +173,7 @@ export const WorbusServerSettings = memo(() => {
                 />
             ),
             description: "The access token your Worbus Server's owner gave you.",
+            keywords: KEYWORDS.serverToken,
             title: 'Access token',
         },
         {
@@ -186,6 +191,7 @@ export const WorbusServerSettings = memo(() => {
                 />
             ),
             description: 'Shown in the device list on your other devices.',
+            keywords: KEYWORDS.serverDeviceName,
             title: "This device's name",
         },
     ];
@@ -252,6 +258,7 @@ export const CastingSettings = memo(() => {
                 'Chromecasts on your network are offered to your other devices while connected. ' +
                 "Set this if speakers can't play but this computer can."
             ),
+            keywords: KEYWORDS.castingAddress,
             title: 'Music server address for speakers',
         },
     ];

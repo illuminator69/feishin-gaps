@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PageHeader } from '/@/renderer/components/page-header/page-header';
@@ -10,6 +11,12 @@ import { Group } from '/@/shared/components/group/group';
 export const SettingsHeader = () => {
     const { t } = useTranslation();
     const { search, setSearch } = useSettingSearchStore();
+    // The box shows what was typed. The search itself is lower-case, and a result that opens its tab
+    // ends the search from outside, so the box follows the store when that empties it.
+    const [text, setText] = useState(search);
+    useEffect(() => {
+        if (search === '') setText('');
+    }, [search]);
 
     return (
         <PageHeader>
@@ -20,8 +27,11 @@ export const SettingsHeader = () => {
                     </LibraryHeaderBar.Title>
                     <Group pr="2rem">
                         <SearchInput
-                            defaultValue={search}
-                            onChange={(event) => setSearch(event.target.value.toLocaleLowerCase())}
+                            onChange={(event) => {
+                                setText(event.target.value);
+                                setSearch(event.target.value.toLocaleLowerCase());
+                            }}
+                            value={text}
                         />
                     </Group>
                 </Flex>

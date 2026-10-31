@@ -47,12 +47,16 @@ test('theTabListInSettingsContentMatchesTheList', () => {
     const content = readFileSync(new URL('./settings-content.tsx', import.meta.url), 'utf8');
     const tabs = [...content.matchAll(/<Tabs\.Tab value="(\w+)"/g)].map((m) => m[1]);
     assert.deepEqual(tabs, tabsFor(true));
-    const panels = [...content.matchAll(/<Tabs\.Panel value="(\w+)"/g)].map((m) => m[1]);
+    const panels = [...content.matchAll(/panel\('(\w+)'/g)].map((m) => m[1]);
     assert.deepEqual(panels, tabsFor(true));
     assert.match(content, /tabFor\(storedTab, desktop\)/);
-    const desktopTabs = ['server', 'desktop'];
-    for (const tab of desktopTabs) {
+    for (const tab of ['server', 'desktop']) {
         const at = content.indexOf(`<Tabs.Tab value="${tab}"`);
-        assert.match(content.slice(at - 80, at), /desktop && \(/, `${tab} is desktop-only`);
+        assert.match(content.slice(at - 80, at), /desktop && \(/, `${tab} is a desktop-only tab`);
+        assert.match(
+            content,
+            new RegExp(`desktop && panel\\('${tab}'`),
+            `${tab} is a desktop-only panel`,
+        );
     }
 });

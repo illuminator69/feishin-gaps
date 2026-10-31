@@ -11,10 +11,12 @@ import {
     useStationCatalog,
     useStationMode,
 } from '/@/renderer/features/player/station/station-store';
+import { KEYWORDS } from '/@/renderer/features/settings/components/settings-keywords';
 import {
     SettingOption,
     SettingsSection,
 } from '/@/renderer/features/settings/components/settings-section';
+import { useSettingSearchStore } from '/@/renderer/features/settings/store/search.store';
 import {
     AUTO_DJ_MODE,
     AUTO_DJ_STRATEGY,
@@ -46,6 +48,8 @@ export const AutoDJSettings = memo(() => {
     const catalog = useStationCatalog();
     const stationMode = useStationMode();
     const { setSettings } = useSettingsStoreActions();
+    // Opened when a search is what brought the user here, or the match would sit in a closed fold.
+    const keyword = useSettingSearchStore((state) => state.search);
 
     const characters = useMemo(
         () => charactersOf(catalog).map((row) => ({ label: row.label, value: row.id })),
@@ -81,6 +85,7 @@ export const AutoDJSettings = memo(() => {
                 />
             ),
             description: t('setting.autoplay', { context: 'description' }),
+            keywords: KEYWORDS.autoplaySwitch,
             title: t('setting.autoplay'),
         },
         {
@@ -98,6 +103,7 @@ export const AutoDJSettings = memo(() => {
             description: t('setting.stationCharacter', { context: 'description' }),
             // Without the server's stations no station is started, so there is nothing to set.
             isHidden: stationMode === 'fallback',
+            keywords: KEYWORDS.autoplayCharacter,
             title: t('setting.stationCharacter'),
         },
     ];
@@ -124,6 +130,7 @@ export const AutoDJSettings = memo(() => {
                 />
             ),
             description: t('setting.autoDJ_mode_description'),
+            keywords: KEYWORDS.autoplayMode,
             title: t('setting.autoDJ_mode'),
         },
         {
@@ -143,6 +150,7 @@ export const AutoDJSettings = memo(() => {
                 />
             ),
             description: '',
+            keywords: KEYWORDS.autoplayStrategy,
             title: isAlbums ? t('setting.autoDJ_albumStrategy') : t('setting.autoDJ_songStrategy'),
         },
         {
@@ -163,6 +171,7 @@ export const AutoDJSettings = memo(() => {
                 />
             ),
             description: t('setting.autoDJ_itemCount_description'),
+            keywords: KEYWORDS.autoplayItemCount,
             title: t('setting.autoDJ_itemCount'),
         },
         {
@@ -191,6 +200,7 @@ export const AutoDJSettings = memo(() => {
                 />
             ),
             description: t('setting.autoDJ_timing', { context: 'description' }),
+            keywords: KEYWORDS.autoplayTiming,
             title: t('setting.autoDJ_timing'),
         },
         {
@@ -208,6 +218,7 @@ export const AutoDJSettings = memo(() => {
                 />
             ),
             description: t('setting.autoDJ_allowDuplicates_description'),
+            keywords: KEYWORDS.autoplayDuplicates,
             title: t('setting.autoDJ_allowDuplicates'),
         },
         {
@@ -225,6 +236,7 @@ export const AutoDJSettings = memo(() => {
                 />
             ),
             description: t('setting.autoDJ_onlySimilar_description'),
+            keywords: KEYWORDS.autoplayOnlySimilar,
             title: t('setting.autoDJ_onlySimilar'),
         },
         {
@@ -245,6 +257,7 @@ export const AutoDJSettings = memo(() => {
                 />
             ),
             description: t('setting.autoplayRadioCount', { context: 'description' }),
+            keywords: KEYWORDS.autoplayRadioCount,
             title: t('setting.autoplayRadioCount'),
         },
     ];
@@ -252,7 +265,10 @@ export const AutoDJSettings = memo(() => {
     return (
         <SettingsSection
             extra={
-                <Accordion variant="separated">
+                <Accordion
+                    defaultValue={keyword !== '' ? 'fallback' : undefined}
+                    variant="separated"
+                >
                     <Accordion.Item value="fallback">
                         <Accordion.Control>{t('setting.autoplayFallback')}</Accordion.Control>
                         <Accordion.Panel>
@@ -261,6 +277,14 @@ export const AutoDJSettings = memo(() => {
                     </Accordion.Item>
                 </Accordion>
             }
+            extraKeywords={[
+                t('setting.autoplayFallback'),
+                ...fallbackOptions.flatMap((option) => [
+                    option.title,
+                    typeof option.description === 'string' ? option.description : '',
+                    ...(option.keywords ?? []),
+                ]),
+            ]}
             options={options}
             title={t('page.setting.autoplay')}
         />

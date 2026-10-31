@@ -3,6 +3,7 @@ import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import i18n from '/@/i18n/i18n';
+import { KEYWORDS } from '/@/renderer/features/settings/components/settings-keywords';
 import { SettingsOptions } from '/@/renderer/features/settings/components/settings-option';
 import {
     SettingOption,
@@ -215,6 +216,7 @@ export const ThemeSettings = memo(() => {
                 context: 'description',
             }),
             isHidden: false,
+            keywords: KEYWORDS.coverColours,
             title: t('setting.coverColours'),
         },
         {
@@ -450,6 +452,7 @@ export const ThemeSettings = memo(() => {
     return (
         <SettingsSection
             extra={<CustomThemesManager />}
+            extraKeywords={['custom themes', 'themes folder', 'theme folder']}
             options={themeOptions}
             title={t('page.setting.colours')}
         />

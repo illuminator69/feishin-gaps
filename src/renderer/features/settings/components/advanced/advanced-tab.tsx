@@ -31,6 +31,7 @@ export const AdvancedTab = memo(() => {
                 element: (
                     <SettingsSection
                         extra={<StylesSettings />}
+                        extraKeywords={['css', 'stylesheet', 'style']}
                         options={[]}
                         title={t('page.setting.customCss')}
                     />
@@ -44,6 +45,7 @@ export const AdvancedTab = memo(() => {
                 element: (
                     <SettingsSection
                         extra={<PathSettings />}
+                        extraKeywords={['path replace', 'replace path', 'music folder']}
                         options={[]}
                         title={t('page.setting.pathReplace')}
                     />

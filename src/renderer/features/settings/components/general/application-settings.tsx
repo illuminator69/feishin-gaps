@@ -550,6 +550,14 @@ export const HomeAppearanceSettings = memo(() => {
     return (
         <SettingsSection
             extra={<HomeSettings />}
+            extraKeywords={[
+                'home page configuration',
+                'home rows',
+                'fresh',
+                'mixed for you',
+                'rediscover',
+                'continue listening',
+            ]}
             options={options}
             title={t('page.setting.home')}
         />
@@ -664,6 +672,15 @@ export const AlbumArtistSettings = memo(() => {
                     <ArtistReleaseTypeSettings />
                 </>
             }
+            extraKeywords={[
+                'artist page configuration',
+                'artist page',
+                'release types',
+                'popular',
+                'discography',
+                'about',
+                'related artists',
+            ]}
             options={options}
             title={t('page.setting.albumArtistPages')}
         />
@@ -785,6 +802,7 @@ export const ListsImagesSettings = memo(() => {
     return (
         <SettingsSection
             extra={<ImageResolutionSettings />}
+            extraKeywords={['image resolution', 'resolution', 'cover size', 'art size']}
             options={options}
             title={t('page.setting.listsImages')}
         />
@@ -850,6 +868,7 @@ export const FullscreenAppearanceSettings = memo(() => {
     return (
         <SettingsSection
             extra={<FullscreenPlayerSettings />}
+            extraKeywords={['full-screen player items', 'player items']}
             options={options}
             title={t('page.setting.fullscreenPlayer')}
         />

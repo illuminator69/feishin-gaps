@@ -3,6 +3,7 @@ import debounce from 'lodash/debounce';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { KEYWORDS } from '/@/renderer/features/settings/components/settings-keywords';
 import { SettingsSection } from '/@/renderer/features/settings/components/settings-section';
 import { useRemoteSettings, useSettingsStoreActions } from '/@/renderer/store';
 import { NumberInput } from '/@/shared/components/number-input/number-input';
@@ -80,6 +81,7 @@ export const RemoteSettings = memo(() => {
                 </Text>
             ),
             isHidden,
+            keywords: KEYWORDS.browserRemote,
             title: t('setting.enableRemote'),
         },
         {

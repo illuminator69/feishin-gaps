@@ -331,6 +331,7 @@ export const SidebarSettings = memo(() => {
     return (
         <SettingsSection
             extra={<SidebarReorder />}
+            extraKeywords={['sidebar configuration', 'sidebar items', 'library items', 'reorder']}
             options={options}
             title={t('page.setting.sidebar')}
         />

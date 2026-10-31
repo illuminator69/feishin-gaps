@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { KEYWORDS } from '/@/renderer/features/settings/components/settings-keywords';
 import { SettingsSection } from '/@/renderer/features/settings/components/settings-section';
 import { useAudioMuseSettings, useSettingsStoreActions } from '/@/renderer/store';
 import { PasswordInput } from '/@/shared/components/password-input/password-input';
@@ -34,6 +35,7 @@ export const AudioMuseSettings = memo(() => {
                         />
                     ),
                     description: t('naviConnect.audioMuse.url_description'),
+                    keywords: KEYWORDS.audiomuseUrl,
                     title: t('naviConnect.audioMuse.url'),
                 },
                 {
@@ -50,6 +52,7 @@ export const AudioMuseSettings = memo(() => {
                         />
                     ),
                     description: t('naviConnect.audioMuse.token_description'),
+                    keywords: KEYWORDS.audiomuseToken,
                     title: t('naviConnect.audioMuse.token'),
                 },
             ]}
