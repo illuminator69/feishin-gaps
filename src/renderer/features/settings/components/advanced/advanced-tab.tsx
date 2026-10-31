@@ -1,20 +1,20 @@
 import { memo } from 'react';
 import { Fragment } from 'react/jsx-runtime';
 
-import { AnalyticsSettings } from '/@/renderer/features/settings/components/advanced/analytics-settings';
 import { ExportImportSettings } from '/@/renderer/features/settings/components/advanced/export-import-settings';
 import { LoggerSettings } from '/@/renderer/features/settings/components/advanced/logger-settings';
+import { ResetSettings } from '/@/renderer/features/settings/components/advanced/reset-settings';
 import { CacheSettings } from '/@/renderer/features/settings/components/window/cache-settngs';
-import { UpdateSettings } from '/@/renderer/features/settings/components/window/update-settings';
 import { Divider } from '/@/shared/components/divider/divider';
 import { Stack } from '/@/shared/components/stack/stack';
 
+// No Update and no Analytics section: this build has no update feed of its own and sends no usage
+// data anywhere. Reset to default is last so it is not one click from the others.
 const sections = [
-    { component: UpdateSettings, key: 'update' },
-    { component: AnalyticsSettings, key: 'analytics' },
     { component: ExportImportSettings, key: 'export-import' },
     { component: LoggerSettings, key: 'logger' },
     { component: CacheSettings, key: 'cache' },
+    { component: ResetSettings, key: 'reset' },
 ];
 
 export const AdvancedTab = memo(() => {

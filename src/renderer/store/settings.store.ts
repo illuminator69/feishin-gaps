@@ -26,6 +26,7 @@ import { AppRoute } from '/@/renderer/router/routes';
 import { type ArtistItemRow, migrateArtistItems } from '/@/renderer/store/artist-items-migration';
 import { migrateAutoplayToStations } from '/@/renderer/store/autoplay-migration';
 import { getEnvSettingsOverrides } from '/@/renderer/store/env-settings-overrides';
+import { omitExportSecrets } from '/@/renderer/store/export-secrets';
 import { migrateBuiltInFont } from '/@/renderer/store/font-migration';
 import {
     homeFeatureShouldTurnOff,
@@ -3158,14 +3159,23 @@ export const useTagEditorSettings = () => useSettingsStore((state) => state.tagE
 
 const getSettingsStoreVersion = () => useSettingsStore.persist.getOptions().version!;
 
+// The export is a file people send around, so it never carries the secrets in
+// EXPORT_SECRET_PATHS (hub token, AudioMuse token, remote password, Last.fm and translation keys).
+// The import modal fills the same paths back from the current state.
+export {
+    EXPORT_SECRET_PATHS,
+    keepCurrentSecrets,
+    omitExportSecrets,
+} from '/@/renderer/store/export-secrets';
+
 export const useSettingsForExport = (): SettingsState & { version: number } =>
     useSettingsStore((state) => {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars -- actions needs to be omitted from the export as it contains store functions
         const { actions, ...otherSettings } = state;
         return {
-            ...otherSettings,
+            ...omitExportSecrets(otherSettings),
             version: getSettingsStoreVersion(),
-        };
+        } as SettingsState & { version: number };
     });
 
 export const migrateSettings = (settings: SettingsState, settingsVersion: number): SettingsState =>

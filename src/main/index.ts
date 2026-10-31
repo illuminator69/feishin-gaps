@@ -45,6 +45,10 @@ import {
 } from '/@/main/utils/window-bounds';
 import { PlayerRepeat, PlayerStatus, PlayerType, TitleTheme } from '/@/shared/types/types';
 
+// No update feed of our own exists yet, and upstream's must never be one: it would replace this
+// fork with upstream's build. These stay empty until the rename gives the fork a release channel
+// (S-090 D, which also changes electron-builder.yml's publish block). A packaged build does not
+// construct AppUpdater at all, see the call site below.
 const ALPHA_UPDATER_CONFIG: {
     bucket: string;
     channel: string;
@@ -53,14 +57,14 @@ const ALPHA_UPDATER_CONFIG: {
 } = {
     bucket: '',
     channel: 'alpha',
-    endpoint: 'https://feishin-nightly-bucket.jeffvli.org',
+    endpoint: '',
     provider: 's3',
 };
 
 const GITHUB_UPDATER_CONFIG = {
-    owner: 'jeffvli',
+    owner: '',
     provider: 'github' as const,
-    repo: 'feishin',
+    repo: '',
 };
 
 type UpdaterInstance = AppImageUpdater | MacUpdater | NsisUpdater | typeof autoUpdater;
@@ -933,7 +937,13 @@ async function createWindow(first = true): Promise<void> {
             });
     });
 
-    if (!disableAutoUpdates() && store.get('disable_auto_updates') !== true) {
+    // Worbus settings F1: a packaged build never updates itself (upstream's feed would replace the
+    // fork). The stored switch is forced on so nothing reads it as "updates wanted"; the updater is
+    // only ever constructed in an unpackaged run, where electron-updater skips the check anyway.
+    if (app.isPackaged) {
+        store.set('disable_auto_updates', true);
+    }
+    if (!app.isPackaged && !disableAutoUpdates() && store.get('disable_auto_updates') !== true) {
         new AppUpdater();
     }
 
@@ -1252,7 +1262,7 @@ if (!singleInstance) {
                     responseHeaders: {
                         ...details.responseHeaders,
                         'Content-Security-Policy': [
-                            "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' https://umami.jeffvli.org; style-src 'self' 'unsafe-inline'; media-src 'self' http: https: data: blob:; img-src 'self' http: https: data: blob:; connect-src 'self' http: https: ws: wss:; default-src 'self';",
+                            "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; media-src 'self' http: https: data: blob:; img-src 'self' http: https: data: blob:; connect-src 'self' http: https: ws: wss:; default-src 'self';",
                         ],
                     },
                 });

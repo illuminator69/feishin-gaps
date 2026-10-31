@@ -5,7 +5,6 @@ import { Link, useNavigate } from 'react-router';
 
 import styles from './app-menu.module.css';
 
-import { UpdateAvailableButton } from '/@/renderer/features/settings/components/update-available-button';
 import { openSettingsModal } from '/@/renderer/features/settings/utils/open-settings-modal';
 import { ServerSelector } from '/@/renderer/features/sidebar/components/server-selector';
 import { useSidebarFolded } from '/@/renderer/layouts/default-layout/use-shell-fit';
@@ -21,7 +20,6 @@ import {
 } from '/@/renderer/store';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { DropdownMenu, MenuItemProps } from '/@/shared/components/dropdown-menu/dropdown-menu';
-import { Flex } from '/@/shared/components/flex/flex';
 import { Group } from '/@/shared/components/group/group';
 import { Icon } from '/@/shared/components/icon/icon';
 import { toast } from '/@/shared/components/toast/toast';
@@ -285,15 +283,6 @@ export const AppMenu = () => {
                 type: 'item',
             },
             type: 'conditional-item',
-        },
-        {
-            component: (
-                <Flex align="center" justify="center" w="100%">
-                    <UpdateAvailableButton />
-                </Flex>
-            ),
-            id: 'update-available',
-            type: 'custom',
         },
         {
             condition: settings.sideQueueType === 'sideQueue',

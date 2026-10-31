@@ -69,6 +69,9 @@ toolsets:
 
 npmRebuild: false
 afterAllArtifactBuild: scripts/after-all-artifact-build.mjs
+# Left as upstream wrote it until the rename gives the fork its own release channel (S-090 D).
+# Nothing reads it at run time: a packaged build never constructs the updater (src/main/index.ts), so
+# the app-update.yml this writes into the build is not consulted. Do not publish from here.
 publish:
     provider: github
     owner: jeffvli
