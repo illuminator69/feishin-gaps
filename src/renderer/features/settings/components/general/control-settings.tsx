@@ -222,33 +222,6 @@ export const ControlSettings = memo(() => {
         },
         {
             control: (
-                <NumberInput
-                    defaultValue={settings.artistRadioCount}
-                    max={200}
-                    min={10}
-                    onBlur={(e) => {
-                        if (!e) return;
-                        const newVal = e.currentTarget.value
-                            ? Math.min(Math.max(Number(e.currentTarget.value), 10), 100)
-                            : settings.artistRadioCount;
-                        setSettings({
-                            general: {
-                                ...settings,
-                                artistRadioCount: newVal,
-                            },
-                        });
-                    }}
-                    width={75}
-                />
-            ),
-            description: t('setting.artistRadioCount', {
-                context: 'description',
-            }),
-            isHidden: false,
-            title: t('setting.artistRadioCount'),
-        },
-        {
-            control: (
                 <Slider
                     defaultValue={settings.volumeWheelStep}
                     max={20}
@@ -522,26 +495,6 @@ export const ControlSettings = memo(() => {
                   },
               ]
             : []),
-        {
-            control: (
-                <Switch
-                    defaultChecked={settings.microtonalPitchControls}
-                    onChange={(e) =>
-                        setSettings({
-                            general: {
-                                ...settings,
-                                microtonalPitchControls: e.currentTarget.checked,
-                            },
-                        })
-                    }
-                />
-            ),
-            description: t('setting.microtonalPitchControls', {
-                context: 'description',
-            }),
-            isHidden: false,
-            title: t('setting.microtonalPitchControls'),
-        },
     ];
 
     return <SettingsSection options={controlOptions} title={t('page.setting.controls')} />;

@@ -18,6 +18,7 @@ import {
     SettingOption,
     SettingsSection,
 } from '/@/renderer/features/settings/components/settings-section';
+import { useHubStore } from '/@/renderer/store/hub.store';
 import {
     HomeFeatureStyle,
     SideQueueLayout,
@@ -140,6 +141,8 @@ if (isElectron()) {
 export const ApplicationSettings = memo(() => {
     const { t } = useTranslation();
     const settings = useGeneralSettings();
+    // While a Worbus Server is connected it saves the queue itself (use-autosave.ts returns early).
+    const serverSavesQueue = useHubStore((state) => state.connected);
     const fontSettings = useFontSettings();
     const { setSettings } = useSettingsStoreActions();
     const [localFonts, setLocalFonts] = useState<Font[]>([]);
@@ -779,9 +782,11 @@ export const ApplicationSettings = memo(() => {
                     }}
                 />
             ),
-            description: t('setting.autosave', {
-                context: 'description',
-            }),
+            description: serverSavesQueue
+                ? t('setting.autosaveServerSaves')
+                : t('setting.autosave', {
+                      context: 'description',
+                  }),
             title: t('setting.autosave'),
         },
         {
@@ -806,9 +811,11 @@ export const ApplicationSettings = memo(() => {
                     value={settings.autoSave.count}
                 />
             ),
-            description: t('setting.autosaveCount', {
-                context: 'description',
-            }),
+            description: serverSavesQueue
+                ? t('setting.autosaveServerSaves')
+                : t('setting.autosaveCount', {
+                      context: 'description',
+                  }),
             isHidden: !settings.autoSave.enabled,
             title: t('setting.autosaveCount'),
         },
