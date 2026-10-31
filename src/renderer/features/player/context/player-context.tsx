@@ -109,6 +109,10 @@ export interface PlayerContext {
     moveSelectedToBottom: (items: QueueSong[]) => void;
     moveSelectedToNext: (items: QueueSong[]) => void;
     moveSelectedToTop: (items: QueueSong[]) => void;
+    // navi-connect (B-175): `data[0]` is the song playing now (here or on the remote device); it
+    // keeps playing where it is and everything else in the queue is replaced by the rest of
+    // `data`. Same confirmation, onApply and remote routing as addToQueueByData's Play.NOW.
+    playKeepingCurrent: (data: Song[], skipConfirmation?: boolean, onApply?: () => void) => void;
     setQueue: (data: Song[], index?: number, position?: number) => void;
     setRepeat: (repeat: PlayerRepeat) => void;
     setShuffle: (shuffle: PlayerShuffle) => void;
@@ -145,6 +149,7 @@ export const PlayerContext = createContext<PlayerContext>({
     moveSelectedToBottom: () => {},
     moveSelectedToNext: () => {},
     moveSelectedToTop: () => {},
+    playKeepingCurrent: () => {},
     setQueue: () => {},
     setRepeat: () => {},
     setShuffle: () => {},
@@ -438,6 +443,41 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 confirmQueueChange(addToQueue);
             } else {
                 addToQueue();
+            }
+        },
+        [confirmQueueChange, storeActions],
+    );
+
+    const playKeepingCurrent = useCallback(
+        (data: Song[], skipConfirmation?: boolean, onApply?: () => void) => {
+            const [current, ...rest] = data;
+            if (!current) return;
+            const tail = filterSongsByPlayerFilters(
+                rest,
+                useSettingsStore.getState().playback.filters,
+            );
+
+            const apply = () => {
+                onApply?.();
+                announceNewQueueSession(Play.NOW);
+
+                if (isRemoteSessionActive()) {
+                    // The hub has no "replace after the current row": a setQueue at index 0 that
+                    // carries the remote device's own position continues the song there.
+                    void enqueueToRemote([current, ...tail], 'now', 0, {
+                        positionMs: remotePositionMsShown(),
+                    });
+                    return;
+                }
+
+                logger.debug('Kept the current song, replaced the rest', { tail: tail.length });
+                storeActions.keepCurrentAndReplaceRest(tail);
+            };
+
+            if (!skipConfirmation) {
+                confirmQueueChange(apply);
+            } else {
+                apply();
             }
         },
         [confirmQueueChange, storeActions],
@@ -1201,6 +1241,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             moveSelectedToBottom,
             moveSelectedToNext,
             moveSelectedToTop,
+            playKeepingCurrent,
             setQueue,
             setRepeat,
             setShuffle,
@@ -1236,6 +1277,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             moveSelectedToBottom,
             moveSelectedToNext,
             moveSelectedToTop,
+            playKeepingCurrent,
             setQueue,
             setRepeat,
             setShuffle,

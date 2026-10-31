@@ -17,6 +17,8 @@ import type {
 import isElectron from 'is-electron';
 
 import { api } from '/@/renderer/api';
+import { isRemoteSessionActive } from '/@/renderer/features/hub/utils/remote-queue';
+import { keepsCurrentSong } from '/@/renderer/features/player/station/keep-current';
 import {
     artistFallbackQueue,
     artistSeedSongs,
@@ -33,6 +35,7 @@ import {
 import { getStationMode, useStationStore } from '/@/renderer/features/player/station/station-store';
 import { beginQueueSession } from '/@/renderer/features/player/utils/saved-queue-source';
 import { useHubStore } from '/@/renderer/store/hub.store';
+import { usePlayerStoreBase } from '/@/renderer/store/player.store';
 import { useSettingsStore } from '/@/renderer/store/settings.store';
 import { logger } from '/@/renderer/utils/logger';
 import { Album, Song, SongListSort, SortOrder } from '/@/shared/types/domain-types';
@@ -227,10 +230,11 @@ export const buildStationQueue = async (args: {
 export const playStationQueue = (
     queue: StationQueue,
     sessionName: string,
-    player: Pick<PlayerContext, 'addToQueueByData'>,
+    player: Partial<Pick<PlayerContext, 'playKeepingCurrent'>> &
+        Pick<PlayerContext, 'addToQueueByData'>,
     skipConfirmation?: boolean,
 ): void => {
-    player.addToQueueByData(queue.songs, Play.NOW, undefined, undefined, skipConfirmation, () => {
+    const onApply = () => {
         const { actions } = useStationStore.getState();
         actions.arm(queue.binding);
         actions.noteServed(
@@ -243,14 +247,31 @@ export const playStationQueue = (
             useSettingsStore.getState().actions.setSettings({ autoDJ: { enabled: true } });
         }
         beginQueueSession('radio', sessionName);
-    });
+    };
+    // B-175: a radio from the song playing now keeps it playing and replaces only what follows
+    // it; Play.NOW would replace its row and restart it from 0.
+    if (player.playKeepingCurrent && keepsCurrentSong(queue.songs, currentSongId())) {
+        player.playKeepingCurrent(queue.songs, skipConfirmation, onApply);
+        return;
+    }
+    player.addToQueueByData(queue.songs, Play.NOW, undefined, undefined, skipConfirmation, onApply);
+};
+
+/** The song playing now: the remote device's while another device plays, else this one's. */
+export const currentSongId = (): string | undefined => {
+    if (isRemoteSessionActive()) {
+        const hub = useHubStore.getState();
+        return hub.remoteQueue[hub.remoteQueueIndex]?.id;
+    }
+    return usePlayerStoreBase.getState().getCurrentSong()?.id;
 };
 
 /** Track, album or artist radio, as a station. False: run the caller's own radio. */
 export const playStationRadio = async (args: {
     character?: StationCharacterId;
     leading: Song[];
-    player: Pick<PlayerContext, 'addToQueueByData'>;
+    player: Partial<Pick<PlayerContext, 'playKeepingCurrent'>> &
+        Pick<PlayerContext, 'addToQueueByData'>;
     seed: StationSeed;
     serverId: string;
     sessionName: string;
