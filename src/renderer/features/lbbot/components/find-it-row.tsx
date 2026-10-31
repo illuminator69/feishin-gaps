@@ -15,7 +15,7 @@ export const FindItRow = ({ links }: { links: LbFindItLink[] | undefined }) => {
     const { t } = useTranslation();
     if (!links?.length) return null;
     return (
-        <section data-find-it="">
+        <section className={styles.findIt} data-find-it="">
             <h2 className={styles.label}>{t('naviConnect.findIt.title')}</h2>
             <div className={styles.actions}>
                 {links.map((link) => (

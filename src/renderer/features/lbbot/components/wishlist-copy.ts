@@ -1,5 +1,6 @@
 /**
- * What the Wishlist page says, per row and when empty (Worbus P1, F3). Pure and import-free
+ * What the Wishlist page says, per row and when empty (Worbus P1, F3), and the Downloads page's
+ * title and empty line (`activityPageCopy`). Pure and import-free
  * (`wishlist-copy.harness.ts` resolves the keys against en.json): the component passes each line
  * to `t(key, values)`.
  *
@@ -37,3 +38,19 @@ export const wishlistEmptyLine = (downloadsShown: boolean, everyHours: number): 
         ? { key: 'naviConnect.wishlist.emptyEvery', values: { hours: everyHours } }
         : { key: 'naviConnect.wishlist.emptyPeriodically' };
 };
+
+/**
+ * The Downloads page's title and empty line. While downloading is off the page is Activity (the
+ * sidebar's name for it), a history to read, and its empty line says nothing of fetching or
+ * searching. While on (or unknown, an older peer) it is what the page always said.
+ */
+export const activityPageCopy = (downloadsShown: boolean): { empty: CopyLine; title: CopyLine } =>
+    downloadsShown
+        ? {
+              empty: { key: 'naviConnect.activityPage.empty' },
+              title: { key: 'naviConnect.activityPage.titleDownloads' },
+          }
+        : {
+              empty: { key: 'naviConnect.activityPage.emptyOff' },
+              title: { key: 'naviConnect.activityPage.titleActivity' },
+          };

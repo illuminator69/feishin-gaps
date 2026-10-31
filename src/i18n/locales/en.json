@@ -1789,6 +1789,12 @@
         }
     },
     "naviConnect": {
+        "activityPage": {
+            "empty": "Nothing yet. Albums you ask lb-bot to fetch show up here while they download, and stay until you dismiss them.",
+            "emptyOff": "Nothing here yet.",
+            "titleActivity": "Activity",
+            "titleDownloads": "Downloads"
+        },
         "albumPage": {
             "about": "About",
             "aboutFirst": "read this first",

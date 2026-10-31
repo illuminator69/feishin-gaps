@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { wishlistEmptyLine, wishlistRowLines } from './wishlist-copy.ts';
+import { activityPageCopy, wishlistEmptyLine, wishlistRowLines } from './wishlist-copy.ts';
 
 /**
  * Worbus P1, lane F (F3):  node --test src/renderer/features/lbbot/components/wishlist-copy.harness.ts
@@ -68,5 +68,29 @@ test('wishlist_copy_on_unchanged', () => {
     assert.equal(
         resolve(wishlistEmptyLine(true, 0)),
         'Nothing on the wishlist. When a download fails because nobody is sharing an album, you can put it here and lb-bot will keep looking periodically.',
+    );
+});
+
+// Worbus P1 (review 5): the Downloads page while downloading is off is Activity (the sidebar's
+// name for it), and its empty line says none of the searching words. On, it is today's page.
+
+test('activity_copy_off_has_no_searching_words', () => {
+    const off = activityPageCopy(false);
+    const texts = [resolve(off.title), resolve(off.empty)];
+    assert.equal(texts[0], 'Activity');
+    assert.equal(texts[1], 'Nothing here yet.');
+    for (const text of texts) {
+        for (const word of BANNED) {
+            assert.ok(!text.toLowerCase().includes(word), `"${text}" says "${word}"`);
+        }
+    }
+});
+
+test('activity_copy_on_unchanged', () => {
+    const on = activityPageCopy(true);
+    assert.equal(resolve(on.title), 'Downloads');
+    assert.equal(
+        resolve(on.empty),
+        'Nothing yet. Albums you ask lb-bot to fetch show up here while they download, and stay until you dismiss them.',
     );
 });

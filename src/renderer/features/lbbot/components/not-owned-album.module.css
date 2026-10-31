@@ -44,6 +44,16 @@
     color: var(--theme-colors-foreground-muted);
 }
 
+/* Find it under About: the same distance from the text above as the page's sections. */
+.find-it {
+    margin-top: var(--theme-spacing-xl);
+}
+
+/* The downloads-off line under the hero's buttons (it folds in below them). */
+.off-line {
+    padding-top: var(--theme-spacing-xs);
+}
+
 .actions {
     display: flex;
     flex-wrap: wrap;
