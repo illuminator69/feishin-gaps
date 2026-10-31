@@ -8,7 +8,6 @@ import styles from './app-menu.module.css';
 import { openSettingsModal } from '/@/renderer/features/settings/utils/open-settings-modal';
 import { ServerSelector } from '/@/renderer/features/sidebar/components/server-selector';
 import { useSidebarFolded } from '/@/renderer/layouts/default-layout/use-shell-fit';
-import { openReleaseNotesModal } from '/@/renderer/release-notes-modal';
 import {
     useAppStore,
     useAppStoreActions,
@@ -251,13 +250,10 @@ export const AppMenu = () => {
             type: 'divider',
         },
         {
-            icon: 'brandGitHub',
+            // A plain label: this fork has no release feed to read (upstream's is not ours).
+            disabled: true,
             id: 'version',
             label: t('page.appMenu.version', { version: currentVersion }),
-            onClick: () =>
-                openReleaseNotesModal(
-                    t('common.newVersion', { version: currentVersion }) as string,
-                ),
             type: 'item',
         },
         {

@@ -313,35 +313,14 @@ export default class MenuBuilder {
             submenu: [
                 {
                     click() {
-                        shell.openExternal('https://github.com/jeffvli/feishin');
+                        // The fork's own page; upstream's repository is not offered.
+                        shell.openExternal('https://github.com/illuminator69/feishin-gaps');
                     },
-                    label: 'Learn More',
-                },
-                {
-                    click() {
-                        shell.openExternal(
-                            'https://github.com/jeffvli/feishin?tab=readme-ov-file#getting-started',
-                        );
-                    },
-                    label: 'Documentation',
-                },
-                {
-                    click() {
-                        shell.openExternal('https://github.com/jeffvli/feishin/discussions');
-                    },
-                    label: 'Community Discussions',
-                },
-                {
-                    click() {
-                        shell.openExternal('https://github.com/jeffvli/feishin/issues');
-                    },
-                    label: 'Search Issues',
+                    label: 'Feishin (fork) on GitHub',
                 },
                 { type: 'separator' },
                 {
-                    click: () => {
-                        this.mainWindow.webContents.send('renderer-open-release-notes');
-                    },
+                    enabled: false,
                     label: 'Version ' + packageJson.version,
                 },
             ],
@@ -430,29 +409,9 @@ export default class MenuBuilder {
                 submenu: [
                     {
                         click() {
-                            shell.openExternal('https://github.com/jeffvli/feishin');
+                            shell.openExternal('https://github.com/illuminator69/feishin-gaps');
                         },
-                        label: 'Learn More',
-                    },
-                    {
-                        click() {
-                            shell.openExternal(
-                                'https://github.com/jeffvli/feishin?tab=readme-ov-file#getting-started',
-                            );
-                        },
-                        label: 'Documentation',
-                    },
-                    {
-                        click() {
-                            shell.openExternal('https://github.com/jeffvli/feishin/discussions');
-                        },
-                        label: 'Community Discussions',
-                    },
-                    {
-                        click() {
-                            shell.openExternal('https://github.com/jeffvli/feishin/issues');
-                        },
-                        label: 'Search Issues',
+                        label: 'Feishin (fork) on GitHub',
                     },
                 ],
             },

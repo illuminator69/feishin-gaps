@@ -100,3 +100,19 @@ test('advancedListsNoUpdateOrAnalyticsSection', () => {
     )!.code;
     assert.ok(!/UpdateSettings|AnalyticsSettings/.test(advanced));
 });
+
+test('noCodePathNamesUpstreamsRepositoryOrCallsGithubsApi', () => {
+    // The one allowed mention: lrclib's User-Agent string, an identifier the fork leaves alone (F1).
+    const strip = (code: string) => code.replace(/^.*LRCGET v.*$/gm, '');
+    const hitsOutsideUserAgent = (pattern: RegExp) =>
+        files.filter((f) => pattern.test(strip(f.code))).map((f) => f.path);
+    assert.deepEqual(hitsOutsideUserAgent(/api\.github\.com\/repos\/jeffvli/), []);
+    assert.deepEqual(hitsOutsideUserAgent(/github\.com\/jeffvli/), []);
+    assert.deepEqual(hitsOutsideUserAgent(/api\.github\.com/), []);
+});
+
+test('noReleaseNotesModalOrGithubReleasesHookRemains', () => {
+    assert.deepEqual(hits(/ReleaseNotesModal|openReleaseNotesModal|useGithubReleases/), []);
+    assert.deepEqual(hits(/UpdateAvailableDialog/), []);
+    assert.deepEqual(hits(/renderer-open-release-notes|rendererOpenReleaseNotes/), []);
+});

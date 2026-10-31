@@ -1,7 +1,6 @@
 export * from './use-app-focus';
 export * from './use-container-query';
 export * from './use-fast-average-color';
-export * from './use-github-releases';
 export * from './use-hide-scrollbar';
 export * from './use-hotkeys';
 export * from './use-is-mounted';
