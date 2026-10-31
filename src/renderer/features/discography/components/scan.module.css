@@ -35,6 +35,14 @@
     visibility: hidden;
 }
 
+/* Worbus P1: an unresolved artist's line carries its Retry and Match manually, in the same two
+   lines of room, so the block keeps the height every other phase has. */
+.line[data-actions='true'] {
+    flex-wrap: wrap;
+    align-items: center;
+    min-height: calc(2 * 1.45em);
+}
+
 .line {
     display: flex;
     gap: 6px;
@@ -113,6 +121,11 @@
     height: 10px;
 }
 
+/* Worbus P1: lb-bot's counts fill the bar from the left; no sliding. */
+.bar-fill[data-determinate='true'] {
+    left: 0;
+}
+
 @media (prefers-reduced-motion: no-preference) {
     .spin {
         animation: spin 0.9s linear infinite;
@@ -120,6 +133,11 @@
 
     .bar-fill {
         animation: slide 1.4s cubic-bezier(0.3, 0.7, 0.2, 1) infinite;
+    }
+
+    .bar-fill[data-determinate='true'] {
+        transition: width var(--fold-ms) var(--fold-ease);
+        animation: none;
     }
 
     .ghost {

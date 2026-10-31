@@ -1,3 +1,6 @@
+import type { LbFindItLink } from '/@/shared/utils/find-it';
+import type { LbDownloads } from '/@/shared/utils/lbbot-mode';
+
 /**
  * lb-bot wire shapes, shared by the main-process client, the preload bridge and
  * the renderer. lb-bot speaks snake_case; the main process normalizes to these
@@ -11,14 +14,20 @@
  * MusicBrainz failed looked exactly like one that found nothing.
  */
 export interface LbBotArtistScan {
+    /** Worbus P1: release groups read so far, out of `total`. 0 with `total` 0 when lb-bot
+     *  sends no counts (an older lb-bot, or a scan that has not listed the discography yet). */
+    done: number;
     /** lb-bot's own sentence, shown verbatim. Empty unless `failed`. */
     error: string;
     /** Epoch seconds; 0 while running. */
     finishedAt: number;
     startedAt: number;
     state: 'done' | 'failed' | 'running';
-    /** The scan task this record belongs to — what the rescan that started it matches on. */
+    /** The scan task this record belongs to — what the rescan that started it matches on.
+     *  `auto-index` is lb-bot's background worker (Worbus P1), which has no task row. */
     taskId: string;
+    /** See `done`. */
+    total: number;
 }
 
 export interface LbBotDiscography {
@@ -31,6 +40,9 @@ export interface LbBotDiscography {
     scannedAt: number;
     /** Index older than lb-bot's TTL, or built by an older scan version. */
     stale: boolean;
+    /** Worbus P1: indexed, but lb-bot found no MusicBrainz artist for it. Absent when not
+     *  indexed and from an older lb-bot; absent means false. */
+    unresolved?: boolean;
 }
 
 export interface LbBotDownloadResult {
@@ -175,12 +187,19 @@ export interface LbBotResult<T> {
     tooLarge?: boolean;
     /** The other half of `matched` on a `poor_match`; `files_unreachable` carries it too. */
     total?: number;
+    /** Worbus P1: the failure body's own `error`, verbatim, for a decision that reads lb-bot's
+     *  exact words (`isOlderScanRefusal`) rather than `error`, which is the sentence to show.
+     *  Absent when the body carried none. */
+    upstreamError?: string;
 }
 
 /** What the hub says it can proxy. An empty list means an older hub that doesn't
  *  advertise — assume supported rather than hiding working features. */
 export interface LbBotStatus {
     available: boolean;
+    /** Worbus P1: whether lb-bot can download (`SLSKD_API_KEY` set). Absent from an older hub
+     *  or lb-bot, which means on (`lbbot-mode.ts`). */
+    downloads?: LbDownloads;
     routes: string[];
     /** lb-bot's own web UI, for sending the user to its workspace — "" when the
      *  hub doesn't say (an older hub, or the proxy is off). Only ever http(s). */
@@ -777,6 +796,12 @@ export type LbBotGapTrackState =
  *  nothing because another library artist holds this discography. */
 export interface LbBotIndexStart {
     covered: boolean;
+    /** Worbus P1: an lb-bot from before P1 refused a scan without an MBID (400 "mbid is
+     *  required"). Nothing was started; the artist needs an MBID to scan. */
+    olderLbBot?: boolean;
+    /** Worbus P1: a scan of this artist was already running (`taskId` is that scan's, possibly
+     *  the worker's `auto-index`); it is followed, not started twice. */
+    running?: boolean;
     taskId: string;
 }
 
@@ -902,6 +927,12 @@ export interface LbBotMergeRow {
 export interface LbBotMeta {
     /** Present only on an album. Producer/engineer/writer, roles collapsed per person. */
     credits: LbBotMetaCredit[];
+    /**
+     * Worbus P1, an album only: where else the record can be found (`find-it.ts`), filtered and
+     * ordered. Absent when lb-bot sent no key (an older lb-bot, a failed browse, nothing to
+     * search) - which is also how a body persisted before P1 reads (`useLbBotAlbumMeta`).
+     */
+    findIt?: LbFindItLink[];
     found: boolean;
     /** Wikipedia's page image, when it has one. Never a cover. */
     imageUrl: string;

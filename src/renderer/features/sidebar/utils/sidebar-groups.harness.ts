@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import type { SidebarContext, SidebarEntry, SidebarGroup } from './sidebar-groups.ts';
 
+import { downloadsShown } from '../../../../shared/utils/lbbot-mode.ts';
 import { attentionCount, sidebarGroups } from './sidebar-groups.ts';
 
 /**
@@ -22,6 +23,7 @@ const routes = {
     listening: '/listening',
     savedQueues: '/saved-queues',
     settings: '/settings',
+    wishlist: '/wishlist',
 };
 
 // The persisted defaults' shape: Now Playing, Search, Playlists and Settings start disabled.
@@ -47,6 +49,7 @@ const librarySelectedRoutes = ['/library', '/library/albums', '/library/songs', 
 
 const ctx = (patch: Partial<SidebarContext> = {}): SidebarContext => ({
     attentionCount: 0,
+    downloadsShown: true,
     lbBotAvailable: false,
     libraryItems: storedItems(),
     librarySelectedRoutes,
@@ -54,6 +57,7 @@ const ctx = (patch: Partial<SidebarContext> = {}): SidebarContext => ({
     narrow: false,
     overridesSupported: false,
     routes,
+    wishlistSupported: false,
     ...patch,
 });
 
@@ -269,4 +273,83 @@ test('attentionCountIgnoresGaveUpCancelledAndRunning', () => {
     assert.equal(attentionCount([{ outcome: 'running', settled: false }]), 0);
     assert.equal(attentionCount([{ outcome: 'done', settled: true }]), 0);
     assert.equal(attentionCount([]), 0);
+});
+
+// Worbus P1 (F2): lb-bot's downloads mode. Off: no Activity, and Needs attention only while the
+// ledger holds failures from an earlier "on" period. On and unknown (an older peer): as before.
+
+test('sidebar_off_has_no_activity', () => {
+    const { groups } = sidebarGroups(
+        ctx({ downloadsShown: downloadsShown('off'), lbBotAvailable: true }),
+    );
+    assert.deepEqual(shape(groups), [
+        'main: home, library, fresh',
+        'listening: savedQueues',
+        'app: settings',
+    ]);
+});
+
+test('sidebar_off_keeps_attention_only_with_failures', () => {
+    const { groups } = sidebarGroups(
+        ctx({ attentionCount: 2, downloadsShown: downloadsShown('off'), lbBotAvailable: true }),
+    );
+    const you = group(groups, 'you')!;
+    assert.deepEqual(ids(you.entries), ['needsAttention']);
+    assert.equal(you.entries[0].badge, 2);
+    assert.equal(you.entries[0].route, '/downloads');
+});
+
+test('sidebar_on_unchanged', () => {
+    for (const attentionCount of [0, 3]) {
+        const on = sidebarGroups(
+            ctx({ attentionCount, downloadsShown: downloadsShown('on'), lbBotAvailable: true }),
+        );
+        const before = sidebarGroups(ctx({ attentionCount, lbBotAvailable: true }));
+        assert.deepEqual(on, before);
+        assert.deepEqual(ids(group(on.groups, 'you')!.entries), ['needsAttention', 'activity']);
+    }
+});
+
+test('sidebar_unknown_unchanged', () => {
+    const unknown = sidebarGroups(
+        ctx({ downloadsShown: downloadsShown('unknown'), lbBotAvailable: true }),
+    );
+    assert.deepEqual(shape(unknown.groups), [
+        'main: home, library, fresh',
+        'you: needsAttention, activity',
+        'listening: savedQueues',
+        'app: settings',
+    ]);
+});
+
+// Worbus P1 (F3): the Wishlist is a page of its own in the You group, in both modes, while lb-bot is
+// there and the hub proxies the wishlist.
+
+test('wishlist_in_sidebar_both_modes', () => {
+    for (const shown of [true, false]) {
+        const { groups } = sidebarGroups(
+            ctx({ downloadsShown: shown, lbBotAvailable: true, wishlistSupported: true }),
+        );
+        const you = group(groups, 'you')!;
+        assert.ok(ids(you.entries).includes('wishlist'), `downloadsShown ${shown}`);
+        const wishlist = you.entries.find((entry) => entry.id === 'wishlist')!;
+        assert.equal(wishlist.route, '/wishlist');
+        assert.equal(wishlist.label, 'Wishlist');
+    }
+    // On: after Needs attention and Activity.
+    const on = sidebarGroups(ctx({ lbBotAvailable: true, wishlistSupported: true })).groups;
+    assert.deepEqual(ids(group(on, 'you')!.entries), ['needsAttention', 'activity', 'wishlist']);
+    // Off with no failures: the Wishlist alone.
+    const off = sidebarGroups(
+        ctx({ downloadsShown: false, lbBotAvailable: true, wishlistSupported: true }),
+    ).groups;
+    assert.deepEqual(ids(group(off, 'you')!.entries), ['wishlist']);
+});
+
+test('wishlist_absent_when_route_unsupported', () => {
+    const unsupported = sidebarGroups(ctx({ lbBotAvailable: true, wishlistSupported: false }));
+    assert.ok(!ids(group(unsupported.groups, 'you')!.entries).includes('wishlist'));
+    // And without lb-bot, whatever the hub advertises.
+    const down = sidebarGroups(ctx({ wishlistSupported: true }));
+    assert.equal(group(down.groups, 'you'), undefined);
 });

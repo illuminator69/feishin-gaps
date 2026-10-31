@@ -17,6 +17,8 @@ import {
     RiFlashlightLine,
     RiFolder3Fill,
     RiFolder3Line,
+    RiHeartAddFill,
+    RiHeartAddLine,
     RiHeartFill,
     RiHeartLine,
     RiHistoryFill,
@@ -142,6 +144,10 @@ export const SidebarIcon = ({ active, name, route, size }: SidebarIconProps) => 
             case AppRoute.SETTINGS:
                 if (isActive) return <RiSettings2Fill size={size} />;
                 return <RiSettings2Line size={size} />;
+            // navi-connect (Worbus P1): albums kept for later. Its own glyph; it fell to Home's.
+            case AppRoute.WISHLIST:
+                if (isActive) return <RiHeartAddFill size={size} />;
+                return <RiHeartAddLine size={size} />;
             case generatePath(AppRoute.SEARCH, { itemType: LibraryItem.SONG }):
                 if (isActive) return <RiSearchFill size={size} />;
                 return <RiSearchLine size={size} />;

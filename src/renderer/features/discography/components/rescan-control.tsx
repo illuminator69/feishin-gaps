@@ -6,10 +6,13 @@ import { type ArtistScan } from '/@/renderer/features/discography/hooks/use-arti
 import { Button } from '/@/shared/components/button/button';
 import { Icon } from '/@/shared/components/icon/icon';
 
-/** The one Rescan control, at the filter bar's right end; its words are the scan's phase. */
+/**
+ * The one Rescan control, at the filter bar's right end; its words are the scan's phase. Not for an
+ * unresolved artist (Worbus P1): its Retry sits in the scan line, beside Match manually.
+ */
 export const RescanControl = ({ scan }: { scan: ArtistScan }) => {
     const { t } = useTranslation();
-    if (scan.phase === 'unavailable') return null;
+    if (scan.phase === 'unavailable' || scan.phase === 'unresolved') return null;
     const running = scan.phase === 'running';
     const disabled = running || !scan.scannable || !scan.available;
     const label = t(`naviConnect.discography.scan.control.${scan.phase}`);

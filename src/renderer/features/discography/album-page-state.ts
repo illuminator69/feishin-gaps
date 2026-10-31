@@ -21,3 +21,16 @@ export const albumPageState = (input: {
     if (input.releasesRead === 'pending') return 'loading';
     return 'ready';
 };
+
+/**
+ * Worbus P1: what a ready page offers. `sources` is Find sources, the request box and the
+ * wishlist, as before; `wishlistOnly` (downloading off) is the wishlist and one plain line in
+ * their place; `none` for every other state. `downloadsShown` is `downloadsShown(mode)` (an older
+ * peer's unknown mode shows them, as before).
+ */
+export type AlbumPageOffer = 'none' | 'sources' | 'wishlistOnly';
+
+export const albumPageOffer = (state: AlbumPageState, downloadsShown: boolean): AlbumPageOffer => {
+    if (state !== 'ready') return 'none';
+    return downloadsShown ? 'sources' : 'wishlistOnly';
+};

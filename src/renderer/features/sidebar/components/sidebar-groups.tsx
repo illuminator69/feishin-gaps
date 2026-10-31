@@ -6,7 +6,9 @@ import { Link, useLocation } from 'react-router';
 import styles from './sidebar-groups.module.css';
 
 import {
+    useHubSupports,
     useLbBotAvailable,
+    useLbBotDownloadsShown,
     useListeningSupported,
     useOverridesSupported,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
@@ -36,6 +38,7 @@ const ROUTES: SidebarRoutes = {
     listening: AppRoute.LISTENING,
     savedQueues: AppRoute.SAVED_QUEUES,
     settings: AppRoute.SETTINGS,
+    wishlist: AppRoute.WISHLIST,
 };
 
 // Entry and group ids to their keys.
@@ -63,6 +66,7 @@ const LABEL_KEYS: Record<string, string> = {
     settings: 'page.sidebar.settings',
     statistics: 'page.sidebar.statistics',
     Tracks: 'page.sidebar.tracks',
+    wishlist: 'page.sidebar.wishlist',
     you: 'page.sidebar.you',
 };
 
@@ -85,8 +89,10 @@ export const useSidebarModel = (options?: {
     const narrowQuery = useMediaQuery('(max-width: 1100px)');
     const narrow = options?.fold ?? narrowQuery;
     const lbBotAvailable = useLbBotAvailable();
+    const downloadsShown = useLbBotDownloadsShown();
     const listeningSupported = useListeningSupported();
     const overridesSupported = useOverridesSupported();
+    const wishlistSupported = useHubSupports('GET /lb/wishlist');
     const ledger = useFillLedger();
     const sidebarItems = useSidebarItems();
     const count = useMemo(() => attentionCount(ledger), [ledger]);
@@ -100,6 +106,7 @@ export const useSidebarModel = (options?: {
         });
         const model = sidebarGroups({
             attentionCount: count,
+            downloadsShown,
             lbBotAvailable,
             libraryItems: sidebarItems ?? [],
             librarySelectedRoutes: LIBRARY_FRAME_ROUTES,
@@ -107,6 +114,7 @@ export const useSidebarModel = (options?: {
             narrow,
             overridesSupported,
             routes: ROUTES,
+            wishlistSupported,
         });
         return {
             groups: model.groups.map((g) => ({
@@ -116,7 +124,17 @@ export const useSidebarModel = (options?: {
             })),
             more: model.more.map(relabel),
         };
-    }, [count, lbBotAvailable, listeningSupported, narrow, overridesSupported, sidebarItems, t]);
+    }, [
+        count,
+        downloadsShown,
+        lbBotAvailable,
+        listeningSupported,
+        narrow,
+        overridesSupported,
+        sidebarItems,
+        t,
+        wishlistSupported,
+    ]);
 };
 
 /** Whether a path selects an entry: one of its `selectedRoutes` (the Library row), or its one route. */

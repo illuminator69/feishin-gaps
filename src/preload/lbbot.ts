@@ -57,6 +57,17 @@ import { ipcRenderer } from 'electron';
 
 const status = (): Promise<LbBotStatus> => ipcRenderer.invoke('lbbot-status');
 
+/**
+ * Worbus P1: lb-bot refused a request, whichever route it was - `downloads_off` (409) or
+ * `signin_required` (401, an older hub that sends no bearer). Sent by the main client's one
+ * request function; returns a disposer for THIS listener only.
+ */
+const onRefusal = (cb: (refusal: { code: string }) => void): (() => void) => {
+    const handler = (_event: unknown, refusal: { code: string }) => cb(refusal);
+    ipcRenderer.on('lbbot-refusal', handler);
+    return () => ipcRenderer.removeListener('lbbot-refusal', handler);
+};
+
 const discography = (ndId: string, mbid?: string): Promise<LbBotDiscography | null> =>
     ipcRenderer.invoke('lbbot-discography', { mbid, ndId });
 
@@ -71,8 +82,14 @@ const indexKeys = (): Promise<LbBotResult<LbBotIndexKeys>> =>
     ipcRenderer.invoke('lbbot-index-keys');
 
 /** Null when the request failed. A blank `taskId` with `covered` means lb-bot
- *  started nothing because another library artist holds this discography. */
-const indexArtist = (ndId: string, mbid: string, name: string): Promise<LbBotIndexStart | null> =>
+ *  started nothing because another library artist holds this discography. Worbus P1:
+ *  no `mbid` scans by the Navidrome id alone ("Scan now"); `olderLbBot` is an lb-bot
+ *  that refused that. */
+const indexArtist = (
+    ndId: string,
+    mbid: string | undefined,
+    name: string,
+): Promise<LbBotIndexStart | null> =>
     ipcRenderer.invoke('lbbot-index-artist', { mbid, name, ndId });
 
 /** Add or refresh one release-group in an artist's index — the cheap alternative
@@ -243,7 +260,7 @@ const fills = (releaseMbids: string[], groupIds: string[]): Promise<LbBotResult<
 
 const cancelAlbum = (
     releaseMbid: string,
-): Promise<{ cancelled: boolean; ok: boolean; status: LbBotFillStatus }> =>
+): Promise<{ cancelled: boolean; code?: string; ok: boolean; status: LbBotFillStatus }> =>
     ipcRenderer.invoke('lbbot-cancel-album', { releaseMbid });
 
 const allowMp3 = (groupId: string, allow = true): Promise<boolean> =>
@@ -431,6 +448,7 @@ export const lbBot = {
     metaArtist,
     metaRefresh,
     notify,
+    onRefusal,
     overrideRemove,
     overrides,
     overrideSet,

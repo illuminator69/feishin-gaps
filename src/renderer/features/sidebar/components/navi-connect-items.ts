@@ -1,6 +1,8 @@
 import { useDiscoverCapabilities } from '/@/renderer/features/discover/use-discover-capabilities';
 import {
+    useHubSupports,
     useLbBotAvailable,
+    useLbBotDownloadsShown,
     useListeningSupported,
     useOverridesSupported,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
@@ -24,9 +26,12 @@ import { SidebarItemType } from '/@/renderer/store/settings.store';
  */
 export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
     const lbBotAvailable = useLbBotAvailable();
+    // Worbus P1: with downloading off there is nothing to track, so no Downloads item.
+    const downloadsShown = useLbBotDownloadsShown();
     const hubConnected = useHubConnected();
     const listeningSupported = useListeningSupported();
     const overridesSupported = useOverridesSupported();
+    const wishlistSupported = useHubSupports('GET /lb/wishlist');
     const { hasSources } = useDiscoverCapabilities();
 
     const items: SidebarItemType[] = [];
@@ -55,10 +60,24 @@ export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
         route: AppRoute.SAVED_QUEUES,
     });
     if (lbBotAvailable) {
-        items.push(
-            { disabled: false, id: 'Fresh', label: 'Fresh', route: AppRoute.FRESH },
-            { disabled: false, id: 'Downloads', label: 'Downloads', route: AppRoute.DOWNLOADS },
-        );
+        items.push({ disabled: false, id: 'Fresh', label: 'Fresh', route: AppRoute.FRESH });
+        if (downloadsShown) {
+            items.push({
+                disabled: false,
+                id: 'Downloads',
+                label: 'Downloads',
+                route: AppRoute.DOWNLOADS,
+            });
+        }
+        // Worbus P1 (F3): the Wishlist page, in both modes.
+        if (wishlistSupported) {
+            items.push({
+                disabled: false,
+                id: 'Wishlist',
+                label: 'Wishlist',
+                route: AppRoute.WISHLIST,
+            });
+        }
         // I-024: Library Matches, under the gate its lists already use - the hub
         // advertises the artist-override routes (`useOverridesSupported`). Each
         // section inside then hides itself for an lb-bot that lacks its list.

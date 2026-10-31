@@ -10,6 +10,7 @@ import {
     startAlbumDownload,
     useLbBotAlbumReleases,
     useLbBotAlbumSources,
+    useLbBotDownloadsShown,
     useLbBotFillStatus,
     useLbBotTracklist,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
@@ -119,9 +120,17 @@ export const useAlbumRequest = ({
         const timer = window.setTimeout(expire, left);
         return () => window.clearTimeout(timer);
     }, [rgid, session]);
-    const sources = useLbBotAlbumSources(rgid || null, !!session, session?.edition, {
-        staleTime: FIVE_MINUTES,
-    });
+    // Worbus P1: with downloading off no search runs, even for a session started while it was on
+    // (the page shows the off line instead of the box).
+    const downloadsShown = useLbBotDownloadsShown();
+    const sources = useLbBotAlbumSources(
+        rgid || null,
+        !!session && downloadsShown,
+        session?.edition,
+        {
+            staleTime: FIVE_MINUTES,
+        },
+    );
     const sourcesState: SourcesState = !session
         ? 'idle'
         : sources.isLoading

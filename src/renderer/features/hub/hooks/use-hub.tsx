@@ -47,14 +47,17 @@ import {
     markLbBotUnreachable,
     refreshLbBotOverrides,
     useLbBotLibraryRefresh,
+    useLbBotRefusals,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
     clearIndexMirrorForHubChange,
+    indexMirrorCursor,
     onIndexFrame,
     onLbBotAvailable,
     requestIndexSync,
     useLbBotIndexSync,
 } from '/@/renderer/features/lbbot/index-mirror/index-mirror';
+import { lbBotModeActions } from '/@/renderer/features/lbbot/stores/lbbot-mode.store';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
 import { withdrawStartupSeek } from '/@/renderer/features/player/hooks/use-queue-restore';
 import { parseStationCursor } from '/@/renderer/features/player/station/station-logic';
@@ -92,6 +95,7 @@ import { logger } from '/@/renderer/utils/logger';
 import { toast } from '/@/shared/components/toast/toast';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
+import { isProgressOnlyFrame, parseProgress, stateAfterWelcome } from '/@/shared/utils/lbbot-mode';
 import { levelReportStep, NO_LEVEL_REPORT, toLevel } from '/@/shared/utils/level-report';
 
 /**
@@ -1403,6 +1407,8 @@ export const useHub = () => {
     // The lb-bot index mirror: loaded from IndexedDB at startup, plus its
     // 15-minute backstop pull. The welcome/index triggers are below.
     useLbBotIndexSync();
+    // Worbus P1: lb-bot's refusals (downloads off, this hub refused), from any route.
+    useLbBotRefusals();
     const libraryRefresh = useRef(refreshLibrary);
     libraryRefresh.current = refreshLibrary;
 
@@ -1438,7 +1444,13 @@ export const useHub = () => {
     useEffect(() => {
         const moved = lbStatusHub.current !== settings.url;
         lbStatusHub.current = settings.url;
-        if (!settings.enabled || moved) clearLbBotStatus();
+        if (!settings.enabled || moved) {
+            clearLbBotStatus();
+            // Worbus P1: the progress, the refusal and this session's downloads mode were the
+            // old hub's too. The mode falls back to the one remembered for the new URL.
+            useHubStore.getState().actions.setStore({ lbProgress: null, lbRefused: false });
+            lbBotModeActions().forgetSession();
+        }
         // B-014: a MOVE only, unlike lbStatus above — switching the hub off is
         // not a different hub identity (R21 already hides the mirror then
         // without deleting it), but pointing at a different one is, and the
@@ -1529,6 +1541,15 @@ export const useHub = () => {
                 // a hint, an up-to-date pull costs ~100 bytes, and a notify
                 // missed while the hub was down would leave the hint stale.
                 adoptLbBotWelcome(msg.lb);
+                // Worbus P1: the welcome restates lb-bot's downloads mode (absent = an older
+                // peer) and its index progress, and ends a refusal (B-263): a hub that
+                // reconnected may have been upgraded to send lb-bot its token.
+                const lbState = stateAfterWelcome(msg.lb);
+                lbBotModeActions().adopt(lbState.mode);
+                setStore({
+                    lbProgress: parseProgress(msg.lbIndex?.progress),
+                    lbRefused: lbState.refused,
+                });
                 // A `library` frame sent while this socket was down is lost, so
                 // every cached lb-bot answer that marks ownership (Fresh, the
                 // Deezer rows, similar artists) is re-asked — as Navic does on
@@ -1628,17 +1649,26 @@ export const useHub = () => {
                 // it ends the sync's back-off (R22) — a plain 'index' trigger
                 // is dropped while a retry is pending, and that retry was most
                 // likely earned against the lb-bot that has just come back.
+                lbBotModeActions().applyFrame(msg);
                 if (adoptLbBotFrame(msg)) onLbBotAvailable();
             } else if (msg.t === 'index') {
                 // lb-bot's library index moved. Like `fill`, NOT a library
                 // event: nothing is refetched and no cache is cleared — the
                 // local mirror pulls the delta and re-renders what reads it.
                 if (typeof msg.seq === 'number' && typeof msg.epoch === 'string') {
-                    onIndexFrame(msg.seq, msg.epoch);
-                    // An override set from another device re-keys the index, so
-                    // this frame is how it reaches us (I-019). Trailing and
-                    // throttled: bulk builds send a frame every ~2 s.
-                    refreshLbBotOverrides(3000);
+                    // Worbus P1: the frame carries the index build's countdown (absent = none).
+                    setStore({ lbProgress: parseProgress(msg.progress) });
+                    // A progress-only frame (the head did not move past what the mirror holds)
+                    // updates the bar alone: no mirror pull, no overrides re-read (Navic
+                    // ruling 9). lb-bot sends one every few seconds during a build.
+                    const frame = { epoch: msg.epoch, seq: msg.seq };
+                    if (!isProgressOnlyFrame(frame, indexMirrorCursor())) {
+                        onIndexFrame(msg.seq, msg.epoch);
+                        // An override set from another device re-keys the index, so
+                        // this frame is how it reaches us (I-019). Trailing and
+                        // throttled: bulk builds send a frame every ~2 s.
+                        refreshLbBotOverrides(3000);
+                    }
                 }
             } else if (msg.t === 'station') {
                 // I-040: a station's cursor, steering, character or exhaustion moved, maybe

@@ -1,14 +1,21 @@
 import { Suspense, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import styles from './lbbot-downloads-route.module.css';
 
 import { ItemImage } from '/@/renderer/components/item-image/item-image';
 import { ResolveLinkBox } from '/@/renderer/features/lbbot/components/resolve-link-box';
+import { activityPageCopy } from '/@/renderer/features/lbbot/components/wishlist-copy';
 import { WishlistList } from '/@/renderer/features/lbbot/components/wishlist-list';
 import { describeFill } from '/@/renderer/features/lbbot/fill-vocabulary';
 import { useFillActions } from '/@/renderer/features/lbbot/hooks/use-fill-actions';
-import { caaCoverUrl, useLbBotWishlist } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import {
+    caaCoverUrl,
+    useLbBotDownloadsShown,
+    useLbBotWishlist,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { LedgerRow, useFillLedger } from '/@/renderer/features/lbbot/stores/active-fills.store';
+import { Fold } from '/@/renderer/features/motion/fold';
 import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
 import { Button } from '/@/shared/components/button/button';
@@ -47,8 +54,9 @@ const useNow = (): number => {
 
 const FillRow = ({ now, row }: { now: number; row: LedgerRow }) => {
     // F7: the same actions as the album page's request box, so one row offers the same buttons.
-    const { busy, label, run } = useFillActions(row);
-    const view = describeFill(row, now);
+    const { busy, label, run, shown } = useFillActions(row);
+    const downloadsShown = useLbBotDownloadsShown();
+    const view = describeFill(row, now, downloadsShown);
     const failed = row.settled && row.outcome !== 'done';
 
     return (
@@ -92,7 +100,7 @@ const FillRow = ({ now, row }: { now: number; row: LedgerRow }) => {
                 )}
             </Stack>
             <Group gap="xs">
-                {view.buttons.map((button) => (
+                {shown(view.buttons).map((button) => (
                     <Button
                         disabled={busy && button !== 'dismiss'}
                         key={button}
@@ -153,6 +161,12 @@ export const LbBotDownloadsPage = ({
     const filter: LedgerFilter = section === 'wishlist' ? 'all' : section;
     const shown = rows.filter(MATCHES[filter]);
     const now = useNow();
+    // Worbus P1: with downloading off the ledger is history to read: no paste-a-link box (a pasted
+    // link is an acquisition); the rows lose their fetching buttons (`useFillActions`).
+    const downloadsShown = useLbBotDownloadsShown();
+    // Off, the page is Activity (the sidebar's name) and its empty line says nothing of fetching.
+    const { t } = useTranslation();
+    const copy = activityPageCopy(downloadsShown);
 
     const chips = (
         <Group gap="xs">
@@ -183,7 +197,7 @@ export const LbBotDownloadsPage = ({
             count={section === 'wishlist' ? (wishlistCount ?? null) : shown.length}
             countLoading={section === 'wishlist' && wishlist.isLoading}
             filters={chips}
-            title="Downloads"
+            title={t(copy.title.key)}
         >
             {section === 'wishlist' ? (
                 <WishlistList />
@@ -194,12 +208,13 @@ export const LbBotDownloadsPage = ({
                         here rather than on Discover because a pasted link is an
                         acquisition, and this is the page acquisitions are
                         tracked on. */}
-                    <ResolveLinkBox />
+                    {/* Off, it folds away rather than vanishing, so a row acted on below it is
+                        not jumped up (F7 walk). */}
+                    <Fold name="resolve-link" open={downloadsShown}>
+                        <ResolveLinkBox />
+                    </Fold>
                     {rows.length === 0 ? (
-                        <Text isMuted>
-                            Nothing yet. Albums you ask lb-bot to fetch show up here while they
-                            download, and stay until you dismiss them.
-                        </Text>
+                        <Text isMuted>{t(copy.empty.key)}</Text>
                     ) : shown.length === 0 ? (
                         // A filter that hides everything must say it was the
                         // filter, not that there is nothing here.

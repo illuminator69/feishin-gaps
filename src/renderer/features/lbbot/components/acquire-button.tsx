@@ -1,6 +1,11 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
-import { AcquireOutcome, useAcquireAlbum } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import {
+    AcquireOutcome,
+    useAcquireAlbum,
+    useLbBotDownloadsShown,
+} from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { toast } from '/@/shared/components/toast/toast';
 
@@ -41,8 +46,13 @@ interface AcquireButtonProps {
 }
 
 export const AcquireButton = ({ artist, className, onReview, rgid, title }: AcquireButtonProps) => {
+    const { t } = useTranslation();
     const acquire = useAcquireAlbum();
     const [busy, setBusy] = useState(false);
+    // Worbus P1: with downloading off there is nothing to get; the tile keeps its pill.
+    const downloadsShown = useLbBotDownloadsShown();
+
+    if (!downloadsShown) return null;
 
     return (
         <ActionIcon
@@ -59,6 +69,11 @@ export const AcquireButton = ({ artist, className, onReview, rgid, title }: Acqu
                 setBusy(true);
                 const outcome = await acquire({ artist, rgid, title });
                 setBusy(false);
+                // A stale "on" answered by a 409: the button goes with the mode; said once, plainly.
+                if (outcome.kind === 'off') {
+                    toast.show({ message: t('naviConnect.albumPage.downloadsOff') });
+                    return;
+                }
                 if (outcome.kind === 'review') {
                     toast.show({ message: REVIEW_MESSAGE[outcome.reason] });
                     onReview();

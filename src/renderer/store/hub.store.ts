@@ -1,4 +1,5 @@
 import type { LbBotStatus } from '/@/shared/types/lbbot-types';
+import type { LbIndexProgress } from '/@/shared/utils/lbbot-mode';
 
 import { shallow } from 'zustand/shallow';
 import { createWithEqualityFn } from 'zustand/traditional';
@@ -112,6 +113,18 @@ interface HubState {
      */
     features: string[];
     /**
+     * Worbus P1: lb-bot's index build countdown, from `welcome.lbIndex.progress` and each
+     * `index` frame's. Null when the last one carried none (an older peer, or the build is
+     * long over). Read only by the Home bar (`useLbBotIndexProgress`). Not persisted.
+     */
+    lbProgress: LbIndexProgress | null;
+    /**
+     * Worbus P1 (B-263): lb-bot answered this connection 401 `signin_required` - it refused
+     * the hub, which sends no bearer (an older hub) or the wrong one. lb-bot is then treated as
+     * unavailable (`useLbBotAvailable`) until the next `welcome` clears it.
+     */
+    lbRefused: boolean;
+    /**
      * lb-bot's availability and the hub's proxied routes, as the hub stated them
      * in its last `welcome` (`welcome.lb`). Null until a welcome carries one —
      * which an older hub never does, and then the `/lb/status` probe answers
@@ -153,6 +166,8 @@ const initialState: HubState = {
     connected: false,
     devices: [],
     features: [],
+    lbProgress: null,
+    lbRefused: false,
     lbStatus: null,
     myDeviceId: null,
     remoteIsPlaying: false,
@@ -193,6 +208,17 @@ export const useHubDevices = () => useHubStore((s) => s.devices, shallow);
 export const useHubActiveDeviceId = () => useHubStore((s) => s.activeDeviceId);
 export const useHubMyDeviceId = () => useHubStore((s) => s.myDeviceId);
 export const useHubConnected = () => useHubStore((s) => s.connected);
+
+/**
+ * Whether lb-bot is known to be out of reach right now, outside React: the hub said it is
+ * unavailable, or (Worbus P1, B-263) lb-bot refused this hub with a 401 `signin_required`. A
+ * background read (the index mirror's pull, the override map, the ownership re-ask) is skipped
+ * then, as it would fail the same way. Unknown (no welcome yet, an older hub) is not "down".
+ */
+export const lbBotDownNow = (): boolean => {
+    const { lbRefused, lbStatus } = useHubStore.getState();
+    return lbStatus?.available === false || lbRefused;
+};
 export const useHubActions = () => useHubStore((s) => s.actions);
 
 /** True when playback is live on ANOTHER device — i.e. show the remote view. */

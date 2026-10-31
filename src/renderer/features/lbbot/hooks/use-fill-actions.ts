@@ -6,12 +6,14 @@ import {
     allowMp3AndRetry,
     cancelFill,
     retryFill,
+    useLbBotDownloadsShown,
     useWishlistActions,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import {
     LedgerRow,
     useActiveFillsActions,
 } from '/@/renderer/features/lbbot/stores/active-fills.store';
+import { getLbBotMode } from '/@/renderer/features/lbbot/stores/lbbot-mode.store';
 import { AppRoute } from '/@/renderer/router/routes';
 import { toast } from '/@/shared/components/toast/toast';
 
@@ -26,6 +28,9 @@ export const FILL_BUTTON_LABEL: Record<FillButton, string> = {
     wishlist: 'Add to wishlist',
 };
 
+/** The buttons that ask lb-bot to fetch something: none is offered while downloading is off. */
+const FETCHING_BUTTONS = new Set<FillButton>(['allowMp3', 'cancel', 'retry', 'tryAnother']);
+
 /**
  * What each of `describeFill`'s buttons does for one ledger row (F7 Task 7): one set of actions for
  * the Downloads page and the request box, so one row offers the same buttons doing the same thing in
@@ -36,12 +41,21 @@ export const useFillActions = (row: LedgerRow) => {
     const { add: addToWishlist } = useWishlistActions();
     const navigate = useNavigate();
     const [busy, setBusy] = useState(false);
+    // Worbus P1: while downloading is off a ledger row is read-only history - no Retry, Cancel or
+    // MP3 opt-in (Open album, Add to wishlist and Dismiss stay).
+    const downloadsShown = useLbBotDownloadsShown();
 
     const call = async (action: () => Promise<boolean>) => {
         setBusy(true);
         const ok = await action();
         setBusy(false);
-        if (!ok) toast.error({ message: 'lb-bot would not take that request.' });
+        // A refusal because downloading turned out to be off is not an error: the buttons go.
+        // Every action here applies its answer's refusal itself before resolving
+        // (`applyLbBotRefusal`), so the mode is already off when this reads it, whether or not the
+        // `lbbot-refusal` event has arrived yet.
+        if (!ok && getLbBotMode() !== 'off') {
+            toast.error({ message: 'lb-bot would not take that request.' });
+        }
     };
 
     const actions: Record<FillButton, () => void> = {
@@ -74,5 +88,8 @@ export const useFillActions = (row: LedgerRow) => {
         busy,
         label: (button: FillButton) => FILL_BUTTON_LABEL[button],
         run: (button: FillButton) => actions[button](),
+        /** `describeFill`'s buttons as offered now (the fetching ones dropped while off). */
+        shown: (buttons: FillButton[]): FillButton[] =>
+            downloadsShown ? buttons : buttons.filter((button) => !FETCHING_BUTTONS.has(button)),
     };
 };

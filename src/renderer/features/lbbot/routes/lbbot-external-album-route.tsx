@@ -1,8 +1,8 @@
-import { Fragment, Suspense, useEffect, useMemo } from 'react';
+import { Fragment, Suspense, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { generatePath, Link, Navigate, useParams, useSearchParams } from 'react-router';
 
-import { albumPageState } from '/@/renderer/features/discography/album-page-state';
+import { albumPageOffer, albumPageState } from '/@/renderer/features/discography/album-page-state';
 import { AlbumRequestBox } from '/@/renderer/features/lbbot/components/album-request-box';
 import { NotOwnedAlbum } from '/@/renderer/features/lbbot/components/not-owned-album';
 import ghostStyles from '/@/renderer/features/lbbot/components/not-owned-album.module.css';
@@ -17,7 +17,9 @@ import {
     useLbBotAlbumReleases,
     useLbBotAvailable,
     useLbBotDiscography,
+    useLbBotDownloadsShown,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { Fold } from '/@/renderer/features/motion/fold';
 import { ForkDetailPage } from '/@/renderer/features/shared/components/fork-detail-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
 import { AppRoute } from '/@/renderer/router/routes';
@@ -136,9 +138,20 @@ const LbBotExternalAlbumRoute = () => {
         releasesRead,
         routeOlder,
     });
+    // Worbus P1: with downloading off the page offers the wishlist and one plain line, never Find
+    // sources, the request box or its quality picker (and so never a slskd search).
+    const offer = albumPageOffer(state, useLbBotDownloadsShown());
+    // The request box mounts the first time this album's page offers sources and then stays, so
+    // downloading turning off mid-search folds it closed instead of dropping it (About and the
+    // tracklist ease up rather than jump). A page opened while off never mounts it: no read runs
+    // behind a box nobody sees (the sources search is off while off anyway, `useAlbumRequest`).
+    const [boxFor, setBoxFor] = useState<null | string>(null);
+    if (offer === 'sources' && rgid && boxFor !== rgid) setBoxFor(rgid);
+    const boxMounted = !!rgid && boxFor === rgid;
 
     // `release_mbid` is not sent: it only saves lb-bot resolving the canonical release.
-    const meta = useLbBotAlbumMeta(rgid).data;
+    // Find it shows here (and only here), so a persisted About without its links is asked again.
+    const meta = useLbBotAlbumMeta(rgid, undefined, { findIt: true }).data;
 
     if (state === 'redirect' && ownedAlbumId) {
         return (
@@ -182,23 +195,42 @@ const LbBotExternalAlbumRoute = () => {
                             </Fragment>
                         ))}
                     </Group>
-                    {state === 'ready' && rgid && (
-                        <Group gap="sm">
-                            <Button
-                                data-find-sources=""
-                                disabled={searching || request.busy}
-                                leftSection={<Icon icon="search" />}
-                                onClick={
-                                    searching || request.busy ? undefined : request.sources.start
-                                }
-                                variant="filled"
-                            >
-                                {searching
-                                    ? t('naviConnect.albumPage.searchingButton')
-                                    : t('naviConnect.albumPage.findSources')}
-                            </Button>
-                            <WishlistButton artist={artistName} rgid={rgid} title={title} />
-                        </Group>
+                    {offer !== 'none' && rgid && (
+                        // One tree in both modes, so the wishlist button keeps its place in the
+                        // flow and its state when the mode flips; the off line folds in under
+                        // the buttons, moving nothing above it.
+                        <div>
+                            <Group gap="sm">
+                                {offer === 'sources' && (
+                                    <Button
+                                        data-find-sources=""
+                                        disabled={searching || request.busy}
+                                        leftSection={<Icon icon="search" />}
+                                        onClick={
+                                            searching || request.busy
+                                                ? undefined
+                                                : request.sources.start
+                                        }
+                                        variant="filled"
+                                    >
+                                        {searching
+                                            ? t('naviConnect.albumPage.searchingButton')
+                                            : t('naviConnect.albumPage.findSources')}
+                                    </Button>
+                                )}
+                                <WishlistButton artist={artistName} rgid={rgid} title={title} />
+                            </Group>
+                            <Fold name="downloads-off" open={offer === 'wishlistOnly'}>
+                                <Text
+                                    className={ghostStyles.offLine}
+                                    data-downloads-off=""
+                                    isMuted
+                                    size="sm"
+                                >
+                                    {t('naviConnect.albumPage.downloadsOff')}
+                                </Text>
+                            </Fold>
+                        </div>
                     )}
                 </Stack>
             }
@@ -220,14 +252,18 @@ const LbBotExternalAlbumRoute = () => {
                     meta={meta}
                     request={request}
                     requestBox={
-                        <AlbumRequestBox
-                            artist={artistName}
-                            coverUrl={caaCoverUrl(rgid)}
-                            ownedAlbumId={ownedAlbumId ?? null}
-                            request={request}
-                            rgid={rgid}
-                            title={title}
-                        />
+                        boxMounted && (
+                            <Fold name="request-offer" open={offer === 'sources'} tall>
+                                <AlbumRequestBox
+                                    artist={artistName}
+                                    coverUrl={caaCoverUrl(rgid)}
+                                    ownedAlbumId={ownedAlbumId ?? null}
+                                    request={request}
+                                    rgid={rgid}
+                                    title={title}
+                                />
+                            </Fold>
+                        )
                     }
                     rgid={rgid}
                 />

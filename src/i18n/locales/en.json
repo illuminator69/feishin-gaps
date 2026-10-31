@@ -852,6 +852,7 @@
             "fresh": "Fresh",
             "needsAttention": "Needs attention",
             "activity": "Activity",
+            "wishlist": "Wishlist",
             "statistics": "Statistics",
             "savedQueues": "Saved queues",
             "libraryMatches": "Library Matches",
@@ -1788,12 +1789,19 @@
         }
     },
     "naviConnect": {
+        "activityPage": {
+            "empty": "Nothing yet. Albums you ask lb-bot to fetch show up here while they download, and stay until you dismiss them.",
+            "emptyOff": "Nothing here yet.",
+            "titleActivity": "Activity",
+            "titleDownloads": "Downloads"
+        },
         "albumPage": {
             "about": "About",
             "aboutFirst": "read this first",
             "autoPick": "Pick the best source for me",
             "chooseSource": "Choose a source: none is safe to pick for you, so nothing downloads until you do.",
             "downloadFromHere": "Download from here",
+            "downloadsOff": "This server isn't set up to get albums.",
             "editionsUnread": "Could not load this album's editions. Finding sources still works: lb-bot picks the release itself.",
             "fallback": "lb-bot tries this source first and falls back to the others if it stalls or disappears.",
             "findSources": "Find sources",
@@ -1884,6 +1892,8 @@
                 },
                 "ghostLabel": "Discography loading",
                 "lbbotDown": "lb-bot cannot be reached right now.",
+                "matchManually": "Match manually",
+                "retry": "Retry",
                 "unscannable": "lb-bot needs this artist's MusicBrainz id and name to scan."
             },
             "showAll": "Show all",
@@ -1894,6 +1904,9 @@
                 "year": "Year"
             },
             "sortChip": "Sort: {{value}}"
+        },
+        "findIt": {
+            "title": "Find it"
         },
         "gapBox": {
             "added_one": "{{count}} track added",
@@ -1943,6 +1956,10 @@
             "tracksFailed_other": "{{count}} tracks failed",
             "unreachable": "Can't reach lb-bot, so this may be out of date.",
             "wrongEdition": "Wrong edition?"
+        },
+        "indexProgress": {
+            "counts": "Indexing your library · {{left}} of {{total}} artists left",
+            "countsWithCurrent": "Indexing your library · {{left}} of {{total}} artists left · {{current}}"
         },
         "libraryMatches": {
             "intro": "What lb-bot holds on your behalf: the MusicBrainz matches you chose, the ones worth a look, and the tag changes it can undo.",
@@ -2077,6 +2094,19 @@
             "radioOf": "{{name}} radio",
             "viaNavidrome": "via Navidrome",
             "yourMix": "Your mix"
+        },
+        "wishlist": {
+            "emptyEvery": "Nothing on the wishlist. When a download fails because nobody is sharing an album, you can put it here and lb-bot will keep looking every {{hours}} hours.",
+            "emptyOff": "Nothing on the wishlist. Add a missing album to keep it here.",
+            "emptyPeriodically": "Nothing on the wishlist. When a download fails because nobody is sharing an album, you can put it here and lb-bot will keep looking periodically.",
+            "open": "Open",
+            "readFailed": "Could not read the wishlist from lb-bot.",
+            "remove": "Remove",
+            "savedForLater": "Saved for when your server can get albums",
+            "stillLooking_one": "Still looking - {{count}} search so far",
+            "stillLooking_other": "Still looking - {{count}} searches so far",
+            "title": "Wishlist",
+            "waitingFirst": "Waiting for the first re-search"
         }
     }
 }

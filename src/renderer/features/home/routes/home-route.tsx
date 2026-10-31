@@ -13,6 +13,7 @@ import { AlbumInfiniteFeatureCarousel } from '/@/renderer/features/home/componen
 import { AlbumInfiniteSingleFeatureCarousel } from '/@/renderer/features/home/components/album-infinite-single-feature-carousel';
 import { ContinueListeningRow } from '/@/renderer/features/home/components/continue-listening-row';
 import { FeaturedGenres } from '/@/renderer/features/home/components/featured-genres';
+import { IndexProgressBar } from '/@/renderer/features/home/components/index-progress-bar';
 import { PlaylistInfiniteCarousel } from '/@/renderer/features/home/components/playlist-infinite-carousel';
 import styles from '/@/renderer/features/home/routes/home-route.module.css';
 import {
@@ -201,9 +202,14 @@ const HomeRoute = () => {
                         px="2rem"
                         ref={containerQuery.ref}
                     >
-                        <TextTitle className={styles.title} data-home-title order={1}>
-                            {t('page.home.title')}
-                        </TextTitle>
+                        {/* Worbus P1: the index bar folds open under the title, in the same Stack
+                            child, so the shelves' gap below is unchanged while it is folded. */}
+                        <div>
+                            <TextTitle className={styles.title} data-home-title order={1}>
+                                {t('page.home.title')}
+                            </TextTitle>
+                            <IndexProgressBar />
+                        </div>
                         <MoodSection>
                             <Stack gap="2xl">
                                 {homeFeature && (

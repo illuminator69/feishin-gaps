@@ -49,6 +49,7 @@ import {
     useHubSupports,
     useLbBotAvailable,
     useLbBotDiscography,
+    useLbBotDownloadsShown,
     useLbBotGap,
     useLbBotWebUrl,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
@@ -232,6 +233,11 @@ const GapBox = ({
     const [fetched, setFetched] = useState<LbBotGapSource | null>(null);
     const [now, setNow] = useState(() => Date.now());
     const root = useRef<HTMLElement>(null);
+    // Worbus P1: with downloading off the box keeps the missing-tracks list, Recheck and Open in
+    // lb-bot, and offers no fill, search, fetch, auto, cancel or MP3 opt-in. A sources view left
+    // open when the mode flips (a stale "on" answered by a 409) reads as the track list.
+    const downloadsShown = useLbBotDownloadsShown();
+    const shownView: GapView = downloadsShown || view !== 'sources' ? view : 'tracks';
 
     const setView = (next: GapView) => {
         gapViews.set(groupId, next);
@@ -272,7 +278,7 @@ const GapBox = ({
             fillRunning: !!active && !active.settled,
             now: Date.now(),
             searchAsked,
-            view,
+            view: shownView,
         }),
     );
     const readGaveUp = gapReadGaveUp(failingSince, readAt);
@@ -298,7 +304,7 @@ const GapBox = ({
         now,
         readGaveUp,
         searchAsked,
-        view,
+        view: shownView,
     });
 
     // The result row holds for a few seconds after the finish (as the box saw it, else as the
@@ -398,7 +404,11 @@ const GapBox = ({
         try {
             const result = await action();
             if (!result.ok) {
-                setError(result.error || t('naviConnect.gapBox.refused'));
+                // Downloading turned out to be off: the mode flips and the box loses its fetching
+                // controls, which says it; a red line would only repeat it.
+                if (result.code !== 'downloads_off') {
+                    setError(result.error || t('naviConnect.gapBox.refused'));
+                }
                 return false;
             }
             after?.();
@@ -446,6 +456,7 @@ const GapBox = ({
         try {
             const result = await fetchGapSource(groupId, source.id);
             if (!result.ok) {
+                if (result.code === 'downloads_off') return;
                 setRefused({
                     message: result.error || t('naviConnect.gapBox.refused'),
                     sourceKey: sourceKey(source),
@@ -559,9 +570,16 @@ const GapBox = ({
                         </span>
                     </button>
                     {/* Fill gaps stays beside the title, open or folded: always one click. */}
-                    <Button data-gap-fill="" onClick={fillGaps} size="compact-sm" variant="filled">
-                        {t('naviConnect.gapBox.fillGaps')}
-                    </Button>
+                    {downloadsShown && (
+                        <Button
+                            data-gap-fill=""
+                            onClick={fillGaps}
+                            size="compact-sm"
+                            variant="filled"
+                        >
+                            {t('naviConnect.gapBox.fillGaps')}
+                        </Button>
+                    )}
                     <ActionIcon
                         aria-expanded={open}
                         aria-label={
@@ -860,17 +878,19 @@ const GapBox = ({
                             {t('naviConnect.gapBox.tracksFailed', { count: stage.failed })}
                         </p>
                     )}
-                    <div>
-                        <Button
-                            data-gap-cancel=""
-                            disabled={working}
-                            onClick={cancel}
-                            size="compact-sm"
-                            variant="default"
-                        >
-                            {t('naviConnect.request.cancelRequest')}
-                        </Button>
-                    </div>
+                    {downloadsShown && (
+                        <div>
+                            <Button
+                                data-gap-cancel=""
+                                disabled={working}
+                                onClick={cancel}
+                                size="compact-sm"
+                                variant="default"
+                            >
+                                {t('naviConnect.request.cancelRequest')}
+                            </Button>
+                        </div>
+                    )}
                 </div>
             </>
         );
@@ -900,12 +920,16 @@ const GapBox = ({
         const ways: { key: string; label: string; run: () => void }[] =
             stage.kind === 'failed'
                 ? [
-                      {
-                          key: 'search',
-                          label: t('naviConnect.gapBox.searchAgain'),
-                          run: () => void search(),
-                      },
-                      ...(stage.mp3WouldHelp
+                      ...(downloadsShown
+                          ? [
+                                {
+                                    key: 'search',
+                                    label: t('naviConnect.gapBox.searchAgain'),
+                                    run: () => void search(),
+                                },
+                            ]
+                          : []),
+                      ...(stage.mp3WouldHelp && downloadsShown
                           ? [
                                 {
                                     key: 'mp3',
