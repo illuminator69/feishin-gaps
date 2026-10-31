@@ -96,3 +96,58 @@ export const retryStillApplies = (args: {
     playingNow: number;
     srcNow: string;
 }): boolean => args.failedOn === args.playingNow && args.srcNow === args.failedSrc;
+
+/**
+ * What an <audio> error event does when it fires.
+ *
+ * - On the element preloading the NEXT track it waits for that track's turn: acting now would
+ *   stop or skip the song that is playing.
+ * - While the player is not playing (a queue restored at launch, paused; the user paused; another
+ *   device plays) it waits for a play: a failed track must not move the queue, here or on the
+ *   hub session another device may follow, when nobody asked for playback.
+ *
+ * The failure is not copied anywhere: the element keeps its MediaError until it loads another
+ * source, and that is what `atItsTurn` reads, so a failure cannot outlive its track.
+ */
+export const whenToActOnError = (args: {
+    isCurrent: boolean;
+    isPlaying: boolean;
+}): 'act' | 'at-its-turn' | 'when-played' => {
+    if (!args.isCurrent) return 'at-its-turn';
+    if (!args.isPlaying) return 'when-played';
+    return 'act';
+};
+
+/** HTMLMediaElement.HAVE_FUTURE_DATA: canplay has fired for the loaded source. */
+export const HAVE_FUTURE_DATA = 3;
+
+/**
+ * What the playing element needs after a render.
+ *
+ * - `act-on-error`: it holds a failure not acted on yet (it failed while preloading, or while the
+ *   player was paused) and the player plays: the normal path for that error now.
+ * - `play`: its turn just started (it became the current element, or the player started
+ *   playing), it has a loaded source with no error, and it is still paused. react-player plays
+ *   an element on that edge only when its own `isPlaying` flag is false, and that flag is left
+ *   true when a playing element is given a new source (the load algorithm pauses it without a
+ *   `pause` event), so a preloaded next track could sit paused at 0 at its turn.
+ * - `nothing` otherwise.
+ *
+ * @param errorCode the element's MediaError code now (undefined: no error)
+ * @param errorHandled that MediaError was already acted on (a retry is waiting, or it paused)
+ * @param turnStarted the element just became the current one, or the player just started playing
+ */
+export const atItsTurn = (args: {
+    errorCode: number | undefined;
+    errorHandled: boolean;
+    hasSource: boolean;
+    isPlaying: boolean;
+    paused: boolean;
+    readyState: number;
+    turnStarted: boolean;
+}): 'act-on-error' | 'nothing' | 'play' => {
+    if (!args.isPlaying || !args.hasSource) return 'nothing';
+    if (args.errorCode !== undefined) return args.errorHandled ? 'nothing' : 'act-on-error';
+    if (args.turnStarted && args.paused && args.readyState >= HAVE_FUTURE_DATA) return 'play';
+    return 'nothing';
+};
