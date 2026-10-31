@@ -68,7 +68,7 @@ export const statusSentence = (link: HubLink, address: string): string => {
 };
 
 export interface CapabilityInput {
-    /** The CLAP probe's cached answer; undefined until it has answered. */
+    /** The CLAP probe's cached answer; undefined until some other screen has run it (no line). */
     clap: boolean | undefined;
     /** `welcome.lb.available` (or the probe's answer for an older server), not refused. */
     libraryTools: boolean;
@@ -84,41 +84,50 @@ export interface CapabilityLine {
     text: string;
 }
 
-export const capabilityLines = (i: CapabilityInput): CapabilityLine[] => [
-    {
-        id: 'library',
-        text: i.libraryToolsRefused
-            ? 'Library tools: the server refused this device'
-            : i.libraryTools
-              ? 'Library tools: ready'
-              : 'Library tools: not set up on this server',
-    },
-    {
-        id: 'audiomuse',
-        text:
-            i.clap === undefined
-                ? 'AudioMuse: checking'
-                : i.clap
-                  ? 'AudioMuse: mood search is ready'
-                  : 'AudioMuse: mood search is not available',
-    },
-    {
-        id: 'stations',
-        text:
-            i.stations === 'pending'
-                ? 'Stations: checking'
-                : i.stations === 'stations'
-                  ? 'Stations: ready'
-                  : 'Stations: not available on this server. Autoplay runs on this computer instead.',
-    },
-    {
-        id: 'casting',
-        text:
-            i.speakers > 0
-                ? `Casting: ${i.speakers} ${i.speakers === 1 ? 'speaker' : 'speakers'} on your network`
-                : 'Casting: no speakers found yet',
-    },
-];
+export const capabilityLines = (i: CapabilityInput): CapabilityLine[] => {
+    const lines: CapabilityLine[] = [
+        {
+            id: 'library',
+            text: i.libraryToolsRefused
+                ? 'Library tools: the server refused this device'
+                : i.libraryTools
+                  ? 'Library tools: ready'
+                  : 'Library tools: not set up on this server',
+        },
+    ];
+    // This tab only reads the AudioMuse probe's cached answer and never runs it, so until another
+    // part of the app has asked, there is nothing to say: no line, rather than a "checking" that
+    // could stay on screen for the whole session.
+    if (i.clap !== undefined) {
+        lines.push({
+            id: 'audiomuse',
+            text: i.clap
+                ? 'AudioMuse: mood search is ready'
+                : 'AudioMuse: mood search is not available',
+        });
+    }
+    lines.push(
+        {
+            id: 'stations',
+            // 'pending' always ends: the station service probes on every connection and that
+            // request has a timeout, so it settles as stations or fallback.
+            text:
+                i.stations === 'pending'
+                    ? 'Stations: checking'
+                    : i.stations === 'stations'
+                      ? 'Stations: ready'
+                      : 'Stations: not available on this server. Autoplay runs on this computer instead.',
+        },
+        {
+            id: 'casting',
+            text:
+                i.speakers > 0
+                    ? `Casting: ${i.speakers} ${i.speakers === 1 ? 'speaker' : 'speakers'} on your network`
+                    : 'Casting: no speakers found yet',
+        },
+    );
+    return lines;
+};
 
 /** What the Address field shows: the untouched default is an empty field with a placeholder. */
 export const addressFieldValue = (url: string, configured: boolean): string =>

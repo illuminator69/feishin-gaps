@@ -63,7 +63,9 @@ const ServerStatus = memo(() => {
     const speakers = useHubStore((s) => s.devices.filter((d) => d.bridgedBy).length);
     const libraryTools = useLbBotAvailable();
     const stations = useStationMode();
-    // The sidebar already runs this probe; this only reads its cached answer (enabled: false).
+    // Reads the probe's cached answer only (enabled: false): no request is made here. Another
+    // screen (Library chips, Discover) runs the probe; until it has, `clap.data` is undefined and
+    // the AudioMuse line is left out.
     const clap = useQuery<boolean>({
         enabled: false,
         queryFn: () => Promise.resolve(false),

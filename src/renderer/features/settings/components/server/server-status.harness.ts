@@ -141,10 +141,24 @@ test('libraryToolsRefusedIsNotTheSameSentenceAsNotSetUp', () => {
     assert.match(refused[0].text, /refused/i);
 });
 
-test('anUnansweredProbeIsCheckingNotNo', () => {
-    const lines = capabilityLines({ ...allOk, clap: undefined, stations: 'pending' });
-    assert.match(lines[1].text, /checking/i);
-    assert.match(lines[2].text, /checking/i);
+test('anUnansweredAudioMuseProbeDrawsNoLineAtAll', () => {
+    // The tab never runs this probe itself, so a fresh session could read "checking" forever.
+    const lines = capabilityLines({ ...allOk, clap: undefined });
+    assert.deepEqual(
+        lines.map((l) => l.id),
+        ['library', 'stations', 'casting'],
+    );
+    assert.ok(lines.every((l) => !/AudioMuse/i.test(l.text)));
+    for (const clap of [true, false]) {
+        assert.ok(capabilityLines({ ...allOk, clap }).some((l) => l.id === 'audiomuse'));
+    }
+});
+
+test('aStationProbeStillInFlightReadsCheckingBecauseItAlwaysEnds', () => {
+    // The always-mounted station service probes on connect; the request has a timeout and a
+    // catch, so 'pending' ends in 'stations' or 'fallback'.
+    const lines = capabilityLines({ ...allOk, stations: 'pending' });
+    assert.match(lines.find((l) => l.id === 'stations')!.text, /checking/i);
 });
 
 test('oneSpeakerIsSingular', () => {
