@@ -13,7 +13,6 @@ import {
 } from '/@/renderer/features/settings/components/general/artist-settings';
 import { FullscreenPlayerSettings } from '/@/renderer/features/settings/components/general/fullscreen-player-settings';
 import { HomeSettings } from '/@/renderer/features/settings/components/general/home-settings';
-import { PathSettings } from '/@/renderer/features/settings/components/general/path-settings';
 import {
     SettingOption,
     SettingsSection,
@@ -21,8 +20,6 @@ import {
 import { useHubStore } from '/@/renderer/store/hub.store';
 import {
     HomeFeatureStyle,
-    SideQueueLayout,
-    SideQueueType,
     useFontSettings,
     useGeneralSettings,
     useSettingsStoreActions,
@@ -35,7 +32,7 @@ import { Select } from '/@/shared/components/select/select';
 import { Slider } from '/@/shared/components/slider/slider';
 import { Switch } from '/@/shared/components/switch/switch';
 import { toast } from '/@/shared/components/toast/toast';
-import { FontType } from '/@/shared/types/types';
+import { FontType, Play } from '/@/shared/types/types';
 
 const localSettings = isElectron() ? window.api.localSettings : null;
 const ipc = isElectron() ? window.api.ipc : null;
@@ -55,36 +52,6 @@ const HOME_FEATURE_STYLE_OPTIONS = [
             context: 'optionMultiple',
         }),
         value: HomeFeatureStyle.MULTIPLE,
-    },
-];
-
-const SIDE_QUEUE_OPTIONS = [
-    {
-        label: t('setting.sidePlayQueueStyle', {
-            context: 'optionAttached',
-        }),
-        value: 'sideQueue',
-    },
-    {
-        label: t('setting.sidePlayQueueStyle', {
-            context: 'optionDetached',
-        }),
-        value: 'sideDrawerQueue',
-    },
-];
-
-const SIDE_QUEUE_LAYOUT_OPTIONS = [
-    {
-        label: t('setting.sidePlayQueueLayout', {
-            context: 'optionHorizontal',
-        }),
-        value: 'horizontal',
-    },
-    {
-        label: t('setting.sidePlayQueueLayout', {
-            context: 'optionVertical',
-        }),
-        value: 'vertical',
     },
 ];
 
@@ -138,11 +105,9 @@ if (isElectron()) {
     });
 }
 
-export const ApplicationSettings = memo(() => {
+export const TextSettings = memo(() => {
     const { t } = useTranslation();
     const settings = useGeneralSettings();
-    // While a Worbus Server is connected it saves the queue itself (use-autosave.ts returns early).
-    const serverSavesQueue = useHubStore((state) => state.connected);
     const fontSettings = useFontSettings();
     const { setSettings } = useSettingsStoreActions();
     const [localFonts, setLocalFonts] = useState<Font[]>([]);
@@ -234,7 +199,6 @@ export const ApplicationSettings = memo(() => {
             },
         });
     };
-
     const options: SettingOption[] = [
         {
             control: (
@@ -374,6 +338,65 @@ export const ApplicationSettings = memo(() => {
             isHidden: !isElectron(),
             title: t('setting.zoom'),
         },
+    ];
+
+    return <SettingsSection options={options} title={t('page.setting.text')} />;
+});
+
+export const QueueSettings = memo(() => {
+    const { t } = useTranslation();
+    const settings = useGeneralSettings();
+    // While a Worbus Server is connected it saves the queue itself (use-autosave.ts returns early).
+    const serverSavesQueue = useHubStore((state) => state.connected);
+    const { setSettings } = useSettingsStoreActions();
+
+    const options: SettingOption[] = [
+        {
+            control: (
+                <Select
+                    data={[
+                        {
+                            label: t('setting.playButtonBehavior', {
+                                context: 'optionPlay',
+                            }),
+                            value: Play.NOW,
+                        },
+                        {
+                            label: t('setting.playButtonBehavior', {
+                                context: 'optionAddNext',
+                            }),
+                            value: Play.NEXT,
+                        },
+                        {
+                            label: t('setting.playButtonBehavior', {
+                                context: 'optionAddLast',
+                            }),
+                            value: Play.LAST,
+                        },
+                        {
+                            label: t('setting.playButtonBehavior', {
+                                context: 'optionPlayShuffled',
+                            }),
+                            value: Play.SHUFFLE,
+                        },
+                    ]}
+                    defaultValue={settings.playButtonBehavior}
+                    onChange={(e) =>
+                        setSettings({
+                            general: {
+                                ...settings,
+                                playButtonBehavior: e as Play,
+                            },
+                        })
+                    }
+                />
+            ),
+            description: t('setting.playButtonBehavior', {
+                context: 'description',
+            }),
+            isHidden: false,
+            title: t('setting.playButtonBehavior'),
+        },
         {
             control: (
                 <Switch
@@ -413,6 +436,72 @@ export const ApplicationSettings = memo(() => {
             description: t('setting.confirmQueueChanges', { context: 'description' }),
             title: t('setting.confirmQueueChanges'),
         },
+        {
+            control: (
+                <Switch
+                    aria-label={t('setting.autosave')}
+                    defaultChecked={settings.autoSave.enabled}
+                    onChange={(e) => {
+                        setSettings({
+                            general: {
+                                ...settings,
+                                autoSave: {
+                                    ...settings.autoSave,
+                                    enabled: e.currentTarget.checked,
+                                },
+                            },
+                        });
+                    }}
+                />
+            ),
+            description: serverSavesQueue
+                ? t('setting.autosaveServerSaves')
+                : t('setting.autosave', {
+                      context: 'description',
+                  }),
+            title: t('setting.autosave'),
+        },
+        {
+            control: (
+                <NumberInput
+                    min={1}
+                    onBlur={(e) => {
+                        if (!e) return;
+                        const newVal = e.currentTarget.value
+                            ? Math.max(Number(e.currentTarget.value), 1)
+                            : settings.autoSave.count;
+                        setSettings({
+                            general: {
+                                ...settings,
+                                autoSave: {
+                                    ...settings.autoSave,
+                                    count: newVal,
+                                },
+                            },
+                        });
+                    }}
+                    value={settings.autoSave.count}
+                />
+            ),
+            description: serverSavesQueue
+                ? t('setting.autosaveServerSaves')
+                : t('setting.autosaveCount', {
+                      context: 'description',
+                  }),
+            isHidden: !settings.autoSave.enabled,
+            title: t('setting.autosaveCount'),
+        },
+    ];
+
+    return <SettingsSection options={options} title={t('page.setting.queue')} />;
+});
+
+export const HomeAppearanceSettings = memo(() => {
+    const { t } = useTranslation();
+    const settings = useGeneralSettings();
+    const { setSettings } = useSettingsStoreActions();
+
+    const options: SettingOption[] = [
         {
             control: (
                 <Switch
@@ -456,6 +545,23 @@ export const ApplicationSettings = memo(() => {
             isHidden: false,
             title: t('setting.homeFeatureStyle'),
         },
+    ];
+
+    return (
+        <SettingsSection
+            extra={<HomeSettings />}
+            options={options}
+            title={t('page.setting.home')}
+        />
+    );
+});
+
+export const AlbumArtistSettings = memo(() => {
+    const { t } = useTranslation();
+    const settings = useGeneralSettings();
+    const { setSettings } = useSettingsStoreActions();
+
+    const options: SettingOption[] = [
         {
             control: (
                 <Switch
@@ -548,70 +654,28 @@ export const ApplicationSettings = memo(() => {
             isHidden: !settings.artistBackground,
             title: t('setting.artistBackgroundBlur'),
         },
-        {
-            control: (
-                <Switch
-                    aria-label="Toggle using native aspect ratio"
-                    defaultChecked={settings.nativeAspectRatio}
-                    onChange={(e) =>
-                        setSettings({
-                            general: {
-                                ...settings,
-                                nativeAspectRatio: e.currentTarget.checked,
-                            },
-                        })
-                    }
-                />
-            ),
-            description: t('setting.imageAspectRatio', {
-                context: 'description',
-            }),
-            isHidden: false,
-            title: t('setting.imageAspectRatio'),
-        },
-        {
-            control: (
-                <Select
-                    data={SIDE_QUEUE_OPTIONS}
-                    defaultValue={settings.sideQueueType}
-                    onChange={(e) => {
-                        setSettings({
-                            general: {
-                                ...settings,
-                                sideQueueType: e as SideQueueType,
-                            },
-                        });
-                    }}
-                />
-            ),
-            description: t('setting.sidePlayQueueStyle', {
-                context: 'description',
-            }),
-            isHidden: false,
-            title: t('setting.sidePlayQueueStyle'),
-        },
-        {
-            control: (
-                <SegmentedControl
-                    aria-label={t('setting.sidePlayQueueLayout')}
-                    data={SIDE_QUEUE_LAYOUT_OPTIONS}
-                    defaultValue={settings.sideQueueLayout}
-                    onChange={(e) =>
-                        setSettings({
-                            general: {
-                                ...settings,
-                                sideQueueLayout: e as SideQueueLayout,
-                            },
-                        })
-                    }
-                />
-            ),
-            description: t('setting.sidePlayQueueLayout', {
-                context: 'description',
-            }),
-            isHidden: settings.sideQueueType !== 'sideQueue',
-            title: t('setting.sidePlayQueueLayout'),
-        },
+    ];
+
+    return (
+        <SettingsSection
+            extra={
+                <>
+                    <ArtistSettings />
+                    <ArtistReleaseTypeSettings />
+                </>
+            }
+            options={options}
+            title={t('page.setting.albumArtistPages')}
+        />
+    );
+});
+
+export const ListsImagesSettings = memo(() => {
+    const { t } = useTranslation();
+    const settings = useGeneralSettings();
+    const { setSettings } = useSettingsStoreActions();
+
+    const options: SettingOption[] = [
         {
             control: (
                 <Switch
@@ -651,6 +715,27 @@ export const ApplicationSettings = memo(() => {
             }),
             isHidden: false,
             title: t('setting.showRatings'),
+        },
+        {
+            control: (
+                <Switch
+                    aria-label={t('setting.enableGridMultiSelect')}
+                    defaultChecked={settings.enableGridMultiSelect}
+                    onChange={(e) =>
+                        setSettings({
+                            general: {
+                                ...settings,
+                                enableGridMultiSelect: e.currentTarget.checked,
+                            },
+                        })
+                    }
+                />
+            ),
+            description: t('setting.enableGridMultiSelect', {
+                context: 'description',
+            }),
+            isHidden: false,
+            title: t('setting.enableGridMultiSelect'),
         },
         {
             control: (
@@ -695,47 +780,43 @@ export const ApplicationSettings = memo(() => {
             isHidden: false,
             title: t('setting.imagePlaceholderPriority'),
         },
+    ];
+
+    return (
+        <SettingsSection
+            extra={<ImageResolutionSettings />}
+            options={options}
+            title={t('page.setting.listsImages')}
+        />
+    );
+});
+
+export const FullscreenAppearanceSettings = memo(() => {
+    const { t } = useTranslation();
+    const settings = useGeneralSettings();
+    const { setSettings } = useSettingsStoreActions();
+
+    const options: SettingOption[] = [
         {
             control: (
                 <Switch
-                    aria-label={t('setting.enableGridMultiSelect')}
-                    defaultChecked={settings.enableGridMultiSelect}
+                    aria-label="Toggle using native aspect ratio"
+                    defaultChecked={settings.nativeAspectRatio}
                     onChange={(e) =>
                         setSettings({
                             general: {
                                 ...settings,
-                                enableGridMultiSelect: e.currentTarget.checked,
+                                nativeAspectRatio: e.currentTarget.checked,
                             },
                         })
                     }
                 />
             ),
-            description: t('setting.enableGridMultiSelect', {
+            description: t('setting.imageAspectRatio', {
                 context: 'description',
             }),
             isHidden: false,
-            title: t('setting.enableGridMultiSelect'),
-        },
-        {
-            control: (
-                <Switch
-                    aria-label={t('setting.playerbarOpenDrawer')}
-                    defaultChecked={settings.playerbarOpenDrawer}
-                    onChange={(e) =>
-                        setSettings({
-                            general: {
-                                ...settings,
-                                playerbarOpenDrawer: e.currentTarget.checked,
-                            },
-                        })
-                    }
-                />
-            ),
-            description: t('setting.playerbarOpenDrawer', {
-                context: 'description',
-            }),
-            isHidden: false,
-            title: t('setting.playerbarOpenDrawer'),
+            title: t('setting.imageAspectRatio'),
         },
         {
             control: (
@@ -764,77 +845,13 @@ export const ApplicationSettings = memo(() => {
             isHidden: false,
             title: t('setting.fullscreenAutoOpenTimeout'),
         },
-        {
-            control: (
-                <Switch
-                    aria-label={t('setting.autosave')}
-                    defaultChecked={settings.autoSave.enabled}
-                    onChange={(e) => {
-                        setSettings({
-                            general: {
-                                ...settings,
-                                autoSave: {
-                                    ...settings.autoSave,
-                                    enabled: e.currentTarget.checked,
-                                },
-                            },
-                        });
-                    }}
-                />
-            ),
-            description: serverSavesQueue
-                ? t('setting.autosaveServerSaves')
-                : t('setting.autosave', {
-                      context: 'description',
-                  }),
-            title: t('setting.autosave'),
-        },
-        {
-            control: (
-                <NumberInput
-                    min={1}
-                    onBlur={(e) => {
-                        if (!e) return;
-                        const newVal = e.currentTarget.value
-                            ? Math.max(Number(e.currentTarget.value), 1)
-                            : settings.autoSave.count;
-                        setSettings({
-                            general: {
-                                ...settings,
-                                autoSave: {
-                                    ...settings.autoSave,
-                                    count: newVal,
-                                },
-                            },
-                        });
-                    }}
-                    value={settings.autoSave.count}
-                />
-            ),
-            description: serverSavesQueue
-                ? t('setting.autosaveServerSaves')
-                : t('setting.autosaveCount', {
-                      context: 'description',
-                  }),
-            isHidden: !settings.autoSave.enabled,
-            title: t('setting.autosaveCount'),
-        },
     ];
 
     return (
         <SettingsSection
-            extra={
-                <>
-                    <ImageResolutionSettings />
-                    <HomeSettings />
-                    <ArtistSettings />
-                    <ArtistReleaseTypeSettings />
-                    <FullscreenPlayerSettings />
-                    <PathSettings />
-                </>
-            }
+            extra={<FullscreenPlayerSettings />}
             options={options}
-            title={t('page.setting.application')}
+            title={t('page.setting.fullscreenPlayer')}
         />
     );
 });

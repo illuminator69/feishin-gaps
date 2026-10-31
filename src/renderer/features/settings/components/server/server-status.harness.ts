@@ -191,7 +191,7 @@ test('theServerTabIsFirstOnDesktop', () => {
     const tabs = [...content.matchAll(/<Tabs\.Tab value="(\w+)"/g)].map((m) => m[1]);
     assert.equal(tabs[0], 'server');
     const server = content.indexOf('<Tabs.Tab value="server"');
-    assert.match(content.slice(server - 60, server), /isElectron\(\)/);
+    assert.match(content.slice(server - 80, server), /desktop && \(/);
 });
 
 test('theServerTabSectionsAreInThePlansOrder', () => {

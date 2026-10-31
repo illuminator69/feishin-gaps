@@ -3,7 +3,6 @@ import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import i18n from '/@/i18n/i18n';
-import { StylesSettings } from '/@/renderer/features/settings/components/advanced/styles-settings';
 import { SettingsOptions } from '/@/renderer/features/settings/components/settings-option';
 import {
     SettingOption,
@@ -202,6 +201,56 @@ export const ThemeSettings = memo(() => {
         {
             control: (
                 <Switch
+                    checked={settings.coverColours}
+                    onChange={(e) => {
+                        setSettings({
+                            general: {
+                                coverColours: e.currentTarget.checked,
+                            },
+                        });
+                    }}
+                />
+            ),
+            description: t('setting.coverColours', {
+                context: 'description',
+            }),
+            isHidden: false,
+            title: t('setting.coverColours'),
+        },
+        {
+            control: (
+                <SegmentedControl
+                    aria-label={t('setting.coverColoursMode')}
+                    data={[
+                        {
+                            label: t('setting.coverColoursMode', { context: 'optionDark' }),
+                            value: 'dark',
+                        },
+                        {
+                            label: t('setting.coverColoursMode', { context: 'optionLight' }),
+                            value: 'light',
+                        },
+                    ]}
+                    onChange={(value) => {
+                        setSettings({
+                            general: {
+                                coverColoursMode: value === 'light' ? 'light' : 'dark',
+                            },
+                        });
+                    }}
+                    value={settings.coverColoursMode}
+                />
+            ),
+            description: t('setting.coverColoursMode', {
+                context: 'description',
+            }),
+            // With `Use system theme` the system decides, so there is nothing to choose here.
+            isHidden: !settings.coverColours || settings.followSystemTheme,
+            title: t('setting.coverColoursMode'),
+        },
+        {
+            control: (
+                <Switch
                     defaultChecked={settings.followSystemTheme}
                     onChange={(e) => {
                         setSettings({
@@ -231,7 +280,6 @@ export const ThemeSettings = memo(() => {
                 <Select
                     data={groupedThemeData}
                     defaultValue={settings.theme}
-                    disabled={settings.coverColours}
                     onChange={(e) => {
                         const theme = e as string;
 
@@ -265,7 +313,6 @@ export const ThemeSettings = memo(() => {
                 <Select
                     data={groupedThemeData}
                     defaultValue={settings.themeDark}
-                    disabled={settings.coverColours}
                     onChange={(e) => {
                         setSettings({
                             general: {
@@ -288,7 +335,6 @@ export const ThemeSettings = memo(() => {
                 <Select
                     data={groupedThemeData}
                     defaultValue={settings.themeLight}
-                    disabled={settings.coverColours}
                     onChange={(e) => {
                         setSettings({
                             general: {
@@ -330,7 +376,7 @@ export const ThemeSettings = memo(() => {
                 <Stack align="center">
                     <ColorInput
                         defaultValue={settings.accent}
-                        disabled={settings.coverColours || settings.useThemeAccentColor}
+                        disabled={settings.useThemeAccentColor}
                         format="rgb"
                         onChangeEnd={(e) => {
                             setSettings({
@@ -379,7 +425,6 @@ export const ThemeSettings = memo(() => {
             control: (
                 <Slider
                     defaultValue={settings.primaryShade}
-                    disabled={settings.coverColours}
                     label={(value) => value}
                     max={9}
                     min={0}
@@ -400,68 +445,13 @@ export const ThemeSettings = memo(() => {
             isHidden: settings.useThemePrimaryShade,
             title: t('setting.primaryShade'),
         },
-        {
-            control: (
-                <Switch
-                    checked={settings.coverColours}
-                    onChange={(e) => {
-                        setSettings({
-                            general: {
-                                coverColours: e.currentTarget.checked,
-                            },
-                        });
-                    }}
-                />
-            ),
-            description: t('setting.coverColours', {
-                context: 'description',
-            }),
-            isHidden: false,
-            title: t('setting.coverColours'),
-        },
-        {
-            control: (
-                <SegmentedControl
-                    aria-label={t('setting.coverColoursMode')}
-                    data={[
-                        {
-                            label: t('setting.coverColoursMode', { context: 'optionDark' }),
-                            value: 'dark',
-                        },
-                        {
-                            label: t('setting.coverColoursMode', { context: 'optionLight' }),
-                            value: 'light',
-                        },
-                    ]}
-                    onChange={(value) => {
-                        setSettings({
-                            general: {
-                                coverColoursMode: value === 'light' ? 'light' : 'dark',
-                            },
-                        });
-                    }}
-                    value={settings.coverColoursMode}
-                />
-            ),
-            description: t('setting.coverColoursMode', {
-                context: 'description',
-            }),
-            // With `Use system theme` the system decides, so there is nothing to choose here.
-            isHidden: !settings.coverColours || settings.followSystemTheme,
-            title: t('setting.coverColoursMode'),
-        },
     ];
 
     return (
         <SettingsSection
-            extra={
-                <>
-                    <CustomThemesManager />
-                    <StylesSettings />
-                </>
-            }
+            extra={<CustomThemesManager />}
             options={themeOptions}
-            title={t('page.setting.theme')}
+            title={t('page.setting.colours')}
         />
     );
 });
