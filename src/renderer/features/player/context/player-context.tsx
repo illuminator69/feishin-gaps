@@ -18,6 +18,8 @@ import {
     remoteTogglePlayPause,
     remoteVolumePinned,
 } from '/@/renderer/features/hub/utils/remote-queue';
+import { keepsCurrentSong } from '/@/renderer/features/player/station/keep-current'; // navi-connect (B-175)
+import { currentSongId } from '/@/renderer/features/player/station/station-client'; // navi-connect (B-175)
 import {
     filterSongsByPlayerFilters,
     getAlbumArtistSongsById,
@@ -149,7 +151,7 @@ export const PlayerContext = createContext<PlayerContext>({
     moveSelectedToBottom: () => {},
     moveSelectedToNext: () => {},
     moveSelectedToTop: () => {},
-    playKeepingCurrent: () => {},
+    playKeepingCurrent: () => {}, // navi-connect (B-175)
     setQueue: () => {},
     setRepeat: () => {},
     setShuffle: () => {},
@@ -448,16 +450,28 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         [confirmQueueChange, storeActions],
     );
 
+    // navi-connect (B-175)
     const playKeepingCurrent = useCallback(
         (data: Song[], skipConfirmation?: boolean, onApply?: () => void) => {
             const [current, ...rest] = data;
             if (!current) return;
-            const tail = filterSongsByPlayerFilters(
+            let tail = filterSongsByPlayerFilters(
                 rest,
                 useSettingsStore.getState().playback.filters,
             );
+            // As Play.NOW tags what it queues from a playlist page (the sidebar's highlight).
+            const contextPlaylistId = inferPlaylistContextFromUrl();
+            if (contextPlaylistId) tail = tagPlaylistContext(tail, contextPlaylistId);
 
             const apply = () => {
+                // The song can change while the confirmation is open (it ends, or is skipped):
+                // keep only the song the radio was started from, else the old replace.
+                if (!keepsCurrentSong(data, currentSongId())) {
+                    logger.debug('The playing song changed, replacing the queue instead');
+                    addToQueueByData(data, Play.NOW, undefined, undefined, true, onApply);
+                    return;
+                }
+
                 onApply?.();
                 announceNewQueueSession(Play.NOW);
 
@@ -471,7 +485,10 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 }
 
                 logger.debug('Kept the current song, replaced the rest', { tail: tail.length });
-                storeActions.keepCurrentAndReplaceRest(tail);
+                if (!storeActions.keepCurrentAndReplaceRest(current.id, tail)) {
+                    // Checked above in the same tick, so not expected: the old replace.
+                    storeActions.addToQueueByType([current, ...tail], Play.NOW);
+                }
             };
 
             if (!skipConfirmation) {
@@ -480,7 +497,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                 apply();
             }
         },
-        [confirmQueueChange, storeActions],
+        [addToQueueByData, confirmQueueChange, storeActions],
     );
 
     const addToQueueByFetch = useCallback(
@@ -1241,7 +1258,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             moveSelectedToBottom,
             moveSelectedToNext,
             moveSelectedToTop,
-            playKeepingCurrent,
+            playKeepingCurrent, // navi-connect (B-175)
             setQueue,
             setRepeat,
             setShuffle,
@@ -1277,7 +1294,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             moveSelectedToBottom,
             moveSelectedToNext,
             moveSelectedToTop,
-            playKeepingCurrent,
+            playKeepingCurrent, // navi-connect (B-175)
             setQueue,
             setRepeat,
             setShuffle,

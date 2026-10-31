@@ -19,13 +19,25 @@ export const keepsCurrentSong = (
  * The queue order after a radio from the current song: the current row, then the tail, with the
  * current row at index 0. With track shuffle on, the tail's order is shuffled as Play.NOW and
  * Play.NEXT shuffle what they add, and the current row stays first in the shuffled order.
+ *
+ * Null when the current row is not the song the radio was started from: the decision to keep it
+ * is taken before the "Discard the current queue?" confirmation, and the song can change while
+ * that is open (it ends, or the user skips). Then nothing is kept and the caller does the plain
+ * replace. Checked in the same call that builds the order, so it cannot go stale in between.
+ *
+ * @param current the row playing now (its row id and song id), if any
+ * @param expectedSongId the song the radio was started from (the queue's first song)
  */
 export const keepCurrentThen = (
-    currentUniqueId: string,
+    current: undefined | { songId: string; uniqueId: string },
+    expectedSongId: string,
     tailUniqueIds: readonly string[],
     shuffle: ((indexes: number[]) => number[]) | null,
-): { default: string[]; index: number; shuffled: number[] } => ({
-    default: [currentUniqueId, ...tailUniqueIds],
-    index: 0,
-    shuffled: shuffle ? [0, ...shuffle(tailUniqueIds.map((_, i) => i + 1))] : [],
-});
+): null | { default: string[]; index: number; shuffled: number[] } => {
+    if (!current || !expectedSongId || current.songId !== expectedSongId) return null;
+    return {
+        default: [current.uniqueId, ...tailUniqueIds],
+        index: 0,
+        shuffled: shuffle ? [0, ...shuffle(tailUniqueIds.map((_, i) => i + 1))] : [],
+    };
+};
