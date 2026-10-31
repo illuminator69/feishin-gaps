@@ -1009,7 +1009,11 @@ export const useArtistOverrideActions = (
 
     const settle = useCallback(async () => {
         await queryClient.invalidateQueries({ queryKey: OVERRIDES_KEY, refetchType: 'all' });
-    }, [queryClient]);
+        // Worbus P1 (F7 walk): the artist's own read (`useLbBotScanRead`) carries the scan lb-bot
+        // just started and `unresolved`; re-read it, so the page follows that scan and drops "couldn't
+        // find this artist" even when the follow below cannot start.
+        await queryClient.invalidateQueries({ queryKey: ['lbbot', 'discography', ndId] });
+    }, [ndId, queryClient]);
 
     const set = useCallback(
         async (mbid: string, name: string): Promise<LbBotResult<LbBotOverrideSet>> => {
