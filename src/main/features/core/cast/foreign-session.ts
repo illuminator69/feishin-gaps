@@ -3,9 +3,10 @@
  * `foreign-session.harness.ts` runs it.
  *
  * Chromecasts are per user and the last caster wins. The bridge that lost the speaker must see it:
- * a MEDIA_STATUS from another media session, or with content that is not in its queue, or a
- * RECEIVER_STATUS that no longer runs its app session. Both users read one library, so a track id
- * can be in both queues; the media session id is the proof, the content id a second one.
+ * a MEDIA_STATUS from a media session it did not start, or - while it knows no own media session -
+ * with content that is not in its queue, or a RECEIVER_STATUS that no longer runs its app session.
+ * Both users read one library, so a track id can be in both queues; the media session id is the
+ * proof, and a status carrying the bridge's own id is never foreign (R25).
  */
 
 /** A MEDIA_STATUS or RECEIVER_STATUS, as castv2 hands either over. */
@@ -50,15 +51,19 @@ export function streamIdentity(url: null | string | undefined): null | string {
 }
 
 const foreignStatus = (status: CastStatusLike, own: OwnCast): boolean => {
-    if (
-        own.mediaSessionId !== null &&
-        typeof status.mediaSessionId === 'number' &&
-        status.mediaSessionId !== own.mediaSessionId
-    ) {
-        return true;
+    if (own.mediaSessionId !== null) {
+        // R25: with an own media session known, the id decides. The bridge's own session is never
+        // someone else's, whatever it plays (a queue edit can drop the playing track); another
+        // sender's LOAD starts a new media session.
+        if (typeof status.mediaSessionId === 'number') {
+            return status.mediaSessionId !== own.mediaSessionId;
+        }
+    } else {
+        // No own media session yet (launched or joined, its LOAD not answered): the content is
+        // the only proof.
+        const playing = streamIdentity(status.media?.contentId);
+        if (playing && !own.queueIds.includes(playing)) return true;
     }
-    const playing = streamIdentity(status.media?.contentId);
-    if (playing && !own.queueIds.includes(playing)) return true;
     // RECEIVER_STATUS: the app session this bridge holds is no longer running on the speaker.
     if (Array.isArray(status.applications) && own.appSessionId !== null) {
         return !status.applications.some((app) => app.sessionId === own.appSessionId);

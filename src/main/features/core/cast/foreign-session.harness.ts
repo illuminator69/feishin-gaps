@@ -37,10 +37,34 @@ test('foreign media session releases not adopts', () => {
         takeoverStep({ media: { contentId: url('song-1') }, mediaSessionId: 8 }, own, playing),
         'release',
     );
-    // Content that is not in this bridge's queue.
+    // R25 (review I6): the bridge's own media session is never someone else's, whatever it plays -
+    // a queue edit that drops the playing track (or a preview swapped for the owned copy) must
+    // not release one's own playback. Another sender's LOAD starts a new media session.
     assert.equal(
         takeoverStep({ media: { contentId: url('song-9') }, mediaSessionId: 7 }, own, playing),
+        'none',
+    );
+    // Content is the proof only while no own media session is known (after launch or join,
+    // before its LOAD answered).
+    assert.equal(
+        takeoverStep({ media: { contentId: url('song-9') } }, own, playing),
+        'none',
+        'a status with no media session id under a known own one: nothing to judge by',
+    );
+    assert.equal(
+        takeoverStep(
+            { media: { contentId: url('song-9') }, mediaSessionId: 8 },
+            { ...own, mediaSessionId: null },
+            playing,
+        ),
         'release',
+    );
+    // checkTakeover never marks the bridge's own session as foreign (it would become
+    // un-adoptable after a restart).
+    const cast = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
+    assert.match(
+        cast,
+        /typeof status\?\.mediaSessionId === 'number' &&\s*status\.mediaSessionId !== this\.ownMediaSessionId\s*\)\s*\{\s*this\.foreignMediaSessions\.add\(status\.mediaSessionId\);/,
     );
     // Not playing (paused, or idle): nothing to report, but the bridge lets go of the player, so
     // a later play loads over it instead of resuming someone else's session.
