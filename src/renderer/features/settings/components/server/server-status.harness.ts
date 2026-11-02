@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import type { HubSignInResult } from '../../../../../shared/utils/hub-signin.ts';
+
+import { hubFailureMessage } from '../../../hub/utils/hub-failure.ts';
 import {
     addressFieldValue,
     capabilityLines,
@@ -11,6 +14,10 @@ import {
     type HubLinkInput,
     isHubConfigured,
     normaliseHubAddress,
+    serverStatus,
+    serverStatusSentence,
+    showTokenField,
+    type SignInInput,
     statusSentence,
 } from './server-status.ts';
 
@@ -301,4 +308,163 @@ test('theDeviceNameAndPublicUrlFieldsShowWhatResolveReturned', () => {
         /const result = resolvePublicServerUrl\([\s\S]*?\);\s*setPublicUrl\(result\.draft\);/,
         'the public-URL field is set to the resolved draft, also when it was rejected',
     );
+});
+
+// --- Worbus P2, F2: signing in instead of a token ---------------------------------------------
+
+const ALICE = { admin: true, name: 'alice', primary: false };
+const BOB = { admin: false, name: 'bob', primary: false };
+const notYet: SignInInput = {
+    hasToken: false,
+    result: null,
+    signedIn: false,
+    signedOut: false,
+    signingIn: false,
+    user: null,
+    username: 'alice',
+};
+
+/** The status line the tab draws, for a link and a sign-in state. */
+const line = (link: HubLinkInput, sign: Partial<SignInInput>) => {
+    const state = { ...notYet, ...sign };
+    const id = serverStatus(hubLink(link), state);
+    return { id, text: serverStatusSentence(id, link.url, state) };
+};
+
+test('status for each signin result', () => {
+    const live = { ...on, token: '' };
+    // Design §6.2's table, verbatim, for each refusal.
+    const refusals: [HubSignInResult, string][] = [
+        [
+            { kind: 'navidromeRefused' },
+            "This Worbus Server's Navidrome doesn't know this account. It may use a different Navidrome server.",
+        ],
+        [
+            { kind: 'navidromeUnreachable' },
+            "The Worbus Server can't reach its Navidrome right now.",
+        ],
+        [{ kind: 'tooManyAttempts' }, 'Too many attempts. Try again in a few minutes.'],
+    ];
+    for (const [result, sentence] of refusals) {
+        assert.equal(line(live, { result }).text, sentence, result.kind);
+        // A refusal is never read as a network problem (anti-goal).
+        assert.doesNotMatch(line(live, { result }).text, /can.t reach ws|connecting/i);
+    }
+    // §6.5: signed out by the server, the silent sign-in having failed.
+    assert.equal(line(live, { signedOut: true }).text, 'Signed out of the Worbus Server');
+    // Signed in, with the server's view of who and what.
+    assert.equal(
+        line({ ...live, connected: true }, { signedIn: true, user: ALICE }).text,
+        'Signed in as alice · admin',
+    );
+    assert.equal(
+        line({ ...live, connected: true }, { signedIn: true, user: BOB }).text,
+        'Signed in as bob',
+    );
+    assert.equal(line(live, { signingIn: true }).id, 'signingIn');
+    assert.match(line(live, { signingIn: true }).text, /Signing in as alice/);
+    // An older server: the token field below, and the sentence says where.
+    assert.equal(line(live, { result: { kind: 'oldServer' } }).id, 'oldServer');
+    assert.match(line(live, { result: { kind: 'oldServer' } }).text, /token.*Advanced/i);
+    // Not signed in and nothing to connect with: says so, does not pretend to be connecting.
+    assert.equal(line({ ...live, attemptAt: NOW - 1_000 }, {}).id, 'notSignedIn');
+    assert.match(line(live, {}).text, /Not signed in.*Sign in as alice/);
+    // The hub did not answer the sign-in: the link's own "can't reach" sentence.
+    assert.equal(line(live, { result: { kind: 'unreachable' } }).id, 'notSignedIn');
+    assert.equal(
+        line({ ...live, token: 't' }, { hasToken: true, result: { kind: 'unreachable' } }).id,
+        'unreachable',
+    );
+    // An account this app cannot send.
+    assert.match(
+        line(live, { result: { kind: 'noAccount' }, username: null }).text,
+        /music server/i,
+    );
+    // A typed token with no sign-in (an owner's client from before): connected as today.
+    assert.equal(line({ ...on, connected: true }, { hasToken: true, user: ALICE }).id, 'connected');
+    // A refusal outranks a stale "connected"; the switch off is still "off".
+    assert.equal(
+        line({ ...on, connected: true }, { hasToken: true, result: { kind: 'navidromeRefused' } })
+            .id,
+        'navidromeRefused',
+    );
+    assert.equal(line(fresh, {}).id, 'notConfigured');
+    assert.equal(line({ ...fresh, url: 'ws://h:1' }, { signedIn: true }).id, 'off');
+    // Every sentence is words for a person.
+    for (const result of [...refusals.map(([r]) => r), { kind: 'oldServer' } as const]) {
+        assert.doesNotMatch(
+            line(live, { result }).text,
+            /navi-connect|HUB_TOKEN|WebSocket|\bhub\b|_/i,
+        );
+    }
+});
+
+test('token field only after old server', () => {
+    const kinds: HubSignInResult[] = [
+        { deviceId: 'd', kind: 'signedIn', user: ALICE },
+        { kind: 'navidromeRefused' },
+        { kind: 'navidromeUnreachable' },
+        { kind: 'tooManyAttempts' },
+        { kind: 'unreachable' },
+        { kind: 'badRequest' },
+        { kind: 'noAccount' },
+    ];
+    assert.equal(showTokenField(null), false, 'before any sign-in: no token field');
+    for (const result of kinds) assert.equal(showTokenField(result), false, result.kind);
+    assert.equal(showTokenField({ kind: 'oldServer' }), true);
+
+    const hub = read('./worbus-server-settings.tsx');
+    // The token row is not in the main group any more...
+    const main = hub.slice(
+        hub.indexOf('export const WorbusServerSettings'),
+        hub.indexOf('export const CastingSettings'),
+    );
+    const options = main.slice(
+        main.indexOf('const options = ['),
+        main.indexOf('];', main.indexOf('const options = [')),
+    );
+    assert.doesNotMatch(options, /PasswordInput|title: 'Access token'/);
+    // ...it is its own Advanced section, drawn only when the last sign-in found an older server.
+    assert.match(
+        main,
+        /\{showToken && \(?\s*<SettingsSection options=\{tokenOptions\} title="Advanced"/,
+    );
+    assert.match(main, /const showToken = showTokenField\(signInResult\)/);
+    assert.match(main, /title: 'Server token, for older servers'/);
+    // Sign in / Sign out are absent (not disabled) when they do not apply.
+    assert.match(main, /isHidden: signedIn \|\| !username/);
+    assert.match(main, /isHidden: !signedIn/);
+    assert.match(main, /title: `Sign in as \$\{username\}`/);
+    assert.match(main, /title: 'Sign out of this server'/);
+    assert.match(main, /signInWithCurrentServer\(\)/);
+});
+
+test('the hub failure toast covers the new codes and never reads as a hub error', () => {
+    assert.equal(
+        hubFailureMessage({ code: 'navidrome_refused' }),
+        "This Worbus Server's Navidrome doesn't know this account. It may use a different Navidrome server.",
+    );
+    assert.equal(
+        hubFailureMessage({ code: 'navidrome_unreachable' }),
+        "The Worbus Server can't reach its Navidrome right now.",
+    );
+    assert.equal(
+        hubFailureMessage({ code: 'too_many_attempts' }),
+        'Too many attempts. Try again in a few minutes.',
+    );
+    assert.equal(
+        hubFailureMessage({ code: 'signed_out', message: 'x' }),
+        'Signed out of the Worbus Server',
+    );
+    assert.match(hubFailureMessage({ code: 'primary_only' }), /primary|owner/i);
+    assert.match(hubFailureMessage({ code: 'lbbot_too_old' }), /too old/i);
+    assert.match(hubFailureMessage({ code: 'auth' }), /refused the access token/);
+    assert.match(hubFailureMessage({ code: 'target_offline' }), /offline/);
+    assert.doesNotMatch(hubFailureMessage({ code: 'something_new' }), /Hub error/);
+    const useHub = read('../../../hub/hooks/use-hub.tsx');
+    assert.match(
+        useHub,
+        /import \{ hubFailureMessage \} from '\/@\/renderer\/features\/hub\/utils\/hub-failure'/,
+    );
+    assert.doesNotMatch(useHub, /const hubFailureMessage =/);
 });

@@ -139,6 +139,11 @@ const isCurrent = (socket: WebSocket, gen: number): boolean => gen === generatio
 
 function connect(): void {
     if (!shouldRun || !config.url) return;
+    // Worbus P2: nothing to connect with (never signed in and no token, signed out by the user,
+    // or signed out by the server). A hello without a credential is only refused (4005), and a
+    // refusal would read as "signed out" and set off a silent sign-in the user did not ask for:
+    // the Server tab says "Not signed in" and its Sign in starts the transport again.
+    if (!hubAuth.bearer()) return;
     const gen = ++generation;
     let socket: WebSocket;
     try {

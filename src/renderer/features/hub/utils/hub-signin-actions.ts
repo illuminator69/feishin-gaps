@@ -42,8 +42,19 @@ const apply = (result: HubSignInResult | null, silent: boolean): void => {
         return;
     }
     logger.info(`[hub] sign-in${silent ? ' (silent)' : ''}: ${result.kind}`);
-    if (result.kind === 'signedIn' || result.kind === 'oldServer') {
-        setStore({ signedOut: false, signingIn: false, signInResult: result });
+    if (result.kind === 'signedIn') {
+        setStore({
+            authSignedIn: true,
+            signedOut: false,
+            signingIn: false,
+            signInResult: result,
+            user: result.user,
+        });
+        return;
+    }
+    if (result.kind === 'oldServer') {
+        // An older server does not do sign-in: main dropped any secret, the token field shows.
+        setStore({ authSignedIn: false, signedOut: false, signingIn: false, signInResult: result });
         return;
     }
     // A failed silent sign-in leaves the device signed out; a failed tap leaves it as it was.
@@ -71,3 +82,26 @@ export const silentSignIn = createSilentSignIn({
     onOutcome: (result) => apply(result, true),
     signIn: post,
 });
+
+/**
+ * "Sign out of this server": main closes the socket, posts `/hub/signout` and forgets the secret.
+ * `reconnect: false` (a Navidrome logout, a server switch) leaves the transport down.
+ */
+export const signOutOfServer = async (opts: { reconnect: boolean }): Promise<void> => {
+    const { setStore } = useHubStore.getState().actions;
+    setStore({ authSignedIn: false, signedOut: false, signInResult: null, user: null });
+    if (!hub) return;
+    try {
+        await hub.signOut(opts);
+    } catch (error) {
+        logger.warn('[hub] sign-out call failed', { error: String(error) });
+    }
+};
+
+/** Read main's view of this device's sign-in into the store; true when a sign-in is owed. */
+export const refreshAuthState = async (): Promise<boolean> => {
+    if (!hub) return false;
+    const state = await hub.authState();
+    useHubStore.getState().actions.setStore({ authSignedIn: state.signedIn });
+    return state.needsSignIn;
+};

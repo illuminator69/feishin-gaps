@@ -1,5 +1,5 @@
 import type { LbBotStatus } from '/@/shared/types/lbbot-types';
-import type { HubSignInResult } from '/@/shared/utils/hub-signin';
+import type { HubSignInResult, HubUser } from '/@/shared/utils/hub-signin';
 import type { LbIndexProgress } from '/@/shared/utils/lbbot-mode';
 
 import { shallow } from 'zustand/shallow';
@@ -117,6 +117,11 @@ interface HubState {
      * `welcome` and whenever the hub settings are pushed again.
      */
     authRefused: boolean;
+    /**
+     * Worbus P2: main holds a device secret for this server (`hub-auth-state`, then each sign-in,
+     * sign-out and server sign-out). The Server tab's Sign in / Sign out rows read it.
+     */
+    authSignedIn: boolean;
     connected: boolean;
     devices: HubDevice[];
     /**
@@ -186,6 +191,11 @@ interface HubState {
      * which keeps it until it has paused itself (use-hub's guard).
      */
     sleepTimer: null | SessionSleepTimer;
+    /**
+     * Worbus P2: who this connection acts for, from `welcome.user` and the `user` frame. Null for
+     * an older hub (which sends neither: today's behaviour) and before the first welcome.
+     */
+    user: HubUser | null;
 }
 
 const initialState: HubState = {
@@ -193,6 +203,7 @@ const initialState: HubState = {
     actPins: NO_PINS,
     attemptAt: 0,
     authRefused: false,
+    authSignedIn: false,
     connected: false,
     devices: [],
     features: [],
@@ -213,6 +224,7 @@ const initialState: HubState = {
     signingIn: false,
     signInResult: null,
     sleepTimer: null,
+    user: null,
 };
 
 export const useHubStore = createWithEqualityFn<HubSlice>()((set) => ({

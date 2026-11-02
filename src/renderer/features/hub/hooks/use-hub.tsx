@@ -12,7 +12,8 @@ import {
     failedLoadExit,
     NO_ECHO,
 } from '/@/renderer/features/hub/utils/do-echo';
-import { silentSignIn } from '/@/renderer/features/hub/utils/hub-signin-actions';
+import { hubFailureMessage } from '/@/renderer/features/hub/utils/hub-failure';
+import { refreshAuthState, silentSignIn } from '/@/renderer/features/hub/utils/hub-signin-actions';
 import {
     adoptClaimDelay,
     GuardWindow,
@@ -96,6 +97,7 @@ import { logger } from '/@/renderer/utils/logger';
 import { toast } from '/@/shared/components/toast/toast';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
+import { HubSignInResult, parseHubUser } from '/@/shared/utils/hub-signin';
 import { isProgressOnlyFrame, parseProgress, stateAfterWelcome } from '/@/shared/utils/lbbot-mode';
 import { levelReportStep, NO_LEVEL_REPORT, toLevel } from '/@/shared/utils/level-report';
 
@@ -213,27 +215,13 @@ const savedQueueToHubRecord = (q: SavedQueue): Record<string, unknown> => ({
 
 const hub = isElectron() ? window.api.hub : null;
 
+/** At `welcome`: the last sign-in's answer, unless it was a refusal (the link works now). */
+const keptSignInResult = (result: HubSignInResult | null): HubSignInResult | null =>
+    result?.kind === 'signedIn' || result?.kind === 'oldServer' ? result : null;
+
 /** The session's shuffled play order (PROTOCOL §4.2), or null for queue order. */
 const sessionOrder = (order: unknown): null | number[] =>
     Array.isArray(order) && order.every((n) => typeof n === 'number') ? (order as number[]) : null;
-
-/**
- * What to tell the user about a hub-side failure: an `error` frame, or the `ack` of an act of
- * ours that the hub refused (`ok:false` - against a hub that acknowledges acts the refusal comes
- * there, to the sender only, instead of as a broadcast).
- */
-const hubFailureMessage = (msg: any): string =>
-    msg.code === 'target_offline'
-        ? 'That device is offline.'
-        : msg.code === 'target_unreachable'
-          ? (msg.message ?? "That device isn't responding.")
-          : msg.code === 'load_failed'
-            ? (msg.message ?? 'That device could not start playback.')
-            : msg.code === 'not_supported'
-              ? (msg.message ?? "That device can't do that while it isn't playing.")
-              : msg.code === 'auth'
-                ? 'The Worbus Server refused the access token - check it in Settings, Server.'
-                : (msg.message ?? (msg.code ? `Hub error (${msg.code})` : 'Hub error'));
 
 /**
  * What a report says about the player, read from the stores at the moment it is sent.
@@ -1431,13 +1419,13 @@ export const useHub = () => {
     }, [settings.enabled, settings.name, settings.token, settings.url]);
 
     // Worbus P2 (R7): a secret kept in memory only is gone after a restart, and one that could not
-    // be decrypted is dropped: main says a sign-in is owed, and the silent one is made now. The
-    // hello that goes out without a credential meanwhile is answered 4005, which joins this attempt.
+    // be decrypted is dropped: main says a sign-in is owed, and the silent one is made now. Until it
+    // answers the transport has no credential and does not connect.
     useEffect(() => {
         if (!hub) return;
-        hub.authState()
-            .then((state) => {
-                if (state.needsSignIn) void silentSignIn.signedOut();
+        refreshAuthState()
+            .then((needsSignIn) => {
+                if (needsSignIn) void silentSignIn.signedOut();
             })
             .catch(() => undefined);
     }, []);
@@ -1508,6 +1496,8 @@ export const useHub = () => {
                     remoteShuffle: msg.session?.shuffle ?? false,
                     savedQueueId: msg.session?.savedQueueId ?? null,
                     signedOut: false,
+                    // A refusal from an earlier sign-in is history once a connection works.
+                    signInResult: keptSignInResult(useHubStore.getState().signInResult),
                     // I-034: absent from a hub that holds no timer.
                     sleepTimer: sleepTimerFromFrame(
                         msg.session?.sleepTimer,
@@ -1515,6 +1505,8 @@ export const useHub = () => {
                         useHubStore.getState().sleepTimer,
                         Date.now(),
                     ),
+                    // Worbus P2: who this socket acts for; absent from an older hub (null).
+                    user: parseHubUser(msg.user),
                 });
                 // I-033: the hub's row for this device holds the level it was last told, or
                 // one it kept from before a restart. Say the real one, whatever was sent on
@@ -1702,6 +1694,7 @@ export const useHub = () => {
                 // Worbus P2: main saw close 4005 (or `signed_out`), forgot the secret and stood
                 // down. One silent sign-in with the current server's account; failing that, the
                 // Server tab reads "Signed out of the Worbus Server".
+                setStore({ authSignedIn: false, user: null });
                 void silentSignIn.signedOut();
             } else if (msg.t === 'disconnected') {
                 // The main process lost the socket. Clear active/connected so

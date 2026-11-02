@@ -330,9 +330,14 @@ test('the transport stands down on 4005 or signed_out and the renderer runs the 
     const useHub = read('../../../../renderer/features/hub/hooks/use-hub.tsx');
     assert.match(useHub, /msg\.t === 'signedOut'[\s\S]{0,400}silentSignIn\.signedOut\(\)/);
     assert.match(useHub, /silentSignIn\.welcome\(\)/, 'a welcome re-arms the one try');
+    const actions = read('../../../../renderer/features/hub/utils/hub-signin-actions.ts');
+    assert.match(
+        actions,
+        /const state = await hub\.authState\(\);[\s\S]{0,160}return state\.needsSignIn;/,
+    );
     assert.match(
         useHub,
-        /authState\(\)[\s\S]{0,200}needsSignIn[\s\S]{0,120}signedOut\(\)/,
+        /refreshAuthState\(\)[\s\S]{0,200}needsSignIn[\s\S]{0,120}signedOut\(\)/,
         'a memory-only secret lost to a restart is signed in again at start (R7)',
     );
 });

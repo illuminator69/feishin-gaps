@@ -1,5 +1,9 @@
+import type { HubSignInResult, HubUser } from '../../../../../shared/utils/hub-signin.ts';
+
+import { SIGN_IN_REFUSAL_TEXT } from '../../../hub/utils/hub-failure.ts';
+
 /**
- * The Server tab's words (F2). Pure and import-free so `server-status.harness.ts` can run it.
+ * The Server tab's words (F2). Pure (relative imports only) so `server-status.harness.ts` can run it.
  *
  * Everything here is read from state the app already holds: the settings (`hub.*`), the hub store
  * (`connected`, the refusal flag, the attempt time), `welcome.lb` through `useLbBotAvailable`, the
@@ -57,7 +61,7 @@ export const statusSentence = (link: HubLink, address: string): string => {
         case 'connecting':
             return `Connecting to ${address}...`;
         case 'notConfigured':
-            return "Not set up. Enter your Worbus Server's address and access token, with Connect on.";
+            return "Not set up. Enter your Worbus Server's address, with Connect on.";
         case 'off':
             return 'Connect is off.';
         case 'refused':
@@ -146,3 +150,100 @@ export const normaliseHubAddress = (input: string): string => {
     if (value.includes('://')) return value;
     return `ws://${value}`;
 };
+
+// --- Worbus P2: signing in (design §6.2, §6.5) ---------------------------------------------------
+
+export type ServerStatusId =
+    | 'badRequest'
+    | 'navidromeRefused'
+    | 'navidromeUnreachable'
+    | 'noAccount'
+    | 'notSignedIn'
+    | 'oldServer'
+    | 'signedIn'
+    | 'signedOut'
+    | 'signingIn'
+    | 'tooManyAttempts'
+    | HubLink;
+
+export interface SignInInput {
+    /** A token is typed (the field shown for older servers, or one kept from before). */
+    hasToken: boolean;
+    /** The last sign-in's answer this session (`hub.store.signInResult`). */
+    result: HubSignInResult | null;
+    /** Main holds a device secret (`hub.store.authSignedIn`). */
+    signedIn: boolean;
+    /** The server signed this device out and the silent sign-in did not work. */
+    signedOut: boolean;
+    signingIn: boolean;
+    /** `welcome.user` / the `user` frame: who the connection acts for. */
+    user: HubUser | null;
+    /** The current music server's account name, or null when there is none to sign in with. */
+    username: null | string;
+}
+
+const REFUSED_SIGN_IN = new Set<HubSignInResult['kind']>([
+    'badRequest',
+    'navidromeRefused',
+    'navidromeUnreachable',
+    'noAccount',
+    'tooManyAttempts',
+]);
+
+/**
+ * The one status the line shows. A refusal of the last sign-in outranks the link (it says why
+ * the link is what it is); a link that works says who it acts for; a device with no secret and no
+ * token is "not signed in", never "connecting" - the transport has nothing to connect with.
+ */
+export const serverStatus = (link: HubLink, s: SignInInput): ServerStatusId => {
+    if (link === 'notConfigured') return link;
+    if (s.signingIn) return 'signingIn';
+    if (s.result && !s.signedIn && REFUSED_SIGN_IN.has(s.result.kind)) {
+        return s.result.kind as ServerStatusId;
+    }
+    if (link === 'off') return link;
+    if (link === 'connected') return s.signedIn && s.user ? 'signedIn' : 'connected';
+    if (s.signedOut) return 'signedOut';
+    if (s.result?.kind === 'oldServer' && !s.hasToken) return 'oldServer';
+    if (!s.signedIn && !s.hasToken) return 'notSignedIn';
+    return link;
+};
+
+export const serverStatusSentence = (
+    id: ServerStatusId,
+    address: string,
+    s: SignInInput,
+): string => {
+    switch (id) {
+        case 'badRequest':
+            return 'The Worbus Server could not read this sign-in. Try again.';
+        case 'navidromeRefused':
+            return SIGN_IN_REFUSAL_TEXT.navidromeRefused;
+        case 'navidromeUnreachable':
+            return SIGN_IN_REFUSAL_TEXT.navidromeUnreachable;
+        case 'noAccount':
+            return 'There is no music server account to sign in with. Sign in to your Navidrome server first.';
+        case 'notSignedIn':
+            return s.username
+                ? `Not signed in. Sign in as ${s.username} below to connect.`
+                : 'Not signed in. Sign in to your Navidrome server first, then sign in here.';
+        case 'oldServer':
+            return 'This Worbus Server is older and has no sign-in. Enter its access token under Advanced.';
+        case 'signedIn':
+            return s.user?.admin
+                ? `Signed in as ${s.user.name} · admin`
+                : `Signed in as ${s.user?.name ?? ''}`;
+        case 'signedOut':
+            return SIGN_IN_REFUSAL_TEXT.signedOut;
+        case 'signingIn':
+            return s.username ? `Signing in as ${s.username}...` : 'Signing in...';
+        case 'tooManyAttempts':
+            return SIGN_IN_REFUSAL_TEXT.tooManyAttempts;
+        default:
+            return statusSentence(id, address);
+    }
+};
+
+/** The token field ("Server token, for older servers") exists only after an older server (R6). */
+export const showTokenField = (result: HubSignInResult | null): boolean =>
+    result?.kind === 'oldServer';

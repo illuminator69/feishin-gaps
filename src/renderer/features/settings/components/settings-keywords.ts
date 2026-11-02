@@ -67,6 +67,17 @@ export const KEYWORDS = {
         'transfer',
     ],
     serverDeviceName: ['hub', 'worbus', 'server', 'device', 'name', 'picker'],
+    serverSignIn: ['hub', 'worbus', 'server', 'sign in', 'login', 'log in', 'account', 'connect'],
+    serverSignOut: [
+        'hub',
+        'worbus',
+        'server',
+        'sign out',
+        'logout',
+        'log out',
+        'account',
+        'forget',
+    ],
     serverStatus: [
         'hub',
         'worbus',

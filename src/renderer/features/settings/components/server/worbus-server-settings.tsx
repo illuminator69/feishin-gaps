@@ -14,26 +14,39 @@ import {
     hubLink,
     isHubConfigured,
     normaliseHubAddress,
-    statusSentence,
+    serverStatus,
+    serverStatusSentence,
+    showTokenField,
 } from './server-status';
 
 import { clapAvailableKey } from '/@/renderer/features/discover/use-discover-capabilities';
+import {
+    signInWithCurrentServer,
+    signOutOfServer,
+} from '/@/renderer/features/hub/utils/hub-signin-actions';
 import { useLbBotAvailable } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { useStationMode } from '/@/renderer/features/player/station/station-store';
 import { KEYWORDS } from '/@/renderer/features/settings/components/settings-keywords';
 import { SettingsSection } from '/@/renderer/features/settings/components/settings-section';
 import {
     useAudioMuseSettings,
+    useAuthStore,
     useHubSettings,
     useHubStore,
     useSettingsStoreActions,
 } from '/@/renderer/store';
+import { Button } from '/@/shared/components/button/button';
 import { PasswordInput } from '/@/shared/components/password-input/password-input';
 import { Stack } from '/@/shared/components/stack/stack';
 import { Switch } from '/@/shared/components/switch/switch';
 import { TextInput } from '/@/shared/components/text-input/text-input';
 import { Text } from '/@/shared/components/text/text';
 import { toast } from '/@/shared/components/toast/toast';
+import { parseSubsonicPair } from '/@/shared/utils/hub-signin';
+
+/** The current music server's account name, or null when there is no pair to sign in with. */
+const useSignInUsername = (): null | string =>
+    useAuthStore((s) => parseSubsonicPair(s.currentServer?.credential)?.username ?? null);
 
 /** A clock that ticks once when the "connecting" window ends, so the line can change by itself. */
 const useNowAfter = (attemptAt: number, running: boolean): number => {
@@ -72,6 +85,13 @@ const ServerStatus = memo(() => {
         queryKey: clapAvailableKey(audioMuse),
     });
 
+    const signedIn = useHubStore((s) => s.authSignedIn);
+    const signedOut = useHubStore((s) => s.signedOut);
+    const signingIn = useHubStore((s) => s.signingIn);
+    const signInResult = useHubStore((s) => s.signInResult);
+    const user = useHubStore((s) => s.user);
+    const username = useSignInUsername();
+
     const now = useNowAfter(attemptAt, settings.enabled && !connected);
     const link = hubLink({
         attemptAt,
@@ -82,6 +102,17 @@ const ServerStatus = memo(() => {
         token: settings.token,
         url: settings.url,
     });
+    // Worbus P2: what the last sign-in said, and who the connection acts for (design §6.2, §6.5).
+    const sign = {
+        hasToken: settings.token.trim() !== '',
+        result: signInResult,
+        signedIn,
+        signedOut,
+        signingIn,
+        user,
+        username,
+    };
+    const status = serverStatus(link, sign);
 
     const lines =
         link === 'connected'
@@ -96,7 +127,7 @@ const ServerStatus = memo(() => {
 
     return (
         <Stack aria-live="polite" gap="xs">
-            <Text size="sm">{statusSentence(link, settings.url)}</Text>
+            <Text size="sm">{serverStatusSentence(status, settings.url, sign)}</Text>
             {lines.map((line) => (
                 <Text isMuted key={line.id} size="sm">
                     {line.text}
@@ -113,6 +144,13 @@ const ServerStatus = memo(() => {
 export const WorbusServerSettings = memo(() => {
     const settings = useHubSettings();
     const { setSettings } = useSettingsStoreActions();
+
+    const signedIn = useHubStore((s) => s.authSignedIn);
+    const signingIn = useHubStore((s) => s.signingIn);
+    const signInResult = useHubStore((s) => s.signInResult);
+    const username = useSignInUsername();
+    // The token field exists only after a sign-in found an older server (R6).
+    const showToken = showTokenField(signInResult);
 
     const configured = isHubConfigured(settings);
     const [address, setAddress] = useState(addressFieldValue(settings.url, configured));
@@ -165,18 +203,37 @@ export const WorbusServerSettings = memo(() => {
         },
         {
             control: (
-                <PasswordInput
-                    aria-label="Access token"
-                    defaultValue={settings.token}
-                    onBlur={(e) => {
-                        const token = e.currentTarget.value.trim();
-                        if (token !== settings.token) setSettings({ hub: { token } });
-                    }}
-                />
+                <Button
+                    aria-label={`Sign in as ${username}`}
+                    loading={signingIn}
+                    onClick={() => void signInWithCurrentServer()}
+                    variant="filled"
+                >
+                    Sign in
+                </Button>
             ),
-            description: "The access token your Worbus Server's owner gave you.",
-            keywords: KEYWORDS.serverToken,
-            title: 'Access token',
+            description:
+                'Uses the account this app is signed in to your music server with. Nothing to type.',
+            // Absent once signed in, and with no music server account to sign in with.
+            isHidden: signedIn || !username,
+            keywords: KEYWORDS.serverSignIn,
+            title: `Sign in as ${username}`,
+        },
+        {
+            control: (
+                <Button
+                    aria-label="Sign out of this server"
+                    onClick={() => void signOutOfServer({ reconnect: true })}
+                    variant="default"
+                >
+                    Sign out
+                </Button>
+            ),
+            description:
+                'This computer forgets its sign-in to the Worbus Server. Your music server stays signed in.',
+            isHidden: !signedIn,
+            keywords: KEYWORDS.serverSignOut,
+            title: 'Sign out of this server',
         },
         {
             control: (
@@ -198,7 +255,31 @@ export const WorbusServerSettings = memo(() => {
         },
     ];
 
-    return <SettingsSection options={options} title="Worbus Server" />;
+    const tokenOptions = [
+        {
+            control: (
+                <PasswordInput
+                    aria-label="Server token, for older servers"
+                    defaultValue={settings.token}
+                    onBlur={(e) => {
+                        const token = e.currentTarget.value.trim();
+                        if (token !== settings.token) setSettings({ hub: { token } });
+                    }}
+                />
+            ),
+            description:
+                'This Worbus Server is older and has no sign-in. Enter the access token its owner gave you.',
+            keywords: KEYWORDS.serverToken,
+            title: 'Server token, for older servers',
+        },
+    ];
+
+    return (
+        <>
+            <SettingsSection options={options} title="Worbus Server" />
+            {showToken && <SettingsSection options={tokenOptions} title="Advanced" />}
+        </>
+    );
 });
 
 /**
