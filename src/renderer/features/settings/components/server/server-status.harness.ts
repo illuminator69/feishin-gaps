@@ -5,6 +5,7 @@ import test from 'node:test';
 import type { HubSignInResult } from '../../../../../shared/utils/hub-signin.ts';
 
 import { hubFailureMessage } from '../../../hub/utils/hub-failure.ts';
+import { foldedRows } from '../settings-search.ts';
 import {
     addressFieldValue,
     capabilityLines,
@@ -441,7 +442,7 @@ test('token field only after old server', () => {
     // ...it is its own Advanced section, drawn only when the last sign-in found an older server.
     assert.match(
         main,
-        /\{showToken && \(?\s*<SettingsSection options=\{tokenOptions\} title="Advanced"/,
+        /<Fold name="server-advanced" open=\{showToken\}>\s*<Stack pt="md">\s*<SettingsSection options=\{tokenOptions\} title="Advanced"/,
     );
     assert.match(main, /const showToken = showTokenField\(signInResult\)/);
     assert.match(main, /title: 'Server token, for older servers'/);
@@ -481,4 +482,79 @@ test('the hub failure toast covers the new codes and never reads as a hub error'
         /import \{ hubFailureMessage \} from '\/@\/renderer\/features\/hub\/utils\/hub-failure'/,
     );
     assert.doesNotMatch(useHub, /const hubFailureMessage =/);
+});
+
+// --- the walk's B4, B5, B6 and M9 (R30) ---------------------------------------------------------
+
+test('no false line around a sign-in or a sign-out', () => {
+    // B5: Sign out clears the secret before the transport says it is down. A connection with no
+    // credential at all is not one (main never connects without), so it is not "Connected".
+    const live = { ...on, connected: true, token: '' };
+    assert.equal(
+        serverStatus(hubLink(live), { ...notYet, authKnown: true, hasToken: false }),
+        'notSignedIn',
+    );
+    // ...but at launch, before main has said what it holds, a welcome is believed.
+    assert.equal(
+        serverStatus(hubLink(live), { ...notYet, authKnown: false, hasToken: false }),
+        'connected',
+    );
+    // A client on a typed token (an older server) is connected for real.
+    assert.equal(
+        serverStatus(hubLink({ ...on, connected: true }), {
+            ...notYet,
+            authKnown: true,
+            hasToken: true,
+        }),
+        'connected',
+    );
+    // B4: a sign-in that worked restarts the transport: "connecting" until its welcome, not
+    // "Can't reach" from a push made long before.
+    const actions = read('../../../hub/utils/hub-signin-actions.ts');
+    assert.match(
+        actions,
+        /if \(result\.kind === 'signedIn'\) \{\s*setStore\(\{\s*(?:\/\/[^\n]*\n\s*)*attemptAt: Date\.now\(\),/,
+    );
+    // B6: no "Sign in as" while there is no address to sign in to.
+    const tab = read('./worbus-server-settings.tsx');
+    assert.match(tab, /isHidden: signedIn \|\| !username \|\| !hasAddress,/);
+    assert.match(tab, /const hasAddress = addressFieldValue\(settings\.url, configured\) !== '';/);
+});
+
+test('the server tab rows and status change with the app transitions', () => {
+    // R30: a row that comes and goes is kept, folded, while there is no search; a search never
+    // shows a hidden row.
+    const rows = [
+        { title: 'Connect' },
+        { fold: true, isHidden: true, title: 'Sign in as bob' },
+        { fold: true, isHidden: false, title: 'Sign out of this server' },
+        { isHidden: true, title: 'Gone' },
+    ];
+    assert.deepEqual(
+        foldedRows('', 'Worbus Server', rows).map((r) => [r.row.title, r.open]),
+        [
+            ['Connect', true],
+            ['Sign in as bob', false],
+            ['Sign out of this server', true],
+        ],
+    );
+    assert.deepEqual(
+        foldedRows('sign', 'Worbus Server', rows).map((r) => [r.row.title, r.open]),
+        [['Sign out of this server', true]],
+    );
+    const tab = read('./worbus-server-settings.tsx');
+    // The Sign in and Sign out rows fold (the device name below them moves with them).
+    assert.equal((tab.match(/fold: true,/g) ?? []).length, 2);
+    // The Advanced section folds in and out, without leaving a gap while closed.
+    assert.match(tab, /<Fold name="server-advanced" open=\{showToken\}>/);
+    // The status line grows and shrinks with its lines; the capability lines fold.
+    assert.match(tab, /<GrowBox name="server-status">/);
+    assert.match(tab, /<Fold name="server-capabilities" open=\{lines\.length > 0\}>/);
+    const section = read('../settings-section.tsx');
+    assert.match(
+        section,
+        /<Fold key=\{`option-\$\{row\.title\}`\} name=\{row\.title\} open=\{open\}>/,
+    );
+    // No snap: nothing in the tab mounts or unmounts a row on a state change.
+    assert.doesNotMatch(tab, /\{showToken && /);
 });

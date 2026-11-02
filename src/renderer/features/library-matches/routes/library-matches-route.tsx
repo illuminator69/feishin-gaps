@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { AlbumMatchRow, ArtistOverrideRow, MergedRow, ToCheckRow } from '../components/match-rows';
 
-import { allows } from '/@/renderer/features/hub/utils/hub-roles';
+import { RoleGatedRoute } from '/@/renderer/features/hub/components/role-gated-route';
 import {
     useAlbumOverrideControls,
     useLbBotAvailable,
@@ -27,7 +27,6 @@ import {
 } from '/@/renderer/features/lbbot/utils/matches-page';
 import { ForkListPage } from '/@/renderer/features/shared/components/fork-list-page';
 import { PageErrorBoundary } from '/@/renderer/features/shared/components/page-error-boundary';
-import { useHubRoles } from '/@/renderer/store/hub.store';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
 import { Spinner } from '/@/shared/components/spinner/spinner';
@@ -51,9 +50,8 @@ import { Text } from '/@/shared/components/text/text';
 const LibraryMatchesRoute = () => {
     const { t } = useTranslation();
     const available = useLbBotAvailable();
-    // Worbus P2: an admin's page; opened by a non-admin it reads as not offered here.
-    const roles = useHubRoles();
-    const overridesSupported = useOverridesSupported() && allows(roles, 'libraryMatches');
+    // Worbus P2: an admin's page; the route gate (below) keeps a non-admin off it.
+    const overridesSupported = useOverridesSupported();
     const controls = useOverrideControls();
     const older = useOverridesOlder();
     const albumControls = useAlbumOverrideControls();
@@ -217,7 +215,10 @@ const LibraryMatchesRoute = () => {
 const LibraryMatchesRouteWithBoundary = () => (
     <PageErrorBoundary>
         <Suspense fallback={<Spinner container />}>
-            <LibraryMatchesRoute />
+            {/* Worbus P2 (walk B7): absent for a non-admin, as its sidebar entry is. */}
+            <RoleGatedRoute gate="libraryMatches">
+                <LibraryMatchesRoute />
+            </RoleGatedRoute>
         </Suspense>
     </PageErrorBoundary>
 );

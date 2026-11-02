@@ -12,7 +12,13 @@ import {
     upgradeIsQuiet,
 } from '../../../../shared/utils/hub-signin.ts';
 import { castHelloFrame } from '../cast/cast-hello.ts';
-import { createHubAuth, SECRET_KEY, SIGNED_IN_KEY, TOKEN_RETIRED_KEY } from './auth.ts';
+import {
+    createHubAuth,
+    DEVICE_IDS_KEY,
+    SECRET_KEY,
+    SIGNED_IN_KEY,
+    TOKEN_RETIRED_KEY,
+} from './auth.ts';
 
 /**
  * Worbus P2 lane F, F1:  node --test src/main/features/core/hub/auth.harness.ts
@@ -738,4 +744,44 @@ test('a 5xx from the sign-in is unreachable whatever its body', async () => {
     const old = world({ answers: [{ body: '<html>Forbidden</html>', status: 403 }] });
     old.auth.load();
     assert.equal((await old.auth.signIn(PAIR)).kind, 'oldServer');
+});
+
+// --- walk B2 (R27): the adopted device id is kept per (hub address, account) ---------------------
+
+test('each account gets its own device id back after a switch', async () => {
+    const w = world({
+        answers: [
+            signedIn('id-alice'),
+            json(200, {}),
+            signedIn('id-bob', { admin: false, name: 'bob', primary: false }),
+            json(200, {}),
+            signedIn('id-alice'),
+        ],
+    });
+    w.auth.load();
+    const BOB: SignInPair = { ...PAIR, username: 'bob' };
+    // First sign-in: today's single slot migrates to the account signing in (R4's upgrade path).
+    await w.auth.signIn(PAIR);
+    assert.equal(w.calls[0].body.deviceId, 'old-device-id');
+    await w.auth.signOut();
+    // Another account: alice's id is never offered for bob (the hub would mint one anyway, and
+    // the next sign-in as alice would then offer bob's).
+    await w.auth.signIn(BOB);
+    assert.equal(w.calls[2].body.deviceId, undefined, 'no id of another account');
+    assert.equal(w.plain['hub.deviceId'], 'id-bob', 'the hello and bridgedBy use the current one');
+    await w.auth.signOut();
+    // Back to alice, name case and spaces aside: her own id is offered, so the hub keeps it.
+    await w.auth.signIn({ ...PAIR, username: ' Alice' });
+    assert.equal(w.calls[4].body.deviceId, 'id-alice');
+    assert.equal(w.plain['hub.deviceId'], 'id-alice');
+    const ids = w.plain[DEVICE_IDS_KEY] as Record<string, string>;
+    assert.deepEqual(Object.values(ids).sort(), ['id-alice', 'id-bob']);
+
+    // Another hub address is another space: alice there starts without an id.
+    w.deps.httpBase = () => 'http://other.lan:4790';
+    const elsewhere = createHubAuth(w.deps);
+    elsewhere.load();
+    w.answers.push(signedIn('id-alice-2'));
+    await elsewhere.signIn(PAIR);
+    assert.equal(w.calls.at(-1)?.body.deviceId, undefined);
 });

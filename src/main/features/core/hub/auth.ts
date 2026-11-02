@@ -38,6 +38,17 @@ export const SIGNED_IN_KEY = 'hubAuth.signedIn';
  * primary user, in the owner's space. Only an older server's answer (R6, R24) brings it back.
  */
 export const TOKEN_RETIRED_KEY = 'hubAuth.tokenRetired';
+/**
+ * electron-store key (R27): the hub device id each account was given, by (hub address, account
+ * name normalised as the hub keys users). R4 adopts the id a sign-in answers with; with one slot
+ * for every account a switch back offered the other account's id and the hub minted another, so
+ * ghost rows piled up in each user's pickers. `hub.deviceId` stays the current one (the hello,
+ * `bridgedBy`); this map is what a sign-in offers.
+ */
+export const DEVICE_IDS_KEY = 'hub.deviceIds';
+
+/** The account part of a device-id key: trimmed, NFC, lower-cased (as the renderer compares). */
+const accountName = (name: string): string => name.normalize('NFC').trim().toLowerCase();
 
 /** The hub gives Navidrome 8 s for its check; past this it is not answering. */
 export const SIGNIN_TIMEOUT_MS = 15_000;
@@ -240,12 +251,21 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
             const base = deps.httpBase();
             if (!base) return { kind: 'noServer' };
             const device = deps.device();
+            const idKey = JSON.stringify([base, accountName(pair.username)]);
+            const stored = deps.store.get(DEVICE_IDS_KEY);
+            // First read after the upgrade: today's single slot becomes the id of the account
+            // signing in now (the current one). After that, an account offers only its own id.
+            const ids: Record<string, string> =
+                typeof stored === 'object' && stored !== null
+                    ? { ...(stored as Record<string, string>) }
+                    : { [idKey]: device.id };
+            const offered = typeof ids[idKey] === 'string' && ids[idKey] ? ids[idKey] : undefined;
             let status: number;
             let body: string;
             try {
                 const res = await deps.fetch(`${base}/hub/signin`, {
                     body: JSON.stringify({
-                        deviceId: device.id,
+                        deviceId: offered,
                         kind: device.kind,
                         name: device.name,
                         platform: device.platform,
@@ -275,6 +295,7 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
             if (result.kind === 'signedIn' && issued) {
                 keep(issued);
                 deps.setDeviceId(result.deviceId);
+                deps.store.set(DEVICE_IDS_KEY, { ...ids, [idKey]: result.deviceId });
                 deps.log.info(
                     `[hub] signed in as ${result.user.name} (admin=${result.user.admin}, ` +
                         `primary=${result.user.primary}); device credential length ${issued.length}` +

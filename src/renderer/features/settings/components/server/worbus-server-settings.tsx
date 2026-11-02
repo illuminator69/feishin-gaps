@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 
 import {
     DEFAULT_DEVICE_NAME,
@@ -25,9 +25,12 @@ import {
     signOutOfServer,
 } from '/@/renderer/features/hub/utils/hub-signin-actions';
 import { useLbBotAvailable } from '/@/renderer/features/lbbot/hooks/use-lbbot';
+import { Fold } from '/@/renderer/features/motion/fold';
+import { GrowBox } from '/@/renderer/features/motion/grow-box';
 import { useStationMode } from '/@/renderer/features/player/station/station-store';
 import { KEYWORDS } from '/@/renderer/features/settings/components/settings-keywords';
 import { SettingsSection } from '/@/renderer/features/settings/components/settings-section';
+import { useSettingSearchStore } from '/@/renderer/features/settings/store/search.store';
 import {
     useAudioMuseSettings,
     useAuthStore,
@@ -87,6 +90,7 @@ const ServerStatus = memo(() => {
     });
 
     const signedIn = useHubStore((s) => s.authSignedIn);
+    const authKnown = useHubStore((s) => s.authKnown);
     const signedOut = useHubStore((s) => s.signedOut);
     const signingIn = useHubStore((s) => s.signingIn);
     const signInResult = useHubStore((s) => s.signInResult);
@@ -106,6 +110,7 @@ const ServerStatus = memo(() => {
     });
     // Worbus P2: what the last sign-in said, and who the connection acts for (design §6.2, §6.5).
     const sign = {
+        authKnown,
         hasToken: settings.token.trim() !== '',
         result: signInResult,
         signedIn,
@@ -116,7 +121,7 @@ const ServerStatus = memo(() => {
     };
     const status = serverStatus(link, sign);
 
-    const lines =
+    const current =
         link === 'connected'
             ? capabilityLines({
                   clap: clap.data,
@@ -128,15 +133,30 @@ const ServerStatus = memo(() => {
               })
             : [];
 
+    // R30: the lines fold in and out with the connection; while they fold closed the last ones
+    // stay drawn, so the fold has something to close over.
+    const lastLines = useRef(current);
+    if (current.length > 0) lastLines.current = current;
+    const lines = current;
+    const drawn = current.length > 0 ? current : lastLines.current;
+
     return (
-        <Stack aria-live="polite" gap="xs">
-            <Text size="sm">{serverStatusSentence(status, settings.url, sign)}</Text>
-            {lines.map((line) => (
-                <Text isMuted key={line.id} size="sm">
-                    {line.text}
-                </Text>
-            ))}
-        </Stack>
+        // R30: the sentence growing to two lines, and the lines folding, move what is below with
+        // the app's own grow tween instead of jumping it.
+        <GrowBox name="server-status">
+            <Stack aria-live="polite" gap={0}>
+                <Text size="sm">{serverStatusSentence(status, settings.url, sign)}</Text>
+                <Fold name="server-capabilities" open={lines.length > 0}>
+                    <Stack gap="xs" pt="xs">
+                        {drawn.map((line) => (
+                            <Text isMuted key={line.id} size="sm">
+                                {line.text}
+                            </Text>
+                        ))}
+                    </Stack>
+                </Fold>
+            </Stack>
+        </GrowBox>
     );
 });
 
@@ -156,6 +176,8 @@ export const WorbusServerSettings = memo(() => {
     const showToken = showTokenField(signInResult);
 
     const configured = isHubConfigured({ ...settings, signedIn });
+    // Walk B6: what the Address field shows. With none, there is nowhere to sign in to.
+    const hasAddress = addressFieldValue(settings.url, configured) !== '';
     const [address, setAddress] = useState(addressFieldValue(settings.url, configured));
     const [name, setName] = useState(settings.name);
 
@@ -219,8 +241,11 @@ export const WorbusServerSettings = memo(() => {
             ),
             description:
                 'Uses the account this app is signed in to your music server with. Nothing to type.',
-            // Absent once signed in, and with no music server account to sign in with.
-            isHidden: signedIn || !username,
+            // R30: folds in and out.
+            fold: true,
+            // Absent once signed in, with no music server account to sign in with, and with no
+            // address to sign in to (walk B6).
+            isHidden: signedIn || !username || !hasAddress,
             keywords: KEYWORDS.serverSignIn,
             title: `Sign in as ${username}`,
         },
@@ -236,6 +261,7 @@ export const WorbusServerSettings = memo(() => {
             ),
             description:
                 'This computer forgets its sign-in to the Worbus Server. Your music server stays signed in.',
+            fold: true,
             isHidden: !signedIn,
             keywords: KEYWORDS.serverSignOut,
             title: 'Sign out of this server',
@@ -279,11 +305,27 @@ export const WorbusServerSettings = memo(() => {
         },
     ];
 
+    const keyword = useSettingSearchStore((state) => state.search);
+
     return (
-        <>
+        <Stack gap={0}>
             <SettingsSection options={options} title="Worbus Server" />
-            {showToken && <SettingsSection options={tokenOptions} title="Advanced" />}
-        </>
+            {keyword === '' ? (
+                // R30: the Advanced section folds in when an older server is found and out at a
+                // sign-in; its gap is inside the fold, so a closed one leaves none.
+                <Fold name="server-advanced" open={showToken}>
+                    <Stack pt="md">
+                        <SettingsSection options={tokenOptions} title="Advanced" />
+                    </Stack>
+                </Fold>
+            ) : (
+                showToken && (
+                    <Stack pt="md">
+                        <SettingsSection options={tokenOptions} title="Advanced" />
+                    </Stack>
+                )
+            )}
+        </Stack>
     );
 });
 

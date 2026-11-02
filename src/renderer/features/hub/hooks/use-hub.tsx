@@ -20,6 +20,7 @@ import {
     createAccountFollower,
 } from '/@/renderer/features/hub/utils/hub-roles';
 import {
+    clearLbQueries,
     currentServerUsername,
     reconcileSignIn,
     signInWithCurrentServer,
@@ -248,6 +249,7 @@ const reconciledMismatches = new Set<string>();
 
 const followAccountChange = createAccountFollower({
     clearFills: () => useActiveFillsStore.getState().actions.clear(),
+    clearLbQueries,
     clearMirror: () => clearIndexMirrorForHubChange(true),
     clearSavedQueues: () => useSavedQueuesStore.getState().actions.clearAll(),
     hubOn: () => {
@@ -1515,7 +1517,12 @@ export const useHub = () => {
         // not a different hub identity (R21 already hides the mirror then
         // without deleting it), but pointing at a different one is, and the
         // old hub's mirror otherwise keeps rendering under the new one.
-        if (moved) clearIndexMirrorForHubChange();
+        if (moved) {
+            clearIndexMirrorForHubChange();
+            // R29 (walk B3): a sign-in verdict - an older server above all - was about the old
+            // address. Dropped, so the token field goes and the upgrade sign-in runs here.
+            useHubStore.getState().actions.setStore({ signInResult: null });
+        }
     }, [settings.enabled, settings.url]);
 
     // Wire the inbound hub stream.

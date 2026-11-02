@@ -24,6 +24,7 @@ import {
     followAccount,
     ROLE_GATES,
     rolesOf,
+    routeAccess,
     userAfterRefusal,
 } from './hub-roles.ts';
 
@@ -169,10 +170,8 @@ test('non admin sees no admin actions', () => {
     const items = read('../../sidebar/components/navi-connect-items.ts');
     assert.match(items, /overridesSupported && allows\(roles, 'libraryMatches'\)/);
     const matches = read('../../library-matches/routes/library-matches-route.tsx');
-    assert.match(
-        matches,
-        /const roles = useHubRoles\(\);\s*const overridesSupported = useOverridesSupported\(\) && allows\(roles, 'libraryMatches'\)/,
-    );
+    // The route itself is gated (walk B7): absent for a non-admin, not "not offered here".
+    assert.match(matches, /<RoleGatedRoute gate="libraryMatches">/);
     // The fill buttons' failure toast is gated the same way, so a refusal hides, never toasts.
     const fills = read('../../lbbot/hooks/use-fill-actions.ts');
     assert.match(fills, /if \(!ok && downloadsShownNow\(\)\)/);
@@ -263,6 +262,7 @@ const recorder = (hubOn = true) => {
         calls,
         deps: {
             clearFills: () => calls.push('clearFills'),
+            clearLbQueries: () => calls.push('clearLbQueries'),
             clearMirror: () => calls.push('clearMirror'),
             clearSavedQueues: () => calls.push('clearSavedQueues'),
             hubOn: () => hubOn,
@@ -291,12 +291,19 @@ test('server switch signs out and back in', async () => {
         'clearMirror',
         'clearSavedQueues',
         'clearFills',
+        'clearLbQueries',
         'signIn',
     ]);
     // Connect off: nothing to sign in to, but the old account's traces still go.
     const off = recorder(false);
     await followAccount('switch', off.deps);
-    assert.deepEqual(off.calls, ['signOut', 'clearMirror', 'clearSavedQueues', 'clearFills']);
+    assert.deepEqual(off.calls, [
+        'signOut',
+        'clearMirror',
+        'clearSavedQueues',
+        'clearFills',
+        'clearLbQueries',
+    ]);
 
     const useHub = read('../hooks/use-hub.tsx');
     assert.match(
@@ -315,7 +322,7 @@ test('logout clears mirror and saved queues', async () => {
     // Review M5: the fill ledger (an admin's download history) is the old account's too.
     assert.deepEqual(
         r.calls,
-        ['signOut', 'clearMirror', 'clearSavedQueues', 'clearFills'],
+        ['signOut', 'clearMirror', 'clearSavedQueues', 'clearFills', 'clearLbQueries'],
         'and no sign-in',
     );
     const none = recorder();
@@ -372,6 +379,7 @@ test('account changes run one at a time and a welcome for another user is follow
     let first = true;
     const follow = createAccountFollower({
         clearFills: () => calls.push('clearFills'),
+        clearLbQueries: () => calls.push('clearLbQueries'),
         clearMirror: () => calls.push('clearMirror'),
         clearSavedQueues: () => calls.push('clearSavedQueues'),
         hubOn: () => true,
@@ -393,7 +401,14 @@ test('account changes run one at a time and a welcome for another user is follow
     assert.deepEqual(calls, ['signOut']);
     release();
     await Promise.all([a, b]);
-    const one = ['signOut', 'clearMirror', 'clearSavedQueues', 'clearFills', 'signIn'];
+    const one = [
+        'signOut',
+        'clearMirror',
+        'clearSavedQueues',
+        'clearFills',
+        'clearLbQueries',
+        'signIn',
+    ];
     assert.deepEqual(calls, [...one, ...one]);
 
     // At a welcome: signed in as someone other than the current server's account (a crash
@@ -504,7 +519,11 @@ test('lbbot too old clears on identity or a later answer', () => {
         speakers: 0,
         stations: 'stations',
     });
-    assert.equal(lines[0].text, 'Library tools: not available to your account on this server');
+    // R26: the copy names the cause, in the hub's own words.
+    assert.equal(
+        lines[0].text,
+        "Library tools: this server's lb-bot is too old for signed-in users",
+    );
 });
 
 // --- review M6: a demotion while the MBID dialog is open says why -------------------------------
@@ -540,4 +559,60 @@ test('account names compare trimmed and without case', () => {
     // A different account is still one.
     assert.equal(accountMismatch(owner, 'owner2', true), true);
     assert.equal(accountMismatch(owner, ' ', true), false, 'a blank name is no account');
+});
+
+// --- walk B1 (R28), B7: no other account's lb-bot answers; gated pages are absent ---------------
+
+test('an account change drops every lb-bot answer and gated pages leave', () => {
+    // Every lb-bot query, in memory and (through the persister's 'removed' events) on disk; an
+    // answer in flight for the old account is cancelled first, so it cannot land afterwards.
+    const actions = read('./hub-signin-actions.ts');
+    assert.match(
+        actions,
+        /export const clearLbQueries = \(\): void => \{\s*void queryClient\.cancelQueries\(\{ queryKey: \['lbbot'\] \}\);\s*queryClient\.removeQueries\(\{ queryKey: \['lbbot'\] \}\);/,
+    );
+    // Sign out of this server is an account change too (R28), and the follower wires the same.
+    const signOut = actions.slice(actions.indexOf('export const signOutOfServer'));
+    assert.match(signOut.slice(0, signOut.indexOf('\n};')), /clearLbQueries\(\);/);
+    const useHub = read('../hooks/use-hub.tsx');
+    assert.match(useHub, /createAccountFollower\(\{[\s\S]{0,200}clearLbQueries,/);
+    // A page a user's flags rule out: known user without the flag → leave (absent, history
+    // replaced); flags not known yet with a secret in play → nothing painted yet; an older hub
+    // (no user, no secret) → as today.
+    const BOB_USER = { admin: false, name: 'bob', primary: false };
+    assert.equal(routeAccess(BOB_USER, true, 'listening'), 'leave');
+    assert.equal(routeAccess(BOB_USER, true, 'libraryMatches'), 'leave');
+    assert.equal(routeAccess(ALICE, true, 'listening'), 'leave');
+    assert.equal(routeAccess(ALICE, true, 'libraryMatches'), 'show');
+    assert.equal(routeAccess(OWNER, true, 'listening'), 'show');
+    assert.equal(routeAccess(null, true, 'listening'), 'wait');
+    assert.equal(routeAccess(null, false, 'listening'), 'show');
+    const gate = read('../components/role-gated-route.tsx');
+    assert.match(
+        gate,
+        /if \(access === 'leave'\) return <Navigate replace to=\{AppRoute\.HOME\} \/>;/,
+    );
+    assert.match(gate, /if \(access === 'wait'\) return null;/);
+    const listening = read('../../listening/routes/listening-route.tsx');
+    assert.match(
+        listening,
+        /<RoleGatedRoute gate="listening">\s*<ListeningRoute \/>\s*<\/RoleGatedRoute>/,
+    );
+    const matches = read('../../library-matches/routes/library-matches-route.tsx');
+    assert.match(
+        matches,
+        /<RoleGatedRoute gate="libraryMatches">\s*<LibraryMatchesRoute \/>\s*<\/RoleGatedRoute>/,
+    );
+    // B7: no wrong reason ("does not offer library matches yet") for a role: the gate is the route's.
+    assert.doesNotMatch(matches, /useOverridesSupported\(\) && allows\(roles, 'libraryMatches'\)/);
+});
+
+// --- walk B3 (R29): an older-server verdict belongs to its address ------------------------------
+
+test('an older server verdict is dropped when the address changes', () => {
+    const useHub = read('../hooks/use-hub.tsx');
+    assert.match(
+        useHub,
+        /if \(moved\) \{\s*clearIndexMirrorForHubChange\(\);\s*\/\/[^\n]*\n(?:\s*\/\/[^\n]*\n)*\s*useHubStore\.getState\(\)\.actions\.setStore\(\{ signInResult: null \}\);/,
+    );
 });

@@ -8,6 +8,8 @@
  */
 export interface SearchableRow {
     description?: unknown;
+    /** Comes and goes with state: kept, folded closed, while hidden (R30) - never in a search. */
+    fold?: boolean;
     isHidden?: boolean;
     keywords?: readonly string[];
     title: string;
@@ -52,3 +54,20 @@ export const extraShown = (
 /** A section is drawn without a query, and with one only when it has something to show. */
 export const sectionDrawn = (keyword: string, rowCount: number, extra: boolean): boolean =>
     keyword === '' || rowCount > 0 || extra;
+
+/**
+ * The rows a section draws, each with whether it is open (R30: the app's transitions, no snap). With
+ * no query, a hidden row marked `fold` stays, closed, so it can fold open when its state changes
+ * instead of appearing in one frame (and the rows under it move with it). A search draws only
+ * visible matching rows, as {@link sectionRows}.
+ */
+export const foldedRows = <T extends SearchableRow>(
+    keyword: string,
+    sectionTitle: string,
+    rows: readonly T[],
+): { open: boolean; row: T }[] =>
+    keyword === ''
+        ? rows
+              .filter((row) => !row.isHidden || row.fold)
+              .map((row) => ({ open: !row.isHidden, row }))
+        : sectionRows(keyword, sectionTitle, rows).map((row) => ({ open: true, row }));

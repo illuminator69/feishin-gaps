@@ -109,7 +109,8 @@ export const capabilityLines = (i: CapabilityInput): CapabilityLine[] => {
         {
             id: 'library',
             text: i.libraryToolsTooOld
-                ? 'Library tools: not available to your account on this server'
+                ? // R26: the cause, in the hub's own words - not a permission refusal.
+                  "Library tools: this server's lb-bot is too old for signed-in users"
                 : i.libraryToolsRefused
                   ? 'Library tools: the server refused this device'
                   : i.libraryTools
@@ -185,6 +186,8 @@ export type ServerStatusId =
     | HubLink;
 
 export interface SignInInput {
+    /** Main has answered what it holds (`hub.store.authKnown`); absent reads as known. */
+    authKnown?: boolean;
     /** A token is typed (the field shown for older servers, or one kept from before). */
     hasToken: boolean;
     /** The last sign-in's answer this session (`hub.store.signInResult`). */
@@ -223,7 +226,14 @@ export const serverStatus = (link: HubLink, s: SignInInput): ServerStatusId => {
         return s.result.kind as ServerStatusId;
     }
     if (link === 'off') return link;
-    if (link === 'connected') return s.signedIn && s.user ? 'signedIn' : 'connected';
+    if (link === 'connected') {
+        if (s.signedIn && s.user) return 'signedIn';
+        // Walk B5: a connection with neither a secret nor a token is one being torn down (Sign
+        // out clears the secret before the transport says so; main never connects without a
+        // credential). Not "Connected". Before main has answered, a welcome is believed.
+        if (s.authKnown !== false && !s.signedIn && !s.hasToken) return 'notSignedIn';
+        return 'connected';
+    }
     if (s.result?.kind === 'oldServer' && !s.hasToken) return 'oldServer';
     if (!s.signedIn && !s.hasToken) return 'notSignedIn';
     return link;

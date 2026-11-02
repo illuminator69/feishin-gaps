@@ -72,6 +72,21 @@ export type RoleGate = keyof typeof ROLE_GATES;
 export const allows = (roles: HubRoles, gate: RoleGate): boolean => roles[ROLE_GATES[gate]];
 
 /**
+ * A page behind a role gate, opened directly (history, a stale link: walk B1, B7). The hub named
+ * a user without the flag: `leave` - the page is absent, as its sidebar entry is. A secret in play
+ * and no user heard yet: `wait` - nothing is painted (no cached answer of another account). No user
+ * and no secret (an older hub): `show`, as today.
+ */
+export const routeAccess = (
+    user: HubUser | null,
+    pending: boolean,
+    gate: RoleGate,
+): 'leave' | 'show' | 'wait' => {
+    if (user) return allows(rolesOf(user), gate) ? 'show' : 'leave';
+    return pending ? 'wait' : 'show';
+};
+
+/**
  * lb-bot (or the hub) refused an action for a role the client still believed it had - a demotion
  * the `user` frame has not brought yet. Lower the flag now, so the action hides in place instead
  * of being offered again; the next `user` frame or welcome restates the real flags. No user (an
@@ -136,6 +151,11 @@ export const accountMismatch = (
 export interface AccountFollowDeps {
     /** The lb-bot fill ledger (an admin's downloads and their history: review M5). */
     clearFills: () => void;
+    /**
+     * Every lb-bot query answer, in memory and on disk (R28): the old account's listening, Fresh
+     * with its plays, overrides - none of it is the new account's to see.
+     */
+    clearLbQueries: () => void;
     clearMirror: () => void;
     clearSavedQueues: () => void;
     /** Connect is on and an address is set: a sign-in has somewhere to go. */
@@ -162,6 +182,7 @@ export const followAccount = async (
     deps.clearMirror();
     deps.clearSavedQueues();
     deps.clearFills();
+    deps.clearLbQueries();
     if (change === 'switch' && deps.hubOn()) await deps.signIn();
 };
 

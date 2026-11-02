@@ -1,6 +1,7 @@
 import isElectron from 'is-electron';
 
 import { hasTypedToken } from '/@/renderer/features/hub/utils/hub-credential';
+import { queryClient } from '/@/renderer/lib/react-query';
 import { useAuthStore, useHubStore, useSettingsStore } from '/@/renderer/store';
 import { logger } from '/@/renderer/utils/logger';
 import {
@@ -48,6 +49,17 @@ const clearTypedToken = (): void => {
     useSettingsStore.getState().actions.setSettings({ hub: { token: '' } });
 };
 
+/**
+ * R28: every lb-bot answer goes, in memory and on disk (the persister writes the snapshot again on
+ * each 'removed' event). A read in flight for the old account is cancelled first, so it cannot
+ * land afterwards. The other account's listening, Fresh with its plays and the overrides are not
+ * this account's to see; the pages refetch.
+ */
+export const clearLbQueries = (): void => {
+    void queryClient.cancelQueries({ queryKey: ['lbbot'] });
+    queryClient.removeQueries({ queryKey: ['lbbot'] });
+};
+
 const apply = (result: HubSignInResult | null, silent: boolean): void => {
     const { setStore } = useHubStore.getState().actions;
     // Whatever the answer, no sign-in is owed any more: it was made.
@@ -60,6 +72,9 @@ const apply = (result: HubSignInResult | null, silent: boolean): void => {
     logger.info(`[hub] sign-in${silent ? ' (silent)' : ''}: ${result.kind}`);
     if (result.kind === 'signedIn') {
         setStore({
+            // Walk B4: the transport restarts with the secret; "connecting" until its welcome,
+            // not "Can't reach" counted from a settings push made long before.
+            attemptAt: Date.now(),
             authSignedIn: true,
             signedOut: false,
             signingIn: false,
@@ -109,6 +124,8 @@ export const signOutOfServer = async (opts: { reconnect: boolean }): Promise<voi
     // R23 (b): the typed token goes with the secret (main retires it too): a signed-out device is
     // not connected, never the primary user through the shared token.
     clearTypedToken();
+    // R28: what lb-bot answered this account is not the next one's.
+    clearLbQueries();
     setStore({
         authOwed: false,
         authSignedIn: false,
