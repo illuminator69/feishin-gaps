@@ -1,6 +1,6 @@
 import isElectron from 'is-electron';
 
-import { useSettingsStore } from '/@/renderer/store/settings.store';
+import { hubSetUpNow } from '/@/renderer/store/hub-set-up';
 import { ServerListItem } from '/@/shared/types/domain-types';
 
 // navi-connect Tier 2: AudioMuse-AI core API, for what the hub's stations do not cover: CLAP
@@ -20,11 +20,9 @@ export interface AudioMuseSettings {
 
 const bridge = () => (isElectron() ? window.api.audioMuse : undefined);
 
-// Reads the store directly so the async fetchers below stay non-reactive.
-const hubRouteConfigured = (): boolean => {
-    const h = useSettingsStore.getState().hub;
-    return Boolean(h?.enabled && h.url && h.token);
-};
+// Reads the stores directly so the async fetchers below stay non-reactive. Worbus P2: a device
+// signed in to the hub has no typed token, so the test is the credential's (hub-credential.ts).
+const hubRouteConfigured = (): boolean => hubSetUpNow();
 
 const audioMuseConfigured = (settings: AudioMuseSettings): boolean =>
     isElectron() && (hubRouteConfigured() || (Boolean(settings.url) && Boolean(settings.token)));

@@ -99,6 +99,7 @@ const ServerStatus = memo(() => {
         connected,
         enabled: settings.enabled,
         now,
+        signedIn,
         token: settings.token,
         url: settings.url,
     });
@@ -152,7 +153,7 @@ export const WorbusServerSettings = memo(() => {
     // The token field exists only after a sign-in found an older server (R6).
     const showToken = showTokenField(signInResult);
 
-    const configured = isHubConfigured(settings);
+    const configured = isHubConfigured({ ...settings, signedIn });
     const [address, setAddress] = useState(addressFieldValue(settings.url, configured));
     const [name, setName] = useState(settings.name);
 
@@ -190,7 +191,9 @@ export const WorbusServerSettings = memo(() => {
                     onBlur={() => {
                         const url = normaliseHubAddress(address);
                         if (url !== settings.url) setSettings({ hub: { url } });
-                        setAddress(addressFieldValue(url, isHubConfigured({ ...settings, url })));
+                        setAddress(
+                            addressFieldValue(url, isHubConfigured({ ...settings, signedIn, url })),
+                        );
                     }}
                     onChange={(e) => setAddress(e.currentTarget.value)}
                     placeholder="ws://192.168.1.10:4790"

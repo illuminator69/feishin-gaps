@@ -5,6 +5,7 @@ import { clear, createStore, entries, promisifyRequest, UseStore } from 'idb-key
 import isElectron from 'is-electron';
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 
+import { hubSecretHeld, hubSetUp } from '/@/renderer/features/hub/utils/hub-credential';
 import {
     EMPTY_MIRROR_META,
     lookupByNdId,
@@ -19,6 +20,7 @@ import {
 } from '/@/renderer/features/lbbot/index-mirror/mirror-logic';
 import { gapCount } from '/@/renderer/features/library/library-model';
 import { queryClient } from '/@/renderer/lib/react-query';
+import { hubSetUpNow, useHubSetUp } from '/@/renderer/store/hub-set-up';
 import { lbBotDownNow, useHubStore } from '/@/renderer/store/hub.store';
 import { useSettingsStore } from '/@/renderer/store/settings.store';
 import { logger } from '/@/renderer/utils/logger';
@@ -697,13 +699,10 @@ export const useLbBotIndexSync = (): void => {
 // Reading the mirror — the API artist and `mb:` pages consume
 // ---------------------------------------------------------------------------
 
-/** The predicate behind {@link mirrorShown}, over a given hub setting. */
-const hubConfigured = (hub?: { enabled: boolean; token: string; url: string }): boolean =>
-    Boolean(hub?.enabled && hub.url && hub.token);
-
 /**
  * Whether the mirror is shown at all: the hub is switched on in settings and
- * has a URL and a token (Ruling R21) — the same definition as Navic's
+ * has a URL and a credential (Ruling R21; Worbus P2: a device secret held, or a
+ * typed token - hub-credential.ts) — the same definition as Navic's
  * `LbBotManager.isConfigured`, and as `hubRouteConfigured` in the AudioMuse
  * client here. A preference read, not a probe.
  *
@@ -715,12 +714,12 @@ const hubConfigured = (hub?: { enabled: boolean; token: string; url: string }): 
  * renders then. Nothing is deleted either; the stored mirror stays in memory
  * and on disk, so switching the hub back on shows it again at once.
  */
-export const mirrorShown = (): boolean => hubConfigured(useSettingsStore.getState().hub);
+export const mirrorShown = (): boolean => hubSetUpNow();
 
 /** {@link mirrorShown} as a hook, re-rendering when it flips — for the lb-bot
  *  answers kept outside the mirror (react-query's persisted reads), which the
  *  same rule governs. */
-export const useMirrorShown = (): boolean => useSettingsStore((state) => hubConfigured(state.hub));
+export const useMirrorShown = (): boolean => useHubSetUp();
 
 let watchingHubSetting = false;
 
@@ -731,9 +730,13 @@ const watchHubSetting = () => {
     if (watchingHubSetting) return;
     watchingHubSetting = true;
     useSettingsStore.subscribe(
-        (state) => hubConfigured(state.hub),
+        (state) => hubSetUp(state.hub, hubSecretHeld(useHubStore.getState())),
         () => notify(),
     );
+    // Worbus P2: a sign-in (or a sign-out) flips it too, with no setting moving.
+    useHubStore.subscribe((state, prev) => {
+        if (hubSecretHeld(state) !== hubSecretHeld(prev)) notify();
+    });
 };
 
 /** Called on every change that could alter a lookup. Subscribing starts the

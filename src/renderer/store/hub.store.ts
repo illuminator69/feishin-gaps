@@ -112,6 +112,11 @@ interface HubState {
      */
     attemptAt: number;
     /**
+     * Worbus P2: a sign-in is owed and the silent one is under way (main's `needsSignIn` at start,
+     * or the server's 4005). Counts as holding a credential (hub-credential.ts) until it answers.
+     */
+    authOwed: boolean;
+    /**
      * F2: the hub answered this connection's token with an `auth` error (the same frame that
      * raises the toast). The transport stands down on it, so nothing else would say why the link
      * is down: the Server tab reads it for "the server refused the access token". Cleared by
@@ -203,6 +208,7 @@ const initialState: HubState = {
     activeDeviceId: null,
     actPins: NO_PINS,
     attemptAt: 0,
+    authOwed: false,
     authRefused: false,
     authSignedIn: false,
     connected: false,

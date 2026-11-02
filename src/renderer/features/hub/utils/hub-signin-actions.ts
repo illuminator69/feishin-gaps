@@ -37,6 +37,8 @@ const post = async (pair: SignInPair): Promise<HubSignInResult> => {
 
 const apply = (result: HubSignInResult | null, silent: boolean): void => {
     const { setStore } = useHubStore.getState().actions;
+    // Whatever the answer, no sign-in is owed any more: it was made.
+    setStore({ authOwed: false });
     if (result === null) {
         setStore({ signedOut: true, signingIn: false });
         return;
@@ -89,7 +91,13 @@ export const silentSignIn = createSilentSignIn({
  */
 export const signOutOfServer = async (opts: { reconnect: boolean }): Promise<void> => {
     const { setStore } = useHubStore.getState().actions;
-    setStore({ authSignedIn: false, signedOut: false, signInResult: null, user: null });
+    setStore({
+        authOwed: false,
+        authSignedIn: false,
+        signedOut: false,
+        signInResult: null,
+        user: null,
+    });
     if (!hub) return;
     try {
         await hub.signOut(opts);
@@ -102,6 +110,8 @@ export const signOutOfServer = async (opts: { reconnect: boolean }): Promise<voi
 export const refreshAuthState = async (): Promise<boolean> => {
     if (!hub) return false;
     const state = await hub.authState();
-    useHubStore.getState().actions.setStore({ authSignedIn: state.signedIn });
+    useHubStore
+        .getState()
+        .actions.setStore({ authOwed: state.needsSignIn, authSignedIn: state.signedIn });
     return state.needsSignIn;
 };

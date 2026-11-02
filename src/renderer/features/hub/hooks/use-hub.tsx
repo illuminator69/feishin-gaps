@@ -1736,7 +1736,7 @@ export const useHub = () => {
                 // Worbus P2: main saw close 4005 (or `signed_out`), forgot the secret and stood
                 // down. One silent sign-in with the current server's account; failing that, the
                 // Server tab reads "Signed out of the Worbus Server".
-                setStore({ authSignedIn: false, user: null });
+                setStore({ authOwed: true, authSignedIn: false, user: null });
                 void silentSignIn.signedOut();
             } else if (msg.t === 'disconnected') {
                 // The main process lost the socket. Clear active/connected so

@@ -3,6 +3,7 @@ import isElectron from 'is-electron';
 
 import { moodsShown } from '/@/renderer/features/moods/mood-mix';
 import { useCurrentServer, useHubSettings } from '/@/renderer/store';
+import { useHubSecretHeld } from '/@/renderer/store/hub-set-up';
 import { logger } from '/@/renderer/utils/logger';
 import { MoodCatalogue, MoodListData, MoodResult } from '/@/shared/types/mood-types';
 import { parseStoredMoodCatalogue } from '/@/shared/utils/mood-parse';
@@ -91,7 +92,12 @@ export const useMoodCatalogue = (): {
 } => {
     const hub = useHubSettings();
     const server = useCurrentServer();
-    const on = moodsShown({ electron: isElectron(), hub, serverType: server?.type });
+    const on = moodsShown({
+        electron: isElectron(),
+        hub,
+        secretHeld: useHubSecretHeld(),
+        serverType: server?.type,
+    });
 
     const query = useQuery<MoodCatalogue | null>({
         enabled: on,

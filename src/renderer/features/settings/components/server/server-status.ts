@@ -1,5 +1,6 @@
 import type { HubSignInResult, HubUser } from '../../../../../shared/utils/hub-signin.ts';
 
+import { hasHubCredential } from '../../../hub/utils/hub-credential.ts';
 import { SIGN_IN_REFUSAL_TEXT } from '../../../hub/utils/hub-failure.ts';
 
 /**
@@ -31,6 +32,8 @@ export interface HubLinkInput {
     connected: boolean;
     enabled: boolean;
     now: number;
+    /** Worbus P2: main holds a device secret (a signed-in device has no typed token). */
+    signedIn?: boolean;
     token: string;
     url: string;
 }
@@ -40,14 +43,25 @@ export interface HubLinkInput {
  * value but is not one, so a profile with the switch off, no token and the default address is
  * "not configured".
  */
-export const isHubConfigured = (s: { enabled: boolean; token: string; url: string }): boolean =>
-    s.enabled || s.token.trim() !== '' || (s.url.trim() !== '' && s.url !== DEFAULT_HUB_URL);
+export const isHubConfigured = (s: {
+    enabled: boolean;
+    signedIn?: boolean;
+    token: string;
+    url: string;
+}): boolean =>
+    s.enabled ||
+    hasHubCredential(s, s.signedIn === true) ||
+    (s.url.trim() !== '' && s.url !== DEFAULT_HUB_URL);
 
 export const hubLink = (i: HubLinkInput): HubLink => {
     if (i.enabled && i.connected) return 'connected';
     if (!i.enabled) return isHubConfigured(i) ? 'off' : 'notConfigured';
-    // The untouched default shows as an empty field, so with no token it is not an address yet.
-    if (i.url.trim() === '' || (i.url === DEFAULT_HUB_URL && i.token.trim() === '')) {
+    // The untouched default shows as an empty field, so with no credential it is not an address
+    // yet.
+    if (
+        i.url.trim() === '' ||
+        (i.url === DEFAULT_HUB_URL && !hasHubCredential(i, i.signedIn === true))
+    ) {
         return 'notConfigured';
     }
     if (i.authRefused) return 'refused';

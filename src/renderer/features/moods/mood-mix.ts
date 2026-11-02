@@ -1,6 +1,7 @@
 import type { MoodCatalogue, MoodEntry, MoodVariant } from '../../../shared/types/mood-types.ts';
 
 import { tintHues } from '../../../shared/components/animations/tint-hues.ts';
+import { hubSetUp } from '../hub/utils/hub-credential.ts';
 
 /**
  * The rules of a Home mood mix (spec/mood-contract.md): which moods are chips, how a mix is
@@ -168,16 +169,15 @@ export const tilePlayResult = (
 
 /**
  * Moods show only in the desktop app, for a Navidrome server (the hub's ids are Navidrome's), with
- * the hub switched on and configured (a url and a token): a hub the user disabled or never set up
- * renders nothing, a stored copy included.
+ * the hub switched on and set up (an address and a credential: a device secret held, or a typed
+ * token - hub-credential.ts): a hub the user disabled or never set up renders nothing, a stored
+ * copy included.
  */
 export const moodsShown = (input: {
     electron: boolean;
     hub: { enabled: boolean; token: string; url: string };
+    /** Worbus P2: main holds (or is getting) a device secret. */
+    secretHeld: boolean;
     serverType: string | undefined;
 }): boolean =>
-    input.electron &&
-    input.hub.enabled &&
-    !!input.hub.url &&
-    !!input.hub.token &&
-    input.serverType === 'navidrome';
+    input.electron && hubSetUp(input.hub, input.secretHeld) && input.serverType === 'navidrome';
