@@ -27,6 +27,13 @@ import {
     isHubConnected,
 } from '../hub';
 import { castHelloFrame } from './cast-hello';
+import {
+    adoptable,
+    CastStatusLike,
+    OwnCast,
+    streamIdentity,
+    takeoverStep,
+} from './foreign-session';
 import { logSafeStreamId } from './log-id';
 import { CastKind, castKind, receiverLevel } from './receiver-info';
 
@@ -173,6 +180,9 @@ class CastDeviceBridge {
 
     private destroyed = false;
 
+    /** Worbus P2: media sessions released as another user's, never adopted (foreign-session.ts). */
+    private readonly foreignMediaSessions = new Set<number>();
+
     private heartbeatTimer: NodeJS.Timeout | null = null;
 
     private hubAlive = false;
@@ -196,6 +206,12 @@ class CastDeviceBridge {
      * for — so the race silently rewound playback.
      */
     private loadInFlight: null | Promise<boolean> = null;
+
+    /** Worbus P2: the receiver app session this bridge launched or joined. */
+    private ownAppSessionId: null | string = null;
+
+    /** Worbus P2: the media session this bridge's own LOAD (or a proven adoption) produced. */
+    private ownMediaSessionId: null | number = null;
 
     private playing = false;
 
@@ -407,11 +423,9 @@ class CastDeviceBridge {
                             // Matching is on the Subsonic track id, not the whole URL — see
                             // streamIdentity().
                             const playingId = streamIdentity(contentId);
-                            const matches =
-                                !!playingId &&
-                                this.tracks.some(
-                                    (tk) => streamIdentity(tk.streamUrl) === playingId,
-                                );
+                            // Worbus P2: and never a session this bridge released as another
+                            // user's - one library, so their track can be in this queue too.
+                            const matches = adoptable(status, this.ownCast());
                             if (!matches) {
                                 log.info(
                                     `[cast-bridge] ${this.friendlyName}: running session is not ` +
@@ -450,6 +464,11 @@ class CastDeviceBridge {
                             }
                             this.castClient = client;
                             this.castPlayer = player;
+                            this.ownAppSessionId = running.sessionId ?? null;
+                            this.ownMediaSessionId =
+                                typeof status?.mediaSessionId === 'number'
+                                    ? status.mediaSessionId
+                                    : null;
                             this.watchReceiver(client);
                             (
                                 player as unknown as {
@@ -658,6 +677,35 @@ class CastDeviceBridge {
                 done(false);
             }
         });
+    }
+
+    /**
+     * Worbus P2: judge a status against what this bridge owns (foreign-session.ts). Taken while
+     * playing, the speaker is reported released; taken while not, the player is only let go.
+     * Either way that session is never adopted. Returns whether the status was someone else's.
+     */
+    private checkTakeover(status: CastStatusLike | null | undefined): boolean {
+        if (!this.castPlayer && !this.castClient) return false;
+        const step = takeoverStep(status, this.ownCast(), {
+            loading: this.loadInFlight !== null,
+            playing: this.playing,
+        });
+        if (step === 'none') return false;
+        if (
+            typeof status?.mediaSessionId === 'number' &&
+            status.mediaSessionId !== this.ownMediaSessionId
+        ) {
+            this.foreignMediaSessions.add(status.mediaSessionId);
+        }
+        if (step === 'release') {
+            this.releaseTakenSpeaker();
+        } else {
+            log.info(
+                `[cast-bridge] ${this.friendlyName}: another session is on the speaker - letting go of it`,
+            );
+            this.teardownCast();
+        }
+        return true;
     }
 
     /**
@@ -1112,6 +1160,7 @@ class CastDeviceBridge {
                         log.info(
                             `[cast-bridge] ${this.friendlyName}: joined the running media receiver`,
                         );
+                        this.noteOwnApp(running.sessionId);
                         resolve(player);
                     });
                     return;
@@ -1133,6 +1182,10 @@ class CastDeviceBridge {
                         return;
                     }
                     log.info(`[cast-bridge] ${this.friendlyName}: media receiver launched`);
+                    this.noteOwnApp(
+                        (player as unknown as { session?: { sessionId?: string } }).session
+                            ?.sessionId,
+                    );
                     resolve(player);
                 });
             });
@@ -1210,6 +1263,10 @@ class CastDeviceBridge {
                                 `[cast-bridge] ${this.friendlyName}: load ok → ` +
                                     `${status?.playerState ?? 'no status'}`,
                             );
+                            // Worbus P2: the media session this LOAD started is this bridge's.
+                            if (typeof status?.mediaSessionId === 'number') {
+                                this.ownMediaSessionId = status.mediaSessionId;
+                            }
                             resolve();
                         }
                     },
@@ -1364,6 +1421,14 @@ class CastDeviceBridge {
         );
     }
 
+    // ---------------------------------------------------------------- cast
+
+    /** A new receiver app session of this bridge's own: any media session id is yet to come. */
+    private noteOwnApp(sessionId: string | undefined): void {
+        this.ownAppSessionId = sessionId ?? null;
+        this.ownMediaSessionId = null;
+    }
+
     /**
      * The speaker said its volume: a RECEIVER_STATUS broadcast (somebody turned it at the
      * device, or from another app), or the answer to a request of ours.
@@ -1374,8 +1439,6 @@ class CastDeviceBridge {
         this.receiverVolume = level;
         this.reportVolume();
     }
-
-    // ---------------------------------------------------------------- cast
 
     /**
      * The device closed our connection (idle timeout, receiver app replaced by another
@@ -1393,6 +1456,8 @@ class CastDeviceBridge {
 
     private onCastStatus(status: import('castv2-client').CastMediaStatus): void {
         if (this.releasing) return;
+        // Worbus P2: another user's session on this speaker is not ours to report or drive.
+        if (this.checkTakeover(status)) return;
         log.info(
             `[cast-bridge] ${this.friendlyName}: status ${status.playerState ?? '?'}` +
                 `${status.idleReason ? `/${status.idleReason}` : ''}` +
@@ -1427,6 +1492,17 @@ class CastDeviceBridge {
                 this.report({ ended: true });
             }
         }
+    }
+
+    private ownCast(): OwnCast {
+        return {
+            appSessionId: this.ownAppSessionId,
+            foreignMediaSessions: this.foreignMediaSessions,
+            mediaSessionId: this.ownMediaSessionId,
+            queueIds: this.tracks
+                .map((track) => streamIdentity(track.streamUrl))
+                .filter((id): id is string => !!id),
+        };
     }
 
     private async probeReachability(): Promise<void> {
@@ -1500,6 +1576,26 @@ class CastDeviceBridge {
                 done(null);
             }
         });
+    }
+
+    /**
+     * Someone else cast to this speaker while this bridge was playing (the last caster wins).
+     * Report it released, as a `do:release` would: a paused report, then `released` with the last
+     * position this bridge itself heard, so the hub clears the active slot and its user's session
+     * pauses where they were. Never pause or stop - that is the other user's music now.
+     */
+    private releaseTakenSpeaker(): void {
+        log.info(
+            `[cast-bridge] ${this.friendlyName}: the speaker was taken by another session - ` +
+                'reporting it released',
+        );
+        this.releasing = true;
+        this.stopTicker();
+        this.playing = false;
+        this.report();
+        this.send({ index: this.index, positionMs: this.lastPositionMs, t: 'released' });
+        this.teardownCast();
+        this.releasing = false;
     }
 
     private report(extra?: Record<string, unknown>): void {
@@ -1746,6 +1842,7 @@ class CastDeviceBridge {
                 this.castPlayer.getStatus((_err, status) => {
                     this.statusInFlight = false;
                     if (this.releasing) return;
+                    if (this.checkTakeover(status)) return;
                     // Ignore transient 0 readings during rebuffering (see onCastStatus).
                     if (typeof status?.currentTime === 'number' && status.currentTime > 0) {
                         this.lastPositionMs = Math.round(status.currentTime * 1000);
@@ -1803,6 +1900,8 @@ class CastDeviceBridge {
         this.castClient = null;
         this.castPlayer = null;
         this.playing = false;
+        this.ownAppSessionId = null;
+        this.ownMediaSessionId = null;
         this.announceAppGone();
     }
 
@@ -1826,7 +1925,10 @@ class CastDeviceBridge {
      */
     private watchReceiver(client: Client): void {
         client.on('status', (status) => {
-            if (this.castClient === client) this.noteReceiverVolume(status?.volume);
+            if (this.castClient !== client) return;
+            // Worbus P2: the app session this bridge holds stopped running - another sender.
+            if (this.checkTakeover(status)) return;
+            this.noteReceiverVolume(status?.volume);
         });
         try {
             client.getStatus((err, status) => {
@@ -1837,27 +1939,6 @@ class CastDeviceBridge {
             /* castv2 throws synchronously on a dead socket; the next broadcast will say */
         }
     }
-}
-
-/**
- * Identity of a track inside a stream URL, for comparing against a Chromecast's
- * `contentId`.
- *
- * Comparing whole URLs looked equivalent and was not: the URL carries a salted auth
- * token and transcoding parameters, so rotating credentials, changing the bitrate
- * setting or publishing from a different client all produce a different string for the
- * same song — and every ownership check that depended on it silently answered "not
- * ours". The Subsonic id is the part that actually identifies the track.
- */
-function streamIdentity(url: null | string | undefined): null | string {
-    if (!url) return null;
-    try {
-        const id = new URL(url).searchParams.get('id');
-        if (id) return id;
-    } catch {
-        /* not a parseable URL — fall through */
-    }
-    return url;
 }
 
 // ------------------------------------------------------------------ manager

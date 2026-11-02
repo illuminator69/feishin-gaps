@@ -503,6 +503,11 @@ test('cast bridge hello carries bridgedBy', async () => {
     assert.equal(frame.t, 'hello');
     assert.equal(frame.device.id, 'cast-abcd');
     assert.equal(frame.device.bridgedBy, 'minted-id-0001', 'the id the hub gave this device (R4)');
+    assert.notEqual(
+        frame.device.bridgedBy,
+        'old-device-id',
+        'never the locally generated id: the hub would take that hello as the main socket',
+    );
     assert.deepEqual(frame.auth, { deviceSecret: SECRET }, "the bridging device's own secret");
     assert.ok(!('token' in frame), 'no shared token beside a secret');
     assert.deepEqual(frame.device.caps, ['receiver', 'loadAck', 'idleVolume']);
@@ -527,6 +532,13 @@ test('cast bridge hello carries bridgedBy', async () => {
             token: 'legacy',
         },
     );
+    // The chain from the sign-in answer to the bridge: the answer's id is written to the one key
+    // the device id is read from, and the bridge reads exactly that.
+    const hub = read('./index.ts');
+    assert.match(hub, /setDeviceId: \(id\) => store\.set\('hub\.deviceId', id\)/);
+    assert.match(hub, /function deviceId\(\): string \{\s*let id = store\.get\('hub\.deviceId'\)/);
+    assert.match(hub, /export const getHubDeviceId = \(\): string => deviceId\(\);/);
+    assert.match(hub, /id: deviceId\(\),/, 'the main hello claims the same id');
     const cast = read('../cast/index.ts');
     assert.match(
         cast,
