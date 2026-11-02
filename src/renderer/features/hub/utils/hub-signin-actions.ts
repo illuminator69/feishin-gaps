@@ -102,6 +102,7 @@ const apply = (result: HubSignInResult | null, silent: boolean): void => {
 
 /** The Server tab's "Sign in as <name>". */
 export const signInWithCurrentServer = async (): Promise<HubSignInResult> => {
+    cancelSignInRetry();
     const pair = currentServerPair();
     const result: HubSignInResult = pair ? await post(pair) : { kind: 'noAccount' };
     apply(result, false);
@@ -127,6 +128,7 @@ export const signOutOfServer = async (opts: { reconnect: boolean }): Promise<voi
     // R23 (b): the typed token goes with the secret (main retires it too): a signed-out device is
     // not connected, never the primary user through the shared token.
     clearTypedToken();
+    cancelSignInRetry();
     // R28: what lb-bot answered this account is not the next one's.
     clearLbQueries();
     setStore({
@@ -173,9 +175,14 @@ const WAITING = new Set<HubSignInResult['kind']>([
     'unreachable',
 ]);
 
-const retryLater = (kind: HubSignInResult['kind']): void => {
+/** The waiting retry ends: a sign-out, a logout or a switch, or the user's own tap (R36 tidy-up). */
+export const cancelSignInRetry = (): void => {
     if (retryTimer !== null) clearTimeout(retryTimer);
     retryTimer = null;
+};
+
+const retryLater = (kind: HubSignInResult['kind']): void => {
+    cancelSignInRetry();
     if (!WAITING.has(kind)) return;
     retryTimer = setTimeout(() => {
         retryTimer = null;

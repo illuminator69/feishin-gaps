@@ -194,9 +194,10 @@ export interface HubAuth {
     newServer: () => void;
     /**
      * An older server (R6; R24: a 4001 answering a hello that carried the secret): the secret is no
-     * use there, no sign-in is owed, and the typed token is the credential again.
+     * use there, no sign-in is owed, and the typed token is the credential again. False (nothing
+     * changed) at an address that welcomed with a user this launch (R36).
      */
-    oldServer: () => void;
+    oldServer: () => boolean;
     /** The hub refused the secret (close 4005 / `signed_out`): forget it; a sign-in is owed. */
     signedOutByServer: () => void;
     signIn: (pair: SignInPair) => Promise<HubSignInResult>;
@@ -223,6 +224,17 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
      * 405 POST per launch on a P1 hub), so a hub upgraded in place is found at the next launch.
      */
     const answeredThisLaunch = new Set<string>();
+    /**
+     * R36: addresses that sent a `welcome` naming a user this launch - hubs of this round. An
+     * OldServer answer from one (a proxy that does not forward /hub/*, say) is not believed: it
+     * reads as unreachable, so a P2 welcome and an older-hub answer cannot hand the token back
+     * and forth (restart, welcome, restart...) with no back-off.
+     */
+    const p2ThisLaunch = new Set<string>();
+    const atP2Hub = () => {
+        const base = deps.httpBase();
+        return base !== null && p2ThisLaunch.has(base);
+    };
     const atOldServer = () => {
         const base = deps.httpBase();
         return base !== null && answeredThisLaunch.has(base) && oldServers().includes(base);
@@ -287,12 +299,18 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
             }
         },
 
-        newServer: () => noteOldServer(false),
+        newServer: () => {
+            const base = deps.httpBase();
+            if (base) p2ThisLaunch.add(base);
+            noteOldServer(false);
+        },
 
         oldServer: () => {
+            if (atP2Hub()) return false;
             drop(true);
             deps.store.delete(TOKEN_RETIRED_KEY);
             noteOldServer(true);
+            return true;
         },
 
         signedOutByServer: () => {
@@ -347,7 +365,13 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
                 );
                 return { kind: 'unreachable' };
             }
-            const { result, secret: issued } = classifySignIn(status, body);
+            const classified = classifySignIn(status, body);
+            // R36: this address welcomed with a user this launch - its older-hub answer is a
+            // gateway's, not the hub's. Unreachable: the status line and the renderer's retry.
+            const { result, secret: issued } =
+                classified.result.kind === 'oldServer' && atP2Hub()
+                    ? { result: { kind: 'unreachable' as const }, secret: undefined }
+                    : classified;
             // R23: a sign-in that worked, or an account Navidrome refused, ends the typed token
             // (the same rule as the renderer's `tokenAfterSignIn`; this file stays import-free).
             if (result.kind === 'signedIn' || result.kind === 'navidromeRefused') retire();

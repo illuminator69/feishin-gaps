@@ -701,7 +701,7 @@ test('a 4001 answering a secret hello is an older server', async () => {
     assert.match(hub, /helloHadSecret = 'auth' in credential;/);
     assert.match(
         hub,
-        /if \(code === CLOSE_BAD_TOKEN && helloHadSecret\) \{[\s\S]{0,600}hubAuth\.oldServer\(\);[\s\S]{0,300}emitStatus\('oldServer'\);/,
+        /if \(code === CLOSE_BAD_TOKEN && helloHadSecret && hubAuth\.oldServer\(\)\) \{[\s\S]{0,900}emitStatus\('oldServer'\);/,
     );
     // The `auth` error before that close says "check the token" - there is no token: not passed on.
     assert.match(
@@ -913,4 +913,51 @@ test('an older-hub verdict lasts one launch and ends at a P2 welcome', async () 
         actions,
         /retryTimer = setTimeout\(\(\) => \{\s*retryTimer = null;\s*void reconcileSignIn\(\);/,
     );
+});
+
+// --- R36: within a launch, a P2 welcome outranks an older-hub sign-in answer ---------------------
+
+test('a P2 hub whose sign-in answers like an older one settles instead of looping', async () => {
+    const P1_405 = json(405, { error: 'method not allowed' });
+    const w = world({ answers: [P1_405], token: 'legacy-hub-token' });
+    w.auth.load();
+    await w.auth.signIn(PAIR);
+    assert.equal(w.auth.bearer(), 'legacy-hub-token');
+
+    // The transport and the renderer, step by step: connect only with a credential; the hub
+    // (P2, behind a proxy that does not forward /hub/*) welcomes with a user; main ends the
+    // older-hub verdict; the renderer's upgrade sign-in gets the proxy's 405.
+    let handshakes = 0;
+    const kinds: string[] = [];
+    for (let i = 0; i < 10; i++) {
+        if (!w.auth.bearer()) break;
+        handshakes += 1;
+        w.auth.newServer();
+        w.answers.push(P1_405);
+        kinds.push((await w.auth.signIn(PAIR)).kind);
+    }
+    assert.ok(handshakes <= 2, `${handshakes} handshakes: P2 welcome, token back, restart, again`);
+    assert.deepEqual(kinds, ['unreachable'], 'read as unreachable: status line and 30 s retry');
+    assert.equal(w.auth.bearer(), null, 'no token to the P2 hub');
+    // A 4001 to a secret hello from that address is not an older server either.
+    assert.equal(w.auth.oldServer(), false);
+    assert.equal(w.auth.bearer(), null);
+    // A new launch knows nothing of this one's welcome: it asks again, and a real P1 hub works.
+    const relaunch = createHubAuth(w.deps);
+    relaunch.load();
+    w.answers.push(P1_405);
+    assert.equal((await relaunch.signIn(PAIR)).kind, 'oldServer');
+
+    const hub = read('./index.ts');
+    assert.match(
+        hub,
+        /if \(code === CLOSE_BAD_TOKEN && helloHadSecret && hubAuth\.oldServer\(\)\) \{/,
+    );
+    // The tidy-up: the renderer's 30 s retry ends on a sign-out, logout, switch or a tapped
+    // sign-in.
+    const actions = read('../../../../renderer/features/hub/utils/hub-signin-actions.ts');
+    for (const name of ['signOutOfServer', 'signInWithCurrentServer']) {
+        const body = actions.slice(actions.indexOf(`export const ${name}`));
+        assert.match(body.slice(0, body.indexOf('\n};')), /cancelSignInRetry\(\);/, name);
+    }
 });
