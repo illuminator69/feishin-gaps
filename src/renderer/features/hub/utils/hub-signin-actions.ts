@@ -73,11 +73,12 @@ const apply = (result: HubSignInResult | null, silent: boolean): void => {
         setStore({ authSignedIn: false, signedOut: false, signingIn: false, signInResult: result });
         return;
     }
-    // A failed silent sign-in leaves the device signed out; a failed tap leaves it as it was.
+    // A failed silent sign-in leaves the device signed out (the status says so, review I2); a
+    // failed tap says why it failed.
     setStore(
         silent
             ? { signedOut: true, signingIn: false, signInResult: result }
-            : { signingIn: false, signInResult: result },
+            : { signedOut: false, signingIn: false, signInResult: result },
     );
 };
 

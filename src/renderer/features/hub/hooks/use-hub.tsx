@@ -13,8 +13,14 @@ import {
     NO_ECHO,
 } from '/@/renderer/features/hub/utils/do-echo';
 import { hubFailureMessage } from '/@/renderer/features/hub/utils/hub-failure';
-import { accountChange, followAccount } from '/@/renderer/features/hub/utils/hub-roles';
 import {
+    accountChange,
+    accountKey,
+    accountMismatch,
+    createAccountFollower,
+} from '/@/renderer/features/hub/utils/hub-roles';
+import {
+    currentServerUsername,
     reconcileSignIn,
     signInWithCurrentServer,
     signOutOfServer,
@@ -66,6 +72,7 @@ import {
     requestIndexSync,
     useLbBotIndexSync,
 } from '/@/renderer/features/lbbot/index-mirror/index-mirror';
+import { useActiveFillsStore } from '/@/renderer/features/lbbot/stores/active-fills.store';
 import { lbBotModeActions } from '/@/renderer/features/lbbot/stores/lbbot-mode.store';
 import { usePlayerEvents } from '/@/renderer/features/player/audio-player/hooks/use-player-events';
 import { withdrawStartupSeek } from '/@/renderer/features/player/hooks/use-queue-restore';
@@ -107,7 +114,12 @@ import { toast } from '/@/shared/components/toast/toast';
 import { LibraryItem, QueueSong, Song } from '/@/shared/types/domain-types';
 import { PlayerRepeat, PlayerShuffle, PlayerStatus } from '/@/shared/types/types';
 import { HubSignInResult, parseHubUser } from '/@/shared/utils/hub-signin';
-import { isProgressOnlyFrame, parseProgress, stateAfterWelcome } from '/@/shared/utils/lbbot-mode';
+import {
+    isProgressOnlyFrame,
+    parseProgress,
+    stateAfterWelcome,
+    tooOldFromLb,
+} from '/@/shared/utils/lbbot-mode';
 import { levelReportStep, NO_LEVEL_REPORT, toLevel } from '/@/shared/utils/level-report';
 
 /**
@@ -223,6 +235,28 @@ const savedQueueToHubRecord = (q: SavedQueue): Record<string, unknown> => ({
 });
 
 const hub = isElectron() ? window.api.hub : null;
+
+/**
+ * Worbus P2: following a change of Navidrome account (design §6.5), one change at a time (review
+ * M7). A logout signs this device out of the Worbus Server and drops what the old account left
+ * here (the lb-bot mirror, the fill ledger, the saved-queue cache, which the next welcome would
+ * push into the new account's space); a switch does the same, then signs in with the new account.
+ */
+/** Each (hub user, account) mismatch is followed once a session: a hub that names its users
+ *  differently from the login must not sign out and in at every welcome. */
+const reconciledMismatches = new Set<string>();
+
+const followAccountChange = createAccountFollower({
+    clearFills: () => useActiveFillsStore.getState().actions.clear(),
+    clearMirror: () => clearIndexMirrorForHubChange(true),
+    clearSavedQueues: () => useSavedQueuesStore.getState().actions.clearAll(),
+    hubOn: () => {
+        const { hub: config } = useSettingsStore.getState();
+        return config.enabled && config.url.trim() !== '';
+    },
+    signIn: () => signInWithCurrentServer(),
+    signOut: () => signOutOfServer({ reconnect: false }),
+});
 
 /** At `welcome`: the last sign-in's answer, unless it was a refusal (the link works now). */
 const keptSignInResult = (result: HubSignInResult | null): HubSignInResult | null =>
@@ -1435,29 +1469,17 @@ export const useHub = () => {
     }, [settings.enabled, settings.name, settings.token, settings.url]);
 
     // Worbus P2 (design §6.5, the owner's 2026-11-02 answer): the hub identity IS the Navidrome
-    // account. A logout signs this device out of the Worbus Server and drops what the old account
-    // left here (the lb-bot mirror, the saved-queue cache, which the next welcome would push into
-    // the new account's space); switching the current server does the same, then signs in with
-    // the new server's account. Every way the current server changes lands here: the server list,
-    // adding or deleting a server, and the logout action.
+    // account. Every way the account changes lands here: the server list, adding, deleting or
+    // editing a server (a new user or address under the same id: review I1), and the logout.
     useEffect(() => {
         if (!hub) return undefined;
         return useAuthStore.subscribe((state, prev) => {
             const change = accountChange(
-                prev.currentServer?.id ?? null,
-                state.currentServer?.id ?? null,
+                accountKey(prev.currentServer),
+                accountKey(state.currentServer),
             );
             if (change === 'none') return;
-            void followAccount(change, {
-                clearMirror: () => clearIndexMirrorForHubChange(true),
-                clearSavedQueues: () => useSavedQueuesStore.getState().actions.clearAll(),
-                hubOn: () => {
-                    const { hub: config } = useSettingsStore.getState();
-                    return config.enabled && config.url.trim() !== '';
-                },
-                signIn: () => signInWithCurrentServer(),
-                signOut: () => signOutOfServer({ reconnect: false }),
-            });
+            void followAccountChange(change);
         });
     }, []);
 
@@ -1483,7 +1505,9 @@ export const useHub = () => {
             clearLbBotStatus();
             // Worbus P1: the progress, the refusal and this session's downloads mode were the
             // old hub's too. The mode falls back to the one remembered for the new URL.
-            useHubStore.getState().actions.setStore({ lbProgress: null, lbRefused: false });
+            useHubStore
+                .getState()
+                .actions.setStore({ lbProgress: null, lbRefused: false, lbTooOld: false });
             lbBotModeActions().forgetSession();
         }
         // B-014: a MOVE only, unlike lbStatus above — switching the hub off is
@@ -1499,6 +1523,8 @@ export const useHub = () => {
         const { setStore } = useHubStore.getState().actions;
         const dispose = hub.onMessage((msg: any) => {
             if (msg.t === 'welcome') {
+                // Worbus P2: who this socket acts for; absent from an older hub (null).
+                const welcomeUser = parseHubUser(msg.user);
                 // I-031: the one reset point of the command echo, on both sides.
                 doEcho.current = echoWelcome(doEcho.current);
                 // Worbus P2: the credential works; the next signed-out earns one silent try again.
@@ -1506,6 +1532,20 @@ export const useHub = () => {
                 // R23 (a): connected on a typed token - sign in with the account now, so the token
                 // is retired once the secret is held.
                 if (!useHubStore.getState().authSignedIn) void upgradeFromToken();
+                // Review M7: signed in as someone other than the current server's account (a
+                // crash mid-switch, a change that was missed): follow it as a switch, once.
+                const mismatchKey = `${welcomeUser?.name}\n${currentServerUsername()}`;
+                if (
+                    accountMismatch(
+                        welcomeUser,
+                        currentServerUsername(),
+                        useHubStore.getState().authSignedIn,
+                    ) &&
+                    !reconciledMismatches.has(mismatchKey)
+                ) {
+                    reconciledMismatches.add(mismatchKey);
+                    void followAccountChange('switch');
+                }
                 myId.current = msg.deviceId ?? null;
                 noteActive(msg.session?.activeDeviceId ?? null);
                 setStore({
@@ -1539,8 +1579,7 @@ export const useHub = () => {
                         useHubStore.getState().sleepTimer,
                         Date.now(),
                     ),
-                    // Worbus P2: who this socket acts for; absent from an older hub (null).
-                    user: parseHubUser(msg.user),
+                    user: welcomeUser,
                 });
                 // I-033: the hub's row for this device holds the level it was last told, or
                 // one it kept from before a restart. Say the real one, whatever was sent on
@@ -1595,6 +1634,8 @@ export const useHub = () => {
                 setStore({
                     lbProgress: parseProgress(msg.lbIndex?.progress),
                     lbRefused: lbState.refused,
+                    // Worbus P2 (review I3): lb-bot without `identity` serves only the primary user.
+                    lbTooOld: tooOldFromLb(msg.lb, welcomeUser),
                 });
                 // A `library` frame sent while this socket was down is lost, so
                 // every cached lb-bot answer that marks ownership (Fresh, the
@@ -1696,6 +1737,9 @@ export const useHub = () => {
                 // is dropped while a retry is pending, and that retry was most
                 // likely earned against the lb-bot that has just come back.
                 lbBotModeActions().applyFrame(msg);
+                // Worbus P2 (review I3): the frame restates `identity`; with it, an
+                // `lbbot_too_old` this user got (lb-bot restarting, R17/R20) is over.
+                setStore({ lbTooOld: tooOldFromLb(msg, useHubStore.getState().user) });
                 if (adoptLbBotFrame(msg)) onLbBotAvailable();
             } else if (msg.t === 'index') {
                 // lb-bot's library index moved. Like `fill`, NOT a library

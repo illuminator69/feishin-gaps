@@ -66,9 +66,8 @@ export const stateAfterRefusal = (
     code: string | undefined,
 ): LbRefusalState => ({
     mode: modeAfterRefusal(state.mode, code),
-    // Worbus P2: `lbbot_too_old` (an lb-bot older than signed-in users, for anyone not primary)
-    // makes lb-bot unavailable to this user the same way.
-    refused: state.refused || code === 'signin_required' || code === 'lbbot_too_old',
+    // Worbus P2: `lbbot_too_old` is not this: it has its own flag (`tooOldAfterRefusal`).
+    refused: state.refused || code === 'signin_required',
 });
 
 /** A welcome restates the mode (absent = an older peer) and ends any refusal. */
@@ -132,3 +131,33 @@ export const isProgressOnlyFrame = (
     frame: { epoch: string; seq: number },
     cursor: null | { epoch: string; seq: number },
 ): boolean => cursor !== null && frame.epoch === cursor.epoch && frame.seq <= cursor.seq;
+
+// --- Worbus P2: lbbot_too_old ------------------------------------------------------------------
+
+/**
+ * Not a refusal code: main sends it on the `lbbot-refusal` channel when an lb-bot answer got
+ * through after an `lbbot_too_old` (R17: the hub serves a non-primary user only an answer that
+ * proves lb-bot's identity). It ends the too-old state.
+ */
+export const LB_ANSWERED = 'answered';
+
+/**
+ * 503 `lbbot_too_old` (an lb-bot older than signed-in users, for anyone but the primary user)
+ * makes lb-bot unavailable to this user - on its own flag, not as "refused": the hub answers it
+ * transiently too (R17, R20: lb-bot restarting before its health is read again), so it must end
+ * without a new connection. It ends on an answer that got through ({@link LB_ANSWERED}) and on the
+ * hub's word ({@link tooOldFromLb}).
+ */
+export const tooOldAfterRefusal = (current: boolean, code: string | undefined): boolean =>
+    code === 'lbbot_too_old' ? true : code === LB_ANSWERED ? false : current;
+
+/**
+ * What `welcome.lb` or an `lb` frame says: lb-bot serves everyone once it reports `identity`, and
+ * only the primary user before then (hub.py: `caller.primary or self.identity`). No user (an older
+ * hub) and an lb-bot that is down are not "too old".
+ */
+export const tooOldFromLb = (lb: unknown, user: null | { primary: boolean }): boolean => {
+    const record = asRecord(lb);
+    if (!record || record.available !== true || !user || user.primary) return false;
+    return record.identity !== true;
+};

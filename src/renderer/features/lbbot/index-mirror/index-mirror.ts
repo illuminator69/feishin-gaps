@@ -579,9 +579,11 @@ const runSync = async (): Promise<void> => {
                   ? 'the hub is switched off in settings'
                   : useHubStore.getState().lbRefused
                     ? 'lb-bot refused this hub'
-                    : useHubStore.getState().lbStatus?.available === false
-                      ? 'the hub reports lb-bot unavailable'
-                      : 'this hub does not serve the index feed',
+                    : useHubStore.getState().lbTooOld
+                      ? 'lb-bot is too old for this account'
+                      : useHubStore.getState().lbStatus?.available === false
+                        ? 'the hub reports lb-bot unavailable'
+                        : 'this hub does not serve the index feed',
         });
         return;
     }

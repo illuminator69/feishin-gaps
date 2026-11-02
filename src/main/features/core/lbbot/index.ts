@@ -97,6 +97,7 @@ import {
     toSiblingGroups,
 } from '/@/shared/utils/lbbot-album-wire';
 import { describeFailure, isOlderScanRefusal, refusalCode } from '/@/shared/utils/lbbot-failure';
+import { LB_ANSWERED } from '/@/shared/utils/lbbot-mode';
 import { hasMetaFields, normalizeLbBotWebUrl } from '/@/shared/utils/lbbot-wire';
 
 /**
@@ -182,6 +183,13 @@ const POLL_TIMEOUT_MS = 12_000;
  * throw that away again on purpose; the writes and the user-initiated reads do
  * not — see LbBotResult.
  */
+/**
+ * Worbus P2 (review I3): an `lbbot_too_old` was passed on and no answer has got through since. The
+ * hub serves this user only answers that prove lb-bot's identity (R17), so the next one that does
+ * ends the renderer's too-old state (`LB_ANSWERED`).
+ */
+let tooOldSeen = false;
+
 const request = async <T = Json>(
     method: 'GET' | 'POST',
     path: string,
@@ -232,6 +240,7 @@ const request = async <T = Json>(
         // download surface off; a 401 `signin_required` (an older hub sends no bearer, B-263)
         // marks lb-bot refused for this connection. The renderer applies both (`useLbBotRefusals`).
         const refusal = refusalCode(res.status, body);
+        if (refusal === 'lbbot_too_old') tooOldSeen = true;
         if (refusal) getMainWindow()?.webContents.send('lbbot-refusal', { code: refusal });
         // The hub's own oversize-body 502 (B-013), not lb-bot's — see LbBotResult.tooLarge.
         return failed(res.status, describeFailure(res.status, body), body?.tooLarge === true, {
@@ -242,6 +251,10 @@ const request = async <T = Json>(
             total: typeof body?.total === 'number' ? body.total : undefined,
             upstreamError: typeof body?.error === 'string' ? body.error : undefined,
         });
+    }
+    if (tooOldSeen) {
+        tooOldSeen = false;
+        getMainWindow()?.webContents.send('lbbot-refusal', { code: LB_ANSWERED });
     }
     return { data: (body ?? {}) as T, error: '', ok: true, status: res.status };
 };

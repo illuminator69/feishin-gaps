@@ -92,6 +92,8 @@ export interface CapabilityInput {
     libraryTools: boolean;
     /** The library tools answered 401: they refused this device. */
     libraryToolsRefused: boolean;
+    /** Worbus P2: lb-bot is older than signed-in users, and this user is not the primary one. */
+    libraryToolsTooOld?: boolean;
     /** Cast speakers the server lists (devices a client is bridging). */
     speakers: number;
     stations: 'fallback' | 'pending' | 'stations';
@@ -106,11 +108,13 @@ export const capabilityLines = (i: CapabilityInput): CapabilityLine[] => {
     const lines: CapabilityLine[] = [
         {
             id: 'library',
-            text: i.libraryToolsRefused
-                ? 'Library tools: the server refused this device'
-                : i.libraryTools
-                  ? 'Library tools: ready'
-                  : 'Library tools: not set up on this server',
+            text: i.libraryToolsTooOld
+                ? 'Library tools: not available to your account on this server'
+                : i.libraryToolsRefused
+                  ? 'Library tools: the server refused this device'
+                  : i.libraryTools
+                    ? 'Library tools: ready'
+                    : 'Library tools: not set up on this server',
         },
     ];
     // This tab only reads the AudioMuse probe's cached answer and never runs it, so until another
@@ -212,12 +216,14 @@ const REFUSED_SIGN_IN = new Set<HubSignInResult['kind']>([
 export const serverStatus = (link: HubLink, s: SignInInput): ServerStatusId => {
     if (link === 'notConfigured') return link;
     if (s.signingIn) return 'signingIn';
+    // Design §6.5: the server signed this device out and the silent sign-in did not work - that
+    // is the state, whatever the silent attempt was answered (review I2).
+    if (s.signedOut && link !== 'connected' && link !== 'off') return 'signedOut';
     if (s.result && !s.signedIn && REFUSED_SIGN_IN.has(s.result.kind)) {
         return s.result.kind as ServerStatusId;
     }
     if (link === 'off') return link;
     if (link === 'connected') return s.signedIn && s.user ? 'signedIn' : 'connected';
-    if (s.signedOut) return 'signedOut';
     if (s.result?.kind === 'oldServer' && !s.hasToken) return 'oldServer';
     if (!s.signedIn && !s.hasToken) return 'notSignedIn';
     return link;

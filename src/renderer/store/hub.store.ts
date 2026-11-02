@@ -157,6 +157,13 @@ interface HubState {
      * cached answer was: the next welcome replaces it.
      */
     lbStatus: LbBotStatus | null;
+    /**
+     * Worbus P2: the hub answers this user `lbbot_too_old` (lb-bot is older than signed-in users,
+     * and this user is not the primary one): lb-bot is unavailable to them. Set by the refusal and
+     * by `welcome.lb` / the `lb` frame without `identity`; ended by an `lb` frame with it and by an
+     * answer that got through (lbbot-mode.ts `tooOldAfterRefusal`, `tooOldFromLb`).
+     */
+    lbTooOld: boolean;
     myDeviceId: null | string;
     /** Whether the remote session is currently playing. */
     remoteIsPlaying: boolean;
@@ -217,6 +224,7 @@ const initialState: HubState = {
     lbProgress: null,
     lbRefused: false,
     lbStatus: null,
+    lbTooOld: false,
     myDeviceId: null,
     remoteIsPlaying: false,
     remoteOrder: null,
@@ -268,19 +276,33 @@ export const useHubConnected = () => useHubStore((s) => s.connected);
  * then, as it would fail the same way. Unknown (no welcome yet, an older hub) is not "down".
  */
 export const lbBotDownNow = (): boolean => {
-    const { lbRefused, lbStatus } = useHubStore.getState();
-    return lbStatus?.available === false || lbRefused;
+    const { lbRefused, lbStatus, lbTooOld } = useHubStore.getState();
+    return lbStatus?.available === false || lbRefused || lbTooOld;
 };
 export const useHubActions = () => useHubStore((s) => s.actions);
+
+/**
+ * Worbus P2 (review M1): this device holds or is owed a device secret, or the server signed it
+ * out - a hub of this round, which names its user. Until it has, roles are least privilege.
+ */
+export const hubCredentialPending = (s: {
+    authOwed: boolean;
+    authSignedIn: boolean;
+    signedOut: boolean;
+}): boolean => s.authSignedIn || s.authOwed || s.signedOut;
 
 /**
  * Worbus P2: the signed-in user's roles, from `hub.store.user` - the only role source for the hub
  * and lb-bot surfaces. No user (an older hub) is today's behaviour: admin and primary.
  */
-export const useHubRoles = (): HubRoles => useHubStore((s) => rolesOf(s.user), shallow);
+export const useHubRoles = (): HubRoles =>
+    useHubStore((s) => rolesOf(s.user, hubCredentialPending(s)), shallow);
 
 /** The same, outside React. */
-export const hubRolesNow = (): HubRoles => rolesOf(useHubStore.getState().user);
+export const hubRolesNow = (): HubRoles => {
+    const s = useHubStore.getState();
+    return rolesOf(s.user, hubCredentialPending(s));
+};
 
 /** True when playback is live on ANOTHER device — i.e. show the remote view. */
 export const useHubIsRemoteActive = () =>

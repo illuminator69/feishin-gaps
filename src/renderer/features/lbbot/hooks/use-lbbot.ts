@@ -151,6 +151,7 @@ import {
     LbIndexProgress,
     LbMode,
     stateAfterRefusal,
+    tooOldAfterRefusal,
 } from '/@/shared/utils/lbbot-mode';
 import { normalizeLbBotWebUrl, routeAdvertised } from '/@/shared/utils/lbbot-wire';
 
@@ -422,7 +423,9 @@ export const invalidateLbBotOwnership = (indexHint?: unknown): void => {
  */
 export const useLbBotAvailable = (): boolean => {
     const refused = useHubStore((state) => state.lbRefused);
-    return useLbBotStatus()?.available === true && !refused;
+    // Worbus P2: too old for this (non-primary) user - unavailable, until the hub says otherwise.
+    const tooOld = useHubStore((state) => state.lbTooOld);
+    return useLbBotStatus()?.available === true && !refused && !tooOld;
 };
 
 /**
@@ -484,6 +487,10 @@ export const applyLbBotRefusal = (code: string | undefined): void => {
     const current = { mode: getLbBotMode(), refused: hub.lbRefused };
     const next = stateAfterRefusal(current, code);
     if (next.refused !== current.refused) hub.actions.setStore({ lbRefused: next.refused });
+    // Worbus P2 (review I3): `lbbot_too_old` sets its own flag, and an answer that got through
+    // afterwards (main's `answered`) ends it.
+    const tooOld = tooOldAfterRefusal(hub.lbTooOld, code);
+    if (tooOld !== hub.lbTooOld) hub.actions.setStore({ lbTooOld: tooOld });
     // Worbus P2: an `admin_only` / `primary_only` means the flags are already lower than this
     // client believed; the action hides in place, and the next `user` frame restates them.
     const user = userAfterRefusal(hub.user, code);

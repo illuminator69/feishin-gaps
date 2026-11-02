@@ -73,6 +73,7 @@ const ServerStatus = memo(() => {
     const authRefused = useHubStore((s) => s.authRefused);
     const attemptAt = useHubStore((s) => s.attemptAt);
     const libraryRefused = useHubStore((s) => s.lbRefused);
+    const libraryTooOld = useHubStore((s) => s.lbTooOld);
     const speakers = useHubStore((s) => s.devices.filter((d) => d.bridgedBy).length);
     const libraryTools = useLbBotAvailable();
     const stations = useStationMode();
@@ -121,6 +122,7 @@ const ServerStatus = memo(() => {
                   clap: clap.data,
                   libraryTools,
                   libraryToolsRefused: libraryRefused,
+                  libraryToolsTooOld: libraryTooOld,
                   speakers,
                   stations,
               })

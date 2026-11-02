@@ -18,8 +18,17 @@ export interface HubRoles {
 /** No `user` at all: an older hub, which sends none. Today's behaviour: everything shown. */
 export const TODAY_ROLES: HubRoles = { admin: true, primary: true };
 
-export const rolesOf = (user: HubUser | null | undefined): HubRoles =>
-    user ? { admin: user.admin, primary: user.primary } : TODAY_ROLES;
+/** A device secret held or owed, and no `user` heard yet: nothing gated is shown (review M1). */
+export const LEAST_ROLES: HubRoles = { admin: false, primary: false };
+
+/**
+ * The roles a `user` gives. No user means today's behaviour only for a device on a typed token or
+ * with no credential (an older hub sends none); with a device secret held or owed (`signedIn`) a
+ * hub of this round will name the user, so until it does - before the first welcome, while signed
+ * out - nothing admin or primary-only is shown, rather than flashing on for everyone.
+ */
+export const rolesOf = (user: HubUser | null | undefined, signedIn = false): HubRoles =>
+    user ? { admin: user.admin, primary: user.primary } : signedIn ? LEAST_ROLES : TODAY_ROLES;
 
 /**
  * Each gated surface and the flag it needs. A non-admin keeps browse, the wishlist and Scan now
@@ -68,15 +77,39 @@ export const userAfterRefusal = (
 /** What a change of the current Navidrome server means for the hub sign-in. */
 export type AccountChange = 'logout' | 'none' | 'switch';
 
+/**
+ * Which Navidrome account a server entry is (review I1): its id, the user name lower-cased (as the
+ * hub keys users) and the address. Editing the current entry's user or address keeps its id, and
+ * is still another account. Null: no current server.
+ */
+export const accountKey = (
+    server: null | undefined | { id: string; url: string; username: string },
+): null | string =>
+    server ? JSON.stringify([server.id, server.username.toLowerCase(), server.url]) : null;
+
 export const accountChange = (
-    previousId: null | string | undefined,
-    nextId: null | string | undefined,
+    previousKey: null | string | undefined,
+    nextKey: null | string | undefined,
 ): AccountChange => {
-    if ((previousId ?? null) === (nextId ?? null)) return 'none';
-    return nextId ? 'switch' : 'logout';
+    if ((previousKey ?? null) === (nextKey ?? null)) return 'none';
+    return nextKey ? 'switch' : 'logout';
 };
 
+/**
+ * At a welcome (review M7): this device holds a secret for a user other than the current server's
+ * account - a crash between the server change and the hub sign-out, or a change that was missed.
+ * Names compare lower-cased. On a token (R23 upgrades it) or with no account here, nothing to say.
+ */
+export const accountMismatch = (
+    user: HubUser | null,
+    username: null | string,
+    signedIn: boolean,
+): boolean =>
+    Boolean(signedIn && user && username && user.name.toLowerCase() !== username.toLowerCase());
+
 export interface AccountFollowDeps {
+    /** The lb-bot fill ledger (an admin's downloads and their history: review M5). */
+    clearFills: () => void;
     clearMirror: () => void;
     clearSavedQueues: () => void;
     /** Connect is on and an address is set: a sign-in has somewhere to go. */
@@ -88,7 +121,8 @@ export interface AccountFollowDeps {
 
 /**
  * A Navidrome logout signs the device out of the Worbus Server (the owner's 2026-11-02 answer)
- * and drops what the old account left here: the lb-bot mirror and the saved-queue cache, which
+ * and drops what the old account left here: the lb-bot mirror, the fill ledger and the saved-queue
+ * cache, which
  * the next welcome would otherwise push up into the new account's space. A switch then signs in
  * again with the new server's account; its refusal (`navidrome_refused`) is what the Server tab
  * shows.
@@ -101,5 +135,23 @@ export const followAccount = async (
     await deps.signOut();
     deps.clearMirror();
     deps.clearSavedQueues();
+    deps.clearFills();
     if (change === 'switch' && deps.hubOn()) await deps.signIn();
+};
+
+/**
+ * {@link followAccount}, one change at a time (review M7): two quick switches would otherwise
+ * interleave their sign-outs and sign-ins, and the last to answer would win.
+ */
+export const createAccountFollower = (
+    deps: AccountFollowDeps,
+): ((change: AccountChange) => Promise<void>) => {
+    let queue: Promise<void> = Promise.resolve();
+    return (change) => {
+        queue = queue.then(
+            () => followAccount(change, deps),
+            () => followAccount(change, deps),
+        );
+        return queue;
+    };
 };

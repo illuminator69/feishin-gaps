@@ -352,6 +352,19 @@ test('status for each signin result', () => {
     }
     // §6.5: signed out by the server, the silent sign-in having failed.
     assert.equal(line(live, { signedOut: true }).text, 'Signed out of the Worbus Server');
+    // Review I2: the silent sign-in's refusal does not replace it (success test step 5: a deleted
+    // user's devices read "Signed out of the Worbus Server", not "doesn't know this account").
+    for (const kind of ['navidromeRefused', 'navidromeUnreachable', 'tooManyAttempts'] as const) {
+        assert.equal(line(live, { result: { kind }, signedOut: true }).id, 'signedOut', kind);
+    }
+    // A tap on Sign in from there says it is signing in.
+    assert.equal(line(live, { signedOut: true, signingIn: true }).id, 'signingIn');
+    // The tap's own refusal is shown (the tap clears signedOut: hub-signin-actions apply()).
+    const actions = read('../../../hub/utils/hub-signin-actions.ts');
+    assert.match(
+        actions,
+        /silent\s*\?\s*\{ signedOut: true, signingIn: false, signInResult: result \}\s*:\s*\{ signedOut: false, signingIn: false, signInResult: result \}/,
+    );
     // Signed in, with the server's view of who and what.
     assert.equal(
         line({ ...live, connected: true }, { signedIn: true, user: ALICE }).text,
