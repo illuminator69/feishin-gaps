@@ -1,6 +1,7 @@
 import isElectron from 'is-electron';
 
 import { hasTypedToken } from '/@/renderer/features/hub/utils/hub-credential';
+import { flushQueryPersister } from '/@/renderer/lib/app-query-persister';
 import { queryClient } from '/@/renderer/lib/react-query';
 import { useAuthStore, useHubStore, useSettingsStore } from '/@/renderer/store';
 import { logger } from '/@/renderer/utils/logger';
@@ -58,6 +59,9 @@ const clearTypedToken = (): void => {
 export const clearLbQueries = (): void => {
     void queryClient.cancelQueries({ queryKey: ['lbbot'] });
     queryClient.removeQueries({ queryKey: ['lbbot'] });
+    // Re-review N5: the snapshot on disk without them now, not within the persister's 1 s
+    // throttle - once the removal's batched cache notifications (a 0 ms timer) have reached it.
+    setTimeout(flushQueryPersister, 0);
 };
 
 const apply = (result: HubSignInResult | null, silent: boolean): void => {

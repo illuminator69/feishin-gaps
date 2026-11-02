@@ -760,14 +760,14 @@ test('each account gets its own device id back after a switch', async () => {
     });
     w.auth.load();
     const BOB: SignInPair = { ...PAIR, username: 'bob' };
-    // First sign-in: today's single slot migrates to the account signing in (R4's upgrade path).
+    // First sign-in: today's single slot is offered (R4's upgrade path). The hub minted another
+    // id, so the old one was not alice's: it stays unclaimed (re-review N4).
     await w.auth.signIn(PAIR);
     assert.equal(w.calls[0].body.deviceId, 'old-device-id');
     await w.auth.signOut();
-    // Another account: alice's id is never offered for bob (the hub would mint one anyway, and
-    // the next sign-in as alice would then offer bob's).
+    // Another account: alice's id is never offered for bob; the unclaimed old id is.
     await w.auth.signIn(BOB);
-    assert.equal(w.calls[2].body.deviceId, undefined, 'no id of another account');
+    assert.equal(w.calls[2].body.deviceId, 'old-device-id', "never alice's id");
     assert.equal(w.plain['hub.deviceId'], 'id-bob', 'the hello and bridgedBy use the current one');
     await w.auth.signOut();
     // Back to alice, name case and spaces aside: her own id is offered, so the hub keeps it.
@@ -777,11 +777,70 @@ test('each account gets its own device id back after a switch', async () => {
     const ids = w.plain[DEVICE_IDS_KEY] as Record<string, string>;
     assert.deepEqual(Object.values(ids).sort(), ['id-alice', 'id-bob']);
 
-    // Another hub address is another space: alice there starts without an id.
+    // Another hub address is another space: alice there has no id of her own.
     w.deps.httpBase = () => 'http://other.lan:4790';
     const elsewhere = createHubAuth(w.deps);
     elsewhere.load();
     w.answers.push(signedIn('id-alice-2'));
     await elsewhere.signIn(PAIR);
-    assert.equal(w.calls.at(-1)?.body.deviceId, undefined);
+    assert.notEqual(w.calls.at(-1)?.body.deviceId, 'id-alice');
+});
+
+// --- re-review N4: the old single slot waits for the account the hub says it is ------------------
+
+test('the legacy device id waits for its own account', async () => {
+    const OWNER_PAIR: SignInPair = { ...PAIR, username: 'owner' };
+    const BOB: SignInPair = { ...PAIR, username: 'bob' };
+    const owner = { admin: true, name: 'owner', primary: true };
+    const bob = { admin: false, name: 'bob', primary: false };
+
+    // bob signs in first on an upgraded owner device: the hub mints bob an id (the old one is
+    // owner's), and the old one stays unclaimed for owner.
+    const a = world({
+        answers: [
+            signedIn('id-bob', bob),
+            json(200, {}),
+            signedIn('old-device-id', owner),
+            json(200, {}),
+            signedIn('id-bob', bob),
+            json(200, {}),
+            signedIn('old-device-id', owner),
+        ],
+    });
+    a.auth.load();
+    await a.auth.signIn(BOB);
+    assert.equal(a.calls[0].body.deviceId, 'old-device-id', 'offered while unclaimed');
+    await a.auth.signOut();
+    await a.auth.signIn(OWNER_PAIR);
+    assert.equal(a.calls[2].body.deviceId, 'old-device-id', "owner's row, name and volume kept");
+    assert.equal(a.plain['hub.deviceId'], 'old-device-id');
+    await a.auth.signOut();
+    await a.auth.signIn(BOB);
+    assert.equal(a.calls[4].body.deviceId, 'id-bob', "bob's own; owner's is claimed now");
+    await a.auth.signOut();
+    await a.auth.signIn(OWNER_PAIR);
+    assert.equal(a.calls[6].body.deviceId, 'old-device-id');
+
+    // Another hub address first: the old id is not claimed there either.
+    const c = world({ answers: [signedIn('id-elsewhere', owner)] });
+    c.auth.load();
+    c.deps.httpBase = () => 'http://other.lan:4790';
+    await createHubAuth(c.deps).signIn(OWNER_PAIR);
+    c.deps.httpBase = () => 'http://hub.lan:4790';
+    const home = createHubAuth(c.deps);
+    home.load();
+    c.answers.push(signedIn('old-device-id', owner));
+    await home.signIn(OWNER_PAIR);
+    assert.equal(c.calls.at(-1)?.body.deviceId, 'old-device-id');
+
+    // owner first: the hub keeps the old id, so it is owner's from then on, and bob gets none.
+    const b = world({
+        answers: [signedIn('old-device-id', owner), json(200, {}), signedIn('id-bob', bob)],
+    });
+    b.auth.load();
+    await b.auth.signIn(OWNER_PAIR);
+    assert.equal(b.calls[0].body.deviceId, 'old-device-id');
+    await b.auth.signOut();
+    await b.auth.signIn(BOB);
+    assert.equal(b.calls[2].body.deviceId, undefined, "never owner's id once it is owner's");
 });

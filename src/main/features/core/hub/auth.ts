@@ -47,6 +47,12 @@ export const TOKEN_RETIRED_KEY = 'hubAuth.tokenRetired';
  */
 export const DEVICE_IDS_KEY = 'hub.deviceIds';
 
+/**
+ * electron-store key (re-review N4): the device id from before per-account ids, not yet claimed by
+ * an account - offered at each sign-in that has no id of its own, until the hub keeps it.
+ */
+export const LEGACY_DEVICE_ID_KEY = 'hub.deviceIdLegacy';
+
 /** The account part of a device-id key: trimmed, NFC, lower-cased (as the renderer compares). */
 const accountName = (name: string): string => name.normalize('NFC').trim().toLowerCase();
 
@@ -253,13 +259,19 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
             const device = deps.device();
             const idKey = JSON.stringify([base, accountName(pair.username)]);
             const stored = deps.store.get(DEVICE_IDS_KEY);
-            // First read after the upgrade: today's single slot becomes the id of the account
-            // signing in now (the current one). After that, an account offers only its own id.
-            const ids: Record<string, string> =
-                typeof stored === 'object' && stored !== null
-                    ? { ...(stored as Record<string, string>) }
-                    : { [idKey]: device.id };
-            const offered = typeof ids[idKey] === 'string' && ids[idKey] ? ids[idKey] : undefined;
+            const firstRead = typeof stored !== 'object' || stored === null;
+            const ids: Record<string, string> = firstRead
+                ? {}
+                : { ...(stored as Record<string, string>) };
+            // Re-review N4: today's single slot is the id of whichever account it was registered
+            // under - not necessarily the one signing in first after the upgrade (bob on the
+            // owner's computer, or another hub). It is kept unclaimed and offered to every sign-in
+            // that has no id of its own, and becomes an account's only when the hub hands that same
+            // id back (R4: the hub keeps a user's own id and mints for anyone else).
+            if (firstRead) deps.store.set(LEGACY_DEVICE_ID_KEY, device.id);
+            const legacy = deps.store.get(LEGACY_DEVICE_ID_KEY);
+            const unclaimed = typeof legacy === 'string' && legacy ? legacy : undefined;
+            const offered = typeof ids[idKey] === 'string' && ids[idKey] ? ids[idKey] : unclaimed;
             let status: number;
             let body: string;
             try {
@@ -296,6 +308,9 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
                 keep(issued);
                 deps.setDeviceId(result.deviceId);
                 deps.store.set(DEVICE_IDS_KEY, { ...ids, [idKey]: result.deviceId });
+                if (unclaimed && result.deviceId === unclaimed) {
+                    deps.store.delete(LEGACY_DEVICE_ID_KEY);
+                }
                 deps.log.info(
                     `[hub] signed in as ${result.user.name} (admin=${result.user.admin}, ` +
                         `primary=${result.user.primary}); device credential length ${issued.length}` +
