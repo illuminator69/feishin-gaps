@@ -6,6 +6,7 @@ import { shallow } from 'zustand/shallow';
 import { createWithEqualityFn } from 'zustand/traditional';
 
 import { ActPins, NO_PINS } from '/@/renderer/features/hub/utils/act-pins';
+import { HubRoles, rolesOf } from '/@/renderer/features/hub/utils/hub-roles';
 import { SessionSleepTimer } from '/@/renderer/features/hub/utils/sleep-timer';
 
 /**
@@ -265,6 +266,15 @@ export const lbBotDownNow = (): boolean => {
     return lbStatus?.available === false || lbRefused;
 };
 export const useHubActions = () => useHubStore((s) => s.actions);
+
+/**
+ * Worbus P2: the signed-in user's roles, from `hub.store.user` - the only role source for the hub
+ * and lb-bot surfaces. No user (an older hub) is today's behaviour: admin and primary.
+ */
+export const useHubRoles = (): HubRoles => useHubStore((s) => rolesOf(s.user), shallow);
+
+/** The same, outside React. */
+export const hubRolesNow = (): HubRoles => rolesOf(useHubStore.getState().user);
 
 /** True when playback is live on ANOTHER device — i.e. show the remote view. */
 export const useHubIsRemoteActive = () =>

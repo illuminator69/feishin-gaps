@@ -299,9 +299,11 @@ const commit = async (delta: PageDelta, next: MirrorMeta, wipe = false): Promise
  * move that happens while this app is closed is instead caught by
  * `loadIndexMirror` reading the mismatch back in at the next launch.
  */
-export const clearIndexMirrorForHubChange = (): void => {
+export const clearIndexMirrorForHubChange = (force = false): void => {
     void loadIndexMirror().then(() => {
-        if (!meta.hubUrl || meta.hubUrl === currentHubUrl()) return;
+        // Worbus P2: `force` - a Navidrome logout or account switch on the same hub. The mirror
+        // was read under the old account and goes with it.
+        if (!force && (!meta.hubUrl || meta.hubUrl === currentHubUrl())) return;
         // Reset to the empty sentinel, not stamped with the new URL: no page
         // has been pulled under it yet, and `pull()` stamps it on the first
         // one that lands.

@@ -8,6 +8,7 @@ import {
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { ActionIcon } from '/@/shared/components/action-icon/action-icon';
 import { toast } from '/@/shared/components/toast/toast';
+import { isLbRefusal } from '/@/shared/utils/lbbot-failure';
 
 /**
  * One gesture to fetch a release the library doesn't have — and the one place
@@ -80,6 +81,9 @@ export const AcquireButton = ({ artist, className, onReview, rgid, title }: Acqu
                     return;
                 }
                 if (!outcome.result.ok) {
+                    // Worbus P2: a refusal (admin_only, lbbot_too_old) hides the button through
+                    // its gate; it is not an error to toast.
+                    if (isLbRefusal(outcome.result.code)) return;
                     toast.error({
                         message: outcome.result.error || 'lb-bot would not take that request.',
                     });

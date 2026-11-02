@@ -13,7 +13,13 @@ import {
     NO_ECHO,
 } from '/@/renderer/features/hub/utils/do-echo';
 import { hubFailureMessage } from '/@/renderer/features/hub/utils/hub-failure';
-import { refreshAuthState, silentSignIn } from '/@/renderer/features/hub/utils/hub-signin-actions';
+import { accountChange, followAccount } from '/@/renderer/features/hub/utils/hub-roles';
+import {
+    refreshAuthState,
+    signInWithCurrentServer,
+    signOutOfServer,
+    silentSignIn,
+} from '/@/renderer/features/hub/utils/hub-signin-actions';
 import {
     adoptClaimDelay,
     GuardWindow,
@@ -83,6 +89,7 @@ import {
     SavedQueue,
     SavedQueueKind,
     setTimestamp,
+    useAuthStore,
     useCurrentServerId,
     useHubSettings,
     useHubStore,
@@ -91,6 +98,7 @@ import {
     usePlayerStore,
     usePlayerStoreBase,
     useSavedQueuesStore,
+    useSettingsStore,
     useTimestampStoreBase,
 } from '/@/renderer/store';
 import { logger } from '/@/renderer/utils/logger';
@@ -1430,6 +1438,33 @@ export const useHub = () => {
             .catch(() => undefined);
     }, []);
 
+    // Worbus P2 (design §6.5, the owner's 2026-11-02 answer): the hub identity IS the Navidrome
+    // account. A logout signs this device out of the Worbus Server and drops what the old account
+    // left here (the lb-bot mirror, the saved-queue cache, which the next welcome would push into
+    // the new account's space); switching the current server does the same, then signs in with
+    // the new server's account. Every way the current server changes lands here: the server list,
+    // adding or deleting a server, and the logout action.
+    useEffect(() => {
+        if (!hub) return undefined;
+        return useAuthStore.subscribe((state, prev) => {
+            const change = accountChange(
+                prev.currentServer?.id ?? null,
+                state.currentServer?.id ?? null,
+            );
+            if (change === 'none') return;
+            void followAccount(change, {
+                clearMirror: () => clearIndexMirrorForHubChange(true),
+                clearSavedQueues: () => useSavedQueuesStore.getState().actions.clearAll(),
+                hubOn: () => {
+                    const { hub: config } = useSettingsStore.getState();
+                    return config.enabled && config.url.trim() !== '';
+                },
+                signIn: () => signInWithCurrentServer(),
+                signOut: () => signOutOfServer({ reconnect: false }),
+            });
+        });
+    }, []);
+
     // The network came back: have the transport look now rather than wait out a backoff that
     // may be parked at 30 s. (Waking from sleep is the main process's own hook.)
     useEffect(() => {
@@ -1690,6 +1725,13 @@ export const useHub = () => {
             } else if (msg.t === 'do') {
                 if (msg.cmd === 'setVolume') applyVolume(msg.level);
                 else void runDirective(msg);
+            } else if (msg.t === 'user') {
+                // Worbus P2: the hub re-read this user's flags (a demotion, a promotion) and
+                // pushes them to every socket of theirs: the gates move in place. A frame this
+                // client cannot read changes nothing, rather than reading as "no user" (today's
+                // everything-shown).
+                const user = parseHubUser(msg.user);
+                if (user) setStore({ user });
             } else if (msg.t === 'signedOut') {
                 // Worbus P2: main saw close 4005 (or `signed_out`), forgot the secret and stood
                 // down. One silent sign-in with the current server's account; failing that, the

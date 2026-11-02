@@ -452,6 +452,12 @@ test('the IPC handlers hand the renderer results, never the secret', () => {
     assert.match(hub, /ipcMain\.handle\('hub-signin'/);
     assert.match(hub, /ipcMain\.handle\('hub-signout'/);
     assert.match(hub, /ipcMain\.handle\('hub-auth-state'/);
+    // A refused sign-in (after a logout and a server switch left the transport down) still
+    // reconnects with whatever credential is left: a typed token keeps working.
+    assert.match(
+        hub,
+        /else if \(config\.enabled && !shouldRun && hubAuth\.bearer\(\)\) start\(\);/,
+    );
     const preload = read('../../../../preload/hub.ts');
     for (const channel of ['hub-signin', 'hub-signout', 'hub-auth-state']) {
         assert.ok(preload.includes(`'${channel}'`), channel);

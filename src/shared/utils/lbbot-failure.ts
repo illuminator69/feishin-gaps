@@ -5,7 +5,12 @@
  */
 
 /** The two refusals the main client tells the renderer about (`lbbot-refusal`). */
-export type LbRefusalCode = 'downloads_off' | 'signin_required';
+export type LbRefusalCode =
+    | 'admin_only'
+    | 'downloads_off'
+    | 'lbbot_too_old'
+    | 'primary_only'
+    | 'signin_required';
 
 type Json = Record<string, unknown>;
 
@@ -16,6 +21,11 @@ type Json = Record<string, unknown>;
 export const refusalCode = (status: number, body: Json | null): LbRefusalCode | null => {
     if (status === 409 && body?.code === 'downloads_off') return 'downloads_off';
     if (status === 401 && body?.code === 'signin_required') return 'signin_required';
+    // Worbus P2: lb-bot's (or the hub's) answer to a role this user lacks, and the hub's answer
+    // for everyone but the primary user while lb-bot predates signed-in users.
+    if (status === 403 && body?.code === 'admin_only') return 'admin_only';
+    if (status === 403 && body?.code === 'primary_only') return 'primary_only';
+    if (status === 503 && body?.code === 'lbbot_too_old') return 'lbbot_too_old';
     return null;
 };
 
@@ -25,7 +35,11 @@ export const refusalCode = (status: number, body: Json | null): LbRefusalCode | 
  * quiet: no app-wide error toast (F7 walk, B-263).
  */
 export const isLbRefusal = (code: string | undefined): boolean =>
-    code === 'downloads_off' || code === 'signin_required';
+    code === 'downloads_off' ||
+    code === 'signin_required' ||
+    code === 'admin_only' ||
+    code === 'primary_only' ||
+    code === 'lbbot_too_old';
 
 /**
  * Turn a non-2xx into a sentence worth showing.
@@ -50,6 +64,12 @@ export const isLbRefusal = (code: string | undefined): boolean =>
 export const describeFailure = (status: number, body: Json | null): string => {
     const refusal = refusalCode(status, body);
     if (refusal === 'downloads_off') return "This server isn't set up to get albums.";
+    if (refusal === 'admin_only') return 'Only an admin of this server can do that.';
+    if (refusal === 'primary_only')
+        return "That is the server owner's listening, shown to them only.";
+    if (refusal === 'lbbot_too_old') {
+        return "This Worbus Server's library tools are too old for signed-in users.";
+    }
     if (refusal === 'signin_required') {
         return "lb-bot refused this hub. Update the hub, or check that its HUB_TOKEN matches lb-bot's LB_BOT_HUB_TOKEN.";
     }

@@ -66,7 +66,9 @@ export const stateAfterRefusal = (
     code: string | undefined,
 ): LbRefusalState => ({
     mode: modeAfterRefusal(state.mode, code),
-    refused: state.refused || code === 'signin_required',
+    // Worbus P2: `lbbot_too_old` (an lb-bot older than signed-in users, for anyone not primary)
+    // makes lb-bot unavailable to this user the same way.
+    refused: state.refused || code === 'signin_required' || code === 'lbbot_too_old',
 });
 
 /** A welcome restates the mode (absent = an older peer) and ends any refusal. */

@@ -63,6 +63,7 @@ import { useNavigate } from 'react-router';
 
 import { api } from '/@/renderer/api';
 import { noteScanStarted } from '/@/renderer/features/discography/hooks/scan-session';
+import { allows, userAfterRefusal } from '/@/renderer/features/hub/utils/hub-roles';
 import {
     isSourceVerified,
     sourceKey,
@@ -134,7 +135,13 @@ import { staleUnlessAnswered } from '/@/renderer/features/lbbot/utils/persisted-
 import { importFinished } from '/@/renderer/features/listening/listening-logic';
 import { queryClient } from '/@/renderer/lib/react-query';
 import { useCurrentServerId } from '/@/renderer/store';
-import { lbBotDownNow, useHubConnected, useHubStore } from '/@/renderer/store/hub.store';
+import {
+    hubRolesNow,
+    lbBotDownNow,
+    useHubConnected,
+    useHubRoles,
+    useHubStore,
+} from '/@/renderer/store/hub.store';
 import { toast } from '/@/shared/components/toast/toast';
 import { AlbumArtistListSort, AlbumListSort, SortOrder } from '/@/shared/types/domain-types';
 import { isLbRefusal } from '/@/shared/utils/lbbot-failure';
@@ -424,8 +431,15 @@ export const useLbBotAvailable = (): boolean => {
  */
 export const useLbBotMode = (): LbMode => useLbBotModeValue();
 
-/** Whether download actions are offered: always, except when lb-bot said downloading is off. */
-export const useLbBotDownloadsShown = (): boolean => downloadsShown(useLbBotModeValue());
+/**
+ * Whether download actions are offered: always, except when lb-bot said downloading is off, or
+ * (Worbus P2) the signed-in user is not an admin - getting albums is an admin action, and a
+ * non-admin sees the same page a downloads-off server shows (browse, wishlist, Scan now).
+ */
+export const useLbBotDownloadsShown = (): boolean => {
+    const allowed = allows(useHubRoles(), 'downloads');
+    return downloadsShown(useLbBotModeValue()) && allowed;
+};
 
 /** A peer from Worbus P1 on (it reported the mode): the P1-only offers (Scan now without an
  *  MBID, the 3 s scan poll, following a worker's scan) are made only to one. */
@@ -433,7 +447,11 @@ export const useIsP1Peer = (): boolean => isP1Peer(useLbBotModeValue());
 
 /** Worbus P1: downloading is known to be off - the ledger's and the acquire path's non-hook
  *  functions refuse locally then, without a request. */
-const downloadsOffNow = (): boolean => getLbBotMode() === 'off';
+const downloadsOffNow = (): boolean =>
+    getLbBotMode() === 'off' || !allows(hubRolesNow(), 'downloads');
+
+/** {@link useLbBotDownloadsShown} outside React: a failed fill action toasts only while true. */
+export const downloadsShownNow = (): boolean => !downloadsOffNow();
 
 /** lb-bot's index build countdown, or null - always null while lb-bot is not available (the
  *  hub keeps the last progress while lb-bot is gone; a bar for a gone lb-bot never ends). */
@@ -466,6 +484,10 @@ export const applyLbBotRefusal = (code: string | undefined): void => {
     const current = { mode: getLbBotMode(), refused: hub.lbRefused };
     const next = stateAfterRefusal(current, code);
     if (next.refused !== current.refused) hub.actions.setStore({ lbRefused: next.refused });
+    // Worbus P2: an `admin_only` / `primary_only` means the flags are already lower than this
+    // client believed; the action hides in place, and the next `user` frame restates them.
+    const user = userAfterRefusal(hub.user, code);
+    if (user !== hub.user) hub.actions.setStore({ user });
     if (next.mode !== current.mode) lbBotModeActions().adopt(next.mode);
 };
 
@@ -922,7 +944,9 @@ export const useOverridesOlder = (): boolean =>
 export const useOverrideControls = (): boolean => {
     const supported = useOverridesSupported();
     const older = useOverridesOlder();
-    return supported && !older;
+    // Worbus P2: the override map is library data everyone reads; changing it is an admin's.
+    const allowed = allows(useHubRoles(), 'artistMatch');
+    return supported && !older && allowed;
 };
 
 const useOverridesQuery = <TData>(select: (raw: OverridesData) => TData) => {
@@ -1101,7 +1125,8 @@ const useAlbumOverrideOlder = (): boolean =>
 export const useAlbumOverrideControls = (): boolean => {
     const status = useLbBotStatus();
     const older = useAlbumOverrideOlder();
-    return !!lbBot && !!status?.routes?.includes(ALBUM_OVERRIDE_ROUTE) && !older;
+    const allowed = allows(useHubRoles(), 'albumMatch');
+    return !!lbBot && !!status?.routes?.includes(ALBUM_OVERRIDE_ROUTE) && !older && allowed;
 };
 
 /** Marks "older" for the answers that mean it, then hands the result back. */
@@ -1303,7 +1328,8 @@ const useMergeOlder = (): boolean =>
 export const useMergeControls = (): boolean => {
     const status = useLbBotStatus();
     const older = useMergeOlder();
-    return !!lbBot && !!status?.routes?.includes(MERGE_ROUTE) && !older;
+    const allowed = allows(useHubRoles(), 'merge');
+    return !!lbBot && !!status?.routes?.includes(MERGE_ROUTE) && !older && allowed;
 };
 
 const noteMergeResult = <T>(result: LbBotResult<T>): LbBotResult<T> => {
@@ -1358,7 +1384,9 @@ export const useListeningSupported = (): boolean => {
     // Worbus P1: a refused lb-bot (B-263) is as gone as an unreachable one, so Statistics leaves
     // the sidebar, the palette and the route instead of 401ing behind an older hub.
     const available = useLbBotAvailable();
-    return !!lbBot && available && !!status?.routes?.includes(LISTENING_ROUTE);
+    // Worbus P2: the listening history is the primary user's; lb-bot answers anyone else 403.
+    const allowed = allows(useHubRoles(), 'listening');
+    return !!lbBot && available && allowed && !!status?.routes?.includes(LISTENING_ROUTE);
 };
 
 /** A failed lb-bot read, carrying the HTTP status so a 404 / 405 (lb-bot older

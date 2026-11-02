@@ -522,6 +522,9 @@ ipcMain.handle('hub-signin', async (_event, pair: unknown) => {
     // Signed in: reconnect with the secret under the id the hub gave. An older server: the
     // secret (if any) was dropped and the typed token is the credential again.
     if (result.kind === 'signedIn' || result.kind === 'oldServer') restartWithCredential(true);
+    // Refused, but the transport was left down by a sign-out (a logout, a server switch) and a
+    // credential remains - a typed token: connect with it, as before the switch.
+    else if (config.enabled && !shouldRun && hubAuth.bearer()) start();
     return result;
 });
 

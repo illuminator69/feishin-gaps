@@ -5,6 +5,7 @@ import { FillButton } from '/@/renderer/features/lbbot/fill-vocabulary';
 import {
     allowMp3AndRetry,
     cancelFill,
+    downloadsShownNow,
     retryFill,
     useLbBotDownloadsShown,
     useWishlistActions,
@@ -13,7 +14,6 @@ import {
     LedgerRow,
     useActiveFillsActions,
 } from '/@/renderer/features/lbbot/stores/active-fills.store';
-import { getLbBotMode } from '/@/renderer/features/lbbot/stores/lbbot-mode.store';
 import { AppRoute } from '/@/renderer/router/routes';
 import { toast } from '/@/shared/components/toast/toast';
 
@@ -53,7 +53,9 @@ export const useFillActions = (row: LedgerRow) => {
         // Every action here applies its answer's refusal itself before resolving
         // (`applyLbBotRefusal`), so the mode is already off when this reads it, whether or not the
         // `lbbot-refusal` event has arrived yet.
-        if (!ok && getLbBotMode() !== 'off') {
+        // Worbus P2: the same for a role the user turned out not to have (admin_only lowers the
+        // flag before this reads it): the buttons go, without an error.
+        if (!ok && downloadsShownNow()) {
             toast.error({ message: 'lb-bot would not take that request.' });
         }
     };

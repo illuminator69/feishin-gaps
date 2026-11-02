@@ -5,6 +5,7 @@ import { Link, useLocation } from 'react-router';
 
 import styles from './sidebar-groups.module.css';
 
+import { allows } from '/@/renderer/features/hub/utils/hub-roles';
 import {
     useHubSupports,
     useLbBotAvailable,
@@ -24,6 +25,7 @@ import {
     type SidebarRoutes,
 } from '/@/renderer/features/sidebar/utils/sidebar-groups';
 import { AppRoute } from '/@/renderer/router/routes';
+import { useHubRoles } from '/@/renderer/store/hub.store';
 import { useSidebarItems } from '/@/renderer/store/settings.store';
 import { DropdownMenu } from '/@/shared/components/dropdown-menu/dropdown-menu';
 import { Icon } from '/@/shared/components/icon/icon';
@@ -95,6 +97,8 @@ export const useSidebarModel = (options?: {
     const wishlistSupported = useHubSupports('GET /lb/wishlist');
     const ledger = useFillLedger();
     const sidebarItems = useSidebarItems();
+    // Worbus P2: `hub.store.user`; no user (an older hub) shows everything, as today.
+    const roles = useHubRoles();
     const count = useMemo(() => attentionCount(ledger), [ledger]);
 
     return useMemo(() => {
@@ -105,6 +109,7 @@ export const useSidebarModel = (options?: {
             label: label(entry.id, entry.label) as string,
         });
         const model = sidebarGroups({
+            admin: allows(roles, 'needsAttention'),
             attentionCount: count,
             downloadsShown,
             lbBotAvailable,
@@ -131,6 +136,7 @@ export const useSidebarModel = (options?: {
         listeningSupported,
         narrow,
         overridesSupported,
+        roles,
         sidebarItems,
         t,
         wishlistSupported,

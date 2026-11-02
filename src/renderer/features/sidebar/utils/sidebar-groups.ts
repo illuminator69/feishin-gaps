@@ -6,6 +6,12 @@
  */
 
 export interface SidebarContext {
+    /**
+     * Worbus P2: the signed-in user is an admin (`hub.store.user`). Absent (every caller before
+     * P2, an older hub) is today's behaviour: shown. Needs attention and Library Matches are
+     * admin surfaces; Activity already follows `downloadsShown`.
+     */
+    admin?: boolean;
     attentionCount: number;
     /**
      * Worbus P1: lb-bot can download (its mode is not "off"; unknown = an older peer = true).
@@ -94,7 +100,8 @@ export const sidebarGroups = (
     const you: SidebarEntry[] = [];
     // Downloading off: nothing new is fetched, so Activity goes; Needs attention stays only for
     // the failures an earlier "on" period left in the ledger (Feishin's page is that ledger).
-    if (lb && (ctx.downloadsShown || ctx.attentionCount > 0)) {
+    const admin = ctx.admin !== false;
+    if (lb && admin && (ctx.downloadsShown || ctx.attentionCount > 0)) {
         you.push({
             id: 'needsAttention',
             label: 'Needs attention',
@@ -118,7 +125,7 @@ export const sidebarGroups = (
     listening.push({ id: 'savedQueues', label: 'Saved queues', route: routes.savedQueues });
 
     const libraryTools: SidebarEntry[] =
-        lb && ctx.overridesSupported
+        lb && admin && ctx.overridesSupported
             ? [{ id: 'libraryMatches', label: 'Library Matches', route: routes.libraryMatches }]
             : [];
 

@@ -41,10 +41,21 @@ export const FORM_KINDS: readonly FormKindRow[] = [
 
 /**
  * The kinds offered. Your mix is the hub's fingerprint station, which nothing else can build, so
- * it needs the station engine; Radio, Genre and Artist each have a path without it.
+ * it needs the station engine; Radio, Genre and Artist each have a path without it. It is the
+ * primary user's listening (Worbus P2), so a signed-in user who is not primary is not offered it.
  */
-export const formKindsFor = (engine: boolean): readonly FormKindRow[] =>
-    engine ? FORM_KINDS : FORM_KINDS.filter((row) => row.id !== 'yourMix');
+export const formKindsFor = (engine: boolean, yourMix = true): readonly FormKindRow[] =>
+    engine && yourMix ? FORM_KINDS : FORM_KINDS.filter((row) => row.id !== 'yourMix');
+
+/**
+ * Worbus P2: a saved recipe that plays as Your mix or the Sonic Fingerprint - both read the
+ * primary user's listening - so it is listed for the primary user only (see `stationPlan` and
+ * `localKind`: `fingerprint`, `adaptive` and a seedless `station`).
+ */
+export const isPrimaryOnlyMix = (mix: { kind: string; seedId?: null | string }): boolean =>
+    mix.kind === 'fingerprint' ||
+    mix.kind === 'adaptive' ||
+    (mix.kind === 'station' && !mix.seedId);
 
 /** A genre run is random, so it has no character; the other three are stations. */
 export const formKindTakesCharacter = (kind: FormKind): boolean => kind !== 'genre';

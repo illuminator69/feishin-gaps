@@ -2,6 +2,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ReactNode, useMemo, useState } from 'react';
 
 import { genresQueries } from '/@/renderer/features/genres/api/genres-api';
+import { allows } from '/@/renderer/features/hub/utils/hub-roles';
 import {
     artistPickerEmpty,
     buildRecipe,
@@ -26,6 +27,7 @@ import {
 import { useStationWords } from '/@/renderer/features/player/station/use-station-words';
 import { searchQueries } from '/@/renderer/features/search/api/search-api';
 import { useCurrentServerId, usePlayerSong } from '/@/renderer/store';
+import { useHubRoles } from '/@/renderer/store/hub.store';
 import { useStationSettings } from '/@/renderer/store/settings.store';
 import { Button } from '/@/shared/components/button/button';
 import { Group } from '/@/shared/components/group/group';
@@ -285,7 +287,8 @@ export const MixForm = ({ onSubmit }: MixFormProps) => {
     const song = usePlayerSong();
     const serverId = useCurrentServerId();
     // Your mix is the hub's station from what you play most, so it is offered only with it.
-    const offered = formKindsFor(useStationMode() === 'stations');
+    // Worbus P2: and only to the primary user, whose listening it is.
+    const offered = formKindsFor(useStationMode() === 'stations', allows(useHubRoles(), 'yourMix'));
     const words = useStationWords();
     const stationSettings = useStationSettings();
     const [chosenKind, setKind] = useState<FormKind>('radio');

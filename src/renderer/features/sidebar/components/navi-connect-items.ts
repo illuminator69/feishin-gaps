@@ -1,4 +1,5 @@
 import { useDiscoverCapabilities } from '/@/renderer/features/discover/use-discover-capabilities';
+import { allows } from '/@/renderer/features/hub/utils/hub-roles';
 import {
     useHubSupports,
     useLbBotAvailable,
@@ -7,7 +8,7 @@ import {
     useOverridesSupported,
 } from '/@/renderer/features/lbbot/hooks/use-lbbot';
 import { AppRoute } from '/@/renderer/router/routes';
-import { useHubConnected } from '/@/renderer/store/hub.store';
+import { useHubConnected, useHubRoles } from '/@/renderer/store/hub.store';
 import { SidebarItemType } from '/@/renderer/store/settings.store';
 
 /**
@@ -30,6 +31,7 @@ export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
     const downloadsShown = useLbBotDownloadsShown();
     const hubConnected = useHubConnected();
     const listeningSupported = useListeningSupported();
+    const roles = useHubRoles();
     const overridesSupported = useOverridesSupported();
     const wishlistSupported = useHubSupports('GET /lb/wishlist');
     const { hasSources } = useDiscoverCapabilities();
@@ -81,7 +83,8 @@ export const useNaviConnectSidebarItems = (): SidebarItemType[] => {
         // I-024: Library Matches, under the gate its lists already use - the hub
         // advertises the artist-override routes (`useOverridesSupported`). Each
         // section inside then hides itself for an lb-bot that lacks its list.
-        if (overridesSupported) {
+        // Worbus P2: an admin's page; listening and downloads gate in their own hooks.
+        if (overridesSupported && allows(roles, 'libraryMatches')) {
             items.push({
                 disabled: false,
                 id: 'LibraryMatches',
