@@ -382,12 +382,13 @@ test('status for each signin result', () => {
     );
     // A typed token with no sign-in (an owner's client from before): connected as today.
     assert.equal(line({ ...on, connected: true }, { hasToken: true, user: ALICE }).id, 'connected');
-    // A refusal outranks a stale "connected"; the switch off is still "off".
+    // R23 (review I5): a refused sign-in retires and clears the typed token and the socket on it
+    // closes - the device is not left connected as the primary user. The line says why.
     assert.equal(
-        line({ ...on, connected: true }, { hasToken: true, result: { kind: 'navidromeRefused' } })
-            .id,
+        line({ ...on, token: '' }, { hasToken: false, result: { kind: 'navidromeRefused' } }).id,
         'navidromeRefused',
     );
+    // The switch off is still "off".
     assert.equal(line(fresh, {}).id, 'notConfigured');
     assert.equal(line({ ...fresh, url: 'ws://h:1' }, { signedIn: true }).id, 'off');
     // Every sentence is words for a person.

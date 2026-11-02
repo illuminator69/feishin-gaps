@@ -120,8 +120,10 @@ ipcMain.handle(
         if (!ep) return [];
         // Worbus P2: signed in to a Worbus Server, the fingerprint is the hub's to answer (it is the
         // primary user's listening, 403 to anyone else). The direct route would read whatever
-        // Navidrome account this app holds - never taken while signed in.
-        if (!ep.viaHub && hubAuth.state().signedIn) return [];
+        // Navidrome account this app holds - never taken while signed in, nor while a sign-in is
+        // owed (a memory-only secret after a restart, a 4005 being answered).
+        const auth = hubAuth.state();
+        if (!ep.viaHub && (auth.signedIn || auth.needsSignIn)) return [];
         try {
             const url = new URL(
                 routeUrl(ep, '/sonic/fingerprint', '/api/sonic_fingerprint/generate'),

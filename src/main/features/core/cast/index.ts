@@ -844,6 +844,13 @@ class CastDeviceBridge {
 
     private connectHub(): void {
         if (this.destroyed) return;
+        if (!hubAuth.bearer()) {
+            // Worbus P2: nothing to say hello with (signed out, never signed in, the token retired).
+            // A hello without a credential is only refused with 4005; the `settings` event
+            // rebuilds every bridge when a credential arrives.
+            log.info(`[cast-bridge] ${this.friendlyName}: no hub credential - not connecting`);
+            return;
+        }
         let ws: WebSocket;
         try {
             ws = new WebSocket(this.hubUrl);

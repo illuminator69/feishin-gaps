@@ -202,7 +202,10 @@ test('non primary sees no listening or fingerprint', () => {
     );
     // Signed in to a hub, the fingerprint never takes the direct AudioMuse route.
     const muse = read('../../../../main/features/core/audiomuse/index.ts');
-    assert.match(muse, /if \(!ep\.viaHub && hubAuth\.state\(\)\.signedIn\) return \[\];/);
+    assert.match(
+        muse,
+        /if \(!ep\.viaHub && \(auth\.signedIn \|\| auth\.needsSignIn\)\) return \[\];/,
+    );
 });
 
 test('older hub without user is as today', () => {

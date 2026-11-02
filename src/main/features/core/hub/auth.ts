@@ -30,6 +30,14 @@ export const SECRET_KEY = 'hubAuth.secret';
  * quietly becoming the primary user through the token.
  */
 export const SIGNED_IN_KEY = 'hubAuth.signedIn';
+/**
+ * electron-store key: the typed token is retired (R23). The legacy hub token is an upgrade bridge,
+ * not a fallback: once a sign-in has worked, or Navidrome refused this account, or the user signed
+ * out (a "Sign out of this server", a Navidrome logout, a server switch), it is never sent again -
+ * a device that was signed out, refused or switched would otherwise reconnect silently as the
+ * primary user, in the owner's space. Only an older server's answer (R6, R24) brings it back.
+ */
+export const TOKEN_RETIRED_KEY = 'hubAuth.tokenRetired';
 
 /** The hub gives Navidrome 8 s for its check; past this it is not answering. */
 export const SIGNIN_TIMEOUT_MS = 15_000;
@@ -142,12 +150,17 @@ export const publicResult = (result: HubSignInResult): HubSignInResult =>
         : { kind: result.kind };
 
 export interface HubAuth {
-    /** The secret, else (never signed in, or signed out by the user) the typed token; else null. */
+    /** The secret, else the typed token while it is not retired (R23); else null. */
     bearer: () => null | string;
     /** What a `hello` carries: the secret, or the legacy token. */
     helloCredential: () => { auth: { deviceSecret: string } } | { token: string };
     /** Read the stored secret (start-up). */
     load: () => void;
+    /**
+     * An older server (R6; R24: a 4001 answering a hello that carried the secret): the secret is no
+     * use there, no sign-in is owed, and the typed token is the credential again.
+     */
+    oldServer: () => void;
     /** The hub refused the secret (close 4005 / `signed_out`): forget it; a sign-in is owed. */
     signedOutByServer: () => void;
     signIn: (pair: SignInPair) => Promise<HubSignInResult>;
@@ -161,6 +174,10 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
 
     const memoryOnly = () => !deps.vault.available();
     const marked = () => deps.store.get(SIGNED_IN_KEY) === true;
+    const retired = () => deps.store.get(TOKEN_RETIRED_KEY) === true;
+    /** The typed token, unless it is retired (R23) or this device holds a sign-in. */
+    const token = () => (retired() || marked() ? '' : deps.legacyToken());
+    const retire = () => deps.store.set(TOKEN_RETIRED_KEY, true);
 
     const keep = (value: string) => {
         secret = value;
@@ -180,12 +197,9 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
     };
 
     return {
-        bearer: () => secret ?? (marked() ? null : deps.legacyToken() || null),
+        bearer: () => secret ?? (token() || null),
 
-        helloCredential: () =>
-            secret
-                ? { auth: { deviceSecret: secret } }
-                : { token: marked() ? '' : deps.legacyToken() },
+        helloCredential: () => (secret ? { auth: { deviceSecret: secret } } : { token: token() }),
 
         load: () => {
             secret = null;
@@ -206,6 +220,11 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
                 );
                 deps.store.delete(SECRET_KEY);
             }
+        },
+
+        oldServer: () => {
+            drop(true);
+            deps.store.delete(TOKEN_RETIRED_KEY);
         },
 
         signedOutByServer: () => {
@@ -246,6 +265,9 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
                 return { kind: 'unreachable' };
             }
             const { result, secret: issued } = classifySignIn(status, body);
+            // R23: a sign-in that worked, or an account Navidrome refused, ends the typed token
+            // (the same rule as the renderer's `tokenAfterSignIn`; this file stays import-free).
+            if (result.kind === 'signedIn' || result.kind === 'navidromeRefused') retire();
             if (result.kind === 'signedIn' && issued) {
                 keep(issued);
                 deps.setDeviceId(result.deviceId);
@@ -256,8 +278,12 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
                 );
             } else {
                 deps.log.warn(`[hub] sign-in answered ${status}: ${result.kind}`);
-                // An older server does not do sign-in: a secret from another one is no use there.
-                if (result.kind === 'oldServer') drop(true);
+                // An older server does not do sign-in: a secret from another one is no use there,
+                // and the token is its credential.
+                if (result.kind === 'oldServer') {
+                    drop(true);
+                    deps.store.delete(TOKEN_RETIRED_KEY);
+                }
             }
             return publicResult(result);
         },
@@ -266,6 +292,9 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
             const held = secret;
             const base = deps.httpBase();
             drop(true);
+            // R23 (b): the user's sign-out (and a Navidrome logout, a server switch) ends the typed
+            // token as well - with only a token, it is the token being signed out.
+            retire();
             if (!held || !base) return;
             try {
                 const res = await deps.fetch(`${base}/hub/signout`, {

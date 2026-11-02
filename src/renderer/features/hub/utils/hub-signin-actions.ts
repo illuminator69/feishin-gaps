@@ -1,12 +1,15 @@
 import isElectron from 'is-electron';
 
-import { useAuthStore, useHubStore } from '/@/renderer/store';
+import { hasTypedToken } from '/@/renderer/features/hub/utils/hub-credential';
+import { useAuthStore, useHubStore, useSettingsStore } from '/@/renderer/store';
 import { logger } from '/@/renderer/utils/logger';
 import {
     createSilentSignIn,
     HubSignInResult,
     parseSubsonicPair,
     SignInPair,
+    tokenAfterSignIn,
+    upgradeIsQuiet,
 } from '/@/shared/utils/hub-signin';
 
 /**
@@ -35,10 +38,21 @@ const post = async (pair: SignInPair): Promise<HubSignInResult> => {
     }
 };
 
+/**
+ * R23: the typed hub token goes from the settings (main retired it already). Pushing the empty
+ * field to main does not reconnect: the token was not in use.
+ */
+const clearTypedToken = (): void => {
+    const { hub: config } = useSettingsStore.getState();
+    if (!hasTypedToken(config)) return;
+    useSettingsStore.getState().actions.setSettings({ hub: { token: '' } });
+};
+
 const apply = (result: HubSignInResult | null, silent: boolean): void => {
     const { setStore } = useHubStore.getState().actions;
     // Whatever the answer, no sign-in is owed any more: it was made.
     setStore({ authOwed: false });
+    if (result !== null && tokenAfterSignIn(result.kind) === 'clear') clearTypedToken();
     if (result === null) {
         setStore({ signedOut: true, signingIn: false });
         return;
@@ -91,6 +105,9 @@ export const silentSignIn = createSilentSignIn({
  */
 export const signOutOfServer = async (opts: { reconnect: boolean }): Promise<void> => {
     const { setStore } = useHubStore.getState().actions;
+    // R23 (b): the typed token goes with the secret (main retires it too): a signed-out device is
+    // not connected, never the primary user through the shared token.
+    clearTypedToken();
     setStore({
         authOwed: false,
         authSignedIn: false,
@@ -114,4 +131,57 @@ export const refreshAuthState = async (): Promise<boolean> => {
         .getState()
         .actions.setStore({ authOwed: state.needsSignIn, authSignedIn: state.signedIn });
     return state.needsSignIn;
+};
+
+let upgrading: null | Promise<void> = null;
+
+/**
+ * R23 (a): a device still on the typed token (an owner's client from before sign-in) makes one
+ * sign-in when it connects, with the current server's account. Signed in: the secret replaces the
+ * token for good. Refused: the token is not used. An older server: the token stays its credential
+ * (the token field shows). Anything else (unreachable, busy, Navidrome down, no account here)
+ * says nothing and keeps the token - an upgrade must not cost a connection - and the next connect
+ * tries again. Main's answer decides whether one is due: never over a held or owed secret.
+ */
+export const upgradeFromToken = async (): Promise<void> => {
+    if (!hub || upgrading) return upgrading ?? undefined;
+    const { hub: config } = useSettingsStore.getState();
+    if (!config.enabled || !config.url.trim() || !hasTypedToken(config)) return;
+    // This session already found an older server: it does not do sign-in.
+    if (useHubStore.getState().signInResult?.kind === 'oldServer') return;
+    const pair = currentServerPair();
+    if (!pair) return;
+    upgrading = (async () => {
+        const state = await hub.authState();
+        if (state.signedIn || state.needsSignIn) return;
+        const result = await post(pair);
+        if (upgradeIsQuiet(result.kind)) {
+            logger.info(`[hub] sign-in from the token: ${result.kind} - the token stays for now`);
+            useHubStore.getState().actions.setStore({ signingIn: false });
+            return;
+        }
+        apply(result, false);
+    })()
+        .catch((error) => {
+            logger.warn('[hub] sign-in from the token failed', { error: String(error) });
+            useHubStore.getState().actions.setStore({ signingIn: false });
+        })
+        .finally(() => {
+            upgrading = null;
+        });
+    return upgrading;
+};
+
+/**
+ * After the hub settings are pushed (at start, and on every change): read main's view of the
+ * sign-in, then - only with Connect on and an address (M4) - make the sign-in that is due: the one
+ * silent sign-in a lost memory-only secret owes (R7), or the upgrade from a typed token (R23).
+ */
+export const reconcileSignIn = async (): Promise<void> => {
+    if (!hub) return;
+    const needsSignIn = await refreshAuthState();
+    const { hub: config } = useSettingsStore.getState();
+    if (!config.enabled || !config.url.trim()) return;
+    if (needsSignIn) return silentSignIn.signedOut();
+    if (!useHubStore.getState().authSignedIn) return upgradeFromToken();
 };

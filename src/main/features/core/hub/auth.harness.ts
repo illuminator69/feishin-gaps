@@ -5,9 +5,14 @@ import test from 'node:test';
 import type { HubSignInResult, SignInPair } from '../../../../shared/utils/hub-signin.ts';
 import type { HubAuthDeps } from './auth.ts';
 
-import { createSilentSignIn, parseSubsonicPair } from '../../../../shared/utils/hub-signin.ts';
+import {
+    createSilentSignIn,
+    parseSubsonicPair,
+    tokenAfterSignIn,
+    upgradeIsQuiet,
+} from '../../../../shared/utils/hub-signin.ts';
 import { castHelloFrame } from '../cast/cast-hello.ts';
-import { createHubAuth, SECRET_KEY, SIGNED_IN_KEY } from './auth.ts';
+import { createHubAuth, SECRET_KEY, SIGNED_IN_KEY, TOKEN_RETIRED_KEY } from './auth.ts';
 
 /**
  * Worbus P2 lane F, F1:  node --test src/main/features/core/hub/auth.harness.ts
@@ -122,7 +127,9 @@ test('bearer prefers secret then token', async () => {
 
     w.answers.push(json(200, {}));
     await w.auth.signOut();
-    assert.equal(w.auth.bearer(), 'legacy-hub-token', 'signed out by the user: the token again');
+    // R23 (b, c): signed out by the user, the device is not connected - never the primary user
+    // through the shared token.
+    assert.equal(w.auth.bearer(), null, 'signed out by the user: nothing, not the token');
 
     const bare = world();
     bare.auth.load();
@@ -335,10 +342,15 @@ test('the transport stands down on 4005 or signed_out and the renderer runs the 
         actions,
         /const state = await hub\.authState\(\);[\s\S]{0,160}return state\.needsSignIn;/,
     );
+    // A memory-only secret lost to a restart is signed in again at start (R7) - with Connect on
+    // and an address only (review M4): with the hub off, nothing is posted anywhere.
+    assert.match(
+        actions,
+        /const needsSignIn = await refreshAuthState\(\);\s*const \{ hub: config \} = useSettingsStore\.getState\(\);\s*if \(!config\.enabled \|\| !config\.url\.trim\(\)\) return;\s*if \(needsSignIn\) return silentSignIn\.signedOut\(\);/,
+    );
     assert.match(
         useHub,
-        /refreshAuthState\(\)[\s\S]{0,200}needsSignIn[\s\S]{0,120}signedOut\(\)/,
-        'a memory-only secret lost to a restart is signed in again at start (R7)',
+        /hub\?\.setSettings\([^)]*\)\s*\/\/[\s\S]{0,600}void reconcileSignIn\(\);/,
     );
 });
 
@@ -452,11 +464,17 @@ test('the IPC handlers hand the renderer results, never the secret', () => {
     assert.match(hub, /ipcMain\.handle\('hub-signin'/);
     assert.match(hub, /ipcMain\.handle\('hub-signout'/);
     assert.match(hub, /ipcMain\.handle\('hub-auth-state'/);
-    // A refused sign-in (after a logout and a server switch left the transport down) still
-    // reconnects with whatever credential is left: a typed token keeps working.
+    // R23: a refused sign-in no longer reconnects with the typed token (it reconnected a switched
+    // or logged-out device as the primary user). The refusal retires the token and the transport
+    // is restarted with what is left - nothing.
+    assert.doesNotMatch(hub, /!shouldRun && hubAuth\.bearer\(\)\) start\(\)/);
     assert.match(
         hub,
-        /else if \(config\.enabled && !shouldRun && hubAuth\.bearer\(\)\) start\(\);/,
+        /const before = hubAuth\.bearer\(\);\s*const result = await hubAuth\.signIn\(/,
+    );
+    assert.match(
+        hub,
+        /if \(result\.kind === 'signedIn' \|\| hubAuth\.bearer\(\) !== before\) restartWithCredential\(true\);/,
     );
     const preload = read('../../../../preload/hub.ts');
     for (const channel of ['hub-signin', 'hub-signout', 'hub-auth-state']) {
@@ -543,5 +561,155 @@ test('cast bridge hello carries bridgedBy', async () => {
     assert.match(
         cast,
         /castHelloFrame\(\{\s*bridgedBy: getHubDeviceId\(\),[\s\S]{0,80}credential: hubAuth\.helloCredential\(\)/,
+    );
+});
+
+// --- review I5 (R23): the shared token is an upgrade bridge, not a fallback ----------------------
+
+test('the legacy token is an upgrade bridge not a fallback', async () => {
+    const outcome = async (answer: Answer) => {
+        const w = world({ answers: [answer], token: 'legacy-hub-token' });
+        w.auth.load();
+        assert.equal(w.auth.bearer(), 'legacy-hub-token', 'before any sign-in: the token');
+        const result = await w.auth.signIn(PAIR);
+        const restarted = createHubAuth(w.deps);
+        restarted.load();
+        return { kind: result.kind, now: w.auth.bearer(), restarted: restarted.bearer(), w };
+    };
+
+    // (a) the upgrade works: the secret, and the token is never used again, not after a restart.
+    const up = await outcome(signedIn());
+    assert.equal(up.now, SECRET);
+    assert.equal(up.w.plain[TOKEN_RETIRED_KEY], true);
+    up.w.auth.signedOutByServer();
+    assert.equal(up.w.auth.bearer(), null, 'a 4005 after the upgrade: no token fallback');
+
+    // (a) Navidrome refused the account: the token is not used, then or after a restart.
+    const refused = await outcome(json(401, { code: 'navidrome_refused' }));
+    assert.equal(refused.kind, 'navidromeRefused');
+    assert.equal(refused.now, null, 'refused: not the primary user through the token');
+    assert.equal(refused.restarted, null);
+
+    // (a) an upgrade must not cost a connection: these keep the token, and retry next time.
+    for (const answer of [
+        new TypeError('fetch failed'),
+        json(429, { code: 'too_many_attempts' }),
+        json(503, { code: 'navidrome_unreachable' }),
+        json(400, { code: 'bad_request' }),
+    ]) {
+        const kept = await outcome(answer);
+        assert.equal(kept.now, 'legacy-hub-token', kept.kind);
+        assert.equal(kept.restarted, 'legacy-hub-token', kept.kind);
+    }
+    // An older server: the token is its credential.
+    const old = await outcome(json(405, { error: 'method not allowed' }));
+    assert.equal(old.now, 'legacy-hub-token');
+
+    // (b) a Navidrome logout or a switch with only a token: the token goes too.
+    const logout = world({ token: 'legacy-hub-token' });
+    logout.auth.load();
+    await logout.auth.signOut();
+    assert.equal(logout.auth.bearer(), null);
+    assert.equal(logout.calls.length, 0, 'no secret: nothing to post');
+    const again = createHubAuth(logout.deps);
+    again.load();
+    assert.equal(again.bearer(), null, 'and not at the next start either');
+    assert.deepEqual(again.helloCredential(), { token: '' });
+
+    // An older server's answer brings the token back (the user types it under Advanced).
+    logout.answers.push(json(405, { error: 'method not allowed' }));
+    assert.equal((await logout.auth.signIn(PAIR)).kind, 'oldServer');
+    assert.equal(logout.auth.bearer(), 'legacy-hub-token');
+    assert.equal(logout.plain[TOKEN_RETIRED_KEY], undefined);
+
+    // The renderer's side of the same rule: which answers clear the typed token, and which
+    // answers of the upgrade say nothing (the token keeps the connection).
+    assert.equal(tokenAfterSignIn('signedIn'), 'clear');
+    assert.equal(tokenAfterSignIn('navidromeRefused'), 'clear');
+    for (const kind of [
+        'oldServer',
+        'unreachable',
+        'tooManyAttempts',
+        'navidromeUnreachable',
+        'badRequest',
+        'noAccount',
+        'noServer',
+    ] as const) {
+        assert.equal(tokenAfterSignIn(kind), 'keep', kind);
+    }
+    for (const kind of ['signedIn', 'navidromeRefused', 'oldServer'] as const) {
+        assert.equal(upgradeIsQuiet(kind), false, kind);
+    }
+    for (const kind of ['unreachable', 'tooManyAttempts', 'navidromeUnreachable'] as const) {
+        assert.equal(upgradeIsQuiet(kind), true, kind);
+    }
+});
+
+test('logout switch and sign out clear the typed token and the upgrade runs on connect', () => {
+    const actions = read('../../../../renderer/features/hub/utils/hub-signin-actions.ts');
+    // Every sign-in answer goes through one rule for the typed token (the Server tab's tap, the
+    // silent one, the upgrade).
+    assert.match(
+        actions,
+        /if \(result !== null && tokenAfterSignIn\(result\.kind\) === 'clear'\) clearTypedToken\(\);/,
+    );
+    // "Sign out of this server", a logout and a switch all sign out through here.
+    const signOut = actions.slice(actions.indexOf('export const signOutOfServer'));
+    assert.match(signOut.slice(0, signOut.indexOf('\n};')), /clearTypedToken\(\);/);
+    // (a) a device on the token makes the upgrade sign-in when it connects, and when its
+    // settings are pushed (a hub that refuses tokens never welcomes it).
+    assert.match(actions, /export const upgradeFromToken = async/);
+    assert.match(actions, /if \(state\.signedIn \|\| state\.needsSignIn\) return;/);
+    const useHub = read('../../../../renderer/features/hub/hooks/use-hub.tsx');
+    assert.match(useHub, /silentSignIn\.welcome\(\);[\s\S]{0,320}void upgradeFromToken\(\);/);
+    assert.match(useHub, /void reconcileSignIn\(\);/);
+});
+
+// --- review I7 (R24): a 4001 to a hello that carried a secret is an older server -----------------
+
+test('a 4001 answering a secret hello is an older server', async () => {
+    const w = world({ answers: [signedIn()] });
+    w.auth.load();
+    await w.auth.signIn(PAIR);
+    w.setToken('typed-for-the-old-hub');
+    w.auth.oldServer();
+    assert.equal(w.plain[SECRET_KEY], undefined, 'the secret is no use there');
+    assert.equal(w.plain[SIGNED_IN_KEY], undefined, 'no silent sign-in is owed');
+    assert.equal(w.auth.bearer(), 'typed-for-the-old-hub', 'the token field is the credential');
+    assert.deepEqual(w.auth.state(), { memoryOnly: false, needsSignIn: false, signedIn: false });
+
+    const hub = read('./index.ts');
+    assert.match(hub, /helloHadSecret = 'auth' in credential;/);
+    assert.match(
+        hub,
+        /if \(code === CLOSE_BAD_TOKEN && helloHadSecret\) \{[\s\S]{0,600}hubAuth\.oldServer\(\);[\s\S]{0,300}emitStatus\('oldServer'\);/,
+    );
+    // The `auth` error before that close says "check the token" - there is no token: not passed on.
+    assert.match(
+        hub,
+        /if \(msg\?\.t === 'error' && msg\?\.code === 'auth' && helloHadSecret\) return;/,
+    );
+    const useHub = read('../../../../renderer/features/hub/hooks/use-hub.tsx');
+    assert.match(
+        useHub,
+        /msg\.t === 'oldServer'\)[\s\S]{0,500}signInResult: \{ kind: 'oldServer' \}/,
+        'the renderer shows the Advanced token field and its sentence',
+    );
+});
+
+// --- review M2, M3: no direct fingerprint while a sign-in is owed; no bridge without a credential --
+
+test('nothing goes out on a credential that is not there', () => {
+    const muse = read('../audiomuse/index.ts');
+    assert.match(
+        muse,
+        /if \(!ep\.viaHub && \(auth\.signedIn \|\| auth\.needsSignIn\)\) return \[\];/,
+    );
+    const cast = read('../cast/index.ts');
+    const connect = cast.slice(cast.indexOf('private connectHub(): void {'));
+    assert.match(
+        connect.slice(0, 600),
+        /if \(!hubAuth\.bearer\(\)\) \{[\s\S]{0,400}return;/,
+        'a bridge with nothing to say hello with does not open a socket (4005 each time)',
     );
 });

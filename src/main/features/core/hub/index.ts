@@ -157,6 +157,9 @@ function connect(): void {
     // successor — and so the successor's cannot be cleared out from under it.
     let heartbeat: NodeJS.Timeout | undefined;
     let alive = false;
+    // R24: whether this socket's hello carried the device secret. A hub that closes such a hello
+    // with 4001 reads only `token`: an older server, not a refused one.
+    let helloHadSecret = false;
     const stopBeat = () => {
         if (heartbeat) clearInterval(heartbeat);
         heartbeat = undefined;
@@ -195,6 +198,8 @@ function connect(): void {
                 /* ignore */
             }
         }, HEARTBEAT_MS);
+        const credential = hubAuth.helloCredential();
+        helloHadSecret = 'auth' in credential;
         sendOn(socket, {
             device: {
                 // `loadAck` (PROTOCOL §7.1): the renderer answers every transfer's
@@ -228,7 +233,7 @@ function connect(): void {
             },
             t: 'hello',
             // Worbus P2: the device secret (`auth.deviceSecret`), else the typed token.
-            ...hubAuth.helloCredential(),
+            ...credential,
         });
     });
     socket.on('pong', () => {
@@ -246,6 +251,9 @@ function connect(): void {
         try {
             const msg = JSON.parse(text);
             if (msg?.t === 'error' && msg?.code === 'signed_out') signedOutSeen = true;
+            // R24: "the server refused the access token" is false here - there is no token; the
+            // close that follows tells the renderer it is an older server instead.
+            if (msg?.t === 'error' && msg?.code === 'auth' && helloHadSecret) return;
             if (msg?.t === 'welcome' || msg?.t === 'devices') {
                 if (Array.isArray(msg.devices)) {
                     knownDevices = msg.devices;
@@ -271,6 +279,22 @@ function connect(): void {
             log.warn('[hub] signed out of the Worbus Server (close 4005) - waiting for a sign-in');
             emitStatus('disconnected');
             emitStatus('signedOut');
+            scheduleReconnect(socket, gen);
+            hubEvents.emit('settings', settingsEvent());
+            return;
+        }
+        if (code === CLOSE_BAD_TOKEN && helloHadSecret) {
+            // R24: a hub of this round answers a dead secret with 4005, never 4001. A 4001 to a
+            // hello that carried one comes from a hub without sign-in (rolled back to P1): forget
+            // the secret, and the Server tab shows the token field for older servers.
+            hubAuth.oldServer();
+            credentialGeneration += 1;
+            log.warn(
+                '[hub] an older Worbus Server (close 4001 to a signed-in hello) - token needed',
+            );
+            shouldRun = config.enabled && hubAuth.bearer() !== null;
+            emitStatus('disconnected');
+            emitStatus('oldServer');
             scheduleReconnect(socket, gen);
             hubEvents.emit('settings', settingsEvent());
             return;
@@ -309,7 +333,7 @@ function deviceId(): string {
  * `act`s into a dead socket and freezing the player bar on stale remote state.
  * Synthetic frames ride the same `hub-message` channel so use-hub can react.
  */
-function emitStatus(status: 'disconnected' | 'signedOut'): void {
+function emitStatus(status: 'disconnected' | 'oldServer' | 'signedOut'): void {
     getMainWindow()?.webContents.send('hub-message', JSON.stringify({ t: status }));
 }
 
@@ -478,11 +502,28 @@ powerMonitor.on('resume', () => kick('resume'));
 ipcMain.handle(
     'hub-settings',
     (_event, enabled: boolean, url: string, token: string, name: string) => {
-        if (token !== config.legacyToken) credentialGeneration += 1;
+        const before = {
+            bearer: hubAuth.bearer(),
+            enabled: config.enabled,
+            name: config.name,
+            url: config.url,
+        };
         config.enabled = enabled;
         config.url = url;
         config.legacyToken = token;
         config.name = name || 'Feishin';
+        const credentialMoved = hubAuth.bearer() !== before.bearer;
+        if (credentialMoved) credentialGeneration += 1;
+        // R23: the renderer clears a retired token from its field after a sign-in. That token was
+        // not in use (the secret was, or nothing): no reconnect for it.
+        if (
+            !credentialMoved &&
+            before.enabled === config.enabled &&
+            before.url === config.url &&
+            before.name === config.name
+        ) {
+            return null;
+        }
         // Recreate the connection so url/token/name changes take effect.
         stop();
         if (enabled) start();
@@ -514,17 +555,18 @@ const isPair = (value: unknown): value is SignInPair => {
 // result alone; the secret stays in hubAuth.
 ipcMain.handle('hub-signin', async (_event, pair: unknown) => {
     if (!isPair(pair)) return { kind: 'noAccount' };
+    const before = hubAuth.bearer();
     const result = await hubAuth.signIn({
         salt: pair.salt,
         token: pair.token,
         username: pair.username,
     });
     // Signed in: reconnect with the secret under the id the hub gave. An older server: the
-    // secret (if any) was dropped and the typed token is the credential again.
-    if (result.kind === 'signedIn' || result.kind === 'oldServer') restartWithCredential(true);
-    // Refused, but the transport was left down by a sign-out (a logout, a server switch) and a
-    // credential remains - a typed token: connect with it, as before the switch.
-    else if (config.enabled && !shouldRun && hubAuth.bearer()) start();
+    // secret (if any) was dropped and the typed token is the credential again. Refused: the
+    // typed token was retired (R23), so a socket still on it closes and nothing reconnects. Any
+    // answer that left the credential as it was leaves the transport alone (a device on the
+    // token stays connected; an older server already on its token is not reconnected).
+    if (result.kind === 'signedIn' || hubAuth.bearer() !== before) restartWithCredential(true);
     return result;
 });
 

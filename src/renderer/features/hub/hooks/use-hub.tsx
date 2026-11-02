@@ -15,10 +15,11 @@ import {
 import { hubFailureMessage } from '/@/renderer/features/hub/utils/hub-failure';
 import { accountChange, followAccount } from '/@/renderer/features/hub/utils/hub-roles';
 import {
-    refreshAuthState,
+    reconcileSignIn,
     signInWithCurrentServer,
     signOutOfServer,
     silentSignIn,
+    upgradeFromToken,
 } from '/@/renderer/features/hub/utils/hub-signin-actions';
 import {
     adoptClaimDelay,
@@ -1421,22 +1422,17 @@ export const useHub = () => {
         // F2: the Server tab's "connecting" starts here, and an earlier refusal is the old
         // token's: the transport tries again with whatever was just pushed.
         useHubStore.getState().actions.setStore({ attemptAt: Date.now(), authRefused: false });
-        hub?.setSettings(settings.enabled, settings.url, settings.token, settings.name).catch(
-            () => undefined,
-        );
-    }, [settings.enabled, settings.name, settings.token, settings.url]);
-
-    // Worbus P2 (R7): a secret kept in memory only is gone after a restart, and one that could not
-    // be decrypted is dropped: main says a sign-in is owed, and the silent one is made now. Until it
-    // answers the transport has no credential and does not connect.
-    useEffect(() => {
-        if (!hub) return;
-        refreshAuthState()
-            .then((needsSignIn) => {
-                if (needsSignIn) void silentSignIn.signedOut();
+        hub?.setSettings(settings.enabled, settings.url, settings.token, settings.name)
+            // Worbus P2: then the sign-in that is due, with Connect on only (M4). A secret kept in
+            // memory only is gone after a restart, and one that could not be decrypted is dropped:
+            // main says a sign-in is owed, and the silent one is made (R7). A device still on a
+            // typed token makes its upgrade sign-in (R23). Until a sign-in answers, a device with
+            // no credential does not connect.
+            .then(() => {
+                void reconcileSignIn();
             })
             .catch(() => undefined);
-    }, []);
+    }, [settings.enabled, settings.name, settings.token, settings.url]);
 
     // Worbus P2 (design §6.5, the owner's 2026-11-02 answer): the hub identity IS the Navidrome
     // account. A logout signs this device out of the Worbus Server and drops what the old account
@@ -1507,6 +1503,9 @@ export const useHub = () => {
                 doEcho.current = echoWelcome(doEcho.current);
                 // Worbus P2: the credential works; the next signed-out earns one silent try again.
                 silentSignIn.welcome();
+                // R23 (a): connected on a typed token - sign in with the account now, so the token
+                // is retired once the secret is held.
+                if (!useHubStore.getState().authSignedIn) void upgradeFromToken();
                 myId.current = msg.deviceId ?? null;
                 noteActive(msg.session?.activeDeviceId ?? null);
                 setStore({
@@ -1738,6 +1737,17 @@ export const useHub = () => {
                 // Server tab reads "Signed out of the Worbus Server".
                 setStore({ authOwed: true, authSignedIn: false, user: null });
                 void silentSignIn.signedOut();
+            } else if (msg.t === 'oldServer') {
+                // R24: main saw a 4001 answer a hello that carried the secret - a hub without
+                // sign-in (rolled back). The secret is gone; the Server tab says so and shows the
+                // token field for older servers.
+                setStore({
+                    authOwed: false,
+                    authSignedIn: false,
+                    signedOut: false,
+                    signInResult: { kind: 'oldServer' },
+                    user: null,
+                });
             } else if (msg.t === 'disconnected') {
                 // The main process lost the socket. Clear active/connected so
                 // isRemoteSessionActive() releases the player bar and the local
