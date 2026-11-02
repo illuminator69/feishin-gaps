@@ -194,10 +194,11 @@ export interface HubAuth {
     newServer: () => void;
     /**
      * An older server (R6; R24: a 4001 answering a hello that carried the secret): the secret is no
-     * use there, no sign-in is owed, and the typed token is the credential again. False (nothing
-     * changed) at an address that welcomed with a user this launch (R36).
+     * use there, no sign-in is owed, and the typed token is the credential again. Also at an
+     * address that welcomed with a user this launch: R36 covers sign-in answers only, and a 4001
+     * to a secret hello means the hub was rolled back to P1 (whose welcome names no user).
      */
-    oldServer: () => boolean;
+    oldServer: () => void;
     /** The hub refused the secret (close 4005 / `signed_out`): forget it; a sign-in is owed. */
     signedOutByServer: () => void;
     signIn: (pair: SignInPair) => Promise<HubSignInResult>;
@@ -306,11 +307,11 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
         },
 
         oldServer: () => {
-            if (atP2Hub()) return false;
+            const base = deps.httpBase();
+            if (base) p2ThisLaunch.delete(base);
             drop(true);
             deps.store.delete(TOKEN_RETIRED_KEY);
             noteOldServer(true);
-            return true;
         },
 
         signedOutByServer: () => {

@@ -294,12 +294,11 @@ function connect(): void {
             hubEvents.emit('settings', settingsEvent());
             return;
         }
-        if (code === CLOSE_BAD_TOKEN && helloHadSecret && hubAuth.oldServer()) {
+        if (code === CLOSE_BAD_TOKEN && helloHadSecret) {
             // R24: a hub of this round answers a dead secret with 4005, never 4001. A 4001 to a
-            // hello that carried one comes from a hub without sign-in (rolled back to P1): the
-            // secret is forgotten (`oldServer()`), and the Server tab shows the token field for
-            // older servers. Not at an address that welcomed with a user this launch (R36): that
-            // close is an ordinary refusal below.
+            // hello that carried one comes from a hub without sign-in (rolled back to P1): forget
+            // the secret, and the Server tab shows the token field for older servers.
+            hubAuth.oldServer();
             credentialGeneration += 1;
             log.warn(
                 '[hub] an older Worbus Server (close 4001 to a signed-in hello) - token needed',
