@@ -9,7 +9,6 @@ import {
     createSilentSignIn,
     parseSubsonicPair,
     tokenAfterSignIn,
-    upgradeIsQuiet,
 } from '../../../../shared/utils/hub-signin.ts';
 import { castHelloFrame } from '../cast/cast-hello.ts';
 import {
@@ -122,8 +121,9 @@ const world = (opts: { answers?: Answer[]; encryption?: boolean; token?: string 
 test('bearer prefers secret then token', async () => {
     const w = world({ answers: [signedIn()], token: 'legacy-hub-token' });
     w.auth.load();
-    assert.equal(w.auth.bearer(), 'legacy-hub-token', 'never signed in: the typed token');
-    assert.deepEqual(w.auth.helloCredential(), { token: 'legacy-hub-token' });
+    // R31: the typed token goes only to an address that answered OldServer.
+    assert.equal(w.auth.bearer(), null, 'never signed in, address not known as older: nothing');
+    assert.deepEqual(w.auth.helloCredential(), { token: '' });
 
     const result = await w.auth.signIn(PAIR);
     assert.equal(result.kind, 'signedIn');
@@ -576,7 +576,7 @@ test('the legacy token is an upgrade bridge not a fallback', async () => {
     const outcome = async (answer: Answer) => {
         const w = world({ answers: [answer], token: 'legacy-hub-token' });
         w.auth.load();
-        assert.equal(w.auth.bearer(), 'legacy-hub-token', 'before any sign-in: the token');
+        assert.equal(w.auth.bearer(), null, 'before any sign-in: not the token (R31)');
         const result = await w.auth.signIn(PAIR);
         const restarted = createHubAuth(w.deps);
         restarted.load();
@@ -596,20 +596,34 @@ test('the legacy token is an upgrade bridge not a fallback', async () => {
     assert.equal(refused.now, null, 'refused: not the primary user through the token');
     assert.equal(refused.restarted, null);
 
-    // (a) an upgrade must not cost a connection: these keep the token, and retry next time.
+    // R31 (replaces R23(a)'s keep-the-token clause): a sign-in that did not answer, or answered
+    // 429 or Navidrome-down, leaves the device unconnected - the token is never sent, in the
+    // hello or as any main client's bearer, then or after a restart. The renderer shows the
+    // status and retries at the next connect.
     for (const answer of [
         new TypeError('fetch failed'),
         json(429, { code: 'too_many_attempts' }),
         json(503, { code: 'navidrome_unreachable' }),
+        { body: '<html>502 Bad Gateway</html>', status: 502 },
         json(400, { code: 'bad_request' }),
-    ]) {
-        const kept = await outcome(answer);
-        assert.equal(kept.now, 'legacy-hub-token', kept.kind);
-        assert.equal(kept.restarted, 'legacy-hub-token', kept.kind);
+    ] as Answer[]) {
+        const unconnected = await outcome(answer);
+        assert.equal(unconnected.now, null, unconnected.kind);
+        assert.equal(unconnected.restarted, null, unconnected.kind);
+        assert.deepEqual(unconnected.w.auth.helloCredential(), { token: '' }, unconnected.kind);
+        assert.ok(
+            !JSON.stringify(unconnected.w.calls).includes('legacy-hub-token'),
+            `${unconnected.kind}: the token went nowhere`,
+        );
     }
-    // An older server: the token is its credential.
+    // An older server: the token is its credential, there - and after a restart.
     const old = await outcome(json(405, { error: 'method not allowed' }));
     assert.equal(old.now, 'legacy-hub-token');
+    assert.equal(old.restarted, 'legacy-hub-token');
+    assert.deepEqual(old.w.auth.helloCredential(), { token: 'legacy-hub-token' });
+    // ...and only there: another address has not answered OldServer.
+    old.w.deps.httpBase = () => 'http://new-hub.lan:4790';
+    assert.equal(createHubAuth(old.w.deps).bearer(), null, 'not to another address');
 
     // (b) a Navidrome logout or a switch with only a token: the token goes too.
     const logout = world({ token: 'legacy-hub-token' });
@@ -643,12 +657,10 @@ test('the legacy token is an upgrade bridge not a fallback', async () => {
     ] as const) {
         assert.equal(tokenAfterSignIn(kind), 'keep', kind);
     }
-    for (const kind of ['signedIn', 'navidromeRefused', 'oldServer'] as const) {
-        assert.equal(upgradeIsQuiet(kind), false, kind);
-    }
-    for (const kind of ['unreachable', 'tooManyAttempts', 'navidromeUnreachable'] as const) {
-        assert.equal(upgradeIsQuiet(kind), true, kind);
-    }
+    // R31: no answer of the upgrade is quiet any more - unreachable, busy and Navidrome-down are
+    // shown, since the device is not connected.
+    const actions = read('../../../../renderer/features/hub/utils/hub-signin-actions.ts');
+    assert.doesNotMatch(actions, /upgradeIsQuiet/);
 });
 
 test('logout switch and sign out clear the typed token and the upgrade runs on connect', () => {
@@ -734,7 +746,7 @@ test('a 5xx from the sign-in is unreachable whatever its body', async () => {
         const w = world({ answers: [answer], token: 'typed' });
         w.auth.load();
         assert.equal((await w.auth.signIn(PAIR)).kind, 'unreachable', label);
-        assert.equal(w.auth.bearer(), 'typed', `${label}: the token keeps the connection`);
+        assert.equal(w.auth.bearer(), null, `${label}: not connected on the token (R31)`);
     }
     // The hub's own 503 refusal stays what it is.
     const own = world({ answers: [json(503, { code: 'navidrome_unreachable' })] });

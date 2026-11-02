@@ -142,17 +142,9 @@ export const createSilentSignIn = (deps: SilentSignInDeps): SilentSignIn => {
  * R23: what a sign-in's answer does to the typed (legacy) hub token. It is an upgrade bridge, not a
  * fallback: a sign-in that worked replaces it for good, and an account the server's Navidrome
  * refused must not reach the hub through it as the primary user. Every other answer keeps it: an
- * older server uses it, and a hub that was unreachable or busy must not cost the connection.
+ * older server uses it, and after an unreachable or busy answer the next sign-in still needs it
+ * to tell an older server apart (R31: main sends it only to an address that answered OldServer).
  * Main retires it (`hubAuth`), the renderer clears the field.
  */
 export const tokenAfterSignIn = (kind: HubSignInResult['kind']): 'clear' | 'keep' =>
     kind === 'signedIn' || kind === 'navidromeRefused' ? 'clear' : 'keep';
-
-/**
- * R23 (a): the sign-in a device still on the typed token makes when it connects. An answer that
- * keeps the token (unreachable, busy, Navidrome down, no account here) says nothing - the device
- * stays connected as it was, and tries again at the next connect. Signed in, refused and an older
- * server are shown as any sign-in's are.
- */
-export const upgradeIsQuiet = (kind: HubSignInResult['kind']): boolean =>
-    kind !== 'oldServer' && tokenAfterSignIn(kind) === 'keep';

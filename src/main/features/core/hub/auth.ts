@@ -38,6 +38,16 @@ export const SIGNED_IN_KEY = 'hubAuth.signedIn';
  * primary user, in the owner's space. Only an older server's answer (R6, R24) brings it back.
  */
 export const TOKEN_RETIRED_KEY = 'hubAuth.tokenRetired';
+
+/**
+ * electron-store key (R31): the hub addresses (`http(s)://host:port`) that answered OldServer - 404,
+ * 405, a 2xx or 4xx that is not the sign-in JSON, or a 4001 to a secret hello (R24). The typed
+ * token is sent only to one of these. Anywhere else a device holding a token and no secret
+ * connects only after a sign-in works: a 429 or an unreachable Navidrome must not connect a
+ * non-primary account on the shared token as the primary user (anti-goal §4).
+ */
+export const OLD_SERVERS_KEY = 'hubAuth.oldServers';
+const OLD_SERVERS_MAX = 8;
 /**
  * electron-store key (R27): the hub device id each account was given, by (hub address, account
  * name normalised as the hub keys users). R4 adopts the id a sign-in answers with; with one slot
@@ -171,7 +181,7 @@ export const publicResult = (result: HubSignInResult): HubSignInResult =>
         : { kind: result.kind };
 
 export interface HubAuth {
-    /** The secret, else the typed token while it is not retired (R23); else null. */
+    /** The secret, else the typed token at an older server only (R23, R31); else null. */
     bearer: () => null | string;
     /** What a `hello` carries: the secret, or the legacy token. */
     helloCredential: () => { auth: { deviceSecret: string } } | { token: string };
@@ -196,8 +206,29 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
     const memoryOnly = () => !deps.vault.available();
     const marked = () => deps.store.get(SIGNED_IN_KEY) === true;
     const retired = () => deps.store.get(TOKEN_RETIRED_KEY) === true;
-    /** The typed token, unless it is retired (R23) or this device holds a sign-in. */
-    const token = () => (retired() || marked() ? '' : deps.legacyToken());
+    const oldServers = (): string[] => {
+        const stored = deps.store.get(OLD_SERVERS_KEY);
+        return Array.isArray(stored)
+            ? stored.filter((x): x is string => typeof x === 'string')
+            : [];
+    };
+    const atOldServer = () => {
+        const base = deps.httpBase();
+        return base !== null && oldServers().includes(base);
+    };
+    const noteOldServer = (older: boolean) => {
+        const base = deps.httpBase();
+        if (!base) return;
+        const rest = oldServers().filter((x) => x !== base);
+        const next = older ? [...rest, base].slice(-OLD_SERVERS_MAX) : rest;
+        if (next.length) deps.store.set(OLD_SERVERS_KEY, next);
+        else deps.store.delete(OLD_SERVERS_KEY);
+    };
+    /**
+     * The typed token: only for an address that answered OldServer (R31), and never once retired
+     * (R23) or while this device holds a sign-in.
+     */
+    const token = () => (retired() || marked() || !atOldServer() ? '' : deps.legacyToken());
     const retire = () => deps.store.set(TOKEN_RETIRED_KEY, true);
 
     const keep = (value: string) => {
@@ -246,6 +277,7 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
         oldServer: () => {
             drop(true);
             deps.store.delete(TOKEN_RETIRED_KEY);
+            noteOldServer(true);
         },
 
         signedOutByServer: () => {
@@ -306,6 +338,8 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
             if (result.kind === 'signedIn' || result.kind === 'navidromeRefused') retire();
             if (result.kind === 'signedIn' && issued) {
                 keep(issued);
+                // An address that signs in is not an older server any more (an upgraded hub).
+                noteOldServer(false);
                 deps.setDeviceId(result.deviceId);
                 deps.store.set(DEVICE_IDS_KEY, { ...ids, [idKey]: result.deviceId });
                 if (unclaimed && result.deviceId === unclaimed) {
@@ -323,6 +357,7 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
                 if (result.kind === 'oldServer') {
                     drop(true);
                     deps.store.delete(TOKEN_RETIRED_KEY);
+                    noteOldServer(true);
                 }
             }
             return publicResult(result);

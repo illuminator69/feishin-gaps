@@ -11,7 +11,6 @@ import {
     parseSubsonicPair,
     SignInPair,
     tokenAfterSignIn,
-    upgradeIsQuiet,
 } from '/@/shared/utils/hub-signin';
 
 /**
@@ -162,12 +161,14 @@ export const refreshAuthState = async (): Promise<boolean> => {
 let upgrading: null | Promise<void> = null;
 
 /**
- * R23 (a): a device still on the typed token (an owner's client from before sign-in) makes one
- * sign-in when it connects, with the current server's account. Signed in: the secret replaces the
- * token for good. Refused: the token is not used. An older server: the token stays its credential
- * (the token field shows). Anything else (unreachable, busy, Navidrome down, no account here)
- * says nothing and keeps the token - an upgrade must not cost a connection - and the next connect
- * tries again. Main's answer decides whether one is due: never over a held or owed secret.
+ * R23 (a), as R31 replaced it: a device holding a typed token and no secret signs in with the
+ * current server's account before it connects. Signed in: the secret replaces the token for good.
+ * Refused: the token is retired. An older server: the token is its credential there (the token
+ * field shows), and only there. Anything else (unreachable, busy, Navidrome down, no account
+ * here) leaves the device unconnected - main sends the token to no address that has not answered
+ * OldServer - with that status shown, and the next connect (a settings push, the network coming
+ * back, a launch) tries again. Main's answer decides whether one is due: never over a held or
+ * owed secret.
  */
 export const upgradeFromToken = async (): Promise<void> => {
     if (!hub || upgrading) return upgrading ?? undefined;
@@ -176,16 +177,12 @@ export const upgradeFromToken = async (): Promise<void> => {
     // This session already found an older server: it does not do sign-in.
     if (useHubStore.getState().signInResult?.kind === 'oldServer') return;
     const pair = currentServerPair();
-    if (!pair) return;
     upgrading = (async () => {
         const state = await hub.authState();
         if (state.signedIn || state.needsSignIn) return;
-        const result = await post(pair);
-        if (upgradeIsQuiet(result.kind)) {
-            logger.info(`[hub] sign-in from the token: ${result.kind} - the token stays for now`);
-            useHubStore.getState().actions.setStore({ signingIn: false });
-            return;
-        }
+        // R31: every answer is shown - the device is not connected until one works.
+        const result: HubSignInResult = pair ? await post(pair) : { kind: 'noAccount' };
+        logger.info(`[hub] sign-in from the token: ${result.kind}`);
         apply(result, false);
     })()
         .catch((error) => {

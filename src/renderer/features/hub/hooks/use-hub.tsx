@@ -1490,7 +1490,11 @@ export const useHub = () => {
     // may be parked at 30 s. (Waking from sleep is the main process's own hook.)
     useEffect(() => {
         if (!hub) return undefined;
-        const onOnline = () => hub.kick();
+        const onOnline = () => {
+            hub.kick();
+            // R31: a device waiting on a sign-in (unreachable, busy, Navidrome down) tries again.
+            void reconcileSignIn();
+        };
         window.addEventListener('online', onOnline);
         return () => window.removeEventListener('online', onOnline);
     }, []);
