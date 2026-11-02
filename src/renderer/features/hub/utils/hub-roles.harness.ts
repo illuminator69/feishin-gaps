@@ -410,7 +410,11 @@ test('account changes run one at a time and a welcome for another user is follow
         useHub,
         /accountMismatch\(\s*welcomeUser,\s*currentServerUsername\(\),\s*useHubStore\.getState\(\)\.authSignedIn,?\s*\)/,
     );
-    assert.match(useHub, /void followAccountChange\('switch'\);/);
+    assert.match(
+        useHub,
+        /!reconciledMismatches\.has\(mismatchKey\)\s*\)\s*\{\s*reconciledMismatches\.add\(mismatchKey\);\s*void followAccountChange\('switch'\);/,
+        'once per (hub user, account) a session: a hub naming users differently cannot loop',
+    );
 });
 
 // --- review M1: a secret held with no user yet is least privilege ------------------------------
