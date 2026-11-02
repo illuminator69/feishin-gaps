@@ -1462,10 +1462,11 @@ export const useHub = () => {
             // main says a sign-in is owed, and the silent one is made (R7). A device still on a
             // typed token makes its upgrade sign-in (R23). Until a sign-in answers, a device with
             // no credential does not connect.
-            .then(() => {
+            .catch(() => undefined)
+            // Also after a failed push: the auth state must become known (re-review N1).
+            .finally(() => {
                 void reconcileSignIn();
-            })
-            .catch(() => undefined);
+            });
     }, [settings.enabled, settings.name, settings.token, settings.url]);
 
     // Worbus P2 (design §6.5, the owner's 2026-11-02 answer): the hub identity IS the Navidrome

@@ -20,6 +20,7 @@ import {
     accountMismatch,
     allows,
     createAccountFollower,
+    credentialPending,
     followAccount,
     ROLE_GATES,
     rolesOf,
@@ -431,9 +432,28 @@ test('a held secret with no user yet shows no admin or primary surface', () => {
         store,
         /useHubStore\(\(s\) => rolesOf\(s\.user, hubCredentialPending\(s\)\), shallow\)/,
     );
+    assert.match(store, /export const hubCredentialPending = credentialPending;/);
+    const known = { authKnown: true, authOwed: false, authSignedIn: false, signedOut: false };
+    assert.equal(credentialPending(known), false, 'a token or nothing: today');
+    for (const flag of ['authSignedIn', 'authOwed', 'signedOut'] as const) {
+        assert.equal(credentialPending({ ...known, [flag]: true }), true, flag);
+    }
+});
+
+// --- re-review N1: before main has said whether a secret is held, nothing gated is shown ----------
+
+test('roles are least privilege until main has answered the auth state', () => {
+    const unknown = { authKnown: false, authOwed: false, authSignedIn: false, signedOut: false };
+    assert.equal(credentialPending(unknown), true);
+    assert.deepEqual(rolesOf(null, credentialPending(unknown)), { admin: false, primary: false });
+    const store = read('../../../store/hub.store.ts');
+    // The web build has no main process to ask: known from the start.
+    assert.match(store, /authKnown: !isElectron\(\),/);
+    const actions = read('./hub-signin-actions.ts');
+    // Known once main answered - or failed to: a failed IPC must not leave everything hidden.
     assert.match(
-        store,
-        /export const hubCredentialPending = \(s: [^)]*\): boolean =>\s*s\.authSignedIn \|\| s\.authOwed \|\| s\.signedOut;/,
+        actions,
+        /try \{\s*const state = await hub\.authState\(\);[\s\S]{0,300}\} finally \{\s*useHubStore\.getState\(\)\.actions\.setStore\(\{ authKnown: true \}\);\s*\}/,
     );
 });
 
@@ -495,4 +515,29 @@ test('the match dialog says an admin is needed when the user is not one', () => 
         modal,
         /!allows\(roles, 'artistMatch'\)\s*\?\s*'Only an admin of this server can change this\.'/,
     );
+});
+
+// --- re-review N2: account names compare trimmed and without case ------------------------------
+
+test('account names compare trimmed and without case', () => {
+    const owner = { admin: true, name: 'owner', primary: true };
+    // A server added as "Owner" (Navidrome logins are case-insensitive; getUser answers the
+    // stored lower-case name), or with a stray space, is the same account: no switch at every
+    // launch clearing the saved queues, the mirror and the fills.
+    for (const login of ['Owner', 'owner ', ' OWNER\t', 'owner']) {
+        assert.equal(accountMismatch(owner, login, true), false, JSON.stringify(login));
+        assert.equal(
+            accountChange(
+                accountKey({ ...SERVER, username: 'owner' }),
+                accountKey({ ...SERVER, username: login }),
+            ),
+            'none',
+            JSON.stringify(login),
+        );
+    }
+    // The hub's own name with a stray space too.
+    assert.equal(accountMismatch({ ...owner, name: ' Owner ' }, 'owner', true), false);
+    // A different account is still one.
+    assert.equal(accountMismatch(owner, 'owner2', true), true);
+    assert.equal(accountMismatch(owner, ' ', true), false, 'a blank name is no account');
 });

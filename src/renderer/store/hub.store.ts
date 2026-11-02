@@ -2,11 +2,12 @@ import type { LbBotStatus } from '/@/shared/types/lbbot-types';
 import type { HubSignInResult, HubUser } from '/@/shared/utils/hub-signin';
 import type { LbIndexProgress } from '/@/shared/utils/lbbot-mode';
 
+import isElectron from 'is-electron';
 import { shallow } from 'zustand/shallow';
 import { createWithEqualityFn } from 'zustand/traditional';
 
 import { ActPins, NO_PINS } from '/@/renderer/features/hub/utils/act-pins';
-import { HubRoles, rolesOf } from '/@/renderer/features/hub/utils/hub-roles';
+import { credentialPending, HubRoles, rolesOf } from '/@/renderer/features/hub/utils/hub-roles';
 import { SessionSleepTimer } from '/@/renderer/features/hub/utils/sleep-timer';
 
 /**
@@ -112,6 +113,11 @@ interface HubState {
      */
     attemptAt: number;
     /**
+     * Worbus P2 (re-review N1): main has answered `hub-auth-state` once (or failed to). Until then
+     * a signed-in device looks like one with no credential; roles stay least privilege meanwhile.
+     */
+    authKnown: boolean;
+    /**
      * Worbus P2: a sign-in is owed and the silent one is under way (main's `needsSignIn` at start,
      * or the server's 4005). Counts as holding a credential (hub-credential.ts) until it answers.
      */
@@ -215,6 +221,8 @@ const initialState: HubState = {
     activeDeviceId: null,
     actPins: NO_PINS,
     attemptAt: 0,
+    // The web build has no main process to ask.
+    authKnown: !isElectron(),
     authOwed: false,
     authRefused: false,
     authSignedIn: false,
@@ -285,11 +293,7 @@ export const useHubActions = () => useHubStore((s) => s.actions);
  * Worbus P2 (review M1): this device holds or is owed a device secret, or the server signed it
  * out - a hub of this round, which names its user. Until it has, roles are least privilege.
  */
-export const hubCredentialPending = (s: {
-    authOwed: boolean;
-    authSignedIn: boolean;
-    signedOut: boolean;
-}): boolean => s.authSignedIn || s.authOwed || s.signedOut;
+export const hubCredentialPending = credentialPending;
 
 /**
  * Worbus P2: the signed-in user's roles, from `hub.store.user` - the only role source for the hub

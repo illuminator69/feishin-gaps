@@ -346,7 +346,7 @@ test('the transport stands down on 4005 or signed_out and the renderer runs the 
     // and an address only (review M4): with the hub off, nothing is posted anywhere.
     assert.match(
         actions,
-        /const needsSignIn = await refreshAuthState\(\);\s*const \{ hub: config \} = useSettingsStore\.getState\(\);\s*if \(!config\.enabled \|\| !config\.url\.trim\(\)\) return;\s*if \(needsSignIn\) return silentSignIn\.signedOut\(\);/,
+        /const needsSignIn = await refreshAuthState\(\)\.catch\(\(\) => false\);\s*const \{ hub: config \} = useSettingsStore\.getState\(\);\s*if \(!config\.enabled \|\| !config\.url\.trim\(\)\) return;\s*if \(needsSignIn\) return silentSignIn\.signedOut\(\);/,
     );
     assert.match(
         useHub,

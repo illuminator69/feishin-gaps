@@ -127,11 +127,15 @@ export const signOutOfServer = async (opts: { reconnect: boolean }): Promise<voi
 /** Read main's view of this device's sign-in into the store; true when a sign-in is owed. */
 export const refreshAuthState = async (): Promise<boolean> => {
     if (!hub) return false;
-    const state = await hub.authState();
-    useHubStore
-        .getState()
-        .actions.setStore({ authOwed: state.needsSignIn, authSignedIn: state.signedIn });
-    return state.needsSignIn;
+    try {
+        const state = await hub.authState();
+        useHubStore
+            .getState()
+            .actions.setStore({ authOwed: state.needsSignIn, authSignedIn: state.signedIn });
+        return state.needsSignIn;
+    } finally {
+        useHubStore.getState().actions.setStore({ authKnown: true });
+    }
 };
 
 let upgrading: null | Promise<void> = null;
@@ -180,7 +184,7 @@ export const upgradeFromToken = async (): Promise<void> => {
  */
 export const reconcileSignIn = async (): Promise<void> => {
     if (!hub) return;
-    const needsSignIn = await refreshAuthState();
+    const needsSignIn = await refreshAuthState().catch(() => false);
     const { hub: config } = useSettingsStore.getState();
     if (!config.enabled || !config.url.trim()) return;
     if (needsSignIn) return silentSignIn.signedOut();

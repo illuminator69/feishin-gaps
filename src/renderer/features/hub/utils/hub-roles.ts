@@ -15,6 +15,19 @@ export interface HubRoles {
     primary: boolean;
 }
 
+/**
+ * Whether a hub of this round is in play although no `user` has been heard: a device secret held
+ * or owed, the server signed this device out (review M1), or main has not yet said which it is
+ * (re-review N1: the launch window before `hub-auth-state` answers). Roles are least privilege
+ * then, so nothing gated flashes on and off.
+ */
+export const credentialPending = (s: {
+    authKnown: boolean;
+    authOwed: boolean;
+    authSignedIn: boolean;
+    signedOut: boolean;
+}): boolean => !s.authKnown || s.authSignedIn || s.authOwed || s.signedOut;
+
 /** No `user` at all: an older hub, which sends none. Today's behaviour: everything shown. */
 export const TODAY_ROLES: HubRoles = { admin: true, primary: true };
 
@@ -78,6 +91,13 @@ export const userAfterRefusal = (
 export type AccountChange = 'logout' | 'none' | 'switch';
 
 /**
+ * A Navidrome user name as an account identity (re-review N2): trimmed, Unicode-normalised and
+ * lower-cased. Navidrome logins are case-insensitive and `getUser` answers the stored lower-case
+ * name, so a server added as "Owner" (or with a stray space) is the hub's "owner".
+ */
+export const accountName = (name: string): string => name.normalize('NFC').trim().toLowerCase();
+
+/**
  * Which Navidrome account a server entry is (review I1): its id, the user name lower-cased (as the
  * hub keys users) and the address. Editing the current entry's user or address keeps its id, and
  * is still another account. Null: no current server.
@@ -85,7 +105,7 @@ export type AccountChange = 'logout' | 'none' | 'switch';
 export const accountKey = (
     server: null | undefined | { id: string; url: string; username: string },
 ): null | string =>
-    server ? JSON.stringify([server.id, server.username.toLowerCase(), server.url]) : null;
+    server ? JSON.stringify([server.id, accountName(server.username), server.url]) : null;
 
 export const accountChange = (
     previousKey: null | string | undefined,
@@ -105,7 +125,13 @@ export const accountMismatch = (
     username: null | string,
     signedIn: boolean,
 ): boolean =>
-    Boolean(signedIn && user && username && user.name.toLowerCase() !== username.toLowerCase());
+    Boolean(
+        signedIn &&
+        user &&
+        username &&
+        accountName(username) !== '' &&
+        accountName(user.name) !== accountName(username),
+    );
 
 export interface AccountFollowDeps {
     /** The lb-bot fill ledger (an admin's downloads and their history: review M5). */
