@@ -713,3 +713,29 @@ test('nothing goes out on a credential that is not there', () => {
         'a bridge with nothing to say hello with does not open a socket (4005 each time)',
     );
 });
+
+// --- R6 clarification: any 5xx is a gateway failure, never an older hub -------------------------
+
+test('a 5xx from the sign-in is unreachable whatever its body', async () => {
+    const proxyPage = '<html><body><h1>502 Bad Gateway</h1></body></html>';
+    for (const [label, answer] of [
+        ['proxy 502 HTML', { body: proxyPage, status: 502 }],
+        ['proxy 503 HTML', { body: '<html>Service Unavailable</html>', status: 503 }],
+        ['proxy 504 empty', { body: '', status: 504 }],
+        ['500 JSON not the route', json(500, { error: 'internal' })],
+        ['503 with another code', json(503, { code: 'lbbot_too_old' })],
+    ] as [string, Answer][]) {
+        const w = world({ answers: [answer], token: 'typed' });
+        w.auth.load();
+        assert.equal((await w.auth.signIn(PAIR)).kind, 'unreachable', label);
+        assert.equal(w.auth.bearer(), 'typed', `${label}: the token keeps the connection`);
+    }
+    // The hub's own 503 refusal stays what it is.
+    const own = world({ answers: [json(503, { code: 'navidrome_unreachable' })] });
+    own.auth.load();
+    assert.equal((await own.auth.signIn(PAIR)).kind, 'navidromeUnreachable');
+    // And a 4xx that is not the route's JSON is still an older hub.
+    const old = world({ answers: [{ body: '<html>Forbidden</html>', status: 403 }] });
+    old.auth.load();
+    assert.equal((await old.auth.signIn(PAIR)).kind, 'oldServer');
+});

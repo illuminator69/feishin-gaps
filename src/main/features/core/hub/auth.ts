@@ -101,8 +101,9 @@ const REFUSALS: Record<string, { code: string; kind: SignInFailure }> = {
 };
 
 /**
- * One answer of `/hub/signin`, by R6: a refusal is its code; 404, 405, and anything that is not
- * this route's JSON (an HTML page, a 200 without a secret) is an older server.
+ * One answer of `/hub/signin`, by R6: a refusal is its code; any other 5xx is unreachable, whatever
+ * its body; 404, 405, and a 2xx or 4xx that is not this route's JSON (an HTML page, a 200 without a
+ * secret) is an older server.
  */
 export const classifySignIn = (
     status: number,
@@ -132,6 +133,9 @@ export const classifySignIn = (
     }
     const refusal = REFUSALS[status];
     if (refusal && obj.code === refusal.code) return { result: { kind: refusal.kind } };
+    // R6 clarification: any other 5xx is a gateway failure (a reverse proxy's 502, 503 or 504
+    // page), never an older hub - it keeps the token and is tried again.
+    if (status >= 500) return { result: { kind: 'unreachable' } };
     return { result: { kind: 'oldServer' } };
 };
 
