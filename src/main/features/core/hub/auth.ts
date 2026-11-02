@@ -188,6 +188,11 @@ export interface HubAuth {
     /** Read the stored secret (start-up). */
     load: () => void;
     /**
+     * R35: a `welcome` naming a user came from this address - a hub of this round (upgraded in
+     * place). It is no older server: the token is not sent there again.
+     */
+    newServer: () => void;
+    /**
      * An older server (R6; R24: a 4001 answering a hello that carried the secret): the secret is no
      * use there, no sign-in is owed, and the typed token is the credential again.
      */
@@ -212,13 +217,21 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
             ? stored.filter((x): x is string => typeof x === 'string')
             : [];
     };
+    /**
+     * R35: an OldServer verdict is about one moment. The persisted list says where to try the
+     * token at all; it is used only once this launch has itself been answered OldServer there (one
+     * 405 POST per launch on a P1 hub), so a hub upgraded in place is found at the next launch.
+     */
+    const answeredThisLaunch = new Set<string>();
     const atOldServer = () => {
         const base = deps.httpBase();
-        return base !== null && oldServers().includes(base);
+        return base !== null && answeredThisLaunch.has(base) && oldServers().includes(base);
     };
     const noteOldServer = (older: boolean) => {
         const base = deps.httpBase();
         if (!base) return;
+        if (older) answeredThisLaunch.add(base);
+        else answeredThisLaunch.delete(base);
         const rest = oldServers().filter((x) => x !== base);
         const next = older ? [...rest, base].slice(-OLD_SERVERS_MAX) : rest;
         if (next.length) deps.store.set(OLD_SERVERS_KEY, next);
@@ -273,6 +286,8 @@ export const createHubAuth = (deps: HubAuthDeps): HubAuth => {
                 deps.store.delete(SECRET_KEY);
             }
         },
+
+        newServer: () => noteOldServer(false),
 
         oldServer: () => {
             drop(true);

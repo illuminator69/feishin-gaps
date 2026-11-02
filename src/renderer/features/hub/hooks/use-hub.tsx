@@ -1541,6 +1541,11 @@ export const useHub = () => {
                 doEcho.current = echoWelcome(doEcho.current);
                 // Worbus P2: the credential works; the next signed-out earns one silent try again.
                 silentSignIn.welcome();
+                // R35: a welcome naming a user is a hub of this round, whatever this session found
+                // here before (upgraded in place): the older-hub verdict ends.
+                if (welcomeUser && useHubStore.getState().signInResult?.kind === 'oldServer') {
+                    setStore({ signInResult: null });
+                }
                 // R23 (a): connected on a typed token - sign in with the account now, so the token
                 // is retired once the secret is held.
                 if (!useHubStore.getState().authSignedIn) void upgradeFromToken();

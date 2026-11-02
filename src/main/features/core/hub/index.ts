@@ -244,6 +244,7 @@ function connect(): void {
     socket.on('message', (data) => {
         if (!isCurrent(socket, gen)) return;
         const text = data.toString();
+        let p2Welcome = false;
         // Snoop the device registry on the way past. The cast bridge needs it to
         // arbitrate ownership of a speaker BEFORE it registers (PROTOCOL §12.2 steps
         // 1-3), and it can't read it from its own socket — that socket *is* the device
@@ -251,6 +252,9 @@ function connect(): void {
         try {
             const msg = JSON.parse(text);
             if (msg?.t === 'error' && msg?.code === 'signed_out') signedOutSeen = true;
+            // R35: a welcome naming a user, to a hello that carried the token, is a hub of this
+            // round - upgraded in place while this device was on it.
+            if (msg?.t === 'welcome' && msg.user && !helloHadSecret) p2Welcome = true;
             // R24: "the server refused the access token" is false here - there is no token; the
             // close that follows tells the renderer it is an older server instead.
             if (msg?.t === 'error' && msg?.code === 'auth' && helloHadSecret) return;
@@ -264,6 +268,13 @@ function connect(): void {
             /* not our problem — the renderer owns protocol semantics */
         }
         getMainWindow()?.webContents.send('hub-message', text);
+        if (p2Welcome) {
+            // The older-hub verdict ends and the socket on the shared token closes: until the
+            // upgrade sign-in the renderer runs from this welcome works, this device is not
+            // connected as the primary user (R31).
+            hubAuth.newServer();
+            restartWithCredential(true);
+        }
     });
     socket.on('close', (code) => {
         // Always stop this connection's own heartbeat; only the CURRENT connection gets

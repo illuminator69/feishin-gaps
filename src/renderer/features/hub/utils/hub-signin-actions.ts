@@ -161,6 +161,29 @@ export const refreshAuthState = async (): Promise<boolean> => {
 let upgrading: null | Promise<void> = null;
 
 /**
+ * R31, R35: a device waiting on a sign-in (the hub unreachable, busy, its Navidrome down) has no
+ * transport connecting in the background - it has no credential to connect with. It asks again
+ * on its own, as the transport's backoff would have.
+ */
+const RETRY_SIGN_IN_MS = 30_000;
+let retryTimer: null | ReturnType<typeof setTimeout> = null;
+const WAITING = new Set<HubSignInResult['kind']>([
+    'navidromeUnreachable',
+    'tooManyAttempts',
+    'unreachable',
+]);
+
+const retryLater = (kind: HubSignInResult['kind']): void => {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
+    if (!WAITING.has(kind)) return;
+    retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void reconcileSignIn();
+    }, RETRY_SIGN_IN_MS);
+};
+
+/**
  * R23 (a), as R31 replaced it: a device holding a typed token and no secret signs in with the
  * current server's account before it connects. Signed in: the secret replaces the token for good.
  * Refused: the token is retired. An older server: the token is its credential there (the token
@@ -184,6 +207,7 @@ export const upgradeFromToken = async (): Promise<void> => {
         const result: HubSignInResult = pair ? await post(pair) : { kind: 'noAccount' };
         logger.info(`[hub] sign-in from the token: ${result.kind}`);
         apply(result, false);
+        retryLater(result.kind);
     })()
         .catch((error) => {
             logger.warn('[hub] sign-in from the token failed', { error: String(error) });

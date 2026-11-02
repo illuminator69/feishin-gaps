@@ -616,10 +616,11 @@ test('the legacy token is an upgrade bridge not a fallback', async () => {
             `${unconnected.kind}: the token went nowhere`,
         );
     }
-    // An older server: the token is its credential, there - and after a restart.
+    // An older server: the token is its credential, there. After a restart it is asked again
+    // first (R35) - see 'an older-hub verdict lasts one launch and ends at a P2 welcome'.
     const old = await outcome(json(405, { error: 'method not allowed' }));
     assert.equal(old.now, 'legacy-hub-token');
-    assert.equal(old.restarted, 'legacy-hub-token');
+    assert.equal(old.restarted, null, 'a new launch asks /hub/signin again before the token');
     assert.deepEqual(old.w.auth.helloCredential(), { token: 'legacy-hub-token' });
     // ...and only there: another address has not answered OldServer.
     old.w.deps.httpBase = () => 'http://new-hub.lan:4790';
@@ -679,7 +680,7 @@ test('logout switch and sign out clear the typed token and the upgrade runs on c
     assert.match(actions, /export const upgradeFromToken = async/);
     assert.match(actions, /if \(state\.signedIn \|\| state\.needsSignIn\) return;/);
     const useHub = read('../../../../renderer/features/hub/hooks/use-hub.tsx');
-    assert.match(useHub, /silentSignIn\.welcome\(\);[\s\S]{0,320}void upgradeFromToken\(\);/);
+    assert.match(useHub, /silentSignIn\.welcome\(\);[\s\S]{0,700}void upgradeFromToken\(\);/);
     assert.match(useHub, /void reconcileSignIn\(\);/);
 });
 
@@ -855,4 +856,61 @@ test('the legacy device id waits for its own account', async () => {
     await b.auth.signOut();
     await b.auth.signIn(BOB);
     assert.equal(b.calls[2].body.deviceId, undefined, "never owner's id once it is owner's");
+});
+
+// --- R35: an OldServer verdict is about one moment, not the address -----------------------------
+
+test('an older-hub verdict lasts one launch and ends at a P2 welcome', async () => {
+    const P1_405 = json(405, { error: 'method not allowed' });
+    const w = world({ answers: [P1_405], token: 'legacy-hub-token' });
+    w.auth.load();
+    await w.auth.signIn(PAIR);
+    assert.equal(w.auth.bearer(), 'legacy-hub-token', 'a P1 hub still works on the token');
+
+    // Relaunch: the token waits for this launch's own sign-in answer.
+    const relaunch = createHubAuth(w.deps);
+    relaunch.load();
+    assert.equal(relaunch.bearer(), null, 'not before /hub/signin is asked again');
+    assert.deepEqual(relaunch.helloCredential(), { token: '' });
+    w.answers.push(P1_405);
+    assert.equal((await relaunch.signIn(PAIR)).kind, 'oldServer');
+    assert.equal(
+        relaunch.bearer(),
+        'legacy-hub-token',
+        'still P1: one 405 per launch, then the token',
+    );
+
+    // The hub is upgraded in place while connected: its welcome names a user.
+    relaunch.newServer();
+    assert.equal(relaunch.bearer(), null, 'a P2 hub: the token is no longer sent');
+    assert.deepEqual(relaunch.helloCredential(), { token: '' });
+    const afterUpgrade = createHubAuth(w.deps);
+    afterUpgrade.load();
+    assert.equal(afterUpgrade.bearer(), null, 'nor after a relaunch');
+    // The upgrade sign-in then works and the secret takes over.
+    w.answers.push(signedIn());
+    assert.equal((await afterUpgrade.signIn(PAIR)).kind, 'signedIn');
+    assert.equal(afterUpgrade.bearer(), SECRET);
+
+    // The transport: a welcome with `user` on a socket that said hello with the token ends the
+    // verdict and restarts without it; the renderer runs the upgrade sign-in from that welcome.
+    const hub = read('./index.ts');
+    assert.match(hub, /msg\?\.t === 'welcome' && msg\.user && !helloHadSecret\) p2Welcome = true;/);
+    assert.match(
+        hub,
+        /if \(p2Welcome\) \{\s*(?:\/\/[^\n]*\n\s*)*hubAuth\.newServer\(\);\s*restartWithCredential\(true\);/,
+    );
+    const useHub = read('../../../../renderer/features/hub/hooks/use-hub.tsx');
+    assert.match(
+        useHub,
+        /if \(welcomeUser && useHubStore\.getState\(\)\.signInResult\?\.kind === 'oldServer'\) \{\s*setStore\(\{ signInResult: null \}\);\s*\}[\s\S]{0,300}void upgradeFromToken\(\);/,
+    );
+    // While a sign-in waits (unreachable, busy, Navidrome down) nothing is connecting, so the
+    // renderer asks again on its own.
+    const actions = read('../../../../renderer/features/hub/utils/hub-signin-actions.ts');
+    assert.match(actions, /const RETRY_SIGN_IN_MS = 30_000;/);
+    assert.match(
+        actions,
+        /retryTimer = setTimeout\(\(\) => \{\s*retryTimer = null;\s*void reconcileSignIn\(\);/,
+    );
 });
