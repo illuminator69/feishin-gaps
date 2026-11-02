@@ -78,7 +78,7 @@ import type {
 
 import { BrowserWindow, ipcMain, Notification } from 'electron';
 
-import { getHubConfig } from '../hub';
+import { getHubConfig, hubAuth } from '../hub';
 import { albumSourcesParams } from './album-sources-params';
 
 import { getMainWindow } from '/@/main/index';
@@ -121,8 +121,9 @@ import { hasMetaFields, normalizeLbBotWebUrl } from '/@/shared/utils/lbbot-wire'
 
 /** `ws://host:4790` → `http://host:4790`; null when the hub isn't configured. */
 const hubBase = (): null | string => {
-    const { enabled, token, url } = getHubConfig();
-    if (!enabled || !url || !token) return null;
+    const { enabled, url } = getHubConfig();
+    // Worbus P2: the device secret, else the typed token (hubAuth); neither means no hub.
+    if (!enabled || !url || !hubAuth.bearer()) return null;
     return url
         .replace(/^ws/, 'http')
         .replace(/\/+$/, '')
@@ -130,7 +131,7 @@ const hubBase = (): null | string => {
 };
 
 const authHeaders = (): Record<string, string> => ({
-    Authorization: `Bearer ${getHubConfig().token}`,
+    Authorization: `Bearer ${hubAuth.bearer() ?? ''}`,
 });
 
 type Json = Record<string, unknown>;

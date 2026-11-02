@@ -131,11 +131,21 @@ export const store = new Store<any>({
     },
 });
 
+/**
+ * Worbus P2: keys main keeps to itself. `hubAuth.*` holds the device secret's ciphertext and its
+ * marker; the renderer has no business reading or replacing either through the generic settings
+ * channel (hub/auth.ts).
+ */
+const isMainOnlyKey = (property: unknown): boolean =>
+    typeof property !== 'string' || property === 'hubAuth' || property.startsWith('hubAuth.');
+
 ipcMain.handle('settings-get', (_event, data: { property: string }) => {
+    if (isMainOnlyKey(data.property)) return undefined;
     return store.get(`${data.property}`);
 });
 
 ipcMain.on('settings-set', (__event, data: { property: string; value: any }) => {
+    if (isMainOnlyKey(data.property)) return;
     if (data.value === undefined) {
         store.delete(data.property);
     } else {
@@ -144,6 +154,7 @@ ipcMain.on('settings-set', (__event, data: { property: string; value: any }) => 
 });
 
 ipcMain.handle('settings-set-sync', (__event, data: { property: string; value: any }) => {
+    if (isMainOnlyKey(data.property)) return;
     if (data.value === null) {
         store.delete(data.property);
     } else {

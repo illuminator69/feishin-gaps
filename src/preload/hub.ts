@@ -1,3 +1,5 @@
+import type { HubAuthState, HubSignInResult, SignInPair } from '/@/shared/utils/hub-signin';
+
 import { ipcRenderer } from 'electron';
 
 /**
@@ -41,16 +43,36 @@ const setSettings = (
     return ipcRenderer.invoke('hub-settings', enabled, url, token, name);
 };
 
+/**
+ * Worbus P2: sign this device in with the current Navidrome server's `u`/`s`/`t`. Main posts it to
+ * the Worbus Server, keeps the device secret it gets back, and answers with the result only.
+ */
+const signIn = (pair: SignInPair): Promise<HubSignInResult> =>
+    ipcRenderer.invoke('hub-signin', pair);
+
+/**
+ * Sign this device out of the Worbus Server and forget its secret. `reconnect: false` leaves the
+ * transport down (a Navidrome logout); otherwise it reconnects with whatever credential is left.
+ */
+const signOut = (opts?: { reconnect?: boolean }): Promise<null> =>
+    ipcRenderer.invoke('hub-signout', opts);
+
+/** Whether a secret is held, kept in memory only, or owed after a restart. Never the secret. */
+const authState = (): Promise<HubAuthState> => ipcRenderer.invoke('hub-auth-state');
+
 const removeListeners = () => {
     ipcRenderer.removeAllListeners('hub-message');
 };
 
 export const hub = {
+    authState,
     kick,
     onMessage,
     removeListeners,
     send,
     setSettings,
+    signIn,
+    signOut,
 };
 
 export type Hub = typeof hub;

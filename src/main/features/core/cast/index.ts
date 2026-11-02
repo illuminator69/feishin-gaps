@@ -18,7 +18,15 @@ import { ipcMain } from 'electron';
 import net from 'net';
 import { WebSocket } from 'ws';
 
-import { getHubConfig, getHubDeviceId, getHubDevices, hubEvents, isHubConnected } from '../hub';
+import {
+    getHubConfig,
+    getHubDeviceId,
+    getHubDevices,
+    hubAuth,
+    hubEvents,
+    isHubConnected,
+} from '../hub';
+import { castHelloFrame } from './cast-hello';
 import { logSafeStreamId } from './log-id';
 import { CastKind, castKind, receiverLevel } from './receiver-info';
 
@@ -65,6 +73,10 @@ const HEARTBEAT_MS = 10000;
 // down long enough for the winner to keep the speaker. Navic already does this.
 const SUPERSEDED_CODE = 4003;
 const STAND_DOWN_MS = 5 * 60 * 1000;
+// The hub refused this bridge's credential: 4001 a bad shared token, 4005 a device secret it no
+// longer holds (Worbus P2). The same credential gets the same answer, so the bridge waits for the
+// credential to change (the `settings` event rebuilds every bridge) instead of retrying (Q-086).
+const REFUSED_CODES = new Set([4001, 4005]);
 // PROTOCOL §12.2 step 3: two clients starting at the same moment both see an empty
 // registry and both claim. A random pause before claiming, then a re-check, settles
 // that without exchanging a single frame.
@@ -244,7 +256,6 @@ class CastDeviceBridge {
         private readonly friendlyName: string,
         private host: string,
         private readonly hubUrl: string,
-        private readonly token: string,
         /** What the speaker is, from its mDNS record; undefined when the record does not say. */
         private readonly kind: CastKind | undefined,
     ) {
@@ -816,34 +827,17 @@ class CastDeviceBridge {
             }, BACKOFF_RESET_AFTER_MS);
             this.hubAlive = true;
             this.startHeartbeat();
-            this.send({
-                device: {
-                    // `loadAck` opts this receiver into the transfer acknowledgement
-                    // (§7.1): a cast load that fails is otherwise invisible for ~20 s,
-                    // during which every client shows a playing bar over silence.
-                    // `idleVolume`: a `do:setVolume` is applied also while this speaker
-                    // is not playing, over a connection made for it (setIdleVolume), so
-                    // its row gets a volume slider in every picker. Not a group: a
-                    // group's receiver listens on a port of its own, which this bridge
-                    // does not read from the record, and the level would be set on the
-                    // group's leader instead.
+            // Worbus P2: the bridging device's own credential, and `bridgedBy` its hub id - the
+            // one the sign-in answered with - so the hub puts this speaker in this user's space.
+            this.send(
+                castHelloFrame({
                     bridgedBy: getHubDeviceId(),
-                    caps:
-                        this.kind === 'group'
-                            ? ['receiver', 'loadAck']
-                            : ['receiver', 'loadAck', 'idleVolume'],
-                    id: `cast-${this.deviceId}`,
-                    // `kind` is what tells a cast row from the others in a picker, and a
-                    // speaker from a TV: the name is the speaker's own, with no marker in
-                    // it. Left out when the record did not say (JSON drops undefined), and
-                    // the row then gets the generic icon.
+                    castId: this.deviceId,
+                    credential: hubAuth.helloCredential(),
                     kind: this.kind,
                     name: this.friendlyName,
-                    platform: 'chromecast',
-                },
-                t: 'hello',
-                token: this.token,
-            });
+                }),
+            );
             this.startReachability();
         });
         ws.on('pong', () => {
@@ -889,6 +883,15 @@ class CastDeviceBridge {
                 this.standingDown = true;
                 this.standDownUntil = Date.now() + STAND_DOWN_MS;
                 this.scheduleReconnect(STAND_DOWN_MS);
+                return;
+            }
+            if (REFUSED_CODES.has(code)) {
+                log.warn(
+                    `[cast-bridge] ${this.friendlyName}: the hub refused this device's credential ` +
+                        `(${code}) - waiting for it to change`,
+                );
+                this.ws = null;
+                this.stopHeartbeat();
                 return;
             }
             log.warn(`[cast-bridge] ${this.friendlyName}: hub connection closed (${code})`);
@@ -1880,7 +1883,7 @@ const REQUERY_SLOW_MS = 60_000;
 // recreated mDNS discovery on a REUSED Bonjour socket, which then failed to send
 // the initial active query — so discovery fell back to the device's periodic
 // passive announcement (~2 min) instead of finding it in ~1s.
-let lastBridgeConfig: null | { enabled: boolean; token: string; url: string } = null;
+let lastBridgeConfig: null | { credential: number; enabled: boolean; url: string } = null;
 
 /**
  * Ask the network to re-announce itself, now. Called when a bridge can't reach the address
@@ -1943,14 +1946,7 @@ function startBridging(): void {
         }
         bridges.set(
             device.id,
-            new CastDeviceBridge(
-                device.id,
-                device.name,
-                device.host,
-                config.url,
-                config.token,
-                device.kind,
-            ),
+            new CastDeviceBridge(device.id, device.name, device.host, config.url, device.kind),
         );
     });
     browser.on('down', (service) => {
@@ -2012,12 +2008,14 @@ hubEvents.on('devices', () => {
     bridges.forEach((bridge) => bridge.reevaluate());
 });
 
-hubEvents.on('settings', (settings: { enabled: boolean; token: string; url: string }) => {
+// `credential` moves on every sign-in, sign-out, server sign-out and token change (hub/index.ts):
+// each bridge says hello with the credential and `bridgedBy` it had, so it is rebuilt.
+hubEvents.on('settings', (settings: { credential: number; enabled: boolean; url: string }) => {
     const changed =
         !lastBridgeConfig ||
         lastBridgeConfig.enabled !== settings.enabled ||
         lastBridgeConfig.url !== settings.url ||
-        lastBridgeConfig.token !== settings.token;
+        lastBridgeConfig.credential !== settings.credential;
     lastBridgeConfig = settings;
     if (!changed) {
         log.info('[cast-bridge] hub settings unchanged — keeping current discovery');

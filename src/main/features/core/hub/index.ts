@@ -1,10 +1,13 @@
+import type { SignInPair } from '/@/shared/utils/hub-signin';
+
 import { randomBytes } from 'crypto';
-import { ipcMain, powerMonitor } from 'electron';
+import { app, ipcMain, powerMonitor, safeStorage } from 'electron';
 import log from 'electron-log/main';
 import { EventEmitter } from 'events';
 import { WebSocket } from 'ws';
 
 import { store } from '../settings';
+import { createHubAuth, httpBaseOf } from './auth';
 import { kickAction } from './kick';
 
 import { getMainWindow } from '/@/main/index';
@@ -22,8 +25,9 @@ import { getMainWindow } from '/@/main/index';
  */
 interface HubConfig {
     enabled: boolean;
+    /** The typed token, for older servers. Read only through `hubAuth` (bearer / hello). */
+    legacyToken: string;
     name: string;
-    token: string;
     url: string;
 }
 
@@ -42,8 +46,61 @@ const HANDSHAKE_TIMEOUT_MS = 10000;
 const KICK_PONG_DEADLINE_MS = 3000;
 // PROTOCOL §3: bad or missing token - "stop; do not retry until settings change".
 const CLOSE_BAD_TOKEN = 4001;
+// Worbus P2: the device secret is unknown or revoked (`error {code:"signed_out"}` first). The
+// renderer makes one silent sign-in; until a sign-in works the transport stands down.
+const CLOSE_SIGNED_OUT = 4005;
 
-const config: HubConfig = { enabled: false, name: 'Feishin', token: '', url: '' };
+const config: HubConfig = { enabled: false, legacyToken: '', name: 'Feishin', url: '' };
+
+/**
+ * Whether this machine can encrypt the secret at rest. On Linux with no keyring Electron falls
+ * back to `basic_text`, a hard-coded key: that is plain text with extra steps, so it counts as no
+ * encryption and the secret stays in memory (R7).
+ */
+const canEncrypt = (): boolean => {
+    try {
+        if (!safeStorage.isEncryptionAvailable()) return false;
+        return !(
+            process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text'
+        );
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * Worbus P2: the one place this device's hub credential is read. Every main client (lb-bot,
+ * preview, AudioMuse, moods, stations) and the cast bridge take their bearer or hello from it.
+ */
+export const hubAuth = createHubAuth({
+    device: () => ({
+        id: deviceId(),
+        kind: 'computer',
+        name: config.name || 'Feishin',
+        platform: 'desktop',
+    }),
+    fetch: (url, init) => fetch(url, init),
+    httpBase: () => httpBaseOf(config.url),
+    legacyToken: () => config.legacyToken,
+    log,
+    setDeviceId: (id) => store.set('hub.deviceId', id),
+    store: {
+        delete: (key) => store.delete(key),
+        get: (key) => store.get(key),
+        set: (key, value) => store.set(key, value),
+    },
+    vault: {
+        available: canEncrypt,
+        decrypt: (hex) => safeStorage.decryptString(Buffer.from(hex, 'hex')),
+        encrypt: (text) => safeStorage.encryptString(text).toString('hex'),
+    },
+});
+
+// safeStorage answers only once the app is ready (on Linux it says "unavailable" before).
+void app.whenReady().then(() => hubAuth.load());
+
+/** Moves whenever the credential changes, so the cast bridges rebuild with the new one. */
+let credentialGeneration = 0;
 
 let ws: undefined | WebSocket;
 
@@ -165,12 +222,15 @@ function connect(): void {
                 platform: 'desktop',
             },
             t: 'hello',
-            token: config.token,
+            // Worbus P2: the device secret (`auth.deviceSecret`), else the typed token.
+            ...hubAuth.helloCredential(),
         });
     });
     socket.on('pong', () => {
         alive = true;
     });
+    // The hub sends `error {code:"signed_out"}` and then closes 4005; either one is the signal.
+    let signedOutSeen = false;
     socket.on('message', (data) => {
         if (!isCurrent(socket, gen)) return;
         const text = data.toString();
@@ -180,6 +240,7 @@ function connect(): void {
         // being claimed, so by the time it has one the claim has already happened.
         try {
             const msg = JSON.parse(text);
+            if (msg?.t === 'error' && msg?.code === 'signed_out') signedOutSeen = true;
             if (msg?.t === 'welcome' || msg?.t === 'devices') {
                 if (Array.isArray(msg.devices)) {
                     knownDevices = msg.devices;
@@ -196,6 +257,19 @@ function connect(): void {
         // to tell the renderer the transport went down and to schedule a reconnect.
         stopBeat();
         if (!isCurrent(socket, gen)) return;
+        if (code === CLOSE_SIGNED_OUT || signedOutSeen) {
+            // The secret is dead. Forget it and stand down (a reconnect would only be refused
+            // again); the renderer makes the one silent sign-in, and a sign-in restarts us.
+            shouldRun = false;
+            hubAuth.signedOutByServer();
+            credentialGeneration += 1;
+            log.warn('[hub] signed out of the Worbus Server (close 4005) - waiting for a sign-in');
+            emitStatus('disconnected');
+            emitStatus('signedOut');
+            scheduleReconnect(socket, gen);
+            hubEvents.emit('settings', settingsEvent());
+            return;
+        }
         if (code === CLOSE_BAD_TOKEN) {
             // The same token gets the same answer, so retrying is a refusal (and a toast in
             // the renderer, from the hub's `error` frame) every backoff step, forever. Stand
@@ -230,7 +304,7 @@ function deviceId(): string {
  * `act`s into a dead socket and freezing the player bar on stale remote state.
  * Synthetic frames ride the same `hub-message` channel so use-hub can react.
  */
-function emitStatus(status: 'disconnected'): void {
+function emitStatus(status: 'disconnected' | 'signedOut'): void {
     getMainWindow()?.webContents.send('hub-message', JSON.stringify({ t: status }));
 }
 
@@ -399,17 +473,67 @@ powerMonitor.on('resume', () => kick('resume'));
 ipcMain.handle(
     'hub-settings',
     (_event, enabled: boolean, url: string, token: string, name: string) => {
+        if (token !== config.legacyToken) credentialGeneration += 1;
         config.enabled = enabled;
         config.url = url;
-        config.token = token;
+        config.legacyToken = token;
         config.name = name || 'Feishin';
         // Recreate the connection so url/token/name changes take effect.
         stop();
         if (enabled) start();
-        hubEvents.emit('settings', { enabled, token, url });
+        hubEvents.emit('settings', settingsEvent());
         return null;
     },
 );
+
+/** The new credential takes effect: a fresh socket, and the cast bridges rebuilt with it. */
+function restartWithCredential(reconnect: boolean): void {
+    credentialGeneration += 1;
+    stop();
+    if (reconnect && config.enabled) start();
+    hubEvents.emit('settings', settingsEvent());
+}
+
+const isPair = (value: unknown): value is SignInPair => {
+    const v = value as null | Record<string, unknown>;
+    return (
+        typeof v === 'object' &&
+        v !== null &&
+        typeof v.username === 'string' &&
+        typeof v.salt === 'string' &&
+        typeof v.token === 'string'
+    );
+};
+
+// Worbus P2: sign in with the current Navidrome server's u/s/t. The answer handed back is the
+// result alone; the secret stays in hubAuth.
+ipcMain.handle('hub-signin', async (_event, pair: unknown) => {
+    if (!isPair(pair)) return { kind: 'noAccount' };
+    const result = await hubAuth.signIn({
+        salt: pair.salt,
+        token: pair.token,
+        username: pair.username,
+    });
+    // Signed in: reconnect with the secret under the id the hub gave. An older server: the
+    // secret (if any) was dropped and the typed token is the credential again.
+    if (result.kind === 'signedIn' || result.kind === 'oldServer') restartWithCredential(true);
+    return result;
+});
+
+// Sign out of this server. The socket is closed first, so the 4005 the hub sends it for the
+// revoked secret is a superseded socket's and does not trigger a silent sign-in.
+ipcMain.handle('hub-signout', async (_event, opts?: { reconnect?: boolean }) => {
+    stop();
+    await hubAuth.signOut();
+    restartWithCredential(opts?.reconnect !== false);
+    return null;
+});
+
+ipcMain.handle('hub-auth-state', () => hubAuth.state());
+
+function settingsEvent(): { credential: number; enabled: boolean; url: string } {
+    return { credential: credentialGeneration, enabled: config.enabled, url: config.url };
+}
 
 /** Lets sibling features (the Cast bridge) follow the hub configuration. */
 export const hubEvents = new EventEmitter();
@@ -420,9 +544,9 @@ export const hubEvents = new EventEmitter();
  */
 export const getHubDevices = (): HubDeviceInfo[] => knownDevices;
 
-export const getHubConfig = (): { enabled: boolean; token: string; url: string } => ({
+/** Whether the hub is switched on and where. The credential is `hubAuth`'s, never read here. */
+export const getHubConfig = (): { enabled: boolean; url: string } => ({
     enabled: config.enabled,
-    token: config.token,
     url: config.url,
 });
 

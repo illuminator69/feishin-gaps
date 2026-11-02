@@ -12,6 +12,7 @@ import {
     failedLoadExit,
     NO_ECHO,
 } from '/@/renderer/features/hub/utils/do-echo';
+import { silentSignIn } from '/@/renderer/features/hub/utils/hub-signin-actions';
 import {
     adoptClaimDelay,
     GuardWindow,
@@ -1429,6 +1430,18 @@ export const useHub = () => {
         );
     }, [settings.enabled, settings.name, settings.token, settings.url]);
 
+    // Worbus P2 (R7): a secret kept in memory only is gone after a restart, and one that could not
+    // be decrypted is dropped: main says a sign-in is owed, and the silent one is made now. The
+    // hello that goes out without a credential meanwhile is answered 4005, which joins this attempt.
+    useEffect(() => {
+        if (!hub) return;
+        hub.authState()
+            .then((state) => {
+                if (state.needsSignIn) void silentSignIn.signedOut();
+            })
+            .catch(() => undefined);
+    }, []);
+
     // The network came back: have the transport look now rather than wait out a backoff that
     // may be parked at 30 s. (Waking from sleep is the main process's own hook.)
     useEffect(() => {
@@ -1469,6 +1482,8 @@ export const useHub = () => {
             if (msg.t === 'welcome') {
                 // I-031: the one reset point of the command echo, on both sides.
                 doEcho.current = echoWelcome(doEcho.current);
+                // Worbus P2: the credential works; the next signed-out earns one silent try again.
+                silentSignIn.welcome();
                 myId.current = msg.deviceId ?? null;
                 noteActive(msg.session?.activeDeviceId ?? null);
                 setStore({
@@ -1492,6 +1507,7 @@ export const useHub = () => {
                     remoteRepeat: msg.session?.repeat ?? 'none',
                     remoteShuffle: msg.session?.shuffle ?? false,
                     savedQueueId: msg.session?.savedQueueId ?? null,
+                    signedOut: false,
                     // I-034: absent from a hub that holds no timer.
                     sleepTimer: sleepTimerFromFrame(
                         msg.session?.sleepTimer,
@@ -1682,6 +1698,11 @@ export const useHub = () => {
             } else if (msg.t === 'do') {
                 if (msg.cmd === 'setVolume') applyVolume(msg.level);
                 else void runDirective(msg);
+            } else if (msg.t === 'signedOut') {
+                // Worbus P2: main saw close 4005 (or `signed_out`), forgot the secret and stood
+                // down. One silent sign-in with the current server's account; failing that, the
+                // Server tab reads "Signed out of the Worbus Server".
+                void silentSignIn.signedOut();
             } else if (msg.t === 'disconnected') {
                 // The main process lost the socket. Clear active/connected so
                 // isRemoteSessionActive() releases the player bar and the local
@@ -1731,6 +1752,9 @@ export const useHub = () => {
                 // Surface hub-side failures (bad token, target offline, …) — they
                 // were silent, so a wrong token just looked like "never connects".
                 if (msg.code === 'auth') setStore({ authRefused: true });
+                // Worbus P2: signed out is a state the Server tab shows, answered by a silent
+                // sign-in (the `signedOut` frame from main), not a failure to toast.
+                if (msg.code === 'signed_out') return;
                 toast.warn({ message: hubFailureMessage(msg) });
             }
         });

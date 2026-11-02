@@ -1,4 +1,5 @@
 import type { LbBotStatus } from '/@/shared/types/lbbot-types';
+import type { HubSignInResult } from '/@/shared/utils/hub-signin';
 import type { LbIndexProgress } from '/@/shared/utils/lbbot-mode';
 
 import { shallow } from 'zustand/shallow';
@@ -165,6 +166,20 @@ interface HubState {
     /** Saved-queue history id of the CURRENT session — the "Now Playing" record. */
     savedQueueId: null | string;
     /**
+     * Worbus P2: the Worbus Server signed this device out (close 4005 / `signed_out`) and the one
+     * silent sign-in did not work, or there was no account to make it with. The transport stands
+     * down until a sign-in works; the Server tab says "Signed out of the Worbus Server" with a
+     * Sign in button. Cleared by a sign-in that works and by `welcome`.
+     */
+    signedOut: boolean;
+    /** Worbus P2: a sign-in is in flight (the button's, or the silent one). */
+    signingIn: boolean;
+    /**
+     * Worbus P2: the answer to the last sign-in this session, or null before one. Read by the
+     * Server tab for its sentence, and (`oldServer`) for whether the token field is shown.
+     */
+    signInResult: HubSignInResult | null;
+    /**
      * The session's sleep timer, as the last `session` or `welcome` stated it and on this
      * client's clock (I-034, sleep-timer.ts). Null when the session has none, against a hub
      * that holds none, and once the link is lost - except on the device that was playing,
@@ -194,6 +209,9 @@ const initialState: HubState = {
     remoteRepeat: 'none',
     remoteShuffle: false,
     savedQueueId: null,
+    signedOut: false,
+    signingIn: false,
+    signInResult: null,
     sleepTimer: null,
 };
 

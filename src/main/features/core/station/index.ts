@@ -18,7 +18,7 @@ import type {
 
 import { ipcMain } from 'electron';
 
-import { getHubConfig } from '../hub';
+import { getHubConfig, hubAuth } from '../hub';
 
 import log from '/@/main/logger';
 
@@ -42,8 +42,9 @@ const STATION_TIMEOUT_MS = 15_000;
 
 /** `ws://host:4790` → `http://host:4790`; null when the hub isn't configured. */
 const hubBase = (): null | string => {
-    const { enabled, token, url } = getHubConfig();
-    if (!enabled || !url || !token) return null;
+    const { enabled, url } = getHubConfig();
+    // Worbus P2: the device secret, else the typed token (hubAuth); neither means no hub.
+    if (!enabled || !url || !hubAuth.bearer()) return null;
     return url
         .replace(/^ws/, 'http')
         .replace(/\/+$/, '')
@@ -188,7 +189,7 @@ const request = async <T>(
         res = await fetch(`${base}${path}`, {
             ...(body ? { body: JSON.stringify(body) } : {}),
             headers: {
-                Authorization: `Bearer ${getHubConfig().token}`,
+                Authorization: `Bearer ${hubAuth.bearer() ?? ''}`,
                 ...(body ? { 'Content-Type': 'application/json' } : {}),
             },
             method,

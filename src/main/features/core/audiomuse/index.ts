@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 
-import { getHubConfig, hubEvents } from '../hub';
+import { getHubConfig, hubAuth, hubEvents } from '../hub';
 
 /**
  * navi-connect Tier-2 AudioMuse-AI core API client (main process).
@@ -38,8 +38,9 @@ hubEvents.on('settings', () => {
 
 /** `ws://host:4790` → `http://host:4790`; null when the hub isn't configured. */
 const hubProxyBase = (): null | string => {
-    const { enabled, token, url } = getHubConfig();
-    if (!enabled || !url || !token) return null;
+    const { enabled, url } = getHubConfig();
+    // Worbus P2: the device secret, else the typed token (hubAuth); neither means no hub.
+    if (!enabled || !url || !hubAuth.bearer()) return null;
     if (hubDemotedAt && Date.now() - hubDemotedAt <= HUB_DEMOTE_TTL_MS) return null;
     return trimBase(url.replace(/^ws/, 'http')).replace(/\/connect$/, '');
 };
@@ -47,7 +48,7 @@ const hubProxyBase = (): null | string => {
 /** The route the next call should take, or null when Tier 2 isn't configured at all. */
 const endpoint = (args: { baseUrl?: string; token?: string }): Endpoint | null => {
     const hub = hubProxyBase();
-    if (hub) return { base: hub, token: getHubConfig().token, viaHub: true };
+    if (hub) return { base: hub, token: hubAuth.bearer() ?? '', viaHub: true };
     if (args.baseUrl && args.token) {
         return { base: trimBase(args.baseUrl), token: args.token, viaHub: false };
     }
